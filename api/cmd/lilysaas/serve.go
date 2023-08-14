@@ -30,7 +30,7 @@ func NewAllOptions() *AllOptions {
 			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
 			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
 			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "lilysaas"),
-			Username:    getDefaultServeOptionString("POSTGRES_USERNAME", ""),
+			Username:    getDefaultServeOptionString("POSTGRES_USER", ""),
 			Password:    getDefaultServeOptionString("POSTGRES_PASSWORD", ""),
 			AutoMigrate: true,
 		},

@@ -2,8 +2,21 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+export LILYPAD_DIR=${LILYPAD_DIR:-"$DIR/../lilypad"}
+
 function generate-golang-bindings() {
-  
+  # check the dir exists
+  if [ ! -d "$LILYPAD_DIR" ]; then
+    echo "Lilypad directory not found at $LILYPAD_DIR"
+    exit 1
+  fi
+  (
+    set -euo pipefail
+    cd $LILYPAD_DIR
+    ./stack generate-golang-bindings contract "$DIR/api/pkg/contract"
+  )
+  echo "Generated Go bindings"
 }
 
 eval "$@"

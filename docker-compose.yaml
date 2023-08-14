@@ -8,18 +8,19 @@ services:
       - 80:80
     depends_on:
       - postgres
-      # - api
+      - keycloak
+      - api
       - frontend
     environment:
       - NOXY_DEFAULT_HOST=frontend
       - NOXY_DEFAULT_PORT=8081
       - NOXY_DEFAULT_WS=1
-      # - NOXY_API_FRONT=/api/v1
-      # - NOXY_API_HOST=api
-      # - NOXY_API_PORT=8080
-      # - NOXY_KEYCLOAK_FRONT=/auth
-      # - NOXY_KEYCLOAK_HOST=keycloak
-      # - NOXY_KEYCLOAK_PORT=8080
+      - NOXY_API_FRONT=/api/v1
+      - NOXY_API_HOST=api
+      - NOXY_API_PORT=8080
+      - NOXY_KEYCLOAK_FRONT=/auth
+      - NOXY_KEYCLOAK_HOST=keycloak
+      - NOXY_KEYCLOAK_PORT=8080
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -34,6 +35,7 @@ services:
   keycloak:
     image: quay.io/modeldynamics/keycloak:15.0.2-helix
     user: "1000:0"
+    restart: always
     environment:
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=oh-hallo-insecure-password
@@ -51,6 +53,22 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: always
+    environment:
+      - APP_URL=http://localhost
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    entrypoint: bash -c 'if [ -n "$MANUALRUN" ]; then tail -f /dev/null; else /lilysaas serve; fi'
+    volumes:
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./api:/app/api
   frontend:
     ports:
       - 8081:8081
