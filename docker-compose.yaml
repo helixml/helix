@@ -22,4 +22,6 @@ services:
       retries: 3
       start_period: 5s
 
+volumes:
+  lilysaas-keycloak-db:
 
