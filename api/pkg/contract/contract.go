@@ -25,7 +25,7 @@ type ContractOptions struct {
 
 type realContract struct {
 	client       *ethclient.Client
-	contract     *ArtistAttribution
+	contract     *Modicum
 	address      common.Address
 	chainID      *big.Int
 	privateKey   *ecdsa.PrivateKey
@@ -71,7 +71,7 @@ func NewContract(options ContractOptions) (Contract, error) {
 		return nil, err
 	}
 
-	contract, err := NewArtistAttribution(address, client)
+	contract, err := NewModicum(address, client)
 	if err != nil {
 		return nil, err
 	}
@@ -90,115 +90,115 @@ func NewContract(options ContractOptions) (Contract, error) {
 	}, nil
 }
 
-func (r *realContract) GetImageIDs(
-	ctx context.Context,
-) ([]int, error) {
-	ids, err := r.contract.ArtistAttributionCaller.GetImageIDs(&bind.CallOpts{
-		Context: ctx,
-	})
-	if err != nil {
-		return nil, err
-	}
-	ret := []int{}
-	for _, num := range ids {
-		ret = append(ret, int(num.Int64()))
-	}
-	return ret, nil
-}
+// func (r *realContract) GetImageIDs(
+// 	ctx context.Context,
+// ) ([]int, error) {
+// 	ids, err := r.contract.ArtistAttributionCaller.GetImageIDs(&bind.CallOpts{
+// 		Context: ctx,
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	ret := []int{}
+// 	for _, num := range ids {
+// 		ret = append(ret, int(num.Int64()))
+// 	}
+// 	return ret, nil
+// }
 
-func (r *realContract) GetArtistIDs(
-	ctx context.Context,
-) ([]string, error) {
-	return r.contract.ArtistAttributionCaller.GetArtistIDs(&bind.CallOpts{
-		Context: ctx,
-	})
-}
+// func (r *realContract) GetArtistIDs(
+// 	ctx context.Context,
+// ) ([]string, error) {
+// 	return r.contract.ArtistAttributionCaller.GetArtistIDs(&bind.CallOpts{
+// 		Context: ctx,
+// 	})
+// }
 
-func (r *realContract) GetImage(
-	ctx context.Context,
-	id int,
-) (ArtistAttributionImage, error) {
-	return r.contract.ArtistAttributionCaller.GetImage(&bind.CallOpts{
-		Context: ctx,
-	}, big.NewInt(int64(id)))
-}
+// func (r *realContract) GetImage(
+// 	ctx context.Context,
+// 	id int,
+// ) (ArtistAttributionImage, error) {
+// 	return r.contract.ArtistAttributionCaller.GetImage(&bind.CallOpts{
+// 		Context: ctx,
+// 	}, big.NewInt(int64(id)))
+// }
 
-// Complete implements SmartContract
-func (r *realContract) ArtistComplete(ctx context.Context, id string) error {
-	opts, err := r.prepareTransaction(ctx)
-	if err != nil {
-		return err
-	}
+// // Complete implements SmartContract
+// func (r *realContract) ArtistComplete(ctx context.Context, id string) error {
+// 	opts, err := r.prepareTransaction(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	txn, err := r.contract.ArtistAttributionTransactor.ArtistComplete(
-		opts,
-		id,
-	)
-	if err != nil {
-		return err
-	}
+// 	txn, err := r.contract.ArtistAttributionTransactor.ArtistComplete(
+// 		opts,
+// 		id,
+// 	)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ArtistComplete: %d", id)
-	return nil
-}
+// 	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ArtistComplete: %d", id)
+// 	return nil
+// }
 
-// Refund implements SmartContract
-func (r *realContract) ArtistCancelled(ctx context.Context, id string) error {
-	opts, err := r.prepareTransaction(ctx)
-	if err != nil {
-		return err
-	}
+// // Refund implements SmartContract
+// func (r *realContract) ArtistCancelled(ctx context.Context, id string) error {
+// 	opts, err := r.prepareTransaction(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	txn, err := r.contract.ArtistAttributionTransactor.ArtistCancelled(
-		opts,
-		id,
-	)
-	if err != nil {
-		return err
-	}
+// 	txn, err := r.contract.ArtistAttributionTransactor.ArtistCancelled(
+// 		opts,
+// 		id,
+// 	)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ArtistCancelled: %s", id)
-	return nil
-}
+// 	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ArtistCancelled: %s", id)
+// 	return nil
+// }
 
-func (r *realContract) ImageComplete(ctx context.Context, id int, result string) error {
-	opts, err := r.prepareTransaction(ctx)
-	if err != nil {
-		return err
-	}
+// func (r *realContract) ImageComplete(ctx context.Context, id int, result string) error {
+// 	opts, err := r.prepareTransaction(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	txn, err := r.contract.ArtistAttributionTransactor.ImageComplete(
-		opts,
-		big.NewInt(int64(id)),
-		result,
-	)
-	if err != nil {
-		return err
-	}
+// 	txn, err := r.contract.ArtistAttributionTransactor.ImageComplete(
+// 		opts,
+// 		big.NewInt(int64(id)),
+// 		result,
+// 	)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ImageComplete: %d", id)
-	return nil
-}
+// 	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ImageComplete: %d", id)
+// 	return nil
+// }
 
-// Refund implements SmartContract
-func (r *realContract) ImageCancelled(ctx context.Context, id int, errorString string) error {
-	opts, err := r.prepareTransaction(ctx)
-	if err != nil {
-		return err
-	}
+// // Refund implements SmartContract
+// func (r *realContract) ImageCancelled(ctx context.Context, id int, errorString string) error {
+// 	opts, err := r.prepareTransaction(ctx)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	txn, err := r.contract.ArtistAttributionTransactor.ImageCancelled(
-		opts,
-		big.NewInt(int64(id)),
-		errorString,
-	)
-	if err != nil {
-		return err
-	}
+// 	txn, err := r.contract.ArtistAttributionTransactor.ImageCancelled(
+// 		opts,
+// 		big.NewInt(int64(id)),
+// 		errorString,
+// 	)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ImageCancelled: %d %s", id, errorString)
-	return nil
-}
+// 	log.Ctx(ctx).Info().Stringer("txn", txn.Hash()).Msgf("ImageCancelled: %d %s", id, errorString)
+// 	return nil
+// }
 
 // func (r *realContract) Listen(
 // 	ctx context.Context,

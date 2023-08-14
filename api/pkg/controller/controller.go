@@ -7,29 +7,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/bacalhau"
 	"github.com/bacalhau-project/lilysaas/api/pkg/contract"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 type ControllerOptions struct {
 	AppURL         string
 	FilestoreToken string
-	Bacalhau       bacalhau.Bacalhau
 	Contract       contract.Contract
 	Store          store.Store
 }
 
 type Controller struct {
-	AppURL         string
-	FilestoreToken string
-	Bacalhau       bacalhau.Bacalhau
-	Contract       contract.Contract
-	Store          store.Store
-	imageChan      chan<- *types.ImageCreatedEvent
-	artistChan     chan<- *types.ArtistCreatedEvent
+	AppURL   string
+	Contract contract.Contract
+	Store    store.Store
 }
 
 func NewController(
@@ -38,17 +31,10 @@ func NewController(
 	if options.AppURL == "" {
 		return nil, fmt.Errorf("app url is required")
 	}
-	if options.FilestoreToken == "" {
-		return nil, fmt.Errorf("filestore token is required")
-	}
 	controller := &Controller{
-		AppURL:         options.AppURL,
-		FilestoreToken: options.FilestoreToken,
-		Bacalhau:       options.Bacalhau,
-		Contract:       options.Contract,
-		Store:          options.Store,
-		imageChan:      make(chan *types.ImageCreatedEvent),
-		artistChan:     make(chan *types.ArtistCreatedEvent),
+		AppURL:   options.AppURL,
+		Contract: options.Contract,
+		Store:    options.Store,
 	}
 	return controller, nil
 }
@@ -63,7 +49,7 @@ func (c *Controller) Start(ctx context.Context) error {
 				time.Sleep(1 * time.Second)
 				err := c.loop(ctx)
 				if err != nil {
-					log.Error().Msgf("Waterlily error in controller loop: %s", err.Error())
+					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
 					debug.PrintStack()
 				}
 			}
@@ -87,14 +73,9 @@ func (c *Controller) loop(ctx context.Context) error {
 		}
 	}
 
-	wg.Add(6)
+	wg.Add(1)
 
-	go runFunc(c.checkForNewArtists)
-	go runFunc(c.checkForRunningArtists)
-	go runFunc(c.checkForFinishedArtists)
-	go runFunc(c.checkForNewImages)
-	go runFunc(c.checkForRunningImages)
-	go runFunc(c.checkForFinishedImages)
+	go runFunc(c.checkForNewJobs)
 
 	go func() {
 		wg.Wait()

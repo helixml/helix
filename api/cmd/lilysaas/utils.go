@@ -1,4 +1,4 @@
-package waterlily
+package lilysaas
 
 import (
 	"os"

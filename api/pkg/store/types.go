@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/bacalhau-project/lilysaas/api/types"
+	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 )
 
 type ListJobsQuery struct {

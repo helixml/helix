@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"embed"
 	"fmt"
 
 	"time"
@@ -9,7 +10,9 @@ import (
 	"database/sql"
 
 	sync "github.com/bacalhau-project/golang-mutex-tracer"
-	"github.com/filecoin-project/bacalhau/dashboard/api/pkg/types"
+	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
 type PostgresStore struct {
@@ -58,18 +61,61 @@ func (d *PostgresStore) ListJobs(
 	return []types.Job{}, nil
 }
 
-func (d *PostgresStore) ListJobs(
+func (d *PostgresStore) GetJob(
 	ctx context.Context,
-	query ListJobsQuery,
-) ([]types.Job, error) {
-	return []types.Job{}, nil
+	id string,
+) (*types.Job, error) {
+	return &types.Job{}, nil
 }
 
-func (d *PostgresStore) ListJobs(
+func (d *PostgresStore) AddJob(
 	ctx context.Context,
-	query ListJobsQuery,
-) ([]types.Job, error) {
-	return []types.Job{}, nil
+	data types.Job,
+) error {
+	return nil
+}
+
+func (d *PostgresStore) MigrateUp() error {
+	migrations, err := d.GetMigrations()
+	if err != nil {
+		return err
+	}
+	err = migrations.Up()
+	if err != migrate.ErrNoChange {
+		return err
+	}
+	return nil
+}
+
+func (d *PostgresStore) MigrateDown() error {
+	migrations, err := d.GetMigrations()
+	if err != nil {
+		return err
+	}
+	err = migrations.Down()
+	if err != migrate.ErrNoChange {
+		return err
+	}
+	return nil
+}
+
+//go:embed migrations/*.sql
+var fs embed.FS
+
+func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
+	files, err := iofs.New(fs, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	migrations, err := migrate.NewWithSourceInstance(
+		"iofs",
+		files,
+		fmt.Sprintf("%s&&x-migrations-table=lilysaas_schema_migrations", d.connectionString),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return migrations, nil
 }
 
 // func (d *PostgresStore) LoadUserByID(
@@ -365,49 +411,6 @@ func (d *PostgresStore) ListJobs(
 // 		moderation.Notes,
 // 	)
 // 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
-
-// //go:embed migrations/*.sql
-// var fs embed.FS
-
-// func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
-// 	files, err := iofs.New(fs, "migrations")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	migrations, err := migrate.NewWithSourceInstance(
-// 		"iofs",
-// 		files,
-// 		fmt.Sprintf("%s&&x-migrations-table=dashboard_schema_migrations", d.connectionString),
-// 	)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return migrations, nil
-// }
-
-// func (d *PostgresStore) MigrateUp() error {
-// 	migrations, err := d.GetMigrations()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	err = migrations.Up()
-// 	if err != migrate.ErrNoChange {
-// 		return err
-// 	}
-// 	return nil
-// }
-
-// func (d *PostgresStore) MigrateDown() error {
-// 	migrations, err := d.GetMigrations()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	err = migrations.Down()
-// 	if err != migrate.ErrNoChange {
 // 		return err
 // 	}
 // 	return nil

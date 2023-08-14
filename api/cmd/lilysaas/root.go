@@ -1,9 +1,9 @@
-package waterlily
+package lilysaas
 
 import (
 	"context"
+	"os"
 
-	"github.com/bacalhau-project/bacalhau/pkg/system"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +26,7 @@ func NewRootCmd() *cobra.Command {
 func Execute() {
 	RootCmd := NewRootCmd()
 	RootCmd.SetContext(context.Background())
-	RootCmd.SetOutput(system.Stdout)
+	RootCmd.SetOutput(os.Stdout)
 	if err := RootCmd.Execute(); err != nil {
 		Fatal(RootCmd, err.Error(), 1)
 	}

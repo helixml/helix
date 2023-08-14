@@ -1,15 +1,14 @@
-package waterlily
+package lilysaas
 
 import (
 	"os"
 	"os/signal"
 
-	"github.com/bacalhau-project/bacalhau/pkg/system"
-	"github.com/bacalhau-project/lilysaas/api/pkg/bacalhau"
 	"github.com/bacalhau-project/lilysaas/api/pkg/contract"
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
 	"github.com/bacalhau-project/lilysaas/api/pkg/server"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
+	"github.com/bacalhau-project/lilysaas/api/pkg/system"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -19,7 +18,6 @@ type AllOptions struct {
 	ControllerOptions controller.ControllerOptions
 	StoreOptions      store.StoreOptions
 	ServerOptions     server.ServerOptions
-	BacalhauOptions   bacalhau.BacalhauOptions
 	ContractOptions   contract.ContractOptions
 }
 
@@ -29,17 +27,16 @@ func NewAllOptions() *AllOptions {
 			AppURL: getDefaultServeOptionString("APP_URL", ""),
 		},
 		StoreOptions: store.StoreOptions{
-			DataFile: getDefaultServeOptionString("SQLITE_DATA_FILE", ""),
+			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
+			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
+			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "lilysaas"),
+			Username:    getDefaultServeOptionString("POSTGRES_USERNAME", ""),
+			Password:    getDefaultServeOptionString("POSTGRES_PASSWORD", ""),
+			AutoMigrate: true,
 		},
 		ServerOptions: server.ServerOptions{
-			Host:               getDefaultServeOptionString("BIND_HOST", "0.0.0.0"),
-			Port:               getDefaultServeOptionInt("BIND_PORT", 80), //nolint:gomnd
-			FilestoreToken:     getDefaultServeOptionString("FILESTORE_TOKEN", ""),
-			FilestoreDirectory: getDefaultServeOptionString("FILESTORE_DIRECTORY", ""),
-		},
-		BacalhauOptions: bacalhau.BacalhauOptions{
-			Host: getDefaultServeOptionString("BACALHAU_API_HOST", "ai-art-requester.cluster.world"),
-			Port: getDefaultServeOptionInt("BACALHAU_API_PORT", 1234),
+			Host: getDefaultServeOptionString("BIND_HOST", "0.0.0.0"),
+			Port: getDefaultServeOptionInt("BIND_PORT", 80), //nolint:gomnd
 		},
 		ContractOptions: contract.ContractOptions{
 			Address:     getDefaultServeOptionString("CONTRACT_ADDRESS", ""),
@@ -55,18 +52,47 @@ func newServeCmd() *cobra.Command {
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
-		Short:   "Start the waterlily api server.",
-		Long:    "Start the waterlily api server.",
+		Short:   "Start the lilysaas api server.",
+		Long:    "Start the lilysaas api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return serve(cmd, allOptions)
 		},
 	}
 
+	// ControllerOptions
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ControllerOptions.AppURL, "app-url", allOptions.ControllerOptions.AppURL,
 		`The URL the api server is listening on (used for image URLs).`,
 	)
+
+	// StoreOptions
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StoreOptions.Host, "host", allOptions.StoreOptions.Host,
+		`The host to connect to the postgres server.`,
+	)
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.StoreOptions.Port, "port", allOptions.StoreOptions.Port,
+		`The port to connect to the postgres server.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StoreOptions.Database, "database", allOptions.StoreOptions.Database,
+		`The database to connect to the postgres server.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StoreOptions.Username, "username", allOptions.StoreOptions.Username,
+		`The username to connect to the postgres server.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StoreOptions.Password, "password", allOptions.StoreOptions.Password,
+		`The password to connect to the postgres server.`,
+	)
+	serveCmd.PersistentFlags().BoolVar(
+		&allOptions.StoreOptions.AutoMigrate, "auto-migrate", allOptions.StoreOptions.AutoMigrate,
+		`Should we automatically run the migrations?`,
+	)
+
+	// ServerOptions
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ServerOptions.Host, "host", allOptions.ServerOptions.Host,
 		`The host to bind the api server to.`,
@@ -75,22 +101,8 @@ func newServeCmd() *cobra.Command {
 		&allOptions.ServerOptions.Port, "port", allOptions.ServerOptions.Port,
 		`The port to bind the api server to.`,
 	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.FilestoreToken, "filestore-token", allOptions.ServerOptions.FilestoreToken,
-		`The secret for the filestore.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.FilestoreDirectory, "filestore-directory", allOptions.ServerOptions.FilestoreDirectory,
-		`The directory for the filestore.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.BacalhauOptions.Host, "bacalhau-host", allOptions.BacalhauOptions.Host,
-		`The host to connect the bacalhau api client`,
-	)
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.BacalhauOptions.Port, "bacalhau-port", allOptions.BacalhauOptions.Port,
-		`The port to connect the bacalhau api client.`,
-	)
+
+	// ContractOptions
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ContractOptions.Address, "contract-address", allOptions.ContractOptions.Address,
 		`The host to connect the bacalhau api client`,
@@ -125,30 +137,20 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	ctx, rootSpan := system.NewRootSpan(ctx, system.GetTracer(), "waterlily/api/cmd/serve")
-	defer rootSpan.End()
-
-	bacalhau, err := bacalhau.NewBacalhauClient(options.BacalhauOptions)
-	if err != nil {
-		return err
-	}
-
 	contract, err := contract.NewContract(options.ContractOptions)
 	if err != nil {
 		return err
 	}
 
-	store, err := store.NewSQLiteStore(options.StoreOptions, true)
+	store, err := store.NewPostgresStore(options.StoreOptions)
 	if err != nil {
 		return err
 	}
 
 	controller, err := controller.NewController(controller.ControllerOptions{
-		AppURL:         options.ControllerOptions.AppURL,
-		FilestoreToken: options.ServerOptions.FilestoreToken,
-		Bacalhau:       bacalhau,
-		Contract:       contract,
-		Store:          store,
+		AppURL:   options.ControllerOptions.AppURL,
+		Contract: contract,
+		Store:    store,
 	})
 
 	err = controller.Start(ctx)
@@ -161,7 +163,7 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	log.Info().Msgf("Waterlily server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
+	log.Info().Msgf("Lilysaas server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)
