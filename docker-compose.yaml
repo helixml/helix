@@ -1,6 +1,36 @@
 version: '3'
 
 services:
+  router:
+    image: binocarlos/noxy
+    restart: always
+    ports:
+      - 80:80
+    depends_on:
+      - postgres
+      # - api
+      - frontend
+    environment:
+      - NOXY_DEFAULT_HOST=frontend
+      - NOXY_DEFAULT_PORT=8081
+      - NOXY_DEFAULT_WS=1
+      # - NOXY_API_FRONT=/api/v1
+      # - NOXY_API_HOST=api
+      # - NOXY_API_PORT=8080
+      # - NOXY_KEYCLOAK_FRONT=/auth
+      # - NOXY_KEYCLOAK_HOST=keycloak
+      # - NOXY_KEYCLOAK_PORT=8080
+  postgres:
+    image: postgres:12.13-alpine
+    restart: always
+    ports:
+      - 5432:5432
+    volumes:
+      - lilysaas-postgres-db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
   keycloak:
     image: quay.io/modeldynamics/keycloak:15.0.2-helix
     user: "1000:0"
@@ -21,7 +51,24 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+  frontend:
+    ports:
+      - 8081:8081
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      target: build-env
+    restart: always
+    entrypoint: bash -c 'if [ -n "$MANUALRUN" ]; then tail -f /dev/null; else yarn run dev; fi'
+    volumes:
+      - ./frontend/package.json:/app/package.json
+      - ./frontend/src:/app/src
+      - ./frontend/assets:/app/assets
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/vite.config.ts:/app/vite.config.ts
 
 volumes:
   lilysaas-keycloak-db:
+  lilysaas-postgres-db:
 
