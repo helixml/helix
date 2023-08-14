@@ -1,0 +1,25 @@
+version: '3'
+
+services:
+  keycloak:
+    image: quay.io/modeldynamics/keycloak:15.0.2-helix
+    user: "1000:0"
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=oh-hallo-insecure-password
+      - KC_PROXY=edge
+      - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
+      - KEYCLOAK_FRONTEND_URL=http://localhost:8080/auth/
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./realm.json:/imported/realm.json
+      - lilysaas-keycloak-db:/opt/jboss/keycloak/standalone/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+
