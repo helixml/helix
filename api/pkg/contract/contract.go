@@ -35,19 +35,19 @@ type realContract struct {
 
 func NewContract(options ContractOptions) (Contract, error) {
 	if options.Address == "" {
-		return nil, fmt.Errorf("address option must be set")
+		return nil, fmt.Errorf("contract address option must be set")
 	}
 
 	if options.PrivateKey == "" {
-		return nil, fmt.Errorf("private key option must be set")
+		return nil, fmt.Errorf("contract private key option must be set")
 	}
 
 	if options.RPCEndpoint == "" {
-		return nil, fmt.Errorf("rpc endpoint option must be set")
+		return nil, fmt.Errorf("contract rpc endpoint option must be set")
 	}
 
 	if options.ChainID == "" {
-		return nil, fmt.Errorf("chain id option must be set")
+		return nil, fmt.Errorf("contract chain id option must be set")
 	}
 
 	address := common.HexToAddress(options.Address)

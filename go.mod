@@ -6,6 +6,7 @@ require (
 	github.com/bacalhau-project/golang-mutex-tracer v0.0.0-20230214151516-bb996d6e8b46
 	github.com/ethereum/go-ethereum v1.12.2
 	github.com/golang-migrate/migrate/v4 v4.16.2
+	github.com/gorilla/context v1.1.1
 	github.com/gorilla/mux v1.8.0
 	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.30.0

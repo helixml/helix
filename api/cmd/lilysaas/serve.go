@@ -23,9 +23,7 @@ type AllOptions struct {
 
 func NewAllOptions() *AllOptions {
 	return &AllOptions{
-		ControllerOptions: controller.ControllerOptions{
-			AppURL: getDefaultServeOptionString("APP_URL", ""),
-		},
+		ControllerOptions: controller.ControllerOptions{},
 		StoreOptions: store.StoreOptions{
 			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
 			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
@@ -35,8 +33,9 @@ func NewAllOptions() *AllOptions {
 			AutoMigrate: true,
 		},
 		ServerOptions: server.ServerOptions{
-			Host: getDefaultServeOptionString("BIND_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("BIND_PORT", 80), //nolint:gomnd
+			URL:  getDefaultServeOptionString("SERVER_URL", ""),
+			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port: getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
 		},
 		ContractOptions: contract.ContractOptions{
 			Address:     getDefaultServeOptionString("CONTRACT_ADDRESS", ""),
@@ -60,45 +59,43 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 
-	// ControllerOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ControllerOptions.AppURL, "app-url", allOptions.ControllerOptions.AppURL,
-		`The URL the api server is listening on (used for image URLs).`,
-	)
-
 	// StoreOptions
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Host, "host", allOptions.StoreOptions.Host,
+		&allOptions.StoreOptions.Host, "postgres-host", allOptions.StoreOptions.Host,
 		`The host to connect to the postgres server.`,
 	)
 	serveCmd.PersistentFlags().IntVar(
-		&allOptions.StoreOptions.Port, "port", allOptions.StoreOptions.Port,
+		&allOptions.StoreOptions.Port, "postgres-port", allOptions.StoreOptions.Port,
 		`The port to connect to the postgres server.`,
 	)
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Database, "database", allOptions.StoreOptions.Database,
+		&allOptions.StoreOptions.Database, "postgres-database", allOptions.StoreOptions.Database,
 		`The database to connect to the postgres server.`,
 	)
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Username, "username", allOptions.StoreOptions.Username,
+		&allOptions.StoreOptions.Username, "postgres-username", allOptions.StoreOptions.Username,
 		`The username to connect to the postgres server.`,
 	)
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Password, "password", allOptions.StoreOptions.Password,
+		&allOptions.StoreOptions.Password, "postgres-password", allOptions.StoreOptions.Password,
 		`The password to connect to the postgres server.`,
 	)
 	serveCmd.PersistentFlags().BoolVar(
-		&allOptions.StoreOptions.AutoMigrate, "auto-migrate", allOptions.StoreOptions.AutoMigrate,
+		&allOptions.StoreOptions.AutoMigrate, "postgres-auto-migrate", allOptions.StoreOptions.AutoMigrate,
 		`Should we automatically run the migrations?`,
 	)
 
 	// ServerOptions
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.Host, "host", allOptions.ServerOptions.Host,
+		&allOptions.ServerOptions.URL, "server-url", allOptions.ServerOptions.URL,
+		`The URL the api server is listening on.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ServerOptions.Host, "server-host", allOptions.ServerOptions.Host,
 		`The host to bind the api server to.`,
 	)
 	serveCmd.PersistentFlags().IntVar(
-		&allOptions.ServerOptions.Port, "port", allOptions.ServerOptions.Port,
+		&allOptions.ServerOptions.Port, "server-port", allOptions.ServerOptions.Port,
 		`The port to bind the api server to.`,
 	)
 
@@ -148,7 +145,6 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	}
 
 	controller, err := controller.NewController(controller.ControllerOptions{
-		AppURL:   options.ControllerOptions.AppURL,
 		Contract: contract,
 		Store:    store,
 	})

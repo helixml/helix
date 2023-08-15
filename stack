@@ -4,6 +4,7 @@ IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export LILYPAD_DIR=${LILYPAD_DIR:-"$DIR/../lilypad"}
+export TMUX_SESSION=${TMUX_SESSION:="lilysaas"}
 
 function generate-golang-bindings() {
   # check the dir exists
@@ -17,6 +18,61 @@ function generate-golang-bindings() {
     ./stack generate-golang-bindings contract "$DIR/api/pkg/contract"
   )
   echo "Generated Go bindings"
+}
+
+function psql() {
+  docker-compose exec postgres psql --user postgres "$@"
+}
+
+function devstart() {
+  if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "Session $TMUX_SESSION already exists. Attaching..."
+    sleep 1
+    tmux -2 attach -t $TMUX_SESSION
+    exit 0;
+  fi
+  echo "Starting docker-compose"
+  export MANUALRUN=1
+
+  docker-compose up -d
+  
+  echo "Creating tmux session $TMUX_SESSION..."
+
+  # get the size of the window and create a session at that size
+  local screensize=$(stty size)
+  local width=$(echo -n "$screensize" | awk '{print $2}')
+  local height=$(echo -n "$screensize" | awk '{print $1}')
+  tmux -2 new-session -d -s $TMUX_SESSION -x "$width" -y "$(($height - 1))"
+
+  tmux split-window -v -d
+  tmux select-pane -t 1
+  tmux split-window -v -d
+  tmux select-pane -t 0
+  tmux split-window -v -d
+
+  sleep 2
+  
+  tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
+  tmux send-keys -t 1 'docker-compose exec api bash' C-m
+  tmux send-keys -t 1 'go run . serve' C-m
+  tmux send-keys -t 2 './stack psql' C-m
+  
+  tmux -2 attach-session -t $TMUX_SESSION
+}
+
+function devstop() {
+  echo "Stopping tmux session $TMUX_SESSION..."
+  tmux kill-session -t $TMUX_SESSION
+  echo "Removing docker containers"
+  docker rm -f $(docker ps -aq)
+}
+
+function dev() {
+  if [[ "$@" == "stop" ]]; then
+    devstop
+  else
+    devstart
+  fi
 }
 
 eval "$@"

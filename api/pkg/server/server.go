@@ -12,6 +12,7 @@ import (
 )
 
 type ServerOptions struct {
+	URL  string
 	Host string
 	Port int
 }
@@ -25,11 +26,14 @@ func NewServer(
 	options ServerOptions,
 	controller *controller.Controller,
 ) (*LilysaasAPIServer, error) {
+	if options.URL == "" {
+		return nil, fmt.Errorf("server url is required")
+	}
 	if options.Host == "" {
-		return nil, fmt.Errorf("host is required")
+		return nil, fmt.Errorf("server host is required")
 	}
 	if options.Port == 0 {
-		return nil, fmt.Errorf("port is required")
+		return nil, fmt.Errorf("server port is required")
 	}
 
 	return &LilysaasAPIServer{
@@ -42,7 +46,11 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	router := mux.NewRouter()
 
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
-	subrouter.HandleFunc("/status", apiServer.status).Methods("GET")
+
+	subrouter.Use(authMiddleware)
+	subrouter.Use(corsMiddleware)
+
+	subrouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),

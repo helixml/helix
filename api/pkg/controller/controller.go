@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -13,14 +12,11 @@ import (
 )
 
 type ControllerOptions struct {
-	AppURL         string
-	FilestoreToken string
-	Contract       contract.Contract
-	Store          store.Store
+	Contract contract.Contract
+	Store    store.Store
 }
 
 type Controller struct {
-	AppURL   string
 	Contract contract.Contract
 	Store    store.Store
 }
@@ -28,11 +24,7 @@ type Controller struct {
 func NewController(
 	options ControllerOptions,
 ) (*Controller, error) {
-	if options.AppURL == "" {
-		return nil, fmt.Errorf("app url is required")
-	}
 	controller := &Controller{
-		AppURL:   options.AppURL,
 		Contract: options.Contract,
 		Store:    options.Store,
 	}
