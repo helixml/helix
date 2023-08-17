@@ -6,13 +6,13 @@ import (
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 )
 
-type StatusResponse struct {
+type statusResponse struct {
 	User *types.User `json:"user"`
 }
 
-func (apiServer *LilysaasAPIServer) status(res http.ResponseWriter, req *http.Request) (StatusResponse, error) {
+func (apiServer *LilysaasAPIServer) status(res http.ResponseWriter, req *http.Request) (statusResponse, error) {
 	user := getRequestUser(req.Context())
-	return StatusResponse{
+	return statusResponse{
 		User: user,
 	}, nil
 }

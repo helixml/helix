@@ -23,7 +23,7 @@ type ContractOptions struct {
 	ChainID     string
 }
 
-type realContract struct {
+type contractWrapper struct {
 	client       *ethclient.Client
 	contract     *Modicum
 	address      common.Address
@@ -81,7 +81,7 @@ func NewContract(options ContractOptions) (Contract, error) {
 		return nil, err
 	}
 
-	return &realContract{
+	return &contractWrapper{
 		client:       client,
 		contract:     contract,
 		chainID:      big.NewInt(chainId),
@@ -304,19 +304,19 @@ func NewContract(options ContractOptions) (Contract, error) {
 // 	return nil
 // }
 
-func (r *realContract) publicKey() *ecdsa.PublicKey {
+func (r *contractWrapper) publicKey() *ecdsa.PublicKey {
 	return r.privateKey.Public().(*ecdsa.PublicKey)
 }
 
-func (r *realContract) wallet() common.Address {
+func (r *contractWrapper) wallet() common.Address {
 	return crypto.PubkeyToAddress(*r.publicKey())
 }
 
-func (r *realContract) pendingNonce(ctx context.Context) (uint64, error) {
+func (r *contractWrapper) pendingNonce(ctx context.Context) (uint64, error) {
 	return r.client.PendingNonceAt(ctx, r.wallet())
 }
 
-func (r *realContract) prepareTransaction(ctx context.Context) (*bind.TransactOpts, error) {
+func (r *contractWrapper) prepareTransaction(ctx context.Context) (*bind.TransactOpts, error) {
 	nonce, err := r.pendingNonce(ctx)
 	if err != nil {
 		return nil, err
