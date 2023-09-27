@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -58,7 +57,7 @@ func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http
 	}
 
 	// TODO: make async, add job status command
-	result, err := jobcreator.RunJob(context.TODO(), options, func(evOffer data.JobOfferContainer) {
+	result, err := jobcreator.RunJob(req.Context, options, func(evOffer data.JobOfferContainer) {
 		// TODO: update postgres
 		// TODO: ping websocket (later)
 	})
