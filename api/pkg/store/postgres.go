@@ -9,9 +9,12 @@ import (
 
 	"database/sql"
 
+	_ "github.com/lib/pq"
+
 	sync "github.com/bacalhau-project/golang-mutex-tracer"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 

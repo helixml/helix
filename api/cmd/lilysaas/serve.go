@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/contract"
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
 	"github.com/bacalhau-project/lilysaas/api/pkg/server"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
@@ -18,7 +17,6 @@ type AllOptions struct {
 	ControllerOptions controller.ControllerOptions
 	StoreOptions      store.StoreOptions
 	ServerOptions     server.ServerOptions
-	ContractOptions   contract.ContractOptions
 }
 
 func NewAllOptions() *AllOptions {
@@ -36,12 +34,6 @@ func NewAllOptions() *AllOptions {
 			URL:  getDefaultServeOptionString("SERVER_URL", ""),
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port: getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
-		},
-		ContractOptions: contract.ContractOptions{
-			Address:     getDefaultServeOptionString("CONTRACT_ADDRESS", ""),
-			PrivateKey:  getDefaultServeOptionString("WALLET_PRIVATE_KEY", ""),
-			RPCEndpoint: getDefaultServeOptionString("RPC_ENDPOINT", ""),
-			ChainID:     getDefaultServeOptionString("CHAIN_ID", ""),
 		},
 	}
 }
@@ -99,24 +91,6 @@ func newServeCmd() *cobra.Command {
 		`The port to bind the api server to.`,
 	)
 
-	// ContractOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ContractOptions.Address, "contract-address", allOptions.ContractOptions.Address,
-		`The host to connect the bacalhau api client`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ContractOptions.PrivateKey, "private-key", allOptions.ContractOptions.PrivateKey,
-		`The host to connect the bacalhau api client`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ContractOptions.RPCEndpoint, "rpc-endpoint", allOptions.ContractOptions.RPCEndpoint,
-		`The host to connect the bacalhau api client`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ContractOptions.ChainID, "chainid", allOptions.ContractOptions.ChainID,
-		`The host to connect the bacalhau api client`,
-	)
-
 	return serveCmd
 }
 
@@ -134,19 +108,15 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	contract, err := contract.NewContract(options.ContractOptions)
-	if err != nil {
-		return err
-	}
-
 	store, err := store.NewPostgresStore(options.StoreOptions)
 	if err != nil {
 		return err
 	}
 
+	// TODO: if the controller is now just a wrapper around the store, can we
+	// delete it?
 	controller, err := controller.NewController(controller.ControllerOptions{
-		Contract: contract,
-		Store:    store,
+		Store: store,
 	})
 	if err != nil {
 		return err
