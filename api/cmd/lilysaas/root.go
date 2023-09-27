@@ -16,8 +16,8 @@ func init() { //nolint:gochecknoinits
 func NewRootCmd() *cobra.Command {
 	RootCmd := &cobra.Command{
 		Use:   getCommandLineExecutable(),
-		Short: "Waterlily",
-		Long:  `Waterlily`,
+		Short: "LilySaaS",
+		Long:  `LilySaaS`,
 	}
 	RootCmd.AddCommand(newServeCmd())
 	return RootCmd
