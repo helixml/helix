@@ -148,6 +148,9 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		Contract: contract,
 		Store:    store,
 	})
+	if err != nil {
+		return err
+	}
 
 	err = controller.Start(ctx)
 	if err != nil {
@@ -159,7 +162,7 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	log.Info().Msgf("Lilysaas server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
+	log.Info().Msgf("LilySaaS server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)

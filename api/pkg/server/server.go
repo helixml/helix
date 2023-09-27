@@ -51,6 +51,7 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	subrouter.Use(corsMiddleware)
 
 	subrouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
+	subrouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),

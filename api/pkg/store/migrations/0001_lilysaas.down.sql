@@ -1,2 +1,1 @@
-drop table image;
-drop table artist;
+drop table job;
