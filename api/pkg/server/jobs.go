@@ -3,16 +3,17 @@ package server
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	"github.com/bacalhau-project/lilypad/pkg/jobcreator"
 	optionsfactory "github.com/bacalhau-project/lilypad/pkg/options"
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/bacalhau-project/lilypad/pkg/system"
 )
 
 type createJobResponse struct {
-	User *types.User `json:"user"`
+	// User *types.User `json:"user"`
 }
 
 type createJobRequest struct {
@@ -38,7 +39,7 @@ func ProcessJobCreatorOptions(options jobcreator.JobCreatorOptions, request crea
 }
 
 func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http.Request) (createJobResponse, error) {
-	user := getRequestUser(req.Context())
+	// user := getRequestUser(req.Context())
 
 	request := createJobRequest{}
 	bs, err := io.ReadAll(req.Body)
@@ -55,14 +56,16 @@ func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http
 	if err != nil {
 		return createJobResponse{}, err
 	}
+	cmdCtx := system.NewCommandContext(nil)
 
 	// TODO: make async, add job status command
-	result, err := jobcreator.RunJob(req.Context, options, func(evOffer data.JobOfferContainer) {
+	result, err := jobcreator.RunJob(cmdCtx, options, func(evOffer data.JobOfferContainer) {
 		// TODO: update postgres
 		// TODO: ping websocket (later)
 	})
+	log.Printf("got result %s", result)
 
 	return createJobResponse{
-		User: user,
+		//User: user,
 	}, nil
 }
