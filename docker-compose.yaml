@@ -43,8 +43,6 @@ services:
       - DB_VENDOR=h2
       - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
       - KEYCLOAK_FRONTEND_URL=http://localhost/auth/
-    ports:
-      - "8080:8080"
     volumes:
       - ./realm.json:/imported/realm.json
       - lilysaas-keycloak-db:/opt/jboss/keycloak/standalone/data
