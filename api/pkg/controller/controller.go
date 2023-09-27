@@ -6,27 +6,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/contract"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/rs/zerolog/log"
 )
 
 type ControllerOptions struct {
-	Contract contract.Contract
-	Store    store.Store
+	Store store.Store
 }
 
 type Controller struct {
-	Contract contract.Contract
-	Store    store.Store
+	Store store.Store
 }
 
 func NewController(
 	options ControllerOptions,
 ) (*Controller, error) {
 	controller := &Controller{
-		Contract: options.Contract,
-		Store:    options.Store,
+		Store: options.Store,
 	}
 	return controller, nil
 }

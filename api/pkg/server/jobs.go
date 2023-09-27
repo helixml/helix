@@ -1,14 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 
+	"github.com/spf13/cobra"
+
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	"github.com/bacalhau-project/lilypad/pkg/jobcreator"
 	optionsfactory "github.com/bacalhau-project/lilypad/pkg/options"
+	"github.com/bacalhau-project/lilypad/pkg/solver"
 	"github.com/bacalhau-project/lilypad/pkg/system"
 )
 
@@ -56,14 +60,21 @@ func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http
 	if err != nil {
 		return createJobResponse{}, err
 	}
-	cmdCtx := system.NewCommandContext(nil)
+
+	stupidCommand := &cobra.Command{}
+	stupidCommand.SetContext(context.TODO())
+	cmdCtx := system.NewCommandContext(stupidCommand)
 
 	// TODO: make async, add job status command
 	result, err := jobcreator.RunJob(cmdCtx, options, func(evOffer data.JobOfferContainer) {
 		// TODO: update postgres
 		// TODO: ping websocket (later)
 	})
-	log.Printf("got result %s", result)
+	if err != nil {
+		return createJobResponse{}, err
+	}
+	log.Printf("--> got result %s", result.Result.DataID)
+	log.Printf("--> look here %s", solver.GetDownloadsFilePath(result.JobOffer.DealID))
 
 	return createJobResponse{
 		//User: user,

@@ -3,28 +3,27 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		reqToken := req.Header.Get("Authorization")
-		splitToken := strings.Split(reqToken, "Bearer ")
-		reqToken = splitToken[1]
-		if reqToken != "" {
-			// user, err := resolveAccessToken(reqToken)
-			// if err != nil {
-			// 	http.Error(res, err.Error(), 500)
-			// 	return
-			// }
-			// // keycloak returned a user!
-			// // let's set it on the request context so our routes can extract it
-			// if user != nil {
-			// 	req = req.WithContext(setRequestUser(req.Context(), user))
-			// }
-		}
+		// reqToken := req.Header.Get("Authorization")
+		// splitToken := strings.Split(reqToken, "Bearer ")
+		// if len(reqToken) > 0 {
+		// 	reqToken = splitToken[1]
+		// 	user, err := resolveAccessToken(reqToken)
+		// 	if err != nil {
+		// 		http.Error(res, err.Error(), 500)
+		// 		return
+		// 	}
+		// 	// keycloak returned a user!
+		// 	// let's set it on the request context so our routes can extract it
+		// 	if user != nil {
+		// 		req = req.WithContext(setRequestUser(req.Context(), user))
+		// 	}
+		// }
 		next.ServeHTTP(res, req)
 	})
 }
