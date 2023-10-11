@@ -31,9 +31,11 @@ func NewAllOptions() *AllOptions {
 			AutoMigrate: true,
 		},
 		ServerOptions: server.ServerOptions{
-			URL:  getDefaultServeOptionString("SERVER_URL", ""),
-			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			URL:           getDefaultServeOptionString("SERVER_URL", ""),
+			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
+			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 		},
 	}
 }
@@ -89,6 +91,14 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.ServerOptions.Port, "server-port", allOptions.ServerOptions.Port,
 		`The port to bind the api server to.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ServerOptions.KeyCloakURL, "keycloak-url", allOptions.ServerOptions.KeyCloakURL,
+		`The url for the keycloak server.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ServerOptions.KeyCloakToken, "keycloak-token", allOptions.ServerOptions.KeyCloakToken,
+		`The api token for the keycloak server.`,
 	)
 
 	return serveCmd
