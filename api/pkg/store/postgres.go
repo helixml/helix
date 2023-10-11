@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 
 	"time"
@@ -58,12 +59,85 @@ func NewPostgresStore(
 	return store, nil
 }
 
-// func (d *PostgresStore) ListJobs(
-// 	ctx context.Context,
-// 	query ListJobsQuery,
-// ) ([]types.Job, error) {
-// 	return []types.Job{}, nil
-// }
+func (d *PostgresStore) GetJobs(
+	ctx context.Context,
+	query ListJobsQuery,
+) ([]*types.Job, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+
+	var jobs []*types.Job
+	var rows *sql.Rows
+	var err error
+
+	if query.Owner != "" && query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, owner, owner_type, state, status, data
+			FROM job
+			WHERE owner = $1 AND owner_type = $2
+		`, query.Owner, query.OwnerType)
+	} else if query.Owner != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, owner, owner_type, state, status, data
+			FROM job
+			WHERE owner = $1
+		`, query.Owner)
+	} else if query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, owner, owner_type, state, status, data
+			FROM job
+			WHERE owner_type = $1
+		`, query.OwnerType)
+	} else {
+		rows, err = d.db.Query(`
+			SELECT id, created, owner, owner_type, state, status, data
+			FROM job
+		`)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		var created time.Time
+		var owner string
+		var ownerType string
+		var state string
+		var status string
+		var data []byte
+
+		err = rows.Scan(&id, &created, &owner, &ownerType, &state, &status, &data)
+		if err != nil {
+			return nil, err
+		}
+
+		var jobData types.JobData
+		err = json.Unmarshal(data, jobData)
+		if err != nil {
+			return nil, err
+		}
+
+		job := &types.Job{
+			ID:      id,
+			Created: created,
+			State:   state,
+			Status:  status,
+			Data:    jobData,
+		}
+
+		jobs = append(jobs, job)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
+}
 
 func (d *PostgresStore) GetJob(
 	ctx context.Context,
@@ -71,19 +145,21 @@ func (d *PostgresStore) GetJob(
 ) (*types.Job, error) {
 	var id string
 	var created time.Time
+	var owner string
+	var ownerType string
 	var state string
 	var status string
-	var data string
+	var data []byte
 	row := d.db.QueryRow(`
 select
-	id, created, state, status, data
+	id, created, owner, owner_type, state, status, data
 from
 	job
 where
 	id = $1
 limit 1
-`, id)
-	err := row.Scan(&id, &created, &state, &status, &data)
+`, queryID)
+	err := row.Scan(&id, &created, &owner, &ownerType, &state, &status, &data)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -91,12 +167,17 @@ limit 1
 			return nil, err
 		}
 	}
+	var jobData types.JobData
+	err = json.Unmarshal(data, &jobData)
+	if err != nil {
+		return nil, err
+	}
 	return &types.Job{
 		ID:      id,
 		Created: created,
 		State:   state,
 		Status:  status,
-		Data:    data,
+		Data:    jobData,
 	}, nil
 }
 
@@ -106,21 +187,29 @@ func (d *PostgresStore) CreateJob(
 ) error {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
+	jobData, err := json.Marshal(job.Data)
+	if err != nil {
+		return err
+	}
 	sqlStatement := `
 insert into
 job (
 	id,
+	owner,
+	owner_type,
 	state,
 	status,
 	data
 )
-values ($1, $2, $3, $4)`
-	_, err := d.db.Exec(
+values ($1, $2, $3, $4, $5, $6)`
+	_, err = d.db.Exec(
 		sqlStatement,
 		job.ID,
+		job.Owner,
+		job.OwnerType,
 		job.State,
 		job.Status,
-		job.Data,
+		jobData,
 	)
 	if err != nil {
 		return err
@@ -153,6 +242,9 @@ where
 	)
 	return err
 }
+
+// Compile-time interface check:
+var _ Store = (*PostgresStore)(nil)
 
 func (d *PostgresStore) MigrateUp() error {
 	migrations, err := d.GetMigrations()
