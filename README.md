@@ -35,6 +35,7 @@ You need the following installed:
  * docker
  * docker-compose
  * [abigen](https://geth.ethereum.org/docs/getting-started/installing-geth)
+ * [bacalhau](https://github.com/bacalhau-project/lilypad/blob/fe9999b96d0920083ab3b1c4dbe4c647c5db36d3/CONTRIBUTING.md#bacalhau)
 
 You also need the lilypad repo cloned alongside this one.
 
@@ -49,6 +50,17 @@ When the smart contract in lilypad changes - checkout latest main of lilypad and
 This will re-create the `api/pkg/contract/Modicum.go`
 
 ## running alongside lilypad in local dev
+
+Make sure that you have cloned [lilypad](https://github.com/bacalhau-project/lilypad) at the same level as this repo.
+
+```bash
+export RUN_LILYPAD=1
+./stack start
+```
+
+This will boot a fresh lilypad and lilysaas stack and link everything together using tmux.
+
+To run each part manually here are the guides:
 
 #### lilypad
 
