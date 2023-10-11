@@ -2,7 +2,7 @@ version: '3'
 
 services:
   router:
-    image: testnoxy:v2
+    image: binocarlos/noxy:v6
     restart: always
     ports:
       - 80:80
@@ -57,6 +57,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     restart: always
+    env_file: .env
     environment:
       - APP_URL=http://localhost
       - POSTGRES_HOST=postgres
