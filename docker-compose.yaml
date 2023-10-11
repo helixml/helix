@@ -66,6 +66,11 @@ services:
       - POSTGRES_PASSWORD=postgres
       - SERVER_URL=http://localhost
       - WEB3_RPC_URL=ws://172.17.0.1:8546
+      - SERVICE_SOLVER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+      - SERVICE_MEDIATORS=0x90F79bf6EB2c4f870365E785982E1f101E93b906
+      - KEYCLOAK_URL=http://keycloak:8080/auth
+      # this is an insecure development key do not use!
+      - KEYCLOAK_TOKEN=c0a43142-69a6-4f36-9549-88378669f32d
     entrypoint: tail -f /dev/null
     volumes:
       - ./go.mod:/app/go.mod
