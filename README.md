@@ -92,8 +92,6 @@ We need to create an top level `.env` file like so
 
 ```
 export WEB3_PRIVATE_KEY=XXX
-export SERVICE_SOLVER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
-export SERVICE_MEDIATORS=0x90F79bf6EB2c4f870365E785982E1f101E93b906
 ```
 
 You can get the WEB3_PRIVATE_KEY value with this command:
