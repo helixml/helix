@@ -70,7 +70,7 @@ services:
       - SERVICE_MEDIATORS=0x90F79bf6EB2c4f870365E785982E1f101E93b906
       - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
-      - KEYCLOAK_TOKEN=c0a43142-69a6-4f36-9549-88378669f32d
+      - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
     entrypoint: tail -f /dev/null
     volumes:
       - ./go.mod:/app/go.mod

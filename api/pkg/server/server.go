@@ -10,6 +10,7 @@ import (
 	gocloak "github.com/Nerzal/gocloak/v13"
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
 	"github.com/bacalhau-project/lilysaas/api/pkg/system"
+	"github.com/davecgh/go-spew/spew"
 	jwt "github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 )
@@ -103,14 +104,22 @@ func (auth *keyCloakMiddleware) userFromRequest(r *http.Request) (*jwt.Token, er
 	}
 
 	// call Keycloak API to verify the access token
+	fmt.Printf("auth.options.KeyCloakToken --------------------------------------\n")
+	spew.Dump(auth.options.KeyCloakToken)
+	fmt.Printf("CLIENT_ID --------------------------------------\n")
+	spew.Dump(CLIENT_ID)
+	fmt.Printf("token --------------------------------------\n")
+	spew.Dump(token)
+	fmt.Printf("REALM --------------------------------------\n")
+	spew.Dump(REALM)
 	result, err := auth.keycloak.gocloak.RetrospectToken(r.Context(), token, CLIENT_ID, auth.options.KeyCloakToken, REALM)
 	if err != nil {
-		return nil, fmt.Errorf("invalid or malformed token: %s", err.Error())
+		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %s", err.Error())
 	}
 
 	j, _, err := auth.keycloak.gocloak.DecodeAccessToken(r.Context(), token, REALM)
 	if err != nil {
-		return nil, fmt.Errorf("invalid or malformed token: %s", err.Error())
+		return nil, fmt.Errorf("DecodeAccessToken: invalid or malformed token: %s", err.Error())
 	}
 
 	// check if the token isn't expired and valid
@@ -127,14 +136,24 @@ func getUserIdFromJWT(tok *jwt.Token) string {
 	return uid
 }
 
+func setRequestUser(ctx context.Context, userid string) context.Context {
+	return context.WithValue(ctx, "userid", userid)
+}
+
+func getRequestUser(req *http.Request) string {
+	// return the "userid" value from the request context
+	return req.Context().Value("userid").(string)
+}
+
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
 
 	f := func(w http.ResponseWriter, r *http.Request) {
-		_, err := auth.userFromRequest(r)
+		token, err := auth.userFromRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
+		r = r.WithContext(setRequestUser(r.Context(), getUserIdFromJWT(token)))
 		next.ServeHTTP(w, r)
 	}
 
@@ -143,19 +162,21 @@ func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
 
 func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
+	router.Use(apiServer.corsMiddleware)
 
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	// subrouter.Use(apiServer.authMiddleware)
+	// add one more subrouter for the authenticated service methods
+	authRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
 
 	kc := apiServer.newKeycloak()
 	mdw := newMiddleware(kc, apiServer.Options)
-	subrouter.Use(mdw.verifyToken)
+	authRouter.Use(mdw.verifyToken)
 
-	subrouter.Use(apiServer.corsMiddleware)
-
-	subrouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
-	subrouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
+	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
+	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),

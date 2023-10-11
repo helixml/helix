@@ -5,12 +5,13 @@ import (
 )
 
 type statusResponse struct {
-	//User *types.User `json:"user"`
+	User    string `json:"user"`
+	Credits int    `json:"credits"`
 }
 
 func (apiServer *LilysaasAPIServer) status(res http.ResponseWriter, req *http.Request) (statusResponse, error) {
-	//user := getRequestUser(req.Context())
 	return statusResponse{
-		//User: user,
+		User:    getRequestUser(req),
+		Credits: 100,
 	}, nil
 }
