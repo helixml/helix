@@ -12,9 +12,11 @@ import (
 )
 
 type ServerOptions struct {
-	URL  string
-	Host string
-	Port int
+	URL           string
+	Host          string
+	Port          int
+	KeyCloakURL   string
+	KeyCloakToken string
 }
 
 type LilysaasAPIServer struct {
@@ -35,6 +37,12 @@ func NewServer(
 	if options.Port == 0 {
 		return nil, fmt.Errorf("server port is required")
 	}
+	if options.KeyCloakURL == "" {
+		return nil, fmt.Errorf("keycloak url is required")
+	}
+	if options.KeyCloakToken == "" {
+		return nil, fmt.Errorf("keycloack token is required")
+	}
 
 	return &LilysaasAPIServer{
 		Options:    options,
@@ -47,8 +55,8 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
-	subrouter.Use(authMiddleware)
-	subrouter.Use(corsMiddleware)
+	subrouter.Use(apiServer.authMiddleware)
+	subrouter.Use(apiServer.corsMiddleware)
 
 	subrouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
 	subrouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
