@@ -16,6 +16,8 @@ import (
 	"github.com/bacalhau-project/lilypad/pkg/system"
 )
 
+const JOB_COST = 3
+
 type createJobResponse struct {
 	// User *types.User `json:"user"`
 }

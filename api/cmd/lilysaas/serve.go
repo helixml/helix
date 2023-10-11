@@ -137,7 +137,7 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	server, err := server.NewServer(options.ServerOptions, controller)
+	server, err := server.NewServer(options.ServerOptions, store, controller)
 	if err != nil {
 		return err
 	}

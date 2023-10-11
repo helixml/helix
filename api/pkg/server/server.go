@@ -9,6 +9,7 @@ import (
 
 	gocloak "github.com/Nerzal/gocloak/v13"
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
+	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/system"
 	"github.com/davecgh/go-spew/spew"
 	jwt "github.com/golang-jwt/jwt/v4"
@@ -25,11 +26,13 @@ type ServerOptions struct {
 
 type LilysaasAPIServer struct {
 	Options    ServerOptions
+	Store      store.Store
 	Controller *controller.Controller
 }
 
 func NewServer(
 	options ServerOptions,
+	store store.Store,
 	controller *controller.Controller,
 ) (*LilysaasAPIServer, error) {
 	if options.URL == "" {
@@ -50,6 +53,7 @@ func NewServer(
 
 	return &LilysaasAPIServer{
 		Options:    options,
+		Store:      store,
 		Controller: controller,
 	}, nil
 }
