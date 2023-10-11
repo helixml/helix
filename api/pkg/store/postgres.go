@@ -61,7 +61,7 @@ func NewPostgresStore(
 
 func (d *PostgresStore) GetJobs(
 	ctx context.Context,
-	query ListJobsQuery,
+	query GetJobsQuery,
 ) ([]*types.Job, error) {
 	d.mtx.RLock()
 	defer d.mtx.RUnlock()
@@ -70,30 +70,16 @@ func (d *PostgresStore) GetJobs(
 	var rows *sql.Rows
 	var err error
 
-	if query.Owner != "" && query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, owner, owner_type, state, status, data
-			FROM job
-			WHERE owner = $1 AND owner_type = $2
-		`, query.Owner, query.OwnerType)
-	} else if query.Owner != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, owner, owner_type, state, status, data
-			FROM job
-			WHERE owner = $1
-		`, query.Owner)
-	} else if query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, owner, owner_type, state, status, data
-			FROM job
-			WHERE owner_type = $1
-		`, query.OwnerType)
-	} else {
-		rows, err = d.db.Query(`
-			SELECT id, created, owner, owner_type, state, status, data
-			FROM job
-		`)
-	}
+	rows, err = d.db.Query(`
+		SELECT
+			id, created, owner, owner_type, state, status, data
+		FROM
+			job
+		WHERE
+			owner = $1 AND owner_type = $2
+		ORDER BY
+			created ASC
+	`, query.Owner, query.OwnerType)
 
 	if err != nil {
 		return nil, err
@@ -121,11 +107,13 @@ func (d *PostgresStore) GetJobs(
 		}
 
 		job := &types.Job{
-			ID:      id,
-			Created: created,
-			State:   state,
-			Status:  status,
-			Data:    jobData,
+			ID:        id,
+			Created:   created,
+			Owner:     owner,
+			OwnerType: ownerType,
+			State:     state,
+			Status:    status,
+			Data:      jobData,
 		}
 
 		jobs = append(jobs, job)
@@ -137,6 +125,74 @@ func (d *PostgresStore) GetJobs(
 	}
 
 	return jobs, nil
+}
+
+func (d *PostgresStore) GetBalanceTransfers(
+	ctx context.Context,
+	query GetBalanceTransfersQuery,
+) ([]*types.BalanceTransfer, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+
+	var transfers []*types.BalanceTransfer
+	var rows *sql.Rows
+	var err error
+
+	rows, err = d.db.Query(`
+		SELECT
+			id, created, owner, owner_type, payment_type, amount, data
+		FROM
+			balance_transfer
+		WHERE
+			owner = $1 AND owner_type = $2
+		ORDER BY
+			created ASC
+	`, query.Owner, query.OwnerType)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		var created time.Time
+		var owner string
+		var ownerType string
+		var paymentType string
+		var amount int
+		var data []byte
+
+		err = rows.Scan(&id, &created, &owner, &ownerType, &paymentType, &amount, &data)
+		if err != nil {
+			return nil, err
+		}
+
+		var transferData types.BalanceTransferData
+		err = json.Unmarshal(data, &transferData)
+		if err != nil {
+			return nil, err
+		}
+
+		transfer := &types.BalanceTransfer{
+			ID:          id,
+			Created:     created,
+			Owner:       owner,
+			OwnerType:   ownerType,
+			PaymentType: paymentType,
+			Amount:      amount,
+			Data:        transferData,
+		}
+
+		transfers = append(transfers, transfer)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return transfers, nil
 }
 
 func (d *PostgresStore) GetJob(
@@ -210,6 +266,42 @@ values ($1, $2, $3, $4, $5, $6)`
 		job.State,
 		job.Status,
 		jobData,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (d *PostgresStore) CreateBalanceTransfer(
+	ctx context.Context,
+	transfer types.BalanceTransfer,
+) error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+	transferData, err := json.Marshal(transfer.Data)
+	if err != nil {
+		return err
+	}
+	sqlStatement := `
+insert into
+job (
+	id,
+	owner,
+	owner_type,
+	payment_type,
+	amount,
+	data
+)
+values ($1, $2, $3, $4, $5, $6)`
+	_, err = d.db.Exec(
+		sqlStatement,
+		transfer.ID,
+		transfer.Owner,
+		transfer.OwnerType,
+		transfer.PaymentType,
+		transfer.Amount,
+		transferData,
 	)
 	if err != nil {
 		return err
