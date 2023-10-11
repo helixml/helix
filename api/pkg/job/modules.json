@@ -1,0 +1,11 @@
+[{
+  "id": "cowsay",
+  "title": "Cow Say",
+  "cost": 10,
+  "template": "text-to-text"
+}, {
+  "id": "sdxl",
+  "title": "SDXL",
+  "cost": 10,
+  "template": "text-to-image"
+}]

@@ -30,3 +30,10 @@ type BalanceTransfer struct {
 	Amount      int                 `json:"amount,string,omitempty"`
 	Data        BalanceTransferData `json:"data"`
 }
+
+type Module struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Cost     int    `json:"cost"`
+	Template string `json:"template"`
+}
