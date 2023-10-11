@@ -3,6 +3,7 @@ package job
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
@@ -29,4 +30,17 @@ func GetModules() ([]types.Module, error) {
 	}
 
 	return moduleList, nil
+}
+
+func GetModule(id string) (types.Module, error) {
+	modules, err := GetModules()
+	if err != nil {
+		return types.Module{}, err
+	}
+	for _, module := range modules {
+		if module.ID == id {
+			return module, nil
+		}
+	}
+	return types.Module{}, fmt.Errorf("module not found: %s", id)
 }

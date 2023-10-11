@@ -5,6 +5,7 @@ import (
 	"os/signal"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
+	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/server"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/system"
@@ -118,21 +119,25 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
+	jobRunner, err := job.NewJobRunner(ctx)
+	if err != nil {
+		return err
+	}
+
 	store, err := store.NewPostgresStore(options.StoreOptions)
 	if err != nil {
 		return err
 	}
 
-	// TODO: if the controller is now just a wrapper around the store, can we
-	// delete it?
-	controller, err := controller.NewController(controller.ControllerOptions{
-		Store: store,
+	controller, err := controller.NewController(ctx, controller.ControllerOptions{
+		Store:     store,
+		JobRunner: jobRunner,
 	})
 	if err != nil {
 		return err
 	}
 
-	err = controller.Start(ctx)
+	err = controller.Start()
 	if err != nil {
 		return err
 	}

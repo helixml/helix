@@ -6,36 +6,46 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/rs/zerolog/log"
 )
 
 type ControllerOptions struct {
-	Store store.Store
+	Store     store.Store
+	JobRunner *job.JobRunner
 }
 
 type Controller struct {
-	Store store.Store
+	Ctx       context.Context
+	Store     store.Store
+	JobRunner *job.JobRunner
 }
 
 func NewController(
+	ctx context.Context,
 	options ControllerOptions,
 ) (*Controller, error) {
 	controller := &Controller{
-		Store: options.Store,
+		Ctx:       ctx,
+		Store:     options.Store,
+		JobRunner: options.JobRunner,
 	}
 	return controller, nil
 }
 
-func (c *Controller) Start(ctx context.Context) error {
+func (c *Controller) Start() error {
 	go func() {
 		for {
 			select {
-			case <-ctx.Done():
+			case <-c.Ctx.Done():
+				return
+			case err := <-c.JobRunner.ErrorChan:
+				log.Error().Msgf("Lilypad error in job runner: %s", err.Error())
 				return
 			default:
 				time.Sleep(1 * time.Second)
-				err := c.loop(ctx)
+				err := c.loop(c.Ctx)
 				if err != nil {
 					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
 					debug.PrintStack()
@@ -43,6 +53,7 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 		}
 	}()
+	c.JobRunner.Subscribe(c.Ctx, c.handleJobUpdate)
 	return nil
 }
 
@@ -63,7 +74,8 @@ func (c *Controller) loop(ctx context.Context) error {
 
 	wg.Add(1)
 
-	go runFunc(c.checkForNewJobs)
+	// an example of a function that is called in the loop
+	go runFunc(c.checkForRunningJobs)
 
 	go func() {
 		wg.Wait()
