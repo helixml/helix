@@ -23,10 +23,10 @@ const initKeycloak = (onAuthenticatedCallback: any) => {
     // silentCheckSsoRedirectUri: window.location.origin + '/silent-check-sso.html',
     pkceMethod: 'S256',
   })
-    .then((authenticated) => {
+    .then((authenticated: any) => {
       if (authenticated) {
         _kc.loadUserProfile()
-          .then(function(profile) {
+          .then(function(profile: any) {
             // rudderanalytics.identify(profile.email, profile, () => {
             // });
           }).catch(function() {
