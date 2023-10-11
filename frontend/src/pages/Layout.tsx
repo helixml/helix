@@ -99,7 +99,7 @@ const Layout: FC = () => {
   };
 
   const loadStatus = useCallback(async () => {
-    const statusResult = await axios.get('/api/status')
+    const statusResult = await axios.get('/api/v1/status')
     console.log('--------------------------------------------')
     console.log(statusResult.data)
   }, [])
