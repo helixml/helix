@@ -28,6 +28,7 @@ import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
+import UserService from "../services/UserService"
 
 const drawerWidth: number = 280
 
@@ -186,6 +187,13 @@ const Layout: FC = () => {
               </>
             )
           }
+
+          <div style={{"marginLeft": "2em"}}>Signed in as {UserService.getUsername()}</div>
+          <div style={{"marginLeft": "2em"}}>
+            <button className="btn btn-success navbar-btn navbar-right" style={{ marginRight: 0 }} onClick={() => UserService.doLogout()}>
+              Logout
+            </button>
+          </div>
         </Toolbar>
       </AppBar>
       <MuiDrawer
