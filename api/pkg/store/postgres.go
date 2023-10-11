@@ -285,7 +285,7 @@ func (d *PostgresStore) CreateBalanceTransfer(
 	}
 	sqlStatement := `
 insert into
-job (
+balance_transfer (
 	id,
 	owner,
 	owner_type,

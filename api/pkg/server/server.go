@@ -11,7 +11,6 @@ import (
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/system"
-	"github.com/davecgh/go-spew/spew"
 	jwt "github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 )
@@ -107,15 +106,6 @@ func (auth *keyCloakMiddleware) userFromRequest(r *http.Request) (*jwt.Token, er
 		return nil, fmt.Errorf("bearer token missing")
 	}
 
-	// call Keycloak API to verify the access token
-	fmt.Printf("auth.options.KeyCloakToken --------------------------------------\n")
-	spew.Dump(auth.options.KeyCloakToken)
-	fmt.Printf("CLIENT_ID --------------------------------------\n")
-	spew.Dump(CLIENT_ID)
-	fmt.Printf("token --------------------------------------\n")
-	spew.Dump(token)
-	fmt.Printf("REALM --------------------------------------\n")
-	spew.Dump(REALM)
 	result, err := auth.keycloak.gocloak.RetrospectToken(r.Context(), token, CLIENT_ID, auth.options.KeyCloakToken, REALM)
 	if err != nil {
 		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %s", err.Error())
