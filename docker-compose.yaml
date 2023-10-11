@@ -64,7 +64,9 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-    entrypoint: bash -c 'if [ -n "$MANUALRUN" ]; then tail -f /dev/null; else /lilysaas serve; fi'
+      - SERVER_URL=http://localhost
+      - WEB3_RPC_URL=ws://172.17.0.1:8546
+    entrypoint: tail -f /dev/null
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
