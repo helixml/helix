@@ -1,4 +1,5 @@
-import React, { FC, useState, useContext, ReactElement } from 'react'
+import React, { FC, useState, useContext, useCallback, useEffect } from 'react'
+import axios from 'axios'
 import { navigate } from 'hookrouter'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
@@ -96,6 +97,19 @@ const Layout: FC = () => {
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
   };
+
+  const loadStatus = useCallback(async () => {
+    const statusResult = await axios.get('/api/status')
+    console.log('--------------------------------------------')
+    console.log(statusResult.data)
+  }, [])
+
+  const profile = UserService.getProfile()
+
+  useEffect(() => {
+    loadStatus()
+  }, [])
+
 
   const drawer = (
     <div>

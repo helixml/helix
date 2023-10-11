@@ -1,4 +1,5 @@
-import Keycloak from "keycloak-js";
+import axios from 'axios'
+import Keycloak from 'keycloak-js'
 
 let realm = "lilypad"
 console.log(`Using realm ${realm}`)
@@ -11,6 +12,21 @@ const _kc = new Keycloak({
   "url": keycloakUrl,
   "clientId": "frontend"
 });
+
+// every http request that we hit the server with
+// needs to ask keycloak - what is my current token?
+const jwtInterceptor: any = (config: any) => {
+  if (isLoggedIn()) {
+    const cb = () => {
+      config.headers.Authorization = `Bearer ${getToken()}`;
+      return Promise.resolve(config);
+    };
+    return UserService.updateToken(cb);
+  }
+  return config
+}
+
+axios.interceptors.request.use(jwtInterceptor)
 
 /**
  * Initializes Keycloak instance and calls the provided callback function if successfully authenticated.
@@ -32,6 +48,7 @@ const initKeycloak = (onAuthenticatedCallback: any) => {
           }).catch(function() {
               //alert('Failed to load user profile')
           })
+        
         onAuthenticatedCallback()
       } else {
         doLogin()
