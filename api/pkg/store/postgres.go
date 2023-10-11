@@ -90,7 +90,7 @@ func (d *PostgresStore) GetJobs(
 		var id string
 		var created time.Time
 		var owner string
-		var ownerType string
+		var ownerType types.OwnerType
 		var state string
 		var status string
 		var data []byte
@@ -158,8 +158,8 @@ func (d *PostgresStore) GetBalanceTransfers(
 		var id string
 		var created time.Time
 		var owner string
-		var ownerType string
-		var paymentType string
+		var ownerType types.OwnerType
+		var paymentType types.PaymentType
 		var amount int
 		var data []byte
 
@@ -199,10 +199,12 @@ func (d *PostgresStore) GetJob(
 	ctx context.Context,
 	queryID string,
 ) (*types.Job, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
 	var id string
 	var created time.Time
 	var owner string
-	var ownerType string
+	var ownerType types.OwnerType
 	var state string
 	var status string
 	var data []byte
@@ -229,11 +231,13 @@ limit 1
 		return nil, err
 	}
 	return &types.Job{
-		ID:      id,
-		Created: created,
-		State:   state,
-		Status:  status,
-		Data:    jobData,
+		ID:        id,
+		Created:   created,
+		Owner:     owner,
+		OwnerType: ownerType,
+		State:     state,
+		Status:    status,
+		Data:      jobData,
 	}, nil
 }
 
@@ -314,23 +318,30 @@ func (d *PostgresStore) UpdateJob(
 	id string,
 	state string,
 	status string,
+	data types.JobData,
 ) error {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
+	jobData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
 	sqlStatement := `
 update
 	job
 set
 	state = $1,
-	status = $2
+	status = $2,
+	data = $3
 where
-	id = $3
+	id = $4
 `
-	_, err := d.db.Exec(
+	_, err = d.db.Exec(
 		sqlStatement,
-		id,
 		state,
 		status,
+		jobData,
+		id,
 	)
 	return err
 }

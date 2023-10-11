@@ -47,7 +47,7 @@ func NewServer(
 		return nil, fmt.Errorf("keycloak url is required")
 	}
 	if options.KeyCloakToken == "" {
-		return nil, fmt.Errorf("keycloack token is required")
+		return nil, fmt.Errorf("keycloak token is required")
 	}
 
 	return &LilysaasAPIServer{
@@ -169,7 +169,10 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	mdw := newMiddleware(kc, apiServer.Options)
 	authRouter.Use(mdw.verifyToken)
 
+	subrouter.HandleFunc("/modules", wrapper(apiServer.getModules)).Methods("GET")
+
 	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
+	authRouter.HandleFunc("/jobs", wrapper(apiServer.getJobs)).Methods("GET")
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	srv := &http.Server{

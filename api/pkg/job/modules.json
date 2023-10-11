@@ -1,10 +1,10 @@
 [{
-  "id": "cowsay",
+  "id": "cowsay:v0.0.1",
   "title": "Cow Say",
   "cost": 10,
   "template": "text-to-text"
 }, {
-  "id": "sdxl",
+  "id": "sdxl:v0.0.1",
   "title": "SDXL",
   "cost": 10,
   "template": "text-to-image"
