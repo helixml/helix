@@ -1,7 +1,7 @@
 FROM golang:1.20-alpine
 WORKDIR /app
 RUN apk add --no-cache bash
-COPY go.mod go.sum ./
+COPY go.mod go.sum modules.json ./
 RUN go mod download
 COPY api ./api
 WORKDIR /app/api
