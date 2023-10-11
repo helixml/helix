@@ -7,14 +7,19 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/spf13/cobra"
-
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	"github.com/bacalhau-project/lilypad/pkg/jobcreator"
 	optionsfactory "github.com/bacalhau-project/lilypad/pkg/options"
 	"github.com/bacalhau-project/lilypad/pkg/solver"
 	"github.com/bacalhau-project/lilypad/pkg/system"
+	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 )
+
+func generateUUID() string {
+	return uuid.New().String()
+}
 
 const JOB_COST = 3
 
@@ -45,14 +50,41 @@ func ProcessJobCreatorOptions(options jobcreator.JobCreatorOptions, request crea
 }
 
 func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http.Request) (createJobResponse, error) {
-	// user := getRequestUser(req.Context())
-
 	request := createJobRequest{}
 	bs, err := io.ReadAll(req.Body)
 	if err != nil {
 		return createJobResponse{}, err
 	}
 	err = json.Unmarshal(bs, &request)
+	if err != nil {
+		return createJobResponse{}, err
+	}
+
+	user := getRequestUser(req)
+
+	err = apiServer.Store.CreateBalanceTransfer(req.Context(), types.BalanceTransfer{
+		ID:          generateUUID(),
+		Owner:       user,
+		OwnerType:   "user",
+		PaymentType: "job",
+		Amount:      -JOB_COST,
+		Data:        types.BalanceTransferData{},
+	})
+	if err != nil {
+		return createJobResponse{}, err
+	}
+
+	err = apiServer.Store.CreateJob(req.Context(), types.Job{
+		ID:        generateUUID(),
+		Owner:     user,
+		OwnerType: "user",
+		State:     "running",
+		Status:    "",
+		Data: types.JobData{
+			Module: request.Module,
+			Inputs: request.Inputs,
+		},
+	})
 	if err != nil {
 		return createJobResponse{}, err
 	}

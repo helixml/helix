@@ -89,6 +89,7 @@ const Layout: FC = () => {
   const route = useContext(RouterContext)
   const snackbar = useSnackbar()
   const [ mobileOpen, setMobileOpen ] = useState(false)
+  const [ credits, setCredits ] = useState(0)
 
   const theme = useTheme()
   const themeConfig = useThemeConfig()
@@ -99,9 +100,10 @@ const Layout: FC = () => {
   };
 
   const loadStatus = useCallback(async () => {
-    const statusResult = await axios.get('/api/v1/status')
-    console.log('--------------------------------------------')
-    console.log(statusResult.data)
+    try {
+      const statusResult = await axios.get('/api/v1/status')
+      setCredits(statusResult.data.credits)
+    } catch(e) {}
   }, [])
 
   const profile = UserService.getProfile()
@@ -202,7 +204,7 @@ const Layout: FC = () => {
             )
           }
 
-          <div style={{"marginLeft": "2em"}}>Signed in as {UserService.getUsername()}</div>
+          <div style={{"marginLeft": "2em"}}>Signed in as {UserService.getUsername()} ({credits} credits)</div>
           <div style={{"marginLeft": "2em"}}>
             <button className="btn btn-success navbar-btn navbar-right" style={{ marginRight: 0 }} onClick={() => UserService.doLogout()}>
               Logout
