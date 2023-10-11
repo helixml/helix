@@ -115,7 +115,7 @@ func (d *PostgresStore) GetJobs(
 		}
 
 		var jobData types.JobData
-		err = json.Unmarshal(data, jobData)
+		err = json.Unmarshal(data, &jobData)
 		if err != nil {
 			return nil, err
 		}
