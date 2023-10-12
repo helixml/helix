@@ -46,6 +46,8 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, 
 			Name:      attrs.Name,
 			Path:      attrs.Name,
 			URL:       attrs.MediaLink,
+			Created:   attrs.Created.Unix(),
+			Size:      attrs.Size,
 		}
 		items = append(items, item)
 	}
@@ -64,6 +66,8 @@ func (s *GCSStorage) Get(ctx context.Context, path string) (FileStoreItem, error
 		Name:      attrs.Name,
 		Path:      attrs.Name,
 		URL:       attrs.MediaLink,
+		Created:   attrs.Created.Unix(),
+		Size:      attrs.Size,
 	}, nil
 }
 
@@ -85,6 +89,8 @@ func (s *GCSStorage) Upload(ctx context.Context, path string, r io.Reader) (File
 		Name:      attrs.Name,
 		Path:      attrs.Name,
 		URL:       attrs.MediaLink,
+		Created:   attrs.Created.Unix(),
+		Size:      attrs.Size,
 	}, nil
 }
 
@@ -160,6 +166,8 @@ func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (FileStoreIt
 		Name:      attrs.Name,
 		Path:      attrs.Name,
 		URL:       attrs.MediaLink,
+		Created:   attrs.Created.Unix(),
+		Size:      attrs.Size,
 	}, nil
 }
 

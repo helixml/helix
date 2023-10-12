@@ -35,6 +35,15 @@ func NewController(
 	ctx context.Context,
 	options ControllerOptions,
 ) (*Controller, error) {
+	if options.Store == nil {
+		return nil, fmt.Errorf("store is required")
+	}
+	if options.Filestore == nil {
+		return nil, fmt.Errorf("filestore is required")
+	}
+	if options.JobRunner == nil {
+		return nil, fmt.Errorf("job runner is required")
+	}
 	controller := &Controller{
 		Ctx:            ctx,
 		Options:        options,

@@ -6,6 +6,10 @@ import (
 )
 
 type FileStoreItem struct {
+	// timestamp
+	Created int64 `json:"created"`
+	// bytes
+	Size int64 `json:"size"`
 	// is this thing a folder or not?
 	Directory bool `json:"directory"`
 	// the filename

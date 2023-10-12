@@ -2,6 +2,7 @@ import React, { FC, useEffect, createContext, useMemo, useState, useCallback } f
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import ReconnectingWebSocket from 'reconnecting-websocket'
+import { useQueryParams } from 'hookrouter'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
@@ -12,6 +13,7 @@ import {
   IJob,
   IModule,
   IBalanceTransfer,
+  IFileStoreItem,
 } from '../types'
 
 const REALM = 'lilypad'
@@ -24,9 +26,11 @@ export interface IAccountContext {
   user?: IUser,
   jobs: IJob[],
   modules: IModule[],
+  files: IFileStoreItem[],
   transactions: IBalanceTransfer[],
   onLogin: () => void,
   onLogout: () => void,
+  onSetFilestorePath: (path: string) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -34,38 +38,23 @@ export const AccountContext = createContext<IAccountContext>({
   credits: 0,
   jobs: [],
   modules: [],
+  files: [],
   transactions: [],
   onLogin: () => {},
   onLogout: () => {},
+  onSetFilestorePath: () => {},
 })
-
-function Websocket(url: string, callback: {
-  (data: any): void
-}) {
-  let socket = new WebSocket(url)
-
-  socket.onmessage = function(event) {
-    callback(event.data)
-  }
-
-  socket.onerror = handleReconnect
-  socket.onclose = handleReconnect
-
-  function handleReconnect() {
-    setTimeout(() => {
-      Websocket(url, callback)
-    }, 1000)
-  }
-}
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
   const snackbar = useSnackbar()
   const loading = useLoading()
+  const [ queryParams, setQueryParams ] = useQueryParams()
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
+  const [ files, setFiles ] = useState<IFileStoreItem[]>([])
   const [ jobs, setJobs ] = useState<IJob[]>([])
   const [ modules, setModules ] = useState<IModule[]>([])
 
@@ -76,6 +65,16 @@ export const useAccountContext = (): IAccountContext => {
       clientId: CLIENT_ID,
     })
   }, [])
+
+  const onSetFilestorePath = useCallback((path: string) => {
+    const update: any = {}
+    if(path) {
+      update.path = path
+    }
+    setQueryParams(update)
+  }, [
+    setQueryParams,
+  ])
 
   const loadModules = useCallback(async () => {
     const result = await api.get<IModule[]>('/api/v1/modules')
@@ -99,6 +98,16 @@ export const useAccountContext = (): IAccountContext => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
     setCredits(statusResult.credits)
+  }, [])
+
+  const loadFiles = useCallback(async (path: string) => {
+    const filesResult = await api.get('/api/v1/filestore/list', {
+      params: {
+        path,
+      }
+    })
+    if(!filesResult) return
+    setFiles(filesResult || [])
   }, [])
 
   const loadAll = useCallback(async () => {
@@ -201,24 +210,37 @@ export const useAccountContext = (): IAccountContext => {
     user?.token,
   ])
 
+  useEffect(() => {
+    if(!queryParams.path) return
+    if(!user) return
+    loadFiles(queryParams.path)
+  }, [
+    user,
+    queryParams.path,
+  ])
+
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
     credits,
     jobs,
     modules,
+    files,
     transactions,
     onLogin,
     onLogout,
+    onSetFilestorePath,
   }), [
     initialized,
     user,
     credits,
     jobs,
     modules,
+    files,
     transactions,
     onLogin,
     onLogout,
+    onSetFilestorePath,
   ])
 
   return contextValue
