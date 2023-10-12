@@ -8,18 +8,21 @@ import (
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
+	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 type ControllerOptions struct {
-	Store     store.Store
-	JobRunner *job.JobRunner
+	Store          store.Store
+	JobRunner      *job.JobRunner
+	JobUpdatesChan chan *types.Job
 }
 
 type Controller struct {
-	Ctx       context.Context
-	Store     store.Store
-	JobRunner *job.JobRunner
+	Ctx            context.Context
+	Store          store.Store
+	JobRunner      *job.JobRunner
+	JobUpdatesChan chan *types.Job
 }
 
 func NewController(
@@ -27,9 +30,10 @@ func NewController(
 	options ControllerOptions,
 ) (*Controller, error) {
 	controller := &Controller{
-		Ctx:       ctx,
-		Store:     options.Store,
-		JobRunner: options.JobRunner,
+		Ctx:            ctx,
+		Store:          options.Store,
+		JobRunner:      options.JobRunner,
+		JobUpdatesChan: options.JobUpdatesChan,
 	}
 	return controller, nil
 }

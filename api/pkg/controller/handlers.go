@@ -10,7 +10,6 @@ import (
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/system"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
-	"github.com/davecgh/go-spew/spew"
 )
 
 func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, error) {
@@ -94,7 +93,7 @@ func (c *Controller) handleJobUpdate(evOffer data.JobOfferContainer) {
 	// job ID before submitting it
 	if job == nil {
 		// this means the job has not been written to the database yet (probably)
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * 100)
 		job, err = c.Store.GetJob(context.Background(), evOffer.ID)
 		if err != nil {
 			return
@@ -115,8 +114,13 @@ func (c *Controller) handleJobUpdate(evOffer data.JobOfferContainer) {
 		jobData,
 	)
 
-	fmt.Printf("job --------------------------------------\n")
-	spew.Dump(jobData)
+	job, err = c.Store.GetJob(context.Background(), evOffer.ID)
+	if err != nil {
+		fmt.Printf("error loading job: %s --------------------------------------\n", err.Error())
+		return
+	}
+
+	c.JobUpdatesChan <- job
 }
 
 // load all jobs that are currently running and check if they are still running

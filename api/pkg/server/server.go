@@ -65,15 +65,23 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 		return true
 	}).Subrouter()
 
-	kc := newKeycloak(apiServer.Options)
-	mdw := newMiddleware(kc, apiServer.Options)
-	authRouter.Use(mdw.verifyToken)
+	keycloak := newKeycloak(apiServer.Options)
+	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
+	authRouter.Use(keyCloakMiddleware.verifyToken)
 
 	subrouter.HandleFunc("/modules", wrapper(apiServer.getModules)).Methods("GET")
 
 	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.getJobs)).Methods("GET")
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
+
+	StartWebSocketServer(
+		ctx,
+		subrouter,
+		"/ws",
+		apiServer.Controller.JobUpdatesChan,
+		keyCloakMiddleware.userIDFromRequest,
+	)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),
