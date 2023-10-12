@@ -81,3 +81,12 @@ export interface IBalanceTransfer {
   amount: number,
   data: IBalanceTransferData,
 }
+
+export interface IFileStoreItem {
+  created: number;
+  size: number;
+  directory: boolean;
+  name: string;
+  path: string;
+  url: string;
+}

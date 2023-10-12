@@ -30,11 +30,17 @@ func (s *FileSystemStorage) List(ctx context.Context, prefix string) ([]FileStor
 	var items []FileStoreItem
 	for _, f := range files {
 		path := filepath.Join(prefix, f.Name())
+		info, err := f.Info()
+		if err != nil {
+			return nil, fmt.Errorf("error fetching file info: %w", err)
+		}
 		items = append(items, FileStoreItem{
 			Directory: f.IsDir(),
 			Name:      f.Name(),
 			Path:      path,
 			URL:       fmt.Sprintf("%s/%s", s.baseURL, path),
+			Created:   info.ModTime().Unix(),
+			Size:      info.Size(),
 		})
 	}
 
@@ -52,6 +58,8 @@ func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem
 		Name:      info.Name(),
 		Path:      path,
 		URL:       fmt.Sprintf("%s/%s", s.baseURL, path),
+		Created:   info.ModTime().Unix(),
+		Size:      info.Size(),
 	}, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"os/signal"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
+	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
 	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/server"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
@@ -119,6 +120,15 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
+	if _, err := os.Stat("/tmp/lilysaas/dev"); os.IsNotExist(err) {
+		err := os.MkdirAll("/tmp/lilysaas/dev", 0755)
+		if err != nil {
+			return err
+		}
+	}
+
+	filestore := filestore.NewFileSystemStorage("/tmp/lilysaas", "http://localhost:8080")
+
 	jobRunner, err := job.NewJobRunner(ctx)
 	if err != nil {
 		return err
@@ -130,8 +140,10 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	}
 
 	controller, err := controller.NewController(ctx, controller.ControllerOptions{
-		Store:     store,
-		JobRunner: jobRunner,
+		Store:           store,
+		JobRunner:       jobRunner,
+		Filestore:       filestore,
+		FilestorePrefix: "",
 	})
 	if err != nil {
 		return err

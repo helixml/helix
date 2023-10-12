@@ -1,11 +1,13 @@
 package controller
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/davecgh/go-spew/spew"
 )
 
 const USERS_PATH = "users"
@@ -16,11 +18,28 @@ func (c *Controller) getFilestorePath(ctx types.RequestContext, path string) str
 	return filepath.Join(c.Options.FilestorePrefix, USERS_PATH, ctx.Owner, path)
 }
 
+func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext) error {
+	_, err := c.Options.Filestore.CreateFolder(c.Ctx, c.getFilestorePath(ctx, ""))
+	return err
+}
+
 func (c *Controller) FilestoreList(ctx types.RequestContext, path string) ([]filestore.FileStoreItem, error) {
-	return c.Options.Filestore.List(c.Ctx, c.getFilestorePath(ctx, path))
+	err := c.ensureFilestoreUserPath(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.Options.Filestore.List(c.Ctx, c.getFilestorePath(ctx, path))
+	fmt.Printf("res --------------------------------------\n")
+	spew.Dump(res)
+	spew.Dump(err)
+	return res, err
 }
 
 func (c *Controller) FilestoreGet(ctx types.RequestContext, path string) (filestore.FileStoreItem, error) {
+	err := c.ensureFilestoreUserPath(ctx)
+	if err != nil {
+		return filestore.FileStoreItem{}, err
+	}
 	return c.Options.Filestore.Get(c.Ctx, c.getFilestorePath(ctx, path))
 }
 
