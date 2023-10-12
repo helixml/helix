@@ -119,6 +119,9 @@ const Layout: FC = () => {
     setMobileOpen(!mobileOpen)
   }
 
+  console.log('--------------------------------------------')
+  console.log(account.jobs)
+
   const drawer = (
     <div>
       <Toolbar

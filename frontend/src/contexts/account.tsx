@@ -1,6 +1,7 @@
 import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
+import ReconnectingWebSocket from 'reconnecting-websocket'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
@@ -8,6 +9,9 @@ import {extractErrorMessage} from '../hooks/useErrorCallback'
 
 import {
   IUser,
+  IJob,
+  IModule,
+  IBalanceTransfer,
 } from '../types'
 
 const REALM = 'lilypad'
@@ -18,6 +22,9 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   user?: IUser,
+  jobs: IJob[],
+  modules: IModule[],
+  transactions: IBalanceTransfer[],
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -25,9 +32,31 @@ export interface IAccountContext {
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
+  jobs: [],
+  modules: [],
+  transactions: [],
   onLogin: () => {},
   onLogout: () => {},
 })
+
+function Websocket(url: string, callback: {
+  (data: any): void
+}) {
+  let socket = new WebSocket(url)
+
+  socket.onmessage = function(event) {
+    callback(event.data)
+  }
+
+  socket.onerror = handleReconnect
+  socket.onclose = handleReconnect
+
+  function handleReconnect() {
+    setTimeout(() => {
+      Websocket(url, callback)
+    }, 1000)
+  }
+}
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
@@ -36,9 +65,9 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
-  const [ transactions, setTransactions ] = useState([])
-  const [ jobs, setJobs ] = useState([])
-  const [ modules, setModules ] = useState([])
+  const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
+  const [ jobs, setJobs ] = useState<IJob[]>([])
+  const [ modules, setModules ] = useState<IModule[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -49,21 +78,21 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadModules = useCallback(async () => {
-    const result = await api.get('/api/v1/modules')
+    const result = await api.get<IModule[]>('/api/v1/modules')
     if(!result) return
-    setModules(result as any)
+    setModules(result)
   }, [])
 
   const loadJobs = useCallback(async () => {
-    const result = await api.get('/api/v1/jobs')
+    const result = await api.get<IJob[]>('/api/v1/jobs')
     if(!result) return
-    setJobs(result as any)
+    setJobs(result)
   }, [])
 
   const loadTransactions = useCallback(async () => {
-    const result = await api.get('/api/v1/transactions')
+    const result = await api.get<IBalanceTransfer[]>('/api/v1/transactions')
     if(!result) return
-    setTransactions(result as any)
+    setTransactions(result)
   }, [])
 
   const loadStatus = useCallback(async () => {
@@ -136,6 +165,7 @@ export const useAccountContext = (): IAccountContext => {
       snackbar.error(errorMessage)
     }
     loading.setLoading(false)
+    setInitialized(true)
   }, [])
 
   useEffect(() => {
@@ -149,16 +179,44 @@ export const useAccountContext = (): IAccountContext => {
     user,
   ])
 
+  useEffect(() => {
+    if(!user?.token) return
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsHostname = window.location.hostname
+    const url = `${wsProtocol}//${wsHostname}/api/v1/ws?access_token=${user?.token}`
+    const rws = new ReconnectingWebSocket(url)
+    rws.addEventListener('message', (event) => {
+      const parsedData = JSON.parse(event.data)
+      console.dir(parsedData)
+      if(parsedData.type === 'job' && parsedData.job) {
+        const newJob: IJob = parsedData.job
+        setJobs(jobs => jobs.map(existingJob => {
+          if(existingJob.id === newJob.id) return newJob
+          return existingJob
+        }))
+      }
+    })
+    return () => rws.close()
+  }, [
+    user?.token,
+  ])
+
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
     credits,
+    jobs,
+    modules,
+    transactions,
     onLogin,
     onLogout,
   }), [
     initialized,
     user,
     credits,
+    jobs,
+    modules,
+    transactions,
     onLogin,
     onLogout,
   ])

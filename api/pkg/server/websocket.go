@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -16,6 +15,9 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 type GetUserIDFromRequest func(r *http.Request) (string, error)
@@ -62,11 +64,11 @@ func StartWebSocketServer(
 		for {
 			select {
 			case jobUpdate := <-jobUpdatesChan:
-				log.Debug().
-					Str("action", fmt.Sprintf("ws WRITE: %d", len(connections))).
-					Str("payload", string(jobUpdate.ID)).
-					Msgf("")
-				message, err := json.Marshal(jobUpdate)
+				event := types.WebsocketEvent{
+					Type: types.WebsocketEventJobUpdate,
+					Job:  jobUpdate,
+				}
+				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling job update: %s", err.Error())
 					continue
@@ -109,7 +111,8 @@ func StartWebSocketServer(
 
 		log.Debug().
 			Str("action", "⚪⚪⚪⚪⚪⚪⚪⚪⚪⚪ ws CONNECT").
-			Msgf("")
+			Msgf("connected user websocket: %s\n", userID)
+
 		for {
 			messageType, _, err := conn.ReadMessage()
 			if err != nil {

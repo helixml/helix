@@ -13,9 +13,8 @@ import (
 )
 
 type ControllerOptions struct {
-	Store          store.Store
-	JobRunner      *job.JobRunner
-	JobUpdatesChan chan *types.Job
+	Store     store.Store
+	JobRunner *job.JobRunner
 }
 
 type Controller struct {
@@ -33,7 +32,7 @@ func NewController(
 		Ctx:            ctx,
 		Store:          options.Store,
 		JobRunner:      options.JobRunner,
-		JobUpdatesChan: options.JobUpdatesChan,
+		JobUpdatesChan: make(chan *types.Job),
 	}
 	return controller, nil
 }
