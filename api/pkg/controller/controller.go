@@ -2,10 +2,13 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 	"sync"
 	"time"
 
+	"github.com/bacalhau-project/lilypad/pkg/data"
+	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
 	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
@@ -14,13 +17,17 @@ import (
 
 type ControllerOptions struct {
 	Store     store.Store
-	JobRunner *job.JobRunner
+	Filestore filestore.FileStore
+	// this is an "env" prefix like "dev"
+	// the user prefix is handled inside the controller
+	// (see getFilestorePath)
+	FilestorePrefix string
+	JobRunner       *job.JobRunner
 }
 
 type Controller struct {
 	Ctx            context.Context
-	Store          store.Store
-	JobRunner      *job.JobRunner
+	Options        ControllerOptions
 	JobUpdatesChan chan *types.Job
 }
 
@@ -30,8 +37,7 @@ func NewController(
 ) (*Controller, error) {
 	controller := &Controller{
 		Ctx:            ctx,
-		Store:          options.Store,
-		JobRunner:      options.JobRunner,
+		Options:        options,
 		JobUpdatesChan: make(chan *types.Job),
 	}
 	return controller, nil
@@ -43,7 +49,7 @@ func (c *Controller) Start() error {
 			select {
 			case <-c.Ctx.Done():
 				return
-			case err := <-c.JobRunner.ErrorChan:
+			case err := <-c.Options.JobRunner.ErrorChan:
 				log.Error().Msgf("Lilypad error in job runner: %s", err.Error())
 				return
 			default:
@@ -56,7 +62,7 @@ func (c *Controller) Start() error {
 			}
 		}
 	}()
-	c.JobRunner.Subscribe(c.Ctx, c.handleJobUpdate)
+	c.Options.JobRunner.Subscribe(c.Ctx, c.handleJobUpdate)
 	return nil
 }
 
@@ -88,5 +94,52 @@ func (c *Controller) loop(ctx context.Context) error {
 	if err := <-errChan; err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *Controller) handleJobUpdate(evOffer data.JobOfferContainer) {
+	job, err := c.Options.Store.GetJob(context.Background(), evOffer.ID)
+	if err != nil {
+		fmt.Printf("error loading job: %s\n", err.Error())
+		return
+	}
+	// we have a race condition where we need to write the job to the solver to get
+	// it's ID and then we might not have written the job to the database yet
+	// TODO: make lilypad have a way to have deterministic ID's so we can know the
+	// job ID before submitting it
+	if job == nil {
+		// this means the job has not been written to the database yet (probably)
+		time.Sleep(time.Millisecond * 100)
+		job, err = c.Options.Store.GetJob(context.Background(), evOffer.ID)
+		if err != nil {
+			return
+		}
+		if job == nil {
+			fmt.Printf("job not found: %s\n", evOffer.ID)
+			return
+		}
+	}
+	jobData := job.Data
+	jobData.Container = evOffer
+
+	c.Options.Store.UpdateJob(
+		c.Ctx,
+		evOffer.ID,
+		data.GetAgreementStateString(evOffer.State),
+		"",
+		jobData,
+	)
+
+	job, err = c.Options.Store.GetJob(context.Background(), evOffer.ID)
+	if err != nil {
+		fmt.Printf("error loading job: %s\n", err.Error())
+		return
+	}
+
+	c.JobUpdatesChan <- job
+}
+
+// load all jobs that are currently running and check if they are still running
+func (c *Controller) checkForRunningJobs(ctx context.Context) error {
 	return nil
 }
