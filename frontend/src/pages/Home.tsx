@@ -23,7 +23,6 @@ const Dashboard: FC = () => {
           Message: inputValue,
         }
       })
-
       console.log('--------------------------------------------')
       console.dir(statusResult.data)
     } catch(e: any) {
