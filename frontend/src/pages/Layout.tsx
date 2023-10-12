@@ -18,7 +18,6 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
-import Stack from '@mui/material/Stack'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
@@ -27,12 +26,14 @@ import DvrIcon from '@mui/icons-material/Dvr'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import MenuIcon from '@mui/icons-material/Menu'
 import CommentIcon from '@mui/icons-material/Comment'
 import AccountCircle from '@mui/icons-material/AccountCircle'
-
+import AccountBoxIcon from '@mui/icons-material/AccountBox'
+import ListIcon from '@mui/icons-material/List'
 
 import { RouterContext } from '../contexts/router'
 import { AccountContext } from '../contexts/account'
@@ -40,7 +41,6 @@ import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
-import UserService from "../services/UserService"
 
 const drawerWidth: number = 280
 
@@ -155,6 +155,55 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
+                  navigate('/jobs')
+                  setMobileOpen(false)
+                }}
+              >
+                <ListItemButton
+                  selected={ route.id == 'jobs' }
+                >
+                  <ListItemIcon>
+                    <ListIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText primary="Jobs" />
+                </ListItemButton>
+              </ListItem>
+              <ListItem
+                disablePadding
+                onClick={ () => {
+                  navigate('/files')
+                  setMobileOpen(false)
+                }}
+              >
+                <ListItemButton
+                  selected={ route.id == 'files' }
+                >
+                  <ListItemIcon>
+                    <CloudUploadIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText primary="Files" />
+                </ListItemButton>
+              </ListItem>
+              <ListItem
+                disablePadding
+                onClick={ () => {
+                  navigate('/account')
+                  setMobileOpen(false)
+                }}
+              >
+                <ListItemButton
+                  selected={ route.id == 'account' }
+                >
+                  <ListItemIcon>
+                    <AccountBoxIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText primary="Account" />
+                </ListItemButton>
+              </ListItem>
+              <Divider />
+              <ListItem
+                disablePadding
+                onClick={ () => {
                   account.onLogout()
                   setMobileOpen(false)
                 }}
@@ -185,6 +234,7 @@ const Layout: FC = () => {
                   <ListItemText primary="Modules" />
                 </ListItemButton>
               </ListItem>
+              <Divider />
               <ListItem
                 disablePadding
                 onClick={ () => {
@@ -261,7 +311,11 @@ const Layout: FC = () => {
               </>
             )
           }
-          <Stack direction="row" spacing={2}>
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}>
           {
             account.user ? (
               <>
@@ -293,8 +347,24 @@ const Layout: FC = () => {
                   open={Boolean(accountMenuAnchorEl)}
                   onClose={handleCloseAccountMenu}
                 >
-                  <MenuItem onClick={handleCloseAccountMenu}>Profile</MenuItem>
-                  <MenuItem onClick={handleCloseAccountMenu}>My account</MenuItem>
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    navigate('/account')
+                  }}>
+                    <ListItemIcon>
+                      <AccountBoxIcon fontSize="small" />
+                    </ListItemIcon> 
+                    My account
+                  </MenuItem>
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    account.onLogout()
+                  }}>
+                    <ListItemIcon>
+                      <LogoutIcon fontSize="small" />
+                    </ListItemIcon> 
+                    Logout
+                  </MenuItem>
                 </Menu>
               </>
             ) : (
@@ -311,7 +381,7 @@ const Layout: FC = () => {
               </>
             )
           }
-          </Stack>
+          </Box>
         </Toolbar>
       </AppBar>
       <MuiDrawer
