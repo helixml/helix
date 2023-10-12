@@ -19,8 +19,8 @@ export const THEMES: Record<string, ITheme> = {
   lilypad: {
     company: 'Lilypad',
     url: 'https://lilypad.tech/',
-    primary: '#2D4182',
-    secondary: '#1FC3CD',
+    primary: '#8DA4BB',
+    secondary: '#64BEA9',
     // this means ALL
     activeSections: [],
     logo: () => (

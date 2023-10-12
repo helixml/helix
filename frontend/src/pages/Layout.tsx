@@ -1,5 +1,4 @@
-import React, { FC, useState, useContext, useMemo } from 'react'
-import axios from 'axios'
+import React, { FC, useState, useContext } from 'react'
 import { navigate } from 'hookrouter'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
@@ -99,7 +98,7 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 const Layout: FC = () => {
   const account = useContext(AccountContext)
   const route = useContext(RouterContext)
-  const snackbar = useSnackbar()
+  
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
   const [ mobileOpen, setMobileOpen ] = useState(false)
 
@@ -118,9 +117,6 @@ const Layout: FC = () => {
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
   }
-
-  console.log('--------------------------------------------')
-  console.log(account.jobs)
 
   const drawer = (
     <div>
