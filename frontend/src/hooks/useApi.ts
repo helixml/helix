@@ -5,6 +5,10 @@ import {
   SnackbarContext,
 } from '../contexts/snackbar'
 
+import {
+  extractErrorMessage,
+} from './useErrorCallback'
+
 const API_MOUNT = ""
 
 export interface IApiOptions {
@@ -17,15 +21,6 @@ export const getTokenHeaders = (token: string) => {
   }
 }
 
-export const extractErrorMessage = (error: any): string => {
-  if(error.response && error.response.data && (error.response.data.message || error.response.data.error)) {
-    return error.response.data.message || error.response.data.error
-  }
-  else {
-    return error.toString()
-  }
-}
-
 export const useApi = () => {
 
   const snackbar = useContext(SnackbarContext)
@@ -35,8 +30,8 @@ export const useApi = () => {
       const res = await axios.get<ResT>(`${API_MOUNT}${url}`, axiosConfig)
       return res.data
     } catch (e: any) {
-      console.error(e)
-      if(options?.snackbar !== false) snackbar.setSnackbar(extractErrorMessage(e), 'error')
+      const errorMessage = extractErrorMessage(e)
+      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       return null
     }
   }, [])
@@ -46,8 +41,8 @@ export const useApi = () => {
       const res = await axios.post<ResT>(`${API_MOUNT}${url}`, data, axiosConfig)
       return res.data
     } catch (e: any) {
-      console.error(e)
-      if(options?.snackbar !== false) snackbar.setSnackbar(extractErrorMessage(e), 'error')
+      const errorMessage = extractErrorMessage(e)
+      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       return null
     }
   }, [])
@@ -57,8 +52,8 @@ export const useApi = () => {
       const res = await axios.put<ResT>(`${API_MOUNT}${url}`, data, axiosConfig)
       return res.data
     } catch (e: any) {
-      console.error(e)
-      if(options?.snackbar !== false) snackbar.setSnackbar(extractErrorMessage(e), 'error')
+      const errorMessage = extractErrorMessage(e)
+      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       return null
     }
   }, [])
@@ -68,8 +63,8 @@ export const useApi = () => {
       const res = await axios.delete<ResT>(`${API_MOUNT}${url}`, axiosConfig)
       return res.data
     } catch (e: any) {
-      console.error(e)
-      if(options?.snackbar !== false) snackbar.setSnackbar(extractErrorMessage(e), 'error')
+      const errorMessage = extractErrorMessage(e)
+      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       return null
     }
   }, [])

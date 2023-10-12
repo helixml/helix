@@ -72,6 +72,7 @@ const updateToken = (successCallback: any) =>
     .catch(doLogin);
 
 const getUsername = () => _kc.tokenParsed?.preferred_username;
+const getUserID = () => _kc.tokenParsed?.sub;
 const getProfile = () => _kc.tokenParsed;
 
 const hasRole = (roles: any) => roles.some((role: any) => _kc.hasRealmRole(role));
@@ -84,6 +85,7 @@ const UserService = {
   getToken,
   updateToken,
   getUsername,
+  getUserID,
   getProfile,
   hasRole,
 };

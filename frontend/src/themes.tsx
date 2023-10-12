@@ -40,7 +40,7 @@ export const THEMES: Record<string, ITheme> = {
         <Typography variant="h6" sx={{
           ml: 1,
         }}>
-          Demos
+          Lilypad
         </Typography>
       </Box>
     ),
