@@ -77,6 +77,13 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
+	authRouter.HandleFunc("/filestore/list", wrapper(apiServer.filestoreList)).Methods("GET")
+	authRouter.HandleFunc("/filestore/get", wrapper(apiServer.filestoreGet)).Methods("GET")
+	authRouter.HandleFunc("/filestore/folder", wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
+	authRouter.HandleFunc("/filestore/file", wrapper(apiServer.filestoreUpload)).Methods("POST")
+	authRouter.HandleFunc("/filestore/rename", wrapper(apiServer.filestoreRename)).Methods("PUT")
+	authRouter.HandleFunc("/filestore/file", wrapper(apiServer.filestoreRename)).Methods("DELETE")
+
 	StartWebSocketServer(
 		ctx,
 		subrouter,
