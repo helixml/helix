@@ -18,6 +18,10 @@ func (apiServer *LilysaasAPIServer) getJobs(res http.ResponseWriter, req *http.R
 	return apiServer.Controller.GetJobs(apiServer.getRequestContext(req))
 }
 
+func (apiServer *LilysaasAPIServer) getTransactions(res http.ResponseWriter, req *http.Request) ([]*types.BalanceTransfer, error) {
+	return apiServer.Controller.GetTransactions(apiServer.getRequestContext(req))
+}
+
 func (apiServer *LilysaasAPIServer) getModules(res http.ResponseWriter, req *http.Request) ([]types.Module, error) {
 	return job.GetModules()
 }
