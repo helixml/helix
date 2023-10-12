@@ -46,17 +46,21 @@ func extractBearerToken(token string) string {
 	return strings.Replace(token, "Bearer ", "", 1)
 }
 
-func (auth *keyCloakMiddleware) userFromRequest(r *http.Request) (*jwt.Token, error) {
+func (auth *keyCloakMiddleware) jwtFromRequest(r *http.Request) (*jwt.Token, error) {
 	// try to extract Authorization parameter from the HTTP header
 	token := r.Header.Get("Authorization")
-	if token == "" {
-		return nil, fmt.Errorf("authorization header missing")
-	}
-
-	// extract Bearer token
-	token = extractBearerToken(token)
-	if token == "" {
-		return nil, fmt.Errorf("bearer token missing")
+	if token != "" {
+		// extract Bearer token
+		token = extractBearerToken(token)
+		if token == "" {
+			return nil, fmt.Errorf("bearer token missing")
+		}
+	} else {
+		// try to extract access_token query parameter
+		token = r.URL.Query().Get("access_token")
+		if token == "" {
+			return nil, fmt.Errorf("token missing")
+		}
 	}
 
 	result, err := auth.keycloak.gocloak.RetrospectToken(r.Context(), token, CLIENT_ID, auth.options.KeyCloakToken, REALM)
@@ -77,6 +81,14 @@ func (auth *keyCloakMiddleware) userFromRequest(r *http.Request) (*jwt.Token, er
 	return j, nil
 }
 
+func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, error) {
+	token, err := auth.jwtFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	return getUserIdFromJWT(token), nil
+}
+
 func getUserIdFromJWT(tok *jwt.Token) string {
 	mc := tok.Claims.(jwt.MapClaims)
 	uid := mc["sub"].(string)
@@ -95,7 +107,7 @@ func getRequestUser(req *http.Request) string {
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
 
 	f := func(w http.ResponseWriter, r *http.Request) {
-		token, err := auth.userFromRequest(r)
+		token, err := auth.jwtFromRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
