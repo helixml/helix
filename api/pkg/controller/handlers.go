@@ -54,7 +54,7 @@ func (c *Controller) CreateJob(ctx types.RequestContext, request types.JobSpec) 
 		Owner:       ctx.Owner,
 		OwnerType:   ctx.OwnerType,
 		PaymentType: types.PaymentTypeJob,
-		Amount:      module.Cost,
+		Amount:      -module.Cost,
 		Data: types.BalanceTransferData{
 			JobID: container.ID,
 		},
