@@ -22,9 +22,8 @@ const (
 )
 
 type JobSpec struct {
-	Module    string                 `json:"module"`
-	Inputs    map[string]string      `json:"inputs"`
-	Container data.JobOfferContainer `json:"container"`
+	Module string            `json:"module"`
+	Inputs map[string]string `json:"inputs"`
 }
 
 type JobData struct {
@@ -52,8 +51,8 @@ type BalanceTransfer struct {
 	Created     time.Time           `json:"created"`
 	Owner       string              `json:"owner"`
 	OwnerType   OwnerType           `json:"owner_type"`
-	PaymentType PaymentType         `json:"state"`
-	Amount      int                 `json:"amount,string,omitempty"`
+	PaymentType PaymentType         `json:"payment_type"`
+	Amount      int                 `json:"amount"`
 	Data        BalanceTransferData `json:"data"`
 }
 
@@ -74,4 +73,15 @@ type RequestContext struct {
 type UserStatus struct {
 	User    string `json:"user"`
 	Credits int    `json:"credits"`
+}
+
+type WebsocketEventType string
+
+const (
+	WebsocketEventJobUpdate WebsocketEventType = "job"
+)
+
+type WebsocketEvent struct {
+	Type WebsocketEventType `json:"type"`
+	Job  *Job               `json:"job"`
 }
