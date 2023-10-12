@@ -1,5 +1,5 @@
 import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
-import axios from 'axios'
+import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
@@ -36,6 +36,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ transactions, setTransactions ] = useState([])
   const [ jobs, setJobs ] = useState([])
   const [ modules, setModules ] = useState([])
 
@@ -47,11 +48,43 @@ export const useAccountContext = (): IAccountContext => {
     })
   }, [])
 
+  const loadModules = useCallback(async () => {
+    const result = await api.get('/api/v1/modules')
+    if(!result) return
+    setModules(result as any)
+  }, [])
+
+  const loadJobs = useCallback(async () => {
+    const result = await api.get('/api/v1/jobs')
+    if(!result) return
+    setJobs(result as any)
+  }, [])
+
+  const loadTransactions = useCallback(async () => {
+    const result = await api.get('/api/v1/transactions')
+    if(!result) return
+    setTransactions(result as any)
+  }, [])
+
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
     setCredits(statusResult.credits)
   }, [])
+
+  const loadAll = useCallback(async () => {
+    await bluebird.all([
+      loadModules(),
+      loadJobs(),
+      loadTransactions(),
+      loadStatus(),
+    ])
+  }, [
+    loadModules,
+    loadJobs,
+    loadTransactions,
+    loadStatus,
+  ])
 
   const onLogin = useCallback(() => {
     keycloak.login()
@@ -85,8 +118,8 @@ export const useAccountContext = (): IAccountContext => {
         setUser(user)
         setInterval(async () => {
           try {
-            await keycloak.updateToken(10)
-            if(keycloak.token) {
+            const updated = await keycloak.updateToken(10)
+            if(updated && keycloak.token) {
               api.setToken(keycloak.token)
               setUser(Object.assign({}, user, {
                 token: keycloak.token,
@@ -111,7 +144,7 @@ export const useAccountContext = (): IAccountContext => {
 
   useEffect(() => {
     if(!user) return
-    loadStatus()
+    loadAll()
   }, [
     user,
   ])

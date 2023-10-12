@@ -73,6 +73,8 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 
 	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.getJobs)).Methods("GET")
+	authRouter.HandleFunc("/transactions", wrapper(apiServer.getTransactions)).Methods("GET")
+
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	StartWebSocketServer(

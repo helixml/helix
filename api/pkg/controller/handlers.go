@@ -39,6 +39,13 @@ func (c *Controller) GetJobs(ctx types.RequestContext) ([]*types.Job, error) {
 	})
 }
 
+func (c *Controller) GetTransactions(ctx types.RequestContext) ([]*types.BalanceTransfer, error) {
+	return c.Store.GetBalanceTransfers(ctx.Ctx, store.GetBalanceTransfersQuery{
+		Owner:     ctx.Owner,
+		OwnerType: ctx.OwnerType,
+	})
+}
+
 func (c *Controller) CreateJob(ctx types.RequestContext, request types.JobSpec) (data.JobOfferContainer, error) {
 	container, err := c.JobRunner.RunJob(ctx.Ctx, request)
 	if err != nil {
