@@ -12,12 +12,18 @@ import {
   RouterContextProvider,
 } from './router'
 
+import {
+  AccountContextProvider,
+} from './account'
+
 const AllContextProvider: FC = ({ children }) => {
   return (
     <SnackbarContextProvider>
       <LoadingContextProvider>
         <RouterContextProvider>
-          { children }
+          <AccountContextProvider>
+            { children }
+          </AccountContextProvider>
         </RouterContextProvider>
       </LoadingContextProvider>
     </SnackbarContextProvider>

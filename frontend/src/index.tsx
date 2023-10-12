@@ -3,8 +3,6 @@ import ReactDOM from "react-dom"
 import App from "./App"
 import CssBaseline from "@mui/material/CssBaseline"
 
-import UserService from "./services/UserService"
-
 let render = () => {
   ReactDOM.render(
     <>
@@ -15,4 +13,4 @@ let render = () => {
   )
 }
 
-UserService.initKeycloak(render);
+render()
