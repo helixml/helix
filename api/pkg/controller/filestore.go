@@ -24,7 +24,7 @@ func (c *Controller) FilestoreGet(ctx types.RequestContext, path string) (filest
 	return c.Options.Filestore.Get(c.Ctx, c.getFilestorePath(ctx, path))
 }
 
-func (c *Controller) CreateFolder(ctx types.RequestContext, path string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreCreateFolder(ctx types.RequestContext, path string) (filestore.FileStoreItem, error) {
 	return c.Options.Filestore.CreateFolder(c.Ctx, c.getFilestorePath(ctx, path))
 }
 

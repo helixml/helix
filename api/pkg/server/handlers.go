@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
+	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
 	"github.com/bacalhau-project/lilysaas/api/pkg/job"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 )
@@ -37,4 +38,30 @@ func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http
 		return data.JobOfferContainer{}, err
 	}
 	return apiServer.Controller.CreateJob(apiServer.getRequestContext(req), request)
+}
+
+func (apiServer *LilysaasAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+	return apiServer.Controller.FilestoreList(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+}
+
+func (apiServer *LilysaasAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+	return apiServer.Controller.FilestoreGet(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+}
+
+func (apiServer *LilysaasAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+	return apiServer.Controller.FilestoreCreateFolder(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+}
+
+func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+	return apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.Body)
+}
+
+func (apiServer *LilysaasAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+	return apiServer.Controller.FilestoreRename(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
+}
+
+func (apiServer *LilysaasAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
+	path := req.URL.Query().Get("path")
+	err := apiServer.Controller.FilestoreDelete(apiServer.getRequestContext(req), path)
+	return path, err
 }
