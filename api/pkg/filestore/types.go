@@ -5,6 +5,21 @@ import (
 	"io"
 )
 
+type FileStoreType string
+
+const (
+	FileStoreTypeLocalFS  FileStoreType = "fs"
+	FileStoreTypeLocalGCS FileStoreType = "gcs"
+)
+
+type FileStoreOptions struct {
+	Type         FileStoreType
+	LocalFSPath  string
+	GCSKeyBase64 string
+	GCSKeyFile   string
+	GCSBucket    string
+}
+
 type FileStoreItem struct {
 	// timestamp
 	Created int64 `json:"created"`
@@ -18,6 +33,16 @@ type FileStoreItem struct {
 	Path string `json:"path"`
 	// the URL that can be used to load the object directly
 	URL string `json:"url"`
+}
+
+// top level filestore folders that have special meaning
+type FilestoreFolder struct {
+	Name     string `json:"name"`
+	Readonly bool   `json:"readonly"`
+}
+
+type FilestoreConfig struct {
+	Folders []FilestoreFolder `json:"folders"`
 }
 
 type FileStore interface {

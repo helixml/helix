@@ -18,11 +18,18 @@ import (
 type ControllerOptions struct {
 	Store     store.Store
 	Filestore filestore.FileStore
+	JobRunner *job.JobRunner
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
-	FilestorePrefix string
-	JobRunner       *job.JobRunner
+	FilePrefixGlobal string
+	// this is a golang template that is used to prefix the user
+	// path in the filestore - it is passed Owner and OwnerType values
+	// write me an example FilePrefixUser as a go template
+	// e.g. "users/{{.Owner}}"
+	FilePrefixUser string
+	// a static path used to denote what sub-folder job results live in
+	FilePrefixResults string
 }
 
 type Controller struct {

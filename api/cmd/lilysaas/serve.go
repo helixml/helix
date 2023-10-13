@@ -1,8 +1,12 @@
 package lilysaas
 
 import (
+	"context"
+	"encoding/base64"
+	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
 	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
@@ -17,13 +21,25 @@ import (
 
 type AllOptions struct {
 	ControllerOptions controller.ControllerOptions
+	FilestoreOptions  filestore.FileStoreOptions
 	StoreOptions      store.StoreOptions
 	ServerOptions     server.ServerOptions
 }
 
 func NewAllOptions() *AllOptions {
 	return &AllOptions{
-		ControllerOptions: controller.ControllerOptions{},
+		ControllerOptions: controller.ControllerOptions{
+			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
+			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
+			FilePrefixResults: getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
+		},
+		FilestoreOptions: filestore.FileStoreOptions{
+			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
+			LocalFSPath:  getDefaultServeOptionString("FILESTORE_LOCALFS_PATH", "/tmp/lilysaas/filestore"),
+			GCSKeyBase64: getDefaultServeOptionString("FILESTORE_GCS_KEY_BASE64", ""),
+			GCSKeyFile:   getDefaultServeOptionString("FILESTORE_GCS_KEY_FILE", ""),
+			GCSBucket:    getDefaultServeOptionString("FILESTORE_GCS_BUCKET", ""),
+		},
 		StoreOptions: store.StoreOptions{
 			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
 			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
@@ -54,6 +70,48 @@ func newServeCmd() *cobra.Command {
 			return serve(cmd, allOptions)
 		},
 	}
+
+	// ControllerOptions
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ControllerOptions.FilePrefixGlobal, "file-prefix-global", allOptions.ControllerOptions.FilePrefixGlobal,
+		`The global prefix path for the filestore.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ControllerOptions.FilePrefixUser, "file-prefix-user", allOptions.ControllerOptions.FilePrefixUser,
+		`The go template that produces the prefix path for a user.`,
+	)
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ControllerOptions.FilePrefixResults, "file-prefix-results", allOptions.ControllerOptions.FilePrefixResults,
+		`The go template that produces the prefix path for a user.`,
+	)
+
+	// FileStoreOptions
+	var filestoreType string
+	serveCmd.PersistentFlags().StringVar(
+		&filestoreType, "filestore-type", string(allOptions.FilestoreOptions.Type),
+		`What type of filestore should we use (fs | gcs).`,
+	)
+	allOptions.FilestoreOptions.Type = filestore.FileStoreType(filestoreType)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.FilestoreOptions.LocalFSPath, "filestore-localfs-path", allOptions.FilestoreOptions.LocalFSPath,
+		`The local path that is the root for the local fs filestore.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.FilestoreOptions.GCSKeyBase64, "filestore-gcs-key-base64", allOptions.FilestoreOptions.GCSKeyBase64,
+		`The base64 encoded service account json file for GCS.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.FilestoreOptions.GCSKeyFile, "filestore-gcs-key-file", allOptions.FilestoreOptions.GCSKeyFile,
+		`The local path to the service account json file for GCS.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.FilestoreOptions.GCSBucket, "filestore-gcs-bucket", allOptions.FilestoreOptions.GCSBucket,
+		`The bucket we are storing things in GCS.`,
+	)
 
 	// StoreOptions
 	serveCmd.PersistentFlags().StringVar(
@@ -106,6 +164,68 @@ func newServeCmd() *cobra.Command {
 	return serveCmd
 }
 
+func getFilestore(ctx context.Context, options *AllOptions) (filestore.FileStore, error) {
+	var store filestore.FileStore
+	if options.ServerOptions.URL == "" {
+		return nil, fmt.Errorf("server url is required")
+	}
+	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
+		if options.FilestoreOptions.LocalFSPath == "" {
+			return nil, fmt.Errorf("local fs path is required")
+		}
+		rootPath := filepath.Join(options.FilestoreOptions.LocalFSPath, options.ControllerOptions.FilePrefixGlobal)
+		if _, err := os.Stat(rootPath); os.IsNotExist(err) {
+			err := os.MkdirAll(rootPath, 0755)
+			if err != nil {
+				return nil, err
+			}
+		}
+		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL))
+	} else if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalGCS {
+		if options.FilestoreOptions.GCSKeyBase64 != "" {
+			keyfile, err := func() (string, error) {
+				decoded, err := base64.StdEncoding.DecodeString(options.FilestoreOptions.GCSKeyBase64)
+				if err != nil {
+					return "", fmt.Errorf("failed to decode GCS key: %v", err)
+				}
+				tmpfile, err := os.CreateTemp("", "gcskey")
+				if err != nil {
+					return "", fmt.Errorf("failed to create temporary file for GCS key: %v", err)
+				}
+				defer tmpfile.Close()
+				if _, err := tmpfile.Write(decoded); err != nil {
+					return "", fmt.Errorf("failed to write GCS key to temporary file: %v", err)
+				}
+				return tmpfile.Name(), nil
+			}()
+			if err != nil {
+				return nil, err
+			}
+			options.FilestoreOptions.GCSKeyFile = keyfile
+		}
+		if options.FilestoreOptions.GCSKeyFile == "" {
+			return nil, fmt.Errorf("gcs key is required")
+		}
+		if _, err := os.Stat(options.FilestoreOptions.GCSKeyFile); os.IsNotExist(err) {
+			return nil, fmt.Errorf("gcs key file does not exist")
+		}
+		gcs, err := filestore.NewGCSStorage(ctx, options.FilestoreOptions.GCSKeyFile, options.FilestoreOptions.GCSBucket)
+		if err != nil {
+			return nil, err
+		}
+		store = gcs
+	} else {
+		return nil, fmt.Errorf("unknown filestore type: %s", options.FilestoreOptions.Type)
+	}
+	// let's make sure the global prefix folder exists
+	// from here on it will be user directories being created
+	_, err := store.CreateFolder(ctx, options.ControllerOptions.FilePrefixGlobal)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
 func serve(cmd *cobra.Command, options *AllOptions) error {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -120,14 +240,10 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	if _, err := os.Stat("/tmp/lilysaas/dev"); os.IsNotExist(err) {
-		err := os.MkdirAll("/tmp/lilysaas/dev", 0755)
-		if err != nil {
-			return err
-		}
+	fs, err := getFilestore(ctx, options)
+	if err != nil {
+		return err
 	}
-
-	filestore := filestore.NewFileSystemStorage("/tmp/lilysaas", "http://localhost:8080")
 
 	jobRunner, err := job.NewJobRunner(ctx)
 	if err != nil {
@@ -139,12 +255,15 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	controller, err := controller.NewController(ctx, controller.ControllerOptions{
-		Store:           store,
-		JobRunner:       jobRunner,
-		Filestore:       filestore,
-		FilestorePrefix: "",
-	})
+	options.ControllerOptions.Store = store
+	options.ControllerOptions.Filestore = fs
+	options.ControllerOptions.JobRunner = jobRunner
+
+	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
+		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
+	}
+
+	controller, err := controller.NewController(ctx, options.ControllerOptions)
 	if err != nil {
 		return err
 	}
