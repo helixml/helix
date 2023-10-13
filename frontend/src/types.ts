@@ -93,9 +93,10 @@ export interface IFileStoreItem {
 
 export interface IFileStoreFolder {
   name: string,
-  readony: boolean,
+  readonly: boolean,
 }
 
 export interface IFileStoreConfig {
+  user_prefix: string,
   folders: IFileStoreFolder[],
 }

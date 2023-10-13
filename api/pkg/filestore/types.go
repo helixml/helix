@@ -42,7 +42,11 @@ type FilestoreFolder struct {
 }
 
 type FilestoreConfig struct {
-	Folders []FilestoreFolder `json:"folders"`
+	// this will be the virtual path from the storage instance
+	// to the users root directory
+	// we use this to strip the full paths in the frontend so we can deal with only relative paths
+	UserPrefix string            `json:"user_prefix"`
+	Folders    []FilestoreFolder `json:"folders"`
 }
 
 type FileStore interface {
