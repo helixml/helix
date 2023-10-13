@@ -27,7 +27,7 @@ func (s *FileSystemStorage) List(ctx context.Context, prefix string) ([]FileStor
 		return nil, fmt.Errorf("error reading directory: %w", err)
 	}
 
-	var items []FileStoreItem
+	items := []FileStoreItem{}
 	for _, f := range files {
 		path := filepath.Join(prefix, f.Name())
 		info, err := f.Info()
