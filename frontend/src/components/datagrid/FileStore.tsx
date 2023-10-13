@@ -32,6 +32,8 @@ const columns: IDataGrid2_Column<IFileStoreItem>[] = [
     render: ({ data }) => {
       let icon = null
 
+      console.log(data)
+
       if(isImage(data.name)) {
         icon = (
           <div>
