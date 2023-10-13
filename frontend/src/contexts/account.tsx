@@ -14,6 +14,7 @@ import {
   IModule,
   IBalanceTransfer,
   IFileStoreItem,
+  IFileStoreConfig,
 } from '../types'
 
 const REALM = 'lilypad'
@@ -27,6 +28,7 @@ export interface IAccountContext {
   jobs: IJob[],
   modules: IModule[],
   files: IFileStoreItem[],
+  filestoreConfig: IFileStoreConfig,
   transactions: IBalanceTransfer[],
   onLogin: () => void,
   onLogout: () => void,
@@ -39,6 +41,9 @@ export const AccountContext = createContext<IAccountContext>({
   jobs: [],
   modules: [],
   files: [],
+  filestoreConfig: {
+    folders: [],
+  },
   transactions: [],
   onLogin: () => {},
   onLogout: () => {},
@@ -55,6 +60,9 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ files, setFiles ] = useState<IFileStoreItem[]>([])
+  const [ filestoreConfig, setFilestoreConfig ] = useState<IFileStoreConfig>({
+    folders: [],
+  })
   const [ jobs, setJobs ] = useState<IJob[]>([])
   const [ modules, setModules ] = useState<IModule[]>([])
 
@@ -100,6 +108,12 @@ export const useAccountContext = (): IAccountContext => {
     setCredits(statusResult.credits)
   }, [])
 
+  const loadFilestoreConfig = useCallback(async () => {
+    const configResult = await api.get('/api/v1/filestore/config')
+    if(!configResult) return
+    setFilestoreConfig(configResult)
+  }, [])
+
   const loadFiles = useCallback(async (path: string) => {
     const filesResult = await api.get('/api/v1/filestore/list', {
       params: {
@@ -113,6 +127,7 @@ export const useAccountContext = (): IAccountContext => {
   const loadAll = useCallback(async () => {
     await bluebird.all([
       loadModules(),
+      loadFilestoreConfig(),
       loadJobs(),
       loadTransactions(),
       loadStatus(),
@@ -120,6 +135,7 @@ export const useAccountContext = (): IAccountContext => {
   }, [
     loadModules,
     loadJobs,
+    loadFilestoreConfig,
     loadTransactions,
     loadStatus,
   ])
@@ -226,6 +242,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     files,
+    filestoreConfig,
     transactions,
     onLogin,
     onLogout,
@@ -237,6 +254,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     files,
+    filestoreConfig,
     transactions,
     onLogin,
     onLogout,

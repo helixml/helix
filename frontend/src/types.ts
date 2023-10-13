@@ -90,3 +90,12 @@ export interface IFileStoreItem {
   path: string;
   url: string;
 }
+
+export interface IFileStoreFolder {
+  name: string,
+  readony: boolean,
+}
+
+export interface IFileStoreConfig {
+  folders: IFileStoreFolder[],
+}

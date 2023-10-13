@@ -94,7 +94,9 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
-		subrouter.PathPrefix("/filestore/viewer").Handler(http.StripPrefix("/filestore/viewer/", fileServer))
+		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix("/api/v1/filestore/viewer/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fileServer.ServeHTTP(w, r)
+		})))
 	}
 
 	StartWebSocketServer(
