@@ -57,7 +57,10 @@ const Files: FC = () => {
 
   useEffect(() => {
     account.onSetFilestorePath(queryParams.path || '/')
-    return () => account.onSetFilestorePath('')
+    return () => {
+      // account.onSetFilestorePath('/')
+      // history.replaceState(null, "", location.pathname)
+    }
   }, [])
 
   if(!account.user) return null

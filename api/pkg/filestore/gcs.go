@@ -30,7 +30,7 @@ func NewGCSStorage(ctx context.Context, bucketName, serviceAccountKeyFile string
 
 func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, error) {
 	it := s.bucket.Objects(ctx, &storage.Query{Prefix: prefix})
-	var items []FileStoreItem
+	items := []FileStoreItem{}
 
 	for {
 		attrs, err := it.Next()
