@@ -40,6 +40,10 @@ func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http
 	return apiServer.Controller.CreateJob(apiServer.getRequestContext(req), request)
 }
 
+func (apiServer *LilysaasAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
+	return apiServer.Controller.FilestoreConfig(apiServer.getRequestContext(req))
+}
+
 func (apiServer *LilysaasAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreList(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
 }

@@ -18,6 +18,13 @@ type ServerOptions struct {
 	Port          int
 	KeyCloakURL   string
 	KeyCloakToken string
+	// this is for when we are running localfs filesystem
+	// and we need to add a route to view files based on their path
+	// we are assuming all file storage is open right now
+	// so we just deep link to the object path and don't apply auth
+	// (this is so lilypad nodes can see files)
+	// later, we might add a token to the URLs
+	LocalFilestorePath string
 }
 
 type LilysaasAPIServer struct {
@@ -77,12 +84,18 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 
 	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
+	authRouter.HandleFunc("/filestore/config", wrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", wrapper(apiServer.filestoreList)).Methods("GET")
 	authRouter.HandleFunc("/filestore/get", wrapper(apiServer.filestoreGet)).Methods("GET")
 	authRouter.HandleFunc("/filestore/folder", wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
 	authRouter.HandleFunc("/filestore/file", wrapper(apiServer.filestoreUpload)).Methods("POST")
 	authRouter.HandleFunc("/filestore/rename", wrapper(apiServer.filestoreRename)).Methods("PUT")
 	authRouter.HandleFunc("/filestore/file", wrapper(apiServer.filestoreRename)).Methods("DELETE")
+
+	if apiServer.Options.LocalFilestorePath != "" {
+		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
+		subrouter.PathPrefix("/filestore/viewer").Handler(http.StripPrefix("/filestore/viewer/", fileServer))
+	}
 
 	StartWebSocketServer(
 		ctx,

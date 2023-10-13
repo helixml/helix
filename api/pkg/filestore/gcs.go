@@ -155,6 +155,21 @@ func (s *GCSStorage) Delete(ctx context.Context, path string) error {
 func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (FileStoreItem, error) {
 	obj := s.bucket.Object(path + "/")
 	if _, err := obj.NewWriter(ctx).Write([]byte("")); err != nil {
+		// Check if the error is due to the folder already existing
+		if strings.Contains(err.Error(), "googleapi: Error 409: Conflict") {
+			attrs, err := obj.Attrs(ctx)
+			if err != nil {
+				return FileStoreItem{}, fmt.Errorf("error fetching GCS object attributes after folder creation: %w", err)
+			}
+			return FileStoreItem{
+				Directory: strings.HasSuffix(attrs.Name, "/"),
+				Name:      attrs.Name,
+				Path:      attrs.Name,
+				URL:       attrs.MediaLink,
+				Created:   attrs.Created.Unix(),
+				Size:      attrs.Size,
+			}, nil
+		}
 		return FileStoreItem{}, fmt.Errorf("failed to create GCS folder: %w", err)
 	}
 	attrs, err := obj.Attrs(ctx)

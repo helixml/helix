@@ -19,10 +19,8 @@ const getFileExtension = (filename: string) => {
 }
 
 const isImage = (filename: string) => {
-  return false
-}
-
-const isMedia = (filename: string) => {
+  if(!filename) return false
+  if(filename.match(/\.(jpg)|(png)|(jpeg)|(gif)$/i)) return true
   return false
 }
 
@@ -34,7 +32,7 @@ const columns: IDataGrid2_Column<IFileStoreItem>[] = [
     render: ({ data }) => {
       let icon = null
 
-      if(isImage(data.name) && isMedia(data.name)) {
+      if(isImage(data.name)) {
         icon = (
           <div>
             <Box
@@ -121,16 +119,19 @@ const columns: IDataGrid2_Column<IFileStoreItem>[] = [
   {
     name: 'actions',
     header: 'Actions',
-    minWidth: 100,
-    defaultWidth: 100,
-    textAlign: 'end',
+    minWidth: 160,
+    defaultWidth: 160,
     render: ({ data }) => {
       return (
         <Box
           sx={{
+            width: '100%',
             display: 'flex',
             flexDirection: 'row',
-            alignItems: 'center',
+            alignItems: 'flex-end',
+            justifyContent: 'space-between',
+            pl: 2,
+            pr: 2,
           }}
         >
           <ClickLink
