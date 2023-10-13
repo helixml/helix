@@ -29,6 +29,7 @@ export interface IAccountContext {
   modules: IModule[],
   files: IFileStoreItem[],
   filestoreConfig: IFileStoreConfig,
+  filesLoading: boolean,
   transactions: IBalanceTransfer[],
   onLogin: () => void,
   onLogout: () => void,
@@ -41,7 +42,9 @@ export const AccountContext = createContext<IAccountContext>({
   jobs: [],
   modules: [],
   files: [],
+  filesLoading: false,
   filestoreConfig: {
+    user_prefix: '',
     folders: [],
   },
   transactions: [],
@@ -60,7 +63,9 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ files, setFiles ] = useState<IFileStoreItem[]>([])
+  const [ filesLoading, setFilesLoading ] = useState(false)
   const [ filestoreConfig, setFilestoreConfig ] = useState<IFileStoreConfig>({
+    user_prefix: '',
     folders: [],
   })
   const [ jobs, setJobs ] = useState<IJob[]>([])
@@ -115,13 +120,17 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const loadFiles = useCallback(async (path: string) => {
-    const filesResult = await api.get('/api/v1/filestore/list', {
-      params: {
-        path,
-      }
-    })
-    if(!filesResult) return
-    setFiles(filesResult || [])
+    setFilesLoading(true)
+    try {
+      const filesResult = await api.get('/api/v1/filestore/list', {
+        params: {
+          path,
+        }
+      })
+      if(!filesResult) return
+      setFiles(filesResult || [])
+    } catch(e) {}
+    setFilesLoading(false)
   }, [])
 
   const loadAll = useCallback(async () => {
@@ -242,6 +251,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     files,
+    filesLoading,
     filestoreConfig,
     transactions,
     onLogin,
@@ -254,6 +264,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     files,
+    filesLoading,
     filestoreConfig,
     transactions,
     onLogin,

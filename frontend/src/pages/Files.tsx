@@ -10,6 +10,14 @@ import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
 
+import {
+  IFileStoreItem,
+} from '../types'
+
+import {
+  getRelativePath,
+} from '../utils/filestore'
+
 const Files: FC = () => {
   const account = useContext(AccountContext)
   const [ queryParams, setQueryParams ] = useQueryParams() 
@@ -27,6 +35,24 @@ const Files: FC = () => {
     setQueryParams({
       edit_folder_id: id,
     })
+  }, [])
+
+  const onViewFile = useCallback((file: IFileStoreItem) => {
+    if(file.directory) {
+      account.onSetFilestorePath(getRelativePath(account.filestoreConfig, file))
+    } else {
+      window.open(file.url)
+    }
+  }, [
+    account.filestoreConfig,
+  ])
+
+  const onEditFile = useCallback((file: IFileStoreItem) => {
+    
+  }, [])
+
+  const onDeleteFile = useCallback((file: IFileStoreItem) => {
+    
   }, [])
 
   useEffect(() => {
@@ -64,7 +90,11 @@ const Files: FC = () => {
         datagrid={
           <FileStoreGrid
             files={ sortedFiles }
-            loading={ account.initialized ? false : true }
+            config={ account.filestoreConfig }
+            loading={ account.filesLoading }
+            onView={ onViewFile }
+            onEdit={ onEditFile }
+            onDelete={ onDeleteFile }
           />
         }
       />

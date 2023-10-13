@@ -42,7 +42,7 @@ func GetFolders() ([]filestore.FilestoreFolder, error) {
 
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
-func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, error) {
 	tmpl, err := template.New("user_path").Parse(c.Options.FilePrefixUser)
 	if err != nil {
 		return "", err
@@ -55,7 +55,15 @@ func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(c.Options.FilePrefixGlobal, buf.String(), path), nil
+	return buf.String(), nil
+}
+
+func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+	userPrefix, err := c.getFilestoreUserPrefix(ctx)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(c.Options.FilePrefixGlobal, userPrefix, path), nil
 }
 
 // given a path - we might have never seen this filestore yet
@@ -90,12 +98,17 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path stri
 }
 
 func (c *Controller) FilestoreConfig(ctx types.RequestContext) (filestore.FilestoreConfig, error) {
+	userPrefix, err := c.getFilestoreUserPrefix(ctx)
+	if err != nil {
+		return filestore.FilestoreConfig{}, err
+	}
 	folders, err := GetFolders()
 	if err != nil {
 		return filestore.FilestoreConfig{}, err
 	}
 	return filestore.FilestoreConfig{
-		Folders: folders,
+		UserPrefix: filepath.Join(c.Options.FilePrefixGlobal, userPrefix),
+		Folders:    folders,
 	}, nil
 }
 
