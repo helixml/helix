@@ -9,22 +9,24 @@ const Box_1 = __importDefault(require("@mui/material/Box"));
 const Button_1 = __importDefault(require("@mui/material/Button"));
 const TextField_1 = __importDefault(require("@mui/material/TextField"));
 const Add_1 = __importDefault(require("@mui/icons-material/Add"));
-const router_1 = require("../contexts/router");
-const account_1 = require("../contexts/account");
 const DataGridWithFilters_1 = __importDefault(require("../components/datagrid/DataGridWithFilters"));
 const FileStore_1 = __importDefault(require("../components/datagrid/FileStore"));
 const Window_1 = __importDefault(require("../components/widgets/Window"));
+const useFilestore_1 = __importDefault(require("../hooks/useFilestore"));
+const useAccount_1 = __importDefault(require("../hooks/useAccount"));
+const useRouter_1 = __importDefault(require("../hooks/useRouter"));
 const filestore_1 = require("../utils/filestore");
 const Files = () => {
-    const account = (0, react_1.useContext)(account_1.AccountContext);
-    const { route, setParams, } = (0, react_1.useContext)(router_1.RouterContext);
+    const account = (0, useAccount_1.default)();
+    const filestore = (0, useFilestore_1.default)();
+    const { name, params, setParams, } = (0, useRouter_1.default)();
     const [editName, setEditName] = (0, react_1.useState)('');
     const sortedFiles = (0, react_1.useMemo)(() => {
-        const folders = account.files.filter((file) => file.directory);
-        const files = account.files.filter((file) => !file.directory);
+        const folders = filestore.files.filter((file) => file.directory);
+        const files = filestore.files.filter((file) => !file.directory);
         return folders.concat(files);
     }, [
-        account.files,
+        filestore.files,
     ]);
     const openFolderEditor = (0, react_1.useCallback)((id) => {
         setParams({
@@ -35,13 +37,13 @@ const Files = () => {
     ]);
     const onViewFile = (0, react_1.useCallback)((file) => {
         if (file.directory) {
-            account.onSetFilestorePath((0, filestore_1.getRelativePath)(account.filestoreConfig, file));
+            filestore.onSetPath((0, filestore_1.getRelativePath)(filestore.config, file));
         }
         else {
             window.open(file.url);
         }
     }, [
-        account.filestoreConfig,
+        filestore.config,
     ]);
     const onEditFile = (0, react_1.useCallback)((file) => {
     }, []);
@@ -60,7 +62,7 @@ const Files = () => {
                             setParams({
                                 edit_folder_id: 'new',
                             });
-                        } }, { children: "Create Folder" })) })), datagrid: (0, jsx_runtime_1.jsx)(FileStore_1.default, { files: sortedFiles, config: account.filestoreConfig, loading: account.filesLoading, onView: onViewFile, onEdit: onEditFile, onDelete: onDeleteFile }) }), route.params.edit_folder_id && ((0, jsx_runtime_1.jsx)(Window_1.default, Object.assign({ open: true, title: "Edit Folder", withCancel: true, onCancel: () => {
+                        } }, { children: "Create Folder" })) })), datagrid: (0, jsx_runtime_1.jsx)(FileStore_1.default, { files: sortedFiles, config: filestore.config, loading: filestore.loading, onView: onViewFile, onEdit: onEditFile, onDelete: onDeleteFile }) }), params.edit_folder_id && ((0, jsx_runtime_1.jsx)(Window_1.default, Object.assign({ open: true, title: "Edit Folder", withCancel: true, onCancel: () => {
                     setParams({
                         edit_folder_id: ''
                     });

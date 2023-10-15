@@ -10,39 +10,36 @@ import {
 
 export interface IFilestoreContext {
   files: IFileStoreItem[],
-  filestoreConfig: IFileStoreConfig,
-  filesLoading: boolean,
-  onSetFilestorePath: (path: string) => void,
+  config: IFileStoreConfig,
+  loading: boolean,
+  onSetPath: (path: string) => void,
 }
 
 export const FilestoreContext = createContext<IFilestoreContext>({
   files: [],
-  filesLoading: false,
-  filestoreConfig: {
+  loading: false,
+  config: {
     user_prefix: '',
     folders: [],
   },
-  onSetFilestorePath: () => {},
+  onSetPath: () => {},
 })
 
 export const useFilestoreContext = (): IFilestoreContext => {
   const api = useApi()
   const account = useAccount()
   const {
-    name,
-    meta,
     params,
     navigate,
   } = useRouter()
-  const [ initialized, setInitialized ] = useState(false)
   const [ files, setFiles ] = useState<IFileStoreItem[]>([])
-  const [ filesLoading, setFilesLoading ] = useState(false)
-  const [ filestoreConfig, setFilestoreConfig ] = useState<IFileStoreConfig>({
+  const [ loading, setLoading ] = useState(false)
+  const [ config, setConfig ] = useState<IFileStoreConfig>({
     user_prefix: '',
     folders: [],
   })
 
-  const onSetFilestorePath = useCallback((path: string) => {
+  const onSetPath = useCallback((path: string) => {
     const update: any = {}
     if(path) {
       update.path = path
@@ -52,14 +49,14 @@ export const useFilestoreContext = (): IFilestoreContext => {
     navigate,
   ])
 
-  const loadFilestoreConfig = useCallback(async () => {
+  const loadConfig = useCallback(async () => {
     const configResult = await api.get('/api/v1/filestore/config')
     if(!configResult) return
-    setFilestoreConfig(configResult)
+    setConfig(configResult)
   }, [])
 
   const loadFiles = useCallback(async (path: string) => {
-    setFilesLoading(true)
+    setLoading(true)
     try {
       const filesResult = await api.get('/api/v1/filestore/list', {
         params: {
@@ -69,37 +66,36 @@ export const useFilestoreContext = (): IFilestoreContext => {
       if(!filesResult) return
       setFiles(filesResult || [])
     } catch(e) {}
-    setFilesLoading(false)
+    setLoading(false)
   }, [])
 
 
   useEffect(() => {
     if(!params.path) return
-    if(!user) return
-    loadFiles(route.params.path)
+    if(!account.user) return
+    loadFiles(params.path)
   }, [
-    user,
-    route.params.path,
+    account.user,
+    params.path,
   ])
 
   useEffect(() => {
     if(!account.user) return
-    loadFilestoreConfig()
+    loadConfig()
   }, [
     account.user,
   ])
 
   const contextValue = useMemo<IFilestoreContext>(() => ({
     files,
-    filesLoading,
-    filestoreConfig,
-    onSetFilestorePath,
+    loading,
+    config,
+    onSetPath,
   }), [
-    initialized,
     files,
-    filesLoading,
-    filestoreConfig,
-    onSetFilestorePath,
+    loading,
+    config,
+    onSetPath,
   ])
 
   return contextValue

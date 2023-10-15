@@ -82,6 +82,10 @@ const useApi = () => {
             }
         });
     }, []);
+    // this will work globally because we are applying this to the root import of axios
+    // therefore we don't need to worry about passing the token around to other contexts
+    // we can just call useApi() from anywhere and we will get the token injected into the request
+    // because the top level account context has called this
     const setToken = (0, react_1.useCallback)(function (token) {
         axios_1.default.defaults.headers.common = token ? (0, exports.getTokenHeaders)(token) : {};
     }, []);
