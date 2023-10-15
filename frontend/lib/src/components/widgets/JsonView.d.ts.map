@@ -1,1 +1,0 @@
-{"version":3,"file":"JsonView.d.ts","sourceRoot":"","sources":["../../../../src/components/widgets/JsonView.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,EAAE,EAAE,EAAE,MAAM,OAAO,CAAA;AAejC,UAAU,aAAa;IACrB,IAAI,EAAE,GAAG,CAAC;IACV,SAAS,CAAC,EAAE,OAAO,CAAC;CACrB;AAED,QAAA,MAAM,QAAQ,EAAE,EAAE,CAAC,KAAK,CAAC,iBAAiB,CAAC,aAAa,CAAC,CAYxD,CAAA;AAED,eAAe,QAAQ,CAAA"}

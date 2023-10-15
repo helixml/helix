@@ -1,1 +1,0 @@
-{"version":3,"file":"JsonWindowLink.d.ts","sourceRoot":"","sources":["../../../../src/components/widgets/JsonWindowLink.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,EAAE,EAAE,EAAY,MAAM,OAAO,CAAA;AAK3C,UAAU,mBAAmB;IAC3B,IAAI,EAAE,GAAG,CAAC;IACV,SAAS,CAAC,EAAE,MAAM,CAAC;CACpB;AAED,QAAA,MAAM,cAAc,EAAE,EAAE,CAAC,KAAK,CAAC,iBAAiB,CAAC,mBAAmB,CAAC,CA0BpE,CAAA;AAED,eAAe,cAAc,CAAA"}

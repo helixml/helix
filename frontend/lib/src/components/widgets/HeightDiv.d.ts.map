@@ -1,1 +1,0 @@
-{"version":3,"file":"HeightDiv.d.ts","sourceRoot":"","sources":["../../../../src/components/widgets/HeightDiv.tsx"],"names":[],"mappings":"AAAA,OAAc,EAAE,EAAE,EAA4C,MAAM,OAAO,CAAA;AAC3E,OAAO,EAAE,OAAO,EAAE,MAAM,aAAa,CAAA;AAGrC,QAAA,MAAM,SAAS,EAAE,EAAE,CAAC;IAClB,OAAO,CAAC,EAAE,MAAM,CAAC;IACjB,EAAE,CAAC,EAAE,OAAO,CAAC;CACd,CA0CA,CAAA;AAED,eAAe,SAAS,CAAA"}
