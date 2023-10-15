@@ -8,6 +8,7 @@ import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
 
+import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
 
@@ -21,6 +22,7 @@ import {
 
 const Files: FC = () => {
   const account = useAccount()
+  const filestore = useFilestore()
   
   const {
     name,
@@ -28,14 +30,16 @@ const Files: FC = () => {
     setParams,
   } = useRouter()
 
+
+
   const [ editName, setEditName ] = useState('')
 
   const sortedFiles = useMemo(() => {
-    const folders = account.files.filter((file) => file.directory)
-    const files = account.files.filter((file) => !file.directory)
+    const folders = filestore.files.filter((file) => file.directory)
+    const files = filestore.files.filter((file) => !file.directory)
     return folders.concat(files)
   }, [
-    account.files,
+    filestore.files,
   ])
 
   const openFolderEditor = useCallback((id: string) => {
@@ -48,12 +52,12 @@ const Files: FC = () => {
 
   const onViewFile = useCallback((file: IFileStoreItem) => {
     if(file.directory) {
-      account.onSetFilestorePath(getRelativePath(account.filestoreConfig, file))
+      filestore.onSetPath(getRelativePath(filestore.config, file))
     } else {
       window.open(file.url)
     }
   }, [
-    account.filestoreConfig,
+    filestore.config,
   ])
 
   const onEditFile = useCallback((file: IFileStoreItem) => {
@@ -65,7 +69,7 @@ const Files: FC = () => {
   }, [])
 
   useEffect(() => {
-    //account.onSetFilestorePath(queryParams.path || '/')
+    filestore.onSetPath(params.path || '/')
   }, [])
 
   if(!account.user) return null
@@ -98,8 +102,8 @@ const Files: FC = () => {
         datagrid={
           <FileStoreGrid
             files={ sortedFiles }
-            config={ account.filestoreConfig }
-            loading={ account.filesLoading }
+            config={ filestore.config }
+            loading={ filestore.loading }
             onView={ onViewFile }
             onEdit={ onEditFile }
             onDelete={ onDeleteFile }

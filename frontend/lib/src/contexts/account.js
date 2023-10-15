@@ -23,7 +23,6 @@ const useSnackbar_1 = __importDefault(require("../hooks/useSnackbar"));
 const useLoading_1 = __importDefault(require("../hooks/useLoading"));
 const useErrorCallback_1 = require("../hooks/useErrorCallback");
 const react_router5_1 = require("react-router5");
-const router_1 = __importDefault(require("../router"));
 const REALM = 'lilypad';
 const KEYCLOAK_URL = '/auth/';
 const CLIENT_ID = 'frontend';
@@ -32,16 +31,9 @@ exports.AccountContext = (0, react_1.createContext)({
     credits: 0,
     jobs: [],
     modules: [],
-    files: [],
-    filesLoading: false,
-    filestoreConfig: {
-        user_prefix: '',
-        folders: [],
-    },
     transactions: [],
     onLogin: () => { },
     onLogout: () => { },
-    onSetFilestorePath: () => { },
 });
 const useAccountContext = () => {
     const api = (0, useApi_1.default)();
@@ -52,12 +44,6 @@ const useAccountContext = () => {
     const [user, setUser] = (0, react_1.useState)();
     const [credits, setCredits] = (0, react_1.useState)(0);
     const [transactions, setTransactions] = (0, react_1.useState)([]);
-    const [files, setFiles] = (0, react_1.useState)([]);
-    const [filesLoading, setFilesLoading] = (0, react_1.useState)(false);
-    const [filestoreConfig, setFilestoreConfig] = (0, react_1.useState)({
-        user_prefix: '',
-        folders: [],
-    });
     const [jobs, setJobs] = (0, react_1.useState)([]);
     const [modules, setModules] = (0, react_1.useState)([]);
     const keycloak = (0, react_1.useMemo)(() => {
@@ -66,13 +52,6 @@ const useAccountContext = () => {
             url: KEYCLOAK_URL,
             clientId: CLIENT_ID,
         });
-    }, []);
-    const onSetFilestorePath = (0, react_1.useCallback)((path) => {
-        const update = {};
-        if (path) {
-            update.path = path;
-        }
-        router_1.default.navigate('files', update);
     }, []);
     const loadModules = (0, react_1.useCallback)(() => __awaiter(void 0, void 0, void 0, function* () {
         const result = yield api.get('/api/v1/modules');
@@ -98,31 +77,9 @@ const useAccountContext = () => {
             return;
         setCredits(statusResult.credits);
     }), []);
-    const loadFilestoreConfig = (0, react_1.useCallback)(() => __awaiter(void 0, void 0, void 0, function* () {
-        const configResult = yield api.get('/api/v1/filestore/config');
-        if (!configResult)
-            return;
-        setFilestoreConfig(configResult);
-    }), []);
-    const loadFiles = (0, react_1.useCallback)((path) => __awaiter(void 0, void 0, void 0, function* () {
-        setFilesLoading(true);
-        try {
-            const filesResult = yield api.get('/api/v1/filestore/list', {
-                params: {
-                    path,
-                }
-            });
-            if (!filesResult)
-                return;
-            setFiles(filesResult || []);
-        }
-        catch (e) { }
-        setFilesLoading(false);
-    }), []);
     const loadAll = (0, react_1.useCallback)(() => __awaiter(void 0, void 0, void 0, function* () {
         yield bluebird_1.default.all([
             loadModules(),
-            loadFilestoreConfig(),
             loadJobs(),
             loadTransactions(),
             loadStatus(),
@@ -130,7 +87,6 @@ const useAccountContext = () => {
     }), [
         loadModules,
         loadJobs,
-        loadFilestoreConfig,
         loadTransactions,
         loadStatus,
     ]);
@@ -210,6 +166,7 @@ const useAccountContext = () => {
         rws.addEventListener('message', (event) => {
             const parsedData = JSON.parse(event.data);
             console.dir(parsedData);
+            // we have a job update message
             if (parsedData.type === 'job' && parsedData.job) {
                 const newJob = parsedData.job;
                 setJobs(jobs => jobs.map(existingJob => {
@@ -223,42 +180,24 @@ const useAccountContext = () => {
     }, [
         user === null || user === void 0 ? void 0 : user.token,
     ]);
-    (0, react_1.useEffect)(() => {
-        if (!route.params.path)
-            return;
-        if (!user)
-            return;
-        loadFiles(route.params.path);
-    }, [
-        user,
-        route.params.path,
-    ]);
     const contextValue = (0, react_1.useMemo)(() => ({
         initialized,
         user,
         credits,
         jobs,
         modules,
-        files,
-        filesLoading,
-        filestoreConfig,
         transactions,
         onLogin,
         onLogout,
-        onSetFilestorePath,
     }), [
         initialized,
         user,
         credits,
         jobs,
         modules,
-        files,
-        filesLoading,
-        filestoreConfig,
         transactions,
         onLogin,
         onLogout,
-        onSetFilestorePath,
     ]);
     return contextValue;
 };

@@ -10,8 +10,9 @@ const react_router5_1 = require("react-router5");
 const router5_plugin_browser_1 = __importDefault(require("router5-plugin-browser"));
 const Home_1 = __importDefault(require("./pages/Home"));
 const Jobs_1 = __importDefault(require("./pages/Jobs"));
-const Files_1 = __importDefault(require("./pages/Files"));
 const Account_1 = __importDefault(require("./pages/Account"));
+const filestore_1 = require("./contexts/filestore");
+const Files_1 = __importDefault(require("./pages/Files"));
 exports.NOT_FOUND_ROUTE = {
     name: 'notfound',
     path: '/notfound',
@@ -40,7 +41,7 @@ const routes = [{
         meta: {
             title: 'Files',
         },
-        render: () => (0, jsx_runtime_1.jsx)(Files_1.default, {}),
+        render: () => ((0, jsx_runtime_1.jsx)(filestore_1.FilestoreContextProvider, { children: (0, jsx_runtime_1.jsx)(Files_1.default, {}) })),
     }, {
         name: 'account',
         path: '/account',
