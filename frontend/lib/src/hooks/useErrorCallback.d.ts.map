@@ -1,0 +1,1 @@
+{"version":3,"file":"useErrorCallback.d.ts","sourceRoot":"","sources":["../../../src/hooks/useErrorCallback.tsx"],"names":[],"mappings":"AAMA,eAAO,MAAM,mBAAmB,UAAW,GAAG,KAAG,MAOhD,CAAA;AAED,wBAAgB,gBAAgB,CAAC,CAAC,GAAG,IAAI,EAAE,OAAO,EAAE;IAClD,IAAI,OAAO,CAAC,CAAC,GAAG,IAAI,CAAC,CAAC;CACvB,EAAE,cAAc,UAAO,2BAiBvB;AAED,eAAe,gBAAgB,CAAA"}
