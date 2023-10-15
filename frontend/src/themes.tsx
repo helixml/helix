@@ -33,13 +33,15 @@ export const THEMES: Record<string, ITheme> = {
           src="/img/logo.png"
           alt="Lilypad" 
           sx={{
-            height: 40,
+            height: 30,
+            ml: 1,
           }}
         />
         <Typography variant="h6" sx={{
-          ml: 1,
+          ml: 2,
+          mr: 1,
         }}>
-          Lilypad
+          Lilypad AI Studio
         </Typography>
       </Box>
     ),
