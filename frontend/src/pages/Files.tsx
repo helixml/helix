@@ -1,14 +1,15 @@
-import React, { FC, useContext, useEffect, useState, useCallback, useMemo } from 'react'
-import { useQueryParams } from 'hookrouter'
+import React, { FC, useEffect, useState, useCallback, useMemo } from 'react'
+import { useRoute } from 'react-router5'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-
 import AddIcon from '@mui/icons-material/Add'
-import { AccountContext } from '../contexts/account'
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
+
+import useAccount from '../hooks/useAccount'
+import useRouter from '../hooks/useRouter'
 
 import {
   IFileStoreItem,
@@ -19,8 +20,14 @@ import {
 } from '../utils/filestore'
 
 const Files: FC = () => {
-  const account = useContext(AccountContext)
-  const [ queryParams, setQueryParams ] = useQueryParams() 
+  const account = useAccount()
+  
+  const {
+    name,
+    params,
+    setParams,
+  } = useRouter()
+
   const [ editName, setEditName ] = useState('')
 
   const sortedFiles = useMemo(() => {
@@ -32,10 +39,12 @@ const Files: FC = () => {
   ])
 
   const openFolderEditor = useCallback((id: string) => {
-    setQueryParams({
+    setParams({
       edit_folder_id: id,
     })
-  }, [])
+  }, [
+    setParams,
+  ])
 
   const onViewFile = useCallback((file: IFileStoreItem) => {
     if(file.directory) {
@@ -56,11 +65,7 @@ const Files: FC = () => {
   }, [])
 
   useEffect(() => {
-    account.onSetFilestorePath(queryParams.path || '/')
-    return () => {
-      // account.onSetFilestorePath('/')
-      // history.replaceState(null, "", location.pathname)
-    }
+    //account.onSetFilestorePath(queryParams.path || '/')
   }, [])
 
   if(!account.user) return null
@@ -81,7 +86,7 @@ const Files: FC = () => {
               color="secondary"
               endIcon={<AddIcon />}
               onClick={ () => {
-                setQueryParams({
+                setParams({
                   edit_folder_id: 'new',
                 })
               }}
@@ -102,13 +107,13 @@ const Files: FC = () => {
         }
       />
       {
-        queryParams.edit_folder_id && (
+        params.edit_folder_id && (
           <Window
             open
             title="Edit Folder"
             withCancel
             onCancel={ () => {
-              setQueryParams({
+              setParams({
                 edit_folder_id: ''
               }) 
             }}

@@ -9,8 +9,8 @@ import {
 } from './loading'
 
 import {
-  RouterContextProvider,
-} from './router'
+  ThemeProviderWrapper,
+} from './theme'
 
 import {
   AccountContextProvider,
@@ -20,11 +20,11 @@ const AllContextProvider: FC = ({ children }) => {
   return (
     <SnackbarContextProvider>
       <LoadingContextProvider>
-        <RouterContextProvider>
+        <ThemeProviderWrapper>
           <AccountContextProvider>
             { children }
           </AccountContextProvider>
-        </RouterContextProvider>
+        </ThemeProviderWrapper>
       </LoadingContextProvider>
     </SnackbarContextProvider>
   )

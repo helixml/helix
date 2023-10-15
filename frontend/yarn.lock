@@ -1264,11 +1264,6 @@ hoist-non-react-statics@^3.3.0, hoist-non-react-statics@^3.3.1, hoist-non-react-
   dependencies:
     react-is "^16.7.0"
 
-hookrouter@^1.2.5:
-  version "1.2.5"
-  resolved "https://registry.yarnpkg.com/hookrouter/-/hookrouter-1.2.5.tgz#ea1b88fd9f6a48816b17145bfb2b38dfc93df21e"
-  integrity sha512-9OLve2u+JZDCOgPnxJu5dvg/mU1w2ZWWlSOFxCKcGQKRSH1MXI8tMwEgm64mQfjZLET/7yFRTUrZ4hUYoK0ezw==
-
 hyphenate-style-name@^1.0.3:
   version "1.0.4"
   resolved "https://registry.yarnpkg.com/hyphenate-style-name/-/hyphenate-style-name-1.0.4.tgz#691879af8e220aea5750e8827db4ef62a54e361d"
@@ -1825,6 +1820,14 @@ path-parse@^1.0.7:
   resolved "https://registry.yarnpkg.com/path-parse/-/path-parse-1.0.7.tgz#fbc114b60ca42b30d9daf5858e4bd68bbedb6735"
   integrity sha512-LDJzPVEEEPR+y48z93A0Ed0yXb8pAByGWo/k5YYdYgpY2/2EsOsksJrq7lOHxryrVOn1ejG6oAp8ahvOIQD8sw==
 
+path-parser@6.1.0:
+  version "6.1.0"
+  resolved "https://registry.yarnpkg.com/path-parser/-/path-parser-6.1.0.tgz#ee8a1dd7b1ffaf4069f2ddd1c20d1867c8fd3a08"
+  integrity sha512-nAB6J73z2rFcQP+870OHhpkHFj5kO4rPLc2Ol4Y3Ale7F6Hk1/cPKp7cQ8RznKF8FOSvu+YR9Xc6Gafk7DlpYA==
+  dependencies:
+    search-params "3.0.0"
+    tslib "^1.10.0"
+
 path-type@^4.0.0:
   version "4.0.0"
   resolved "https://registry.yarnpkg.com/path-type/-/path-type-4.0.0.tgz#84ed01c0a7ba380afe09d90a8c180dcd9d03043b"
@@ -1994,6 +1997,13 @@ react-refresh@^0.13.0:
   resolved "https://registry.yarnpkg.com/react-refresh/-/react-refresh-0.13.0.tgz#cbd01a4482a177a5da8d44c9755ebb1f26d5a1c1"
   integrity sha512-XP8A9BT0CpRBD+NYLLeIhld/RqG9+gktUjW1FkE+Vm7OCinbG1SshcK5tb9ls4kzvjZr9mOQc7HYgBngEyPAXg==
 
+react-router5@^8.0.1:
+  version "8.0.1"
+  resolved "https://registry.yarnpkg.com/react-router5/-/react-router5-8.0.1.tgz#18fdde01b2ac36854b0129fa4e0d4b35ddb4ef7f"
+  integrity sha512-jdkhOql49DOjeF+O77mSfnyOyrXPpQKpSi/TdrDkS9lGrzeJWtgxpUEglHLaIhzrMOGhmqr6vosoh4dtExkzMQ==
+  dependencies:
+    router5-transition-path "^8.0.1"
+
 react-syntax-highlighter@^15.5.0:
   version "15.5.0"
   resolved "https://registry.yarnpkg.com/react-syntax-highlighter/-/react-syntax-highlighter-15.5.0.tgz#4b3eccc2325fa2ec8eff1e2d6c18fa4a9e07ab20"
@@ -2099,6 +2109,34 @@ resolve@^1.19.0, resolve@^1.22.0:
   optionalDependencies:
     fsevents "~2.3.2"
 
+route-node@4.1.1:
+  version "4.1.1"
+  resolved "https://registry.yarnpkg.com/route-node/-/route-node-4.1.1.tgz#9006600160982db0b19d2f093d4271f9fd7548ea"
+  integrity sha512-bJVDVEQvXYqTC/LQ/2ohNZ2gPRO4+3ZvHeafuCyRZAd63qH17yspVfxOBzasE/t7SmSO30sT/yPSEMuPDGHhSQ==
+  dependencies:
+    path-parser "6.1.0"
+    search-params "3.0.0"
+    tslib "^1.10.0"
+
+router5-plugin-browser@^8.0.1:
+  version "8.0.1"
+  resolved "https://registry.yarnpkg.com/router5-plugin-browser/-/router5-plugin-browser-8.0.1.tgz#30a15fc59ed4d59020587cfc5452b5443b1a3290"
+  integrity sha512-RuArnalkREtQj0ROD1RnITWwL+Fl8rbkFspDxRTt3aFG9k5bPOE0HfJRvGsd4TY9Je/kW3hvntvFXSx8Bl745w==
+
+router5-transition-path@^8.0.1:
+  version "8.0.1"
+  resolved "https://registry.yarnpkg.com/router5-transition-path/-/router5-transition-path-8.0.1.tgz#51bfc8adcee3e3b2b6872ac8252d74b501ae3e96"
+  integrity sha512-l7MFEUmasEhe1emrO79t7BkCqQQRZdenz4c3qJmZpe8V6BCerZQR+SYbZL5zmQ3hazY7nR264jCWuNed+cMD2A==
+
+router5@^8.0.1:
+  version "8.0.1"
+  resolved "https://registry.yarnpkg.com/router5/-/router5-8.0.1.tgz#8ef47dce54a3da2c05b222ba0dd0a5f35871e64d"
+  integrity sha512-LBLQAYd2ZI1FiiBqGf82oC+LRD0PUABrZqTzd6OmyK+t5N8wRs3hbIxeiy/9Zy+xI8Fdf/0WM68P41W6MH8pdQ==
+  dependencies:
+    route-node "4.1.1"
+    router5-transition-path "^8.0.1"
+    symbol-observable "1.2.0"
+
 sade@^1.7.3:
   version "1.8.1"
   resolved "https://registry.yarnpkg.com/sade/-/sade-1.8.1.tgz#0a78e81d658d394887be57d2a409bf703a3b2701"
@@ -2113,6 +2151,11 @@ scheduler@^0.20.2:
   dependencies:
     loose-envify "^1.1.0"
     object-assign "^4.1.1"
+
+search-params@3.0.0:
+  version "3.0.0"
+  resolved "https://registry.yarnpkg.com/search-params/-/search-params-3.0.0.tgz#dbc7c243058e5a33ae1e9870be91f5aced4100d8"
+  integrity sha512-8CYNl/bjkEhXWbDTU/K7c2jQtrnqEffIPyOLMqygW/7/b+ym8UtQumcAZjOfMLjZKR6AxK5tOr9fChbQZCzPqg==
 
 semver@^6.3.0:
   version "6.3.0"
@@ -2170,6 +2213,11 @@ supports-preserve-symlinks-flag@^1.0.0:
   resolved "https://registry.yarnpkg.com/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz#6eda4bd344a3c94aea376d4cc31bc77311039e09"
   integrity sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==
 
+symbol-observable@1.2.0:
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/symbol-observable/-/symbol-observable-1.2.0.tgz#c22688aed4eab3cdc2dfeacbb561660560a00804"
+  integrity sha512-e900nM8RRtGhlV36KGEU9k65K3mPb1WV70OdjfxlG2EAuM1noi/E/BaW/uMhL7bPEssK8QV57vN3esixjUvcXQ==
+
 three-orbitcontrols@^2.110.3:
   version "2.110.3"
   resolved "https://registry.yarnpkg.com/three-orbitcontrols/-/three-orbitcontrols-2.110.3.tgz#ca9c91d5ec2f4731a1140acf2ff0281e15988edf"
@@ -2214,6 +2262,11 @@ trough@^2.0.0:
   version "2.1.0"
   resolved "https://registry.yarnpkg.com/trough/-/trough-2.1.0.tgz#0f7b511a4fde65a46f18477ab38849b22c554876"
   integrity sha512-AqTiAOLcj85xS7vQ8QkAV41hPDIJ71XJB4RCUrzo/1GM2CQwhkJGaf9Hgr7BOugMRpgGUrqRg/DrBDl4H40+8g==
+
+tslib@^1.10.0:
+  version "1.14.1"
+  resolved "https://registry.yarnpkg.com/tslib/-/tslib-1.14.1.tgz#cf2d38bdc34a134bcaf1091c41f6619e2f672d00"
+  integrity sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==
 
 tslib@^2.4.0:
   version "2.5.0"

@@ -1,11 +1,11 @@
-import React, { FC, useContext } from 'react'
+import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 
-import { AccountContext } from '../contexts/account'
+import useAccount from '../hooks/useAccount'
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 
 const Account: FC = () => {
-  const account = useContext(AccountContext)
+  const account = useAccount()
   if(!account.user) return null
   return (
     <DataGridWithFilters

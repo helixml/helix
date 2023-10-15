@@ -1,5 +1,4 @@
-import React, { FC, useState, useContext } from 'react'
-import { navigate } from 'hookrouter'
+import React, { FC, useState } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -21,24 +20,19 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 
-import DvrIcon from '@mui/icons-material/Dvr'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
-
-import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import MenuIcon from '@mui/icons-material/Menu'
-import CommentIcon from '@mui/icons-material/Comment'
 import AccountCircle from '@mui/icons-material/AccountCircle'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import ListIcon from '@mui/icons-material/List'
 
-import { RouterContext } from '../contexts/router'
-import { AccountContext } from '../contexts/account'
+import useRouter from '../hooks/useRouter'
+import useAccount from '../hooks/useAccount'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
-import useSnackbar from '../hooks/useSnackbar'
 import useThemeConfig from '../hooks/useThemeConfig'
 
 const drawerWidth: number = 280
@@ -95,9 +89,15 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
   }),
 )
 
-const Layout: FC = () => {
-  const account = useContext(AccountContext)
-  const route = useContext(RouterContext)
+const Layout: FC = ({
+  children,
+}) => {
+  const account = useAccount()
+  const {
+    name,
+    meta,
+    navigate,
+  } = useRouter()
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
   const [ mobileOpen, setMobileOpen ] = useState(false)
@@ -138,12 +138,12 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
-                  navigate('/')
+                  navigate('home')
                   setMobileOpen(false)
                 }}
               >
                 <ListItemButton
-                  selected={ route.id == 'home' }
+                  selected={ name == 'home' }
                 >
                   <ListItemIcon>
                     <DashboardIcon color="primary" />
@@ -154,12 +154,12 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
-                  navigate('/jobs')
+                  navigate('jobs')
                   setMobileOpen(false)
                 }}
               >
                 <ListItemButton
-                  selected={ route.id == 'jobs' }
+                  selected={ name == 'jobs' }
                 >
                   <ListItemIcon>
                     <ListIcon color="primary" />
@@ -170,12 +170,12 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
-                  navigate('/files')
+                  navigate('files')
                   setMobileOpen(false)
                 }}
               >
                 <ListItemButton
-                  selected={ route.id == 'files' }
+                  selected={ name == 'files' }
                 >
                   <ListItemIcon>
                     <CloudUploadIcon color="primary" />
@@ -186,12 +186,12 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
-                  navigate('/account')
+                  navigate('account')
                   setMobileOpen(false)
                 }}
               >
                 <ListItemButton
-                  selected={ route.id == 'account' }
+                  selected={ name == 'account' }
                 >
                   <ListItemIcon>
                     <AccountBoxIcon color="primary" />
@@ -220,12 +220,12 @@ const Layout: FC = () => {
               <ListItem
                 disablePadding
                 onClick={ () => {
-                  navigate('/')
+                  navigate('home')
                   setMobileOpen(false)
                 }}
               >
                 <ListItemButton
-                  selected={ route.id == 'home' }
+                  selected={ name == 'home' }
                 >
                   <ListItemIcon>
                     <DashboardIcon color="primary" />
@@ -290,7 +290,7 @@ const Layout: FC = () => {
                   color: 'text.primary',
                 }}
               >
-                {route.title || 'Page'}
+                { meta.title || '' }
               </Typography>
             ) : (
               <>
@@ -348,7 +348,7 @@ const Layout: FC = () => {
                 >
                   <MenuItem onClick={ () => {
                     handleCloseAccountMenu()
-                    navigate('/account')
+                    navigate('account')
                   }}>
                     <ListItemIcon>
                       <AccountBoxIcon fontSize="small" />
@@ -439,7 +439,7 @@ const Layout: FC = () => {
             px: 2,
           }}
         >
-          {route.render()}
+          { children }
         </Box>
         <Box
           className='footer'
