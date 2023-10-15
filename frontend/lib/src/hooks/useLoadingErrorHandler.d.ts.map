@@ -1,1 +1,0 @@
-{"version":3,"file":"useLoadingErrorHandler.d.ts","sourceRoot":"","sources":["../../../src/hooks/useLoadingErrorHandler.ts"],"names":[],"mappings":"AAGA,KAAK,aAAa,GAAG;IACnB,IAAI,OAAO,CAAC,IAAI,CAAC,CAAC;CACnB,CAAA;AAED,KAAK,mBAAmB,GAAG;IACzB,IAAI,OAAO,CAAC,OAAO,CAAC,CAAC;CACtB,CAAA;AAED,eAAO,MAAM,sBAAsB;;;gBAShB,aAAa,KAAG,mBAelC,CAAA;AAED,eAAe,sBAAsB,CAAA"}
