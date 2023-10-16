@@ -11,6 +11,8 @@ import {
 
 export interface IFilestoreContext {
   loading: boolean,
+  uploading: boolean,
+  uploadPerecent: number,
   files: IFileStoreItem[],
   config: IFileStoreConfig,
   path: string,
@@ -21,6 +23,8 @@ export interface IFilestoreContext {
 
 export const FilestoreContext = createContext<IFilestoreContext>({
   loading: false,
+  uploading: false,
+  uploadPerecent: 0,
   files: [],
   config: {
     user_prefix: '',
@@ -41,6 +45,8 @@ export const useFilestoreContext = (): IFilestoreContext => {
   } = useRouter()
   const [ files, setFiles ] = useState<IFileStoreItem[]>([])
   const [ loading, setLoading ] = useState(false)
+  const [ uploading, setUploading ] = useState(false)
+  const [ uploadPerecent, setUploadPerecent ] = useState(0)
   const [ config, setConfig ] = useState<IFileStoreConfig>({
     user_prefix: '',
     folders: [],
@@ -101,7 +107,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
   }, [])
 
   const onUpload = useCallback(async (path: string, files: File[]) => {
-    setLoading(true)
+    setUploading(true)
     try {
       const formData = new FormData()
       files.forEach((file) => {
@@ -113,7 +119,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
         }
       })
     } catch(e) {}
-    setLoading(false)
+    setUploading(false)
   }, [])
 
 
@@ -134,6 +140,8 @@ export const useFilestoreContext = (): IFilestoreContext => {
 
   const contextValue = useMemo<IFilestoreContext>(() => ({
     loading,
+    uploading,
+    uploadPerecent,
     files,
     config,
     path,
@@ -142,6 +150,8 @@ export const useFilestoreContext = (): IFilestoreContext => {
     onSetPath,
   }), [
     loading,
+    uploading,
+    uploadPerecent,
     files,
     config,
     path,

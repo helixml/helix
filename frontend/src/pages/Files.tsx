@@ -10,6 +10,7 @@ import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
 import FileUpload from '../components/widgets/FileUpload'
+import Progress from '../components/widgets/Progress'
 
 import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
@@ -116,67 +117,85 @@ const Files: FC = () => {
                   alignItems: 'center',
                 }}
               >
-                <Button
-                  sx={{
-                    width: '100%',
-                  }}
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<AddIcon />}
-                  onClick={ () => {
-                    setParams({
-                      edit_folder_id: 'new',
-                    })
-                  }}
-                >
-                  Create Folder
-                </Button>
-                <FileUpload
-                  sx={{
-                    width: '100%',
-                    mt: 2,
-                  }}
-                  onUpload={ onUpload }
-                >
-                  <Button
-                    sx={{
-                      width: '100%',
-                    }}
-                    variant="contained"
-                    color="secondary"
-                    endIcon={<CloudUploadIcon />}
-                  >
-                    Upload Files
-                  </Button>
-                  <Box
-                    sx={{
-                      border: '1px dashed #ccc',
-                      p: 2,
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minHeight: '100px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        color: '#999'
-                      }}
-                      variant="caption"
-                    >
-                      drop files here to upload them...
-                    </Typography>
-                  </Box>
-                </FileUpload>
+                {
+                  filestore.uploading ? (
+                    <>
+                      <Typography
+                        sx={{
+                          mb: 2,
+                        }}
+                        variant="caption"
+                      >
+                        uploading files...
+                      </Typography>
+                      <Progress progress={ 50 } />
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        sx={{
+                          width: '100%',
+                        }}
+                        variant="contained"
+                        color="secondary"
+                        endIcon={<AddIcon />}
+                        onClick={ () => {
+                          setParams({
+                            edit_folder_id: 'new',
+                          })
+                        }}
+                      >
+                        Create Folder
+                      </Button>
+                      <FileUpload
+                        sx={{
+                          width: '100%',
+                          mt: 2,
+                        }}
+                        onUpload={ onUpload }
+                      >
+                        <Button
+                          sx={{
+                            width: '100%',
+                          }}
+                          variant="contained"
+                          color="secondary"
+                          endIcon={<CloudUploadIcon />}
+                        >
+                          Upload Files
+                        </Button>
+                        <Box
+                          sx={{
+                            border: '1px dashed #ccc',
+                            p: 2,
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minHeight: '100px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              color: '#999'
+                            }}
+                            variant="caption"
+                          >
+                            drop files here to upload them...
+                          </Typography>
+                        </Box>
+                      </FileUpload>
+                    </>
+                  )
+                }
               </Box>
             }
             datagrid={
               <FileStoreGrid
                 files={ sortedFiles }
                 config={ filestore.config }
-                loading={ filestore.loading }
+                loading={ filestore.loading || filestore.uploading }
                 onView={ onViewFile }
                 onEdit={ onEditFile }
                 onDelete={ onDeleteFile }
