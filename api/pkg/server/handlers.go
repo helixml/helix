@@ -2,8 +2,10 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
@@ -56,10 +58,6 @@ func (apiServer *LilysaasAPIServer) filestoreCreateFolder(res http.ResponseWrite
 	return apiServer.Controller.FilestoreCreateFolder(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.Body)
-}
-
 func (apiServer *LilysaasAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreRename(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
@@ -68,4 +66,27 @@ func (apiServer *LilysaasAPIServer) filestoreDelete(res http.ResponseWriter, req
 	path := req.URL.Query().Get("path")
 	err := apiServer.Controller.FilestoreDelete(apiServer.getRequestContext(req), path)
 	return path, err
+}
+
+func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (bool, error) {
+	path := req.URL.Query().Get("path")
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return false, err
+	}
+
+	files := req.MultipartForm.File["files"]
+	for _, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return false, fmt.Errorf("Unable to open file")
+		}
+		defer file.Close()
+		_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
+		if err != nil {
+			return false, fmt.Errorf("Unable to upload file: %s", err.Error())
+		}
+	}
+
+	return true, nil
 }

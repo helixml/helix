@@ -1,25 +1,25 @@
 import React, {FC,useCallback} from 'react'
-import {useDropzone} from 'react-dropzone'
+import Box from '@mui/material/Box'
+import { SxProps } from '@mui/system'
+import { useDropzone } from 'react-dropzone'
 
 const FileUpload: FC<{
-  
+  sx?: SxProps,
+  onUpload: (files: File[]) => Promise<void>,
 }> = ({
-   
+  children,
+  sx = {},
+  onUpload,
 }) => {
-  const onDrop = useCallback(acceptedFiles => {
-    
-  }, [])
-  const {getRootProps, getInputProps, isDragActive} = useDropzone({onDrop})
+  const {getRootProps, getInputProps, isDragActive} = useDropzone({onDrop: onUpload})
 
   return (
-    <div {...getRootProps()}>
+    <Box {...getRootProps()} sx={ sx }>
       <input {...getInputProps()} />
       {
-        isDragActive ?
-          <p>Drop the files here ...</p> :
-          <p>Drag 'n' drop some files here, or click to select files</p>
+        children
       }
-    </div>
+    </Box>
   )
 }
 

@@ -1,12 +1,15 @@
-import React, { FC, useEffect, useState, useCallback, useMemo } from 'react'
-import { useRoute } from 'react-router5'
+import React, { FC, useState, useCallback, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import AddIcon from '@mui/icons-material/Add'
+import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
+import FileUpload from '../components/widgets/FileUpload'
 
 import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
@@ -30,8 +33,6 @@ const Files: FC = () => {
     setParams,
   } = useRouter()
 
-
-
   const [ editName, setEditName ] = useState('')
 
   const sortedFiles = useMemo(() => {
@@ -48,6 +49,12 @@ const Files: FC = () => {
     })
   }, [
     setParams,
+  ])
+
+  const onUpload = useCallback(async (files: File[]) => {
+    await filestore.onUpload(filestore.path, files)
+  }, [
+    filestore.path,
   ])
 
   const onViewFile = useCallback((file: IFileStoreItem) => {
@@ -68,48 +75,116 @@ const Files: FC = () => {
     
   }, [])
 
-  useEffect(() => {
-    filestore.onSetPath(params.path || '/')
-  }, [])
-
   if(!account.user) return null
   return (
     <>
-      <DataGridWithFilters
-        filters={
-          <Box
-            sx={{
-              width: '100%',
-            }}
-          >
-            <Button
-              sx={{
-                width: '100%',
-              }}
-              variant="contained"
-              color="secondary"
-              endIcon={<AddIcon />}
-              onClick={ () => {
-                setParams({
-                  edit_folder_id: 'new',
-                })
-              }}
-            >
-              Create Folder
-            </Button>
-          </Box>
-        }
-        datagrid={
-          <FileStoreGrid
-            files={ sortedFiles }
-            config={ filestore.config }
-            loading={ filestore.loading }
-            onView={ onViewFile }
-            onEdit={ onEditFile }
-            onDelete={ onDeleteFile }
+      <Box
+        sx={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Box
+          sx={{
+            flexGrow: 0,
+            pl: 6,
+            width: '100%',
+            height: '60px',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          This is the header
+        </Box>
+        <Box
+          sx={{
+            width: '100%',
+            flexGrow: 1,
+          }}
+        >
+          <DataGridWithFilters
+            filters={
+              <Box
+                sx={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}
+              >
+                <Button
+                  sx={{
+                    width: '100%',
+                  }}
+                  variant="contained"
+                  color="secondary"
+                  endIcon={<AddIcon />}
+                  onClick={ () => {
+                    setParams({
+                      edit_folder_id: 'new',
+                    })
+                  }}
+                >
+                  Create Folder
+                </Button>
+                <FileUpload
+                  sx={{
+                    width: '100%',
+                    mt: 2,
+                  }}
+                  onUpload={ onUpload }
+                >
+                  <Button
+                    sx={{
+                      width: '100%',
+                    }}
+                    variant="contained"
+                    color="secondary"
+                    endIcon={<CloudUploadIcon />}
+                  >
+                    Upload Files
+                  </Button>
+                  <Box
+                    sx={{
+                      border: '1px dashed #ccc',
+                      p: 2,
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: '100px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        color: '#999'
+                      }}
+                      variant="caption"
+                    >
+                      drop files here to upload them...
+                    </Typography>
+                  </Box>
+                </FileUpload>
+              </Box>
+            }
+            datagrid={
+              <FileStoreGrid
+                files={ sortedFiles }
+                config={ filestore.config }
+                loading={ filestore.loading }
+                onView={ onViewFile }
+                onEdit={ onEditFile }
+                onDelete={ onDeleteFile }
+              />
+            }
           />
-        }
-      />
+        </Box>
+      </Box>
       {
         params.edit_folder_id && (
           <Window
@@ -137,7 +212,6 @@ const Files: FC = () => {
                 onChange={(e) => setEditName(e.target.value)}
               />
             </Box>
-            
           </Window>
         )
       }

@@ -6,22 +6,29 @@ import useRouter from '../hooks/useRouter'
 import {
   IFileStoreItem,
   IFileStoreConfig,
+  IFileStoreBreadcrumb,
 } from '../types'
 
 export interface IFilestoreContext {
+  loading: boolean,
   files: IFileStoreItem[],
   config: IFileStoreConfig,
-  loading: boolean,
+  path: string,
+  breadcrumbs: IFileStoreBreadcrumb[],
+  onUpload: (path: string, files: File[]) => Promise<void>,
   onSetPath: (path: string) => void,
 }
 
 export const FilestoreContext = createContext<IFilestoreContext>({
-  files: [],
   loading: false,
+  files: [],
   config: {
     user_prefix: '',
     folders: [],
   },
+  path: '',
+  breadcrumbs: [],
+  onUpload: async () => {},
   onSetPath: () => {},
 })
 
@@ -38,6 +45,29 @@ export const useFilestoreContext = (): IFilestoreContext => {
     user_prefix: '',
     folders: [],
   })
+
+  const path = useMemo(() => {
+    return params.path || '/'
+  }, [
+    params.path,
+  ])
+
+  const breadcrumbs = useMemo(() => {
+    const parts = path.split('/')
+    let currentChunks: string[] = []
+    return parts
+      .filter(p => p ? true : false)
+      .map((p: string): IFileStoreBreadcrumb => {
+        currentChunks.push(p)
+        const breadcrumb = {
+          path: '/' + currentChunks.join('/'),
+          title: p,
+        }
+        return breadcrumb
+      })
+  }, [
+    path,
+  ])
 
   const onSetPath = useCallback((path: string) => {
     const update: any = {}
@@ -63,17 +93,33 @@ export const useFilestoreContext = (): IFilestoreContext => {
           path,
         }
       })
-      if(!filesResult) return
-      setFiles(filesResult || [])
+      if(filesResult) {
+        setFiles(filesResult || [])
+      }
+    } catch(e) {}
+    setLoading(false)
+  }, [])
+
+  const onUpload = useCallback(async (path: string, files: File[]) => {
+    setLoading(true)
+    try {
+      const formData = new FormData()
+      files.forEach((file) => {
+        formData.append("files", file)
+      })
+      await api.post('/api/v1/filestore/upload', formData, {
+        params: {
+          path,
+        }
+      })
     } catch(e) {}
     setLoading(false)
   }, [])
 
 
   useEffect(() => {
-    if(!params.path) return
     if(!account.user) return
-    loadFiles(params.path)
+    loadFiles(params.path || '/')
   }, [
     account.user,
     params.path,
@@ -87,14 +133,20 @@ export const useFilestoreContext = (): IFilestoreContext => {
   ])
 
   const contextValue = useMemo<IFilestoreContext>(() => ({
-    files,
     loading,
+    files,
     config,
+    path,
+    breadcrumbs,
+    onUpload,
     onSetPath,
   }), [
-    files,
     loading,
+    files,
     config,
+    path,
+    breadcrumbs,
+    onUpload,
     onSetPath,
   ])
 
