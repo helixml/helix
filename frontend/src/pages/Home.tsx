@@ -65,8 +65,8 @@ const Dashboard: FC = () => {
           </Button>
         </Grid>
         <Grid item xs={4} md={4}>
-          <Button variant={selectedMode === 'Fine-tune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Fine-tune')}>
-            Fine-tune
+          <Button variant={selectedMode === 'Finetune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Finetune')}>
+            Finetune
             <FormControl sx={{minWidth: 120, marginLeft: 2}}>
               <Select variant="standard"
                 labelId="fine-tune-type-select-label"
@@ -90,15 +90,16 @@ const Dashboard: FC = () => {
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
         <Grid item xs={12} md={11}>
-          <TextField
-            fullWidth
-            label="Send a message"
-            value={inputValue}
-            disabled={loading}
-            onChange={handleInputChange}
-            name="ai_submit"
-          />
-        </Grid>
+            <TextField
+              fullWidth
+              label={selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'}
+              value={inputValue}
+              disabled={loading}
+              onChange={handleInputChange}
+              name="ai_submit"
+              multiline={true}
+            />
+          </Grid>
         <Grid item xs={12} md={1}>
           <Button
             variant='contained'

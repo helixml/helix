@@ -22,6 +22,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 
 import DvrIcon from '@mui/icons-material/Dvr'
+import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -134,7 +135,21 @@ const Layout: FC = () => {
       <List>
         {
           account.user ? (
-            <><div>Here go your chats</div></>
+
+           <ListItem disablePadding
+                onClick={ () => {
+                  navigate('/')
+                  setMobileOpen(false)
+                }}
+           >
+              <ListItemButton>
+                <ListItemIcon>
+                  <AddIcon color="primary" />
+                </ListItemIcon>
+                <ListItemText primary="New Session" />
+              </ListItemButton>
+            </ListItem>
+
           ) : (
             <>
               <ListItem
@@ -172,7 +187,7 @@ const Layout: FC = () => {
             account.user ? (
               <>
                 <Typography variant="caption">
-                  Signed in as<br /> {account.user.email} <br />({account.credits} credits)
+                  Signed in as<br /> {account.user.email} { /* <br />({account.credits} credits) */ }
                 </Typography>
                 <IconButton
                   size="large"
@@ -181,6 +196,7 @@ const Layout: FC = () => {
                   aria-haspopup="true"
                   onClick={handleAccountMenu}
                   color="inherit"
+                  sx={{marginLeft: "auto"}}
                 >
                   <AccountCircle />
                 </IconButton>

@@ -18,7 +18,7 @@ export type IRouteFactory = (props: Record<string, any>) => IRouteObject
 export const routes: Record<string, IRouteFactory> = {
   '/': () => ({
     id: 'home',
-    title: 'Modules',
+    title: 'Multi-Modal AI Studio',
     render: () => <Home />,
     params: {},
   }),
