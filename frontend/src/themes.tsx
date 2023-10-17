@@ -17,8 +17,8 @@ export interface ITheme {
 
 export const THEMES: Record<string, ITheme> = {
   lilypad: {
-    company: 'Lilypad',
-    url: 'https://lilypad.tech/',
+    company: 'MLOps Consulting',
+    url: 'https://mlops.consulting/',
     primary: '#8DA4BB',
     secondary: '#64BEA9',
     // this means ALL
@@ -42,7 +42,7 @@ export const THEMES: Record<string, ITheme> = {
           ml: 2,
           mr: 1,
         }}>
-          Lilypad AI Studio
+          DaggerGPT
         </Typography>
       </Box>
     ),
