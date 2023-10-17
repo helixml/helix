@@ -1,4 +1,5 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useState, useCallback, useMemo, Fragment } from 'react'
+import prettyBytes from 'pretty-bytes'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -11,6 +12,7 @@ import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
 import FileUpload from '../components/widgets/FileUpload'
 import Progress from '../components/widgets/Progress'
+import ClickLink from '../components/widgets/ClickLink'
 
 import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
@@ -60,7 +62,7 @@ const Files: FC = () => {
 
   const onViewFile = useCallback((file: IFileStoreItem) => {
     if(file.directory) {
-      filestore.onSetPath(getRelativePath(filestore.config, file))
+      filestore.setPath(getRelativePath(filestore.config, file))
     } else {
       window.open(file.url)
     }
@@ -99,7 +101,35 @@ const Files: FC = () => {
             alignItems: 'center',
           }}
         >
-          This is the header
+          {
+            filestore.breadcrumbs.map((breadcrumb, i) => {
+              return (
+                <Fragment key={ i }>
+                  <ClickLink
+                    textDecoration
+                    key={ i }
+                    onClick={ () => {
+                      filestore.setPath(breadcrumb.path)
+                    }}
+                  >
+                    { breadcrumb.title }
+                  </ClickLink>
+                  {
+                    i < filestore.breadcrumbs.length - 1 && (
+                      <Box
+                        sx={{
+                          ml: 1,
+                          mr: 1,
+                        }}
+                      >
+                        :
+                      </Box>
+                    )
+                  }
+                </Fragment>
+              )
+            })
+          }
         </Box>
         <Box
           sx={{
@@ -118,7 +148,7 @@ const Files: FC = () => {
                 }}
               >
                 {
-                  filestore.uploading ? (
+                  filestore.uploadProgress ? (
                     <>
                       <Typography
                         sx={{
@@ -126,9 +156,9 @@ const Files: FC = () => {
                         }}
                         variant="caption"
                       >
-                        uploading files...
+                        uploaded { prettyBytes(filestore.uploadProgress.uploadedBytes) } of { prettyBytes(filestore.uploadProgress.totalBytes) }
                       </Typography>
-                      <Progress progress={ 50 } />
+                      <Progress progress={ filestore.uploadProgress.percent } />
                     </>
                   ) : (
                     <>
@@ -195,7 +225,7 @@ const Files: FC = () => {
               <FileStoreGrid
                 files={ sortedFiles }
                 config={ filestore.config }
-                loading={ filestore.loading || filestore.uploading }
+                loading={ filestore.loading || filestore.uploadProgress ? true : false }
                 onView={ onViewFile }
                 onEdit={ onEditFile }
                 onDelete={ onDeleteFile }
