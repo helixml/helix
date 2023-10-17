@@ -90,7 +90,7 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	authRouter.HandleFunc("/filestore/folder", wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
 	authRouter.HandleFunc("/filestore/upload", wrapper(apiServer.filestoreUpload)).Methods("POST")
 	authRouter.HandleFunc("/filestore/rename", wrapper(apiServer.filestoreRename)).Methods("PUT")
-	authRouter.HandleFunc("/filestore/delete", wrapper(apiServer.filestoreRename)).Methods("DELETE")
+	authRouter.HandleFunc("/filestore/delete", wrapper(apiServer.filestoreDelete)).Methods("DELETE")
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))

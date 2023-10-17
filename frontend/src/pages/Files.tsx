@@ -13,6 +13,7 @@ import Window from '../components/widgets/Window'
 import FileUpload from '../components/widgets/FileUpload'
 import Progress from '../components/widgets/Progress'
 import ClickLink from '../components/widgets/ClickLink'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
@@ -43,6 +44,8 @@ const Files: FC = () => {
     // this is actually the "name" of the file / folder
     edit_id,
     edit_item_title,
+    delete_id,
+    delete_item_title,
   } = params
   
   const [ editName, setEditName ] = useState('')
@@ -75,8 +78,9 @@ const Files: FC = () => {
   ])
 
   const onEditFile = useCallback((file: IFileStoreItem) => {
+    setEditName(file.name)
     setParams({
-      edit_name: file.name,
+      edit_id: file.name,
       edit_item_title: file.directory ? 'Directory' : 'File',
     })
   }, [
@@ -84,11 +88,13 @@ const Files: FC = () => {
   ])
 
   const onDeleteFile = useCallback(async (file: IFileStoreItem) => {
-    const result = await filestore.del(file.name)
-    if(!result) return
-    await filestore.loadFiles(filestore.path)
-    snackbar.success('Item Deleted')
-  }, [])
+    setParams({
+      delete_id: file.name,
+      delete_item_title: file.name,
+    })
+  }, [
+    filestore.path,
+  ])
 
   const onSubmitEditWindow = useCallback(async (newName: string) => {
     let result = false
@@ -98,7 +104,7 @@ const Files: FC = () => {
       message = 'Folder Created'
     } else {
       result = await filestore.rename(edit_id, newName)
-      message = 'Item Renamed'
+      message = `${edit_item_title} Renamed`
     }
     if(!result) return
     await filestore.loadFiles(filestore.path)
@@ -106,6 +112,20 @@ const Files: FC = () => {
     removeParams(['edit_item_title', 'edit_id'])
   }, [
     edit_id,
+    edit_item_title,
+    filestore.path,
+  ])
+
+  const onConfirmDelete = useCallback(async () => {
+    const result = await filestore.del(delete_id)
+    if(!result) return
+    await filestore.loadFiles(filestore.path)
+    snackbar.success(`${delete_item_title} Deleted`)
+    removeParams(['delete_item_title', 'delete_id'])
+  }, [
+    delete_id,
+    delete_item_title,
+    filestore.path,
   ])
 
   if(!account.user) return null
@@ -294,6 +314,15 @@ const Files: FC = () => {
               />
             </Box>
           </Window>
+        )
+      }
+      {
+        delete_id && (
+          <DeleteConfirmWindow
+            title={ delete_item_title }
+            onCancel={ () => removeParams(['delete_item_title', 'delete_id']) }
+            onSubmit={ onConfirmDelete }
+          />
         )
       }
     </>
