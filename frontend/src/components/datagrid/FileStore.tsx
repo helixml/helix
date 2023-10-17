@@ -169,14 +169,14 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
           >
             <ClickLink
               onClick={ () => {
-                console.log('--------------------------------------------')
+                onDelete(data)
               }}
             >
               <DeleteIcon />
             </ClickLink>
             <ClickLink
               onClick={ () => {
-                console.log('--------------------------------------------')
+                onEdit(data)
               }}
             >
               <EditIcon />
