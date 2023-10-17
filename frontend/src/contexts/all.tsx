@@ -1,6 +1,10 @@
 import { FC } from 'react'
 
 import {
+  RouterContextProvider,
+} from './router'
+
+import {
   SnackbarContextProvider,
 } from './snackbar'
 
@@ -9,8 +13,8 @@ import {
 } from './loading'
 
 import {
-  RouterContextProvider,
-} from './router'
+  ThemeProviderWrapper,
+} from './theme'
 
 import {
   AccountContextProvider,
@@ -18,15 +22,17 @@ import {
 
 const AllContextProvider: FC = ({ children }) => {
   return (
-    <SnackbarContextProvider>
-      <LoadingContextProvider>
-        <RouterContextProvider>
-          <AccountContextProvider>
-            { children }
-          </AccountContextProvider>
-        </RouterContextProvider>
-      </LoadingContextProvider>
-    </SnackbarContextProvider>
+    <RouterContextProvider>
+      <SnackbarContextProvider>
+        <LoadingContextProvider>
+          <ThemeProviderWrapper>
+            <AccountContextProvider>
+              { children }
+            </AccountContextProvider>
+          </ThemeProviderWrapper>
+        </LoadingContextProvider>
+      </SnackbarContextProvider>
+    </RouterContextProvider>
   )
 }
 

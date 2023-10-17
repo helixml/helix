@@ -1,15 +1,17 @@
-import React, { FC, useContext } from 'react'
-import { navigate } from 'hookrouter'
+import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-
 import AddIcon from '@mui/icons-material/Add'
-import { AccountContext } from '../contexts/account'
+
+import router from '../router'
+
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import JobGrid from '../components/datagrid/Job'
 
+import useAccount from '../hooks/useAccount'
+
 const Jobs: FC = () => {
-  const account = useContext(AccountContext)
+  const account = useAccount()
   if(!account.user) return null
   return (
     <DataGridWithFilters
@@ -27,7 +29,7 @@ const Jobs: FC = () => {
             color="secondary"
             endIcon={<AddIcon />}
             onClick={ () => {
-              navigate('/')
+              router.navigate('/')
             }}
           >
             Create Job

@@ -82,6 +82,11 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
+export interface IFileStoreBreadcrumb {
+  path: string,
+  title: string,
+}
+
 export interface IFileStoreItem {
   created: number;
   size: number;
