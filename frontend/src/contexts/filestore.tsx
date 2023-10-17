@@ -9,22 +9,25 @@ import {
   IFileStoreBreadcrumb,
 } from '../types'
 
+export interface IFilestoreUploadProgress {
+  percent: number,
+  totalBytes: number,
+  uploadedBytes: number,
+}
+
 export interface IFilestoreContext {
   loading: boolean,
-  uploading: boolean,
-  uploadPerecent: number,
+  uploadProgress?: IFilestoreUploadProgress,
   files: IFileStoreItem[],
   config: IFileStoreConfig,
   path: string,
   breadcrumbs: IFileStoreBreadcrumb[],
   onUpload: (path: string, files: File[]) => Promise<void>,
-  onSetPath: (path: string) => void,
+  setPath: (path: string) => void,
 }
 
 export const FilestoreContext = createContext<IFilestoreContext>({
   loading: false,
-  uploading: false,
-  uploadPerecent: 0,
   files: [],
   config: {
     user_prefix: '',
@@ -33,7 +36,7 @@ export const FilestoreContext = createContext<IFilestoreContext>({
   path: '',
   breadcrumbs: [],
   onUpload: async () => {},
-  onSetPath: () => {},
+  setPath: () => {},
 })
 
 export const useFilestoreContext = (): IFilestoreContext => {
@@ -45,8 +48,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
   } = useRouter()
   const [ files, setFiles ] = useState<IFileStoreItem[]>([])
   const [ loading, setLoading ] = useState(false)
-  const [ uploading, setUploading ] = useState(false)
-  const [ uploadPerecent, setUploadPerecent ] = useState(0)
+  const [ uploadProgress, setUploadProgress ] = useState<IFilestoreUploadProgress>()
   const [ config, setConfig ] = useState<IFileStoreConfig>({
     user_prefix: '',
     folders: [],
@@ -61,7 +63,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
   const breadcrumbs = useMemo(() => {
     const parts = path.split('/')
     let currentChunks: string[] = []
-    return parts
+    const folders = parts
       .filter(p => p ? true : false)
       .map((p: string): IFileStoreBreadcrumb => {
         currentChunks.push(p)
@@ -71,11 +73,18 @@ export const useFilestoreContext = (): IFilestoreContext => {
         }
         return breadcrumb
       })
+
+    const root = {
+      path: '/',
+      title: 'files'
+    }
+
+    return [root].concat(folders)
   }, [
     path,
   ])
 
-  const onSetPath = useCallback((path: string) => {
+  const setPath = useCallback((path: string) => {
     const update: any = {}
     if(path) {
       update.path = path
@@ -107,7 +116,11 @@ export const useFilestoreContext = (): IFilestoreContext => {
   }, [])
 
   const onUpload = useCallback(async (path: string, files: File[]) => {
-    setUploading(true)
+    setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
     try {
       const formData = new FormData()
       files.forEach((file) => {
@@ -116,10 +129,21 @@ export const useFilestoreContext = (): IFilestoreContext => {
       await api.post('/api/v1/filestore/upload', formData, {
         params: {
           path,
+        },
+        onUploadProgress: (progressEvent) => {
+          const percent = progressEvent.total && progressEvent.total > 0 ?
+            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
+            0
+          setUploadProgress({
+            percent,
+            totalBytes: progressEvent.total || 0,
+            uploadedBytes: progressEvent.loaded || 0,
+          })
         }
       })
     } catch(e) {}
-    setUploading(false)
+    setUploadProgress(undefined)
+    await loadFiles(path)
   }, [])
 
 
@@ -140,24 +164,22 @@ export const useFilestoreContext = (): IFilestoreContext => {
 
   const contextValue = useMemo<IFilestoreContext>(() => ({
     loading,
-    uploading,
-    uploadPerecent,
+    uploadProgress,
     files,
     config,
     path,
     breadcrumbs,
     onUpload,
-    onSetPath,
+    setPath,
   }), [
     loading,
-    uploading,
-    uploadPerecent,
+    uploadProgress,
     files,
     config,
     path,
     breadcrumbs,
     onUpload,
-    onSetPath,
+    setPath,
   ])
 
   return contextValue
