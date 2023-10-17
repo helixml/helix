@@ -6,6 +6,10 @@ import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
+import InputLabel from '@mui/material/InputLabel'
+import FormControl from '@mui/material/FormControl'
 
 const Dashboard: FC = () => {
   const [loading, setLoading] = useState(false)
@@ -15,6 +19,8 @@ const Dashboard: FC = () => {
     {user: 'ChatGPT', message: 'Hi there! How can I assist you today?'}
   ])
   const [selectedMode, setSelectedMode] = useState('Create')
+  const [selectedCreateType, setSelectedCreateType] = useState('Text')
+  const [selectedFineTuneType, setSelectedFineTuneType] = useState('Text')
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -41,31 +47,59 @@ const Dashboard: FC = () => {
   ])
 
   return (
-    <Container maxWidth={ 'xl' } sx={{ mt: 4, mb: 4 }}>
-      <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{ height: '78vh' }}>
-        <Grid item xs={12} md={12}>
+    <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
+      <Grid container spacing={3} direction="row" justifyContent="flex-start">
+        <Grid item xs={3} md={3}>
+        </Grid>
+        <Grid item xs={3} md={3}>
           <Button variant={selectedMode === 'Create' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Create')}>
             Create
+            <FormControl sx={{minWidth: 120, marginLeft: 2}}>
+              <Select
+                labelId="create-type-select-label"
+                id="create-type-select"
+                value={selectedCreateType}
+                onChange={(event) => setSelectedCreateType(event.target.value)}
+              >
+                <MenuItem value="Text">Text</MenuItem>
+                <MenuItem value="Images">Images</MenuItem>
+              </Select>
+            </FormControl>
           </Button>
-          <Button variant={selectedMode === 'Fine-tune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35 }} onClick={() => setSelectedMode('Fine-tune')}>
+        </Grid>
+        <Grid item xs={3} md={3}>
+          <Button variant={selectedMode === 'Fine-tune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Fine-tune')}>
             Fine-tune
+            <FormControl sx={{minWidth: 120, marginLeft: 2}}>
+              <Select
+                labelId="fine-tune-type-select-label"
+                id="fine-tune-type-select"
+                value={selectedFineTuneType}
+                onChange={(event) => setSelectedFineTuneType(event.target.value)}
+              >
+                <MenuItem value="Text">Text</MenuItem>
+                <MenuItem value="Images">Images</MenuItem>
+              </Select>
+            </FormControl>
           </Button>
+        </Grid>
+        <Grid item xs={3} md={3}>
         </Grid>
         <Grid item xs={12} md={12}>
           {chatHistory.map((chat, index) => (
             <Typography key={index}><strong>{chat.user}:</strong> {chat.message}</Typography>
           ))}
         </Grid>
-        <Box sx={{ flexGrow: 1 }} />
       </Grid>
-      <Grid container item xs={12} md={12} direction="row" justifyContent="space-between" alignItems="center">
+      <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
         <Grid item xs={12} md={8}>
           <TextField
             fullWidth
-            label="Type something here"
+            label="Send a message"
             value={inputValue}
             disabled={loading}
             onChange={handleInputChange}
+            name="ai_submit"
           />
         </Grid>
         <Grid item xs={12} md={4}>
