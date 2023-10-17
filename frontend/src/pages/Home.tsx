@@ -14,10 +14,7 @@ import FormControl from '@mui/material/FormControl'
 const Dashboard: FC = () => {
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
-  const [chatHistory, setChatHistory] = useState<Array<{user: string, message: string}>>([
-    {user: 'User', message: 'Hello!'},
-    {user: 'ChatGPT', message: 'Hi there! How can I assist you today?'}
-  ])
+  const [chatHistory, setChatHistory] = useState<Array<{user: string, message: string}>>([])
   const [selectedMode, setSelectedMode] = useState('Create')
   const [selectedCreateType, setSelectedCreateType] = useState('Text')
   const [selectedFineTuneType, setSelectedFineTuneType] = useState('Text')
@@ -49,13 +46,13 @@ const Dashboard: FC = () => {
   return (
     <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
       <Grid container spacing={3} direction="row" justifyContent="flex-start">
-        <Grid item xs={3} md={3}>
+        <Grid item xs={2} md={2}>
         </Grid>
-        <Grid item xs={3} md={3}>
+        <Grid item xs={4} md={4}>
           <Button variant={selectedMode === 'Create' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Create')}>
             Create
-            <FormControl sx={{minWidth: 120, marginLeft: 2}}>
-              <Select
+            <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
+              <Select variant="standard"
                 labelId="create-type-select-label"
                 id="create-type-select"
                 value={selectedCreateType}
@@ -67,11 +64,11 @@ const Dashboard: FC = () => {
             </FormControl>
           </Button>
         </Grid>
-        <Grid item xs={3} md={3}>
+        <Grid item xs={4} md={4}>
           <Button variant={selectedMode === 'Fine-tune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Fine-tune')}>
             Fine-tune
             <FormControl sx={{minWidth: 120, marginLeft: 2}}>
-              <Select
+              <Select variant="standard"
                 labelId="fine-tune-type-select-label"
                 id="fine-tune-type-select"
                 value={selectedFineTuneType}
@@ -83,7 +80,7 @@ const Dashboard: FC = () => {
             </FormControl>
           </Button>
         </Grid>
-        <Grid item xs={3} md={3}>
+        <Grid item xs={2} md={2}>
         </Grid>
         <Grid item xs={12} md={12}>
           {chatHistory.map((chat, index) => (
@@ -92,7 +89,7 @@ const Dashboard: FC = () => {
         </Grid>
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12} md={11}>
           <TextField
             fullWidth
             label="Send a message"
@@ -102,7 +99,7 @@ const Dashboard: FC = () => {
             name="ai_submit"
           />
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={1}>
           <Button
             variant='contained'
             disabled={loading}
