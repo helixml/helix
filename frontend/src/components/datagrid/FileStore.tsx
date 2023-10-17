@@ -29,6 +29,7 @@ interface FileStoreDataGridProps {
   files: IFileStoreItem[],
   config: IFileStoreConfig,
   loading: boolean,
+  readonly: boolean,
   onView: (file: IFileStoreItem) => void,
   onEdit: (file: IFileStoreItem) => void,
   onDelete: (file: IFileStoreItem) => void,
@@ -38,6 +39,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
   files,
   config,
   loading,
+  readonly,
   onView,
   onEdit,
   onDelete,
@@ -167,20 +169,26 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
               pr: 2,
             }}
           >
-            <ClickLink
-              onClick={ () => {
-                console.log('--------------------------------------------')
-              }}
-            >
-              <DeleteIcon />
-            </ClickLink>
-            <ClickLink
-              onClick={ () => {
-                console.log('--------------------------------------------')
-              }}
-            >
-              <EditIcon />
-            </ClickLink>
+            {
+              readonly ? null : (
+                <>
+                  <ClickLink
+                    onClick={ () => {
+                      onDelete(data)
+                    }}
+                  >
+                    <DeleteIcon />
+                  </ClickLink>
+                  <ClickLink
+                    onClick={ () => {
+                      onEdit(data)
+                    }}
+                  >
+                    <EditIcon />
+                  </ClickLink>
+                </>
+              )
+            }
             <ClickLink
               onClick={ () => {
                 onView(data)
@@ -193,6 +201,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
       }
     }]
   }, [
+    readonly,
     onView,
     onEdit,
     onDelete,

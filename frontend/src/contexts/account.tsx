@@ -2,19 +2,18 @@ import React, { FC, useEffect, createContext, useMemo, useState, useCallback } f
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
 import ReconnectingWebSocket from 'reconnecting-websocket'
-import { useQueryParams } from 'hookrouter'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
-import {extractErrorMessage} from '../hooks/useErrorCallback'
+import { extractErrorMessage } from '../hooks/useErrorCallback'
+import { useRoute } from 'react-router5'
+import router from '../router'
 
 import {
   IUser,
   IJob,
   IModule,
   IBalanceTransfer,
-  IFileStoreItem,
-  IFileStoreConfig,
 } from '../types'
 
 const REALM = 'lilypad'
@@ -27,13 +26,9 @@ export interface IAccountContext {
   user?: IUser,
   jobs: IJob[],
   modules: IModule[],
-  files: IFileStoreItem[],
-  filestoreConfig: IFileStoreConfig,
-  filesLoading: boolean,
   transactions: IBalanceTransfer[],
   onLogin: () => void,
   onLogout: () => void,
-  onSetFilestorePath: (path: string) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -41,33 +36,20 @@ export const AccountContext = createContext<IAccountContext>({
   credits: 0,
   jobs: [],
   modules: [],
-  files: [],
-  filesLoading: false,
-  filestoreConfig: {
-    user_prefix: '',
-    folders: [],
-  },
   transactions: [],
   onLogin: () => {},
   onLogout: () => {},
-  onSetFilestorePath: () => {},
 })
 
 export const useAccountContext = (): IAccountContext => {
   const api = useApi()
   const snackbar = useSnackbar()
   const loading = useLoading()
-  const [ queryParams, setQueryParams ] = useQueryParams()
+  const { route } = useRoute()
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
-  const [ files, setFiles ] = useState<IFileStoreItem[]>([])
-  const [ filesLoading, setFilesLoading ] = useState(false)
-  const [ filestoreConfig, setFilestoreConfig ] = useState<IFileStoreConfig>({
-    user_prefix: '',
-    folders: [],
-  })
   const [ jobs, setJobs ] = useState<IJob[]>([])
   const [ modules, setModules ] = useState<IModule[]>([])
 
@@ -78,16 +60,6 @@ export const useAccountContext = (): IAccountContext => {
       clientId: CLIENT_ID,
     })
   }, [])
-
-  const onSetFilestorePath = useCallback((path: string) => {
-    const update: any = {}
-    if(path) {
-      update.path = path
-    }
-    setQueryParams(update)
-  }, [
-    setQueryParams,
-  ])
 
   const loadModules = useCallback(async () => {
     const result = await api.get<IModule[]>('/api/v1/modules')
@@ -113,30 +85,9 @@ export const useAccountContext = (): IAccountContext => {
     setCredits(statusResult.credits)
   }, [])
 
-  const loadFilestoreConfig = useCallback(async () => {
-    const configResult = await api.get('/api/v1/filestore/config')
-    if(!configResult) return
-    setFilestoreConfig(configResult)
-  }, [])
-
-  const loadFiles = useCallback(async (path: string) => {
-    setFilesLoading(true)
-    try {
-      const filesResult = await api.get('/api/v1/filestore/list', {
-        params: {
-          path,
-        }
-      })
-      if(!filesResult) return
-      setFiles(filesResult || [])
-    } catch(e) {}
-    setFilesLoading(false)
-  }, [])
-
   const loadAll = useCallback(async () => {
     await bluebird.all([
       loadModules(),
-      loadFilestoreConfig(),
       loadJobs(),
       loadTransactions(),
       loadStatus(),
@@ -144,7 +95,6 @@ export const useAccountContext = (): IAccountContext => {
   }, [
     loadModules,
     loadJobs,
-    loadFilestoreConfig,
     loadTransactions,
     loadStatus,
   ])
@@ -222,6 +172,8 @@ export const useAccountContext = (): IAccountContext => {
     rws.addEventListener('message', (event) => {
       const parsedData = JSON.parse(event.data)
       console.dir(parsedData)
+
+      // we have a job update message
       if(parsedData.type === 'job' && parsedData.job) {
         const newJob: IJob = parsedData.job
         setJobs(jobs => jobs.map(existingJob => {
@@ -235,41 +187,24 @@ export const useAccountContext = (): IAccountContext => {
     user?.token,
   ])
 
-  useEffect(() => {
-    if(!queryParams.path) return
-    if(!user) return
-    loadFiles(queryParams.path)
-  }, [
-    user,
-    queryParams.path,
-  ])
-
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
     credits,
     jobs,
     modules,
-    files,
-    filesLoading,
-    filestoreConfig,
     transactions,
     onLogin,
     onLogout,
-    onSetFilestorePath,
   }), [
     initialized,
     user,
     credits,
     jobs,
     modules,
-    files,
-    filesLoading,
-    filestoreConfig,
     transactions,
     onLogin,
     onLogout,
-    onSetFilestorePath,
   ])
 
   return contextValue
