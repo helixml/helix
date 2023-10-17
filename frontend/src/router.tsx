@@ -30,7 +30,11 @@ const routes: IApplicationRoute[] = [{
   meta: {
     title: 'Home',
   },
-  render: () => <Home />,
+  render: () => (
+    <FilestoreContextProvider>
+      <Home />
+    </FilestoreContextProvider>
+  ),
 }, {
   name: 'jobs',
   path: '/jobs',
