@@ -40,7 +40,6 @@ const Files: FC = () => {
     removeParams,
   } = useRouter()
 
-  console.log(filestore.readonly)
   const {
     // this is actually the "name" of the file / folder
     edit_id,
@@ -211,7 +210,7 @@ const Files: FC = () => {
                       </Typography>
                       <Progress progress={ filestore.uploadProgress.percent } />
                     </>
-                  ) : (
+                  ) : filestore.readonly ? null : (
                     <>
                       <Button
                         sx={{
@@ -278,6 +277,7 @@ const Files: FC = () => {
               <FileStoreGrid
                 files={ sortedFiles }
                 config={ filestore.config }
+                readonly={ filestore.readonly }
                 loading={ filestore.loading || filestore.uploadProgress ? true : false }
                 onView={ onViewFile }
                 onEdit={ onEditFile }
