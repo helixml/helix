@@ -63,6 +63,19 @@ type Module struct {
 	Template string `json:"template"`
 }
 
+type Session struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Created        time.Time `json:"created"`
+	Updated        time.Time `json:"updated"`
+	Mode           string    `json:"mode"`
+	Type           string    `json:"type"`
+	FinetuneFile   string    `json:"finetune_file"`
+	Interactions   string    `json:"interactions"`
+	Owner          string    `json:"owner"`
+	OwnerType      OwnerType `json:"owner_type"`
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context

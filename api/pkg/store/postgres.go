@@ -59,6 +59,154 @@ func NewPostgresStore(
 	return store, nil
 }
 
+func (d *PostgresStore) DeleteSession(
+	ctx context.Context,
+	sessionID string,
+) error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	_, err := d.db.Exec(`
+		DELETE FROM session WHERE id = $1
+	`, sessionID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *PostgresStore) GetSession(
+	ctx context.Context,
+	sessionID string,
+) (*types.Session, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+
+	row := d.db.QueryRow(`
+		SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+		FROM session WHERE id = $1
+	`, sessionID)
+
+	session := &types.Session{}
+	err := row.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.FinetuneFile, &session.Interactions, &session.Owner, &session.OwnerType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return session, nil
+}
+
+func (d *PostgresStore) GetSessions(
+	ctx context.Context,
+	query GetSessionsQuery,
+) ([]*types.Session, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+
+	var rows *sql.Rows
+	var err error
+
+	if query.Owner != "" && query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			FROM session
+			WHERE owner = $1 AND owner_type = $2
+		`, query.Owner, query.OwnerType)
+	} else if query.Owner != "" {
+		rows, err = d.db.Query(`
+			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			FROM session
+			WHERE owner = $1
+		`, query.Owner)
+	} else if query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			FROM session
+			WHERE owner_type = $1
+		`, query.OwnerType)
+	} else {
+		rows, err = d.db.Query(`
+			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			FROM session
+		`)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sessions := []*types.Session{}
+	for rows.Next() {
+		session := &types.Session{}
+		err := rows.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.FinetuneFile, &session.Interactions, &session.Owner, &session.OwnerType)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+func (d *PostgresStore) CreateSession(
+	ctx context.Context,
+	session types.Session,
+) error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	_, err := d.db.Exec(`
+		INSERT INTO session (
+			id, name, mode, type, finetune_file, interactions, owner, owner_type
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		)
+	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *PostgresStore) UpdateSession(
+	ctx context.Context,
+	session types.Session,
+) error {
+	// TODO: think about which of these fields are meant to be mutable
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	_, err := d.db.Exec(`
+		UPDATE session SET
+			name = $2,
+			mode = $3,
+			type = $4,
+			finetune_file = $5,
+			interactions = $6,
+			owner = $7,
+			owner_type = $8
+		WHERE id = $1
+	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (d *PostgresStore) GetJobs(
 	ctx context.Context,
 	query GetJobsQuery,
