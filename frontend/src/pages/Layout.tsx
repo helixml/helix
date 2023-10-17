@@ -252,74 +252,24 @@ const Layout: FC = () => {
           )
         }
       </List>
-    </div>
-  )
-
-  const container = window !== undefined ? () => document.body : undefined
-
-  return (
-    <Box sx={{ display: 'flex' }} component="div">
-      <CssBaseline />
-      <AppBar
-        elevation={ 0 }
-        position="fixed"
-        open
-        color="default"
-        sx={{
-          height: '64px',
-          width: { xs: '100%', sm: '100%', md: `calc(100% - ${drawerWidth}px)` },
-          ml: { xs: '0px', sm: '0px', md: `${drawerWidth}px` },
-        }}
-      >
-        <Toolbar
-          sx={{
-            pr: '24px', // keep right padding when drawer closed
-            backgroundColor: '#fff'
-          }}
-        >
-          {
-            bigScreen ? (
-              <Typography
-                component="h1"
-                variant="h6"
-                color="inherit"
-                noWrap
-                sx={{
-                  flexGrow: 1,
-                  ml: 1,
-                  color: 'text.primary',
-                }}
-              >
-                {route.title || 'Page'}
-              </Typography>
-            ) : (
-              <>
-                <IconButton
-                  color="inherit"
-                  aria-label="open drawer"
-                  edge="start"
-                  onClick={ handleDrawerToggle }
-                  sx={{
-                    mr: 1,
-                    ml: 1,
-                  }}
-                >
-                  <MenuIcon />
-                </IconButton>
-                { themeConfig.logo() }
-              </>
-            )
-          }
           <Box sx={{
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
+            ml: 2,
+            mb: 2,
+            position: "absolute",
+            bottom: 2,
+            pt: 2,
+            borderTop: "1px solid #ddd",
+            width: "calc(100% - 2em)",
+            backgroundColor: "white"
           }}>
           {
             account.user ? (
               <>
                 <Typography variant="caption">
-                  Signed in as {account.user.email} ({account.credits} credits)
+                  Signed in as<br /> {account.user.email} <br />({account.credits} credits)
                 </Typography>
                 <IconButton
                   size="large"
@@ -381,6 +331,64 @@ const Layout: FC = () => {
             )
           }
           </Box>
+    </div>
+  )
+
+  const container = window !== undefined ? () => document.body : undefined
+
+  return (
+    <Box sx={{ display: 'flex' }} component="div">
+      <CssBaseline />
+      <AppBar
+        elevation={ 0 }
+        position="fixed"
+        open
+        color="default"
+        sx={{
+          height: '64px',
+          width: { xs: '100%', sm: '100%', md: `calc(100% - ${drawerWidth}px)` },
+          ml: { xs: '0px', sm: '0px', md: `${drawerWidth}px` },
+        }}
+      >
+        <Toolbar
+          sx={{
+            pr: '24px', // keep right padding when drawer closed
+            backgroundColor: '#fff'
+          }}
+        >
+          {
+            bigScreen ? (
+              <Typography
+                component="h1"
+                variant="h6"
+                color="inherit"
+                noWrap
+                sx={{
+                  flexGrow: 1,
+                  ml: 1,
+                  color: 'text.primary',
+                }}
+              >
+                {route.title || 'Page'}
+              </Typography>
+            ) : (
+              <>
+                <IconButton
+                  color="inherit"
+                  aria-label="open drawer"
+                  edge="start"
+                  onClick={ handleDrawerToggle }
+                  sx={{
+                    mr: 1,
+                    ml: 1,
+                  }}
+                >
+                  <MenuIcon />
+                </IconButton>
+                { themeConfig.logo() }
+              </>
+            )
+          }
         </Toolbar>
       </AppBar>
       <MuiDrawer
@@ -451,7 +459,7 @@ const Layout: FC = () => {
         >
           <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
             <Typography variant="body2" color="text.secondary" align="center">
-              {'Copyright © '}
+              {'Open source models may produce inaccurate information about people, places, or facts. Created by '}
               <Link color="inherit" href={ themeConfig.url }>
                 { themeConfig.company }
               </Link>{' '}
