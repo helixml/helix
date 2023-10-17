@@ -16,5 +16,5 @@ create table session (
   interactions json not null,
   owner varchar(255) NOT NULL,
   -- e.g. user, system, org
-  owner_type varchar(255) NOT NULL,
+  owner_type varchar(255) NOT NULL
 );
