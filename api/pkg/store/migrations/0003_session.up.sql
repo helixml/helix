@@ -13,7 +13,7 @@ create table session (
   -- session where the finetune was generated
   finetune_file varchar(255) NOT NULL,
   -- for now we just whack the entire history of the interaction in here, json style
-  interactions json not null
+  interactions json not null,
   owner varchar(255) NOT NULL,
   -- e.g. user, system, org
   owner_type varchar(255) NOT NULL,
