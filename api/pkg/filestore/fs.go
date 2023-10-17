@@ -65,6 +65,12 @@ func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem
 
 func (s *FileSystemStorage) Upload(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
 	fullPath := filepath.Join(s.basePath, path)
+
+	// Create the directory structure if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
+		return FileStoreItem{}, fmt.Errorf("failed to create directory structure: %w", err)
+	}
+
 	file, err := os.Create(fullPath)
 	if err != nil {
 		return FileStoreItem{}, fmt.Errorf("error creating file: %w", err)

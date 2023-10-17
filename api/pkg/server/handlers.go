@@ -68,6 +68,7 @@ func (apiServer *LilysaasAPIServer) filestoreDelete(res http.ResponseWriter, req
 	return path, err
 }
 
+// TODO version of this which is session specific
 func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
 	err := req.ParseMultipartForm(10 << 20)

@@ -139,7 +139,7 @@ const Layout: FC = ({
 
            <ListItem disablePadding
                 onClick={ () => {
-                  navigate('')
+                  navigate('home')
                   setMobileOpen(false)
                 }}
            >
@@ -617,7 +617,7 @@ const Layout: FC = ({
             account.user ? (
               <>
                 <Typography variant="caption">
-                  Signed in as {account.user.email} ({account.credits} credits)
+                  {/* Signed in as {account.user.email} ({account.credits} credits) */}
                 </Typography>
                 <IconButton
                   size="large"
@@ -627,7 +627,7 @@ const Layout: FC = ({
                   onClick={handleAccountMenu}
                   color="inherit"
                 >
-                  <AccountCircle />
+                  {/* <AccountCircle /> */}
                 </IconButton>
                 <Menu
                   id="menu-appbar"
