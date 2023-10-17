@@ -17,6 +17,7 @@ export interface IFilestoreUploadProgress {
 
 export interface IFilestoreContext {
   loading: boolean,
+  readonly: boolean,
   uploadProgress?: IFilestoreUploadProgress,
   files: IFileStoreItem[],
   config: IFileStoreConfig,
@@ -32,6 +33,7 @@ export interface IFilestoreContext {
 
 export const FilestoreContext = createContext<IFilestoreContext>({
   loading: false,
+  readonly: false,
   files: [],
   config: {
     user_prefix: '',
@@ -66,6 +68,20 @@ export const useFilestoreContext = (): IFilestoreContext => {
     return params.path || '/'
   }, [
     params.path,
+  ])
+
+  const readonly = useMemo(() => {
+    const pathParts = path.split('/')
+    // this means we are in the root folder which is writable
+    if(pathParts.length < 2) return false
+    const rootFolder = config.folders.find(folder => folder.name == pathParts[1])
+    // we are in a custom folder which is writable
+    if(!rootFolder) return false
+    // we let the folder itself decide
+    return rootFolder.readonly
+  }, [
+    path,
+    config,
   ])
 
   const breadcrumbs = useMemo(() => {
@@ -215,6 +231,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
 
   const contextValue = useMemo<IFilestoreContext>(() => ({
     loading,
+    readonly,
     uploadProgress,
     files,
     config,
@@ -228,6 +245,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     del,
   }), [
     loading,
+    readonly,
     uploadProgress,
     files,
     config,

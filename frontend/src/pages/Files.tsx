@@ -40,6 +40,7 @@ const Files: FC = () => {
     removeParams,
   } = useRouter()
 
+  console.log(filestore.readonly)
   const {
     // this is actually the "name" of the file / folder
     edit_id,
