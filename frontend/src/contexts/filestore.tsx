@@ -22,8 +22,12 @@ export interface IFilestoreContext {
   config: IFileStoreConfig,
   path: string,
   breadcrumbs: IFileStoreBreadcrumb[],
-  onUpload: (path: string, files: File[]) => Promise<void>,
   setPath: (path: string) => void,
+  loadFiles: (path: string) => Promise<void>,
+  upload: (path: string, files: File[]) => Promise<boolean>,
+  createFolder: (path: string) => Promise<boolean>,
+  rename: (path: string, newName: string) => Promise<boolean>,
+  del: (path: string) => Promise<boolean>,
 }
 
 export const FilestoreContext = createContext<IFilestoreContext>({
@@ -35,8 +39,12 @@ export const FilestoreContext = createContext<IFilestoreContext>({
   },
   path: '',
   breadcrumbs: [],
-  onUpload: async () => {},
   setPath: () => {},
+  loadFiles: async () => {},
+  upload: async () => true,
+  createFolder: async () => true,
+  rename: async () => true,
+  del: async () => true,
 })
 
 export const useFilestoreContext = (): IFilestoreContext => {
@@ -100,8 +108,8 @@ export const useFilestoreContext = (): IFilestoreContext => {
     setConfig(configResult)
   }, [])
 
-  const loadFiles = useCallback(async (path: string) => {
-    setLoading(true)
+  const loadFiles = useCallback(async (path: string, withLoading = false) => {
+    if(withLoading) setLoading(true)
     try {
       const filesResult = await api.get('/api/v1/filestore/list', {
         params: {
@@ -112,10 +120,11 @@ export const useFilestoreContext = (): IFilestoreContext => {
         setFiles(filesResult || [])
       }
     } catch(e) {}
-    setLoading(false)
+    if(withLoading) setLoading(false)
   }, [])
 
-  const onUpload = useCallback(async (path: string, files: File[]) => {
+  const upload = useCallback(async (path: string, files: File[]) => {
+    let result = false
     setUploadProgress({
       percent: 0,
       totalBytes: 0,
@@ -141,11 +150,53 @@ export const useFilestoreContext = (): IFilestoreContext => {
           })
         }
       })
+      result = true
     } catch(e) {}
     setUploadProgress(undefined)
-    await loadFiles(path)
-  }, [])
+    return result
+  }, [
+    loadFiles,
+  ])
 
+  const rename = useCallback(async (oldName: string, newName: string) => {
+    const result = await api.put('/api/v1/filestore/rename', null, {
+      params: {
+        path: [ path, oldName ].join('/'),
+        new_path: [ path, newName ].join('/'),
+      },
+    }, {
+      loading: true,
+    })
+    return result ? true : false
+  }, [
+    path,
+  ])
+
+  const createFolder = useCallback(async (name: string) => {
+    const result = await api.post('/api/v1/filestore/folder', null, {
+      params: {
+        path: [ path, name ].join('/'),
+      },
+    }, {
+      loading: true,
+    })
+    return result ? true : false
+  }, [
+    path,
+  ])
+
+  const del = useCallback(async (name: string) => {
+    const result = await api.delete('/api/v1/filestore/delete', {
+      params: {
+        path: [ path, name ].join('/'),
+      },
+    }, {
+      loading: true,
+    })
+    return result ? true : false
+  }, [
+    path,
+  ])
 
   useEffect(() => {
     if(!account.user) return
@@ -169,8 +220,12 @@ export const useFilestoreContext = (): IFilestoreContext => {
     config,
     path,
     breadcrumbs,
-    onUpload,
     setPath,
+    loadFiles,
+    upload,
+    createFolder,
+    rename,
+    del,
   }), [
     loading,
     uploadProgress,
@@ -178,8 +233,12 @@ export const useFilestoreContext = (): IFilestoreContext => {
     config,
     path,
     breadcrumbs,
-    onUpload,
     setPath,
+    loadFiles,
+    upload,
+    createFolder,
+    rename,
+    del,
   ])
 
   return contextValue

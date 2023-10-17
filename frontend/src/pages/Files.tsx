@@ -17,6 +17,7 @@ import ClickLink from '../components/widgets/ClickLink'
 import useFilestore from '../hooks/useFilestore'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
+import useSnackbar from '../hooks/useSnackbar'
 
 import {
   IFileStoreItem,
@@ -29,13 +30,21 @@ import {
 const Files: FC = () => {
   const account = useAccount()
   const filestore = useFilestore()
+  const snackbar = useSnackbar()
   
   const {
     name,
     params,
     setParams,
+    removeParams,
   } = useRouter()
 
+  const {
+    // this is actually the "name" of the file / folder
+    edit_id,
+    edit_item_title,
+  } = params
+  
   const [ editName, setEditName ] = useState('')
 
   const sortedFiles = useMemo(() => {
@@ -46,16 +55,11 @@ const Files: FC = () => {
     filestore.files,
   ])
 
-  const openFolderEditor = useCallback((id: string) => {
-    setParams({
-      edit_folder_id: id,
-    })
-  }, [
-    setParams,
-  ])
-
   const onUpload = useCallback(async (files: File[]) => {
-    await filestore.onUpload(filestore.path, files)
+    const result = await filestore.upload(filestore.path, files)
+    if(!result) return
+    await filestore.loadFiles(filestore.path)
+    snackbar.success('Files Uploaded')
   }, [
     filestore.path,
   ])
@@ -71,12 +75,38 @@ const Files: FC = () => {
   ])
 
   const onEditFile = useCallback((file: IFileStoreItem) => {
-    
+    setParams({
+      edit_name: file.name,
+      edit_item_title: file.directory ? 'Directory' : 'File',
+    })
+  }, [
+    setParams,
+  ])
+
+  const onDeleteFile = useCallback(async (file: IFileStoreItem) => {
+    const result = await filestore.del(file.name)
+    if(!result) return
+    await filestore.loadFiles(filestore.path)
+    snackbar.success('Item Deleted')
   }, [])
 
-  const onDeleteFile = useCallback((file: IFileStoreItem) => {
-    
-  }, [])
+  const onSubmitEditWindow = useCallback(async (newName: string) => {
+    let result = false
+    let message = ''
+    if(edit_id == 'new_folder') {
+      result = await filestore.createFolder(newName)
+      message = 'Folder Created'
+    } else {
+      result = await filestore.rename(edit_id, newName)
+      message = 'Item Renamed'
+    }
+    if(!result) return
+    await filestore.loadFiles(filestore.path)
+    snackbar.success(message)
+    removeParams(['edit_item_title', 'edit_id'])
+  }, [
+    edit_id,
+  ])
 
   if(!account.user) return null
   return (
@@ -170,8 +200,10 @@ const Files: FC = () => {
                         color="secondary"
                         endIcon={<AddIcon />}
                         onClick={ () => {
+                          setEditName('')
                           setParams({
-                            edit_folder_id: 'new',
+                            edit_item_title: 'Folder',
+                            edit_id: 'new_folder',
                           })
                         }}
                       >
@@ -235,19 +267,13 @@ const Files: FC = () => {
         </Box>
       </Box>
       {
-        params.edit_folder_id && (
+        edit_id && (
           <Window
             open
-            title="Edit Folder"
+            title={ `${edit_id == 'new_folder' ? 'New' : 'Edit'} ${edit_item_title}` }
             withCancel
-            onCancel={ () => {
-              setParams({
-                edit_folder_id: ''
-              }) 
-            }}
-            onSubmit={ () => {
-              console.log('--------------------------------------------')
-            }}
+            onCancel={ () => removeParams(['edit_item_title', 'edit_id']) }
+            onSubmit={ () => onSubmitEditWindow(editName) }
           >
             <Box
               sx={{
@@ -256,9 +282,15 @@ const Files: FC = () => {
             >
               <TextField
                 fullWidth
-                label="Folder Name"
-                value={editName}
+                label={ `${edit_item_title} Name` }
+                value={ editName }
                 onChange={(e) => setEditName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    onSubmitEditWindow(editName)
+                  }
+                }}
               />
             </Box>
           </Window>

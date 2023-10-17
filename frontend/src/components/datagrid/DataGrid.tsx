@@ -58,9 +58,6 @@ interface DataGridProps<DataType = any> {
   headerHeight?: number,
   autoSort?: boolean,
   editable?: boolean,
-  onRowsChange?: {
-    (rows: any[]): void,
-  },
   onSelect?: {
     (rowIdx: number, colIdx: number): void,
   },
@@ -77,36 +74,13 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   innerSx = {},
   userSelect = false,
   minHeight = 400,
-  autoSort = false,
   editable = false,
   rowHeight = 56,
   headerHeight = 40,
   loading,
   onDoubleClick,
-  onRowsChange,
   onSelect,
 }) => {
-  const theme = useTheme()
-
-  const useHeaderStyle = useMemo(() => {
-    return getHeaderStyle(theme)
-  }, [
-    theme,
-  ])
-
-  const useColumns = useMemo(() => {
-    return columns.map((col, i) => {
-      return Object.assign({}, col, {
-        headerProps: {
-          style: useHeaderStyle,
-        },
-      })
-    })
-  }, [
-    columns,
-    useHeaderStyle,
-  ])
-
   const onCellClick = useCallback((ev: any, cellProps: any) => {
     if(!onSelect) return
     onSelect(cellProps.rowIndex, cellProps.columnIndex)
