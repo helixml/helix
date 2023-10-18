@@ -71,6 +71,7 @@ func (c *Controller) Start() error {
 				log.Error().Msgf("Lilypad error in job runner: %s", err.Error())
 				return
 			default:
+				log.Debug().Msg("Starting loopSessions")
 				time.Sleep(1 * time.Second)
 				err := c.loopSessions(c.Ctx)
 				if err != nil {

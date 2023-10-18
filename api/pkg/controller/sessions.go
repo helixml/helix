@@ -16,8 +16,7 @@ const DEBUG = true
 
 // load all jobs that are currently running and check if they are still running
 func (c *Controller) triggerSessionTasks(ctx context.Context) error {
-	log.Printf("I have a %+v", c.Options.Store)
-
+	log.Println("Starting triggerSessionTasks")
 	// NB: for the demo, being serialized here is good: it means we'll only
 	// spawn one GPU task at a time, and run less risk of GPU OOM. Later, we'll
 	// need to figure out how to scale/parallelize this, which is what the
@@ -100,8 +99,7 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 			return fmt.Errorf("invalid mode or session type")
 		}
 
-		firstMessage := false
-
+		firstMessage := true
 		addMessage := func(msg string, finished bool) {
 			// need to add a system response (computer always has the last word)
 			if firstMessage {
@@ -133,26 +131,30 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 		}
 
 		// TODO: handle images coming out of the models
-		select {
-		case debugMsg := <-debugStream:
-			fmt.Println("Debug message:", debugMsg)
-			if DEBUG {
-				addMessage(debugMsg, false)
-			}
-		case outputMsg := <-outputStream:
-			fmt.Println("Output message:", outputMsg)
-			addMessage(outputMsg, false)
+		for {
+			select {
+			case debugMsg := <-debugStream:
+				fmt.Println("Debug message:", debugMsg)
+				if DEBUG {
+					addMessage(debugMsg, false)
+				}
+			case outputMsg := <-outputStream:
+				fmt.Println("Output message:", outputMsg)
+				addMessage(outputMsg, false)
 
-		case err := <-finishChan:
-			if err != nil {
-				fmt.Println("Error:", err)
-				addMessage("\nError: "+err.Error(), true)
-			} else {
-				fmt.Println("Finished successfully")
-				addMessage("", true)
+			case err := <-finishChan:
+				fmt.Println("Finish chan:", err)
+				if err != nil {
+					fmt.Println("Error:", err)
+					addMessage("\nError: "+err.Error(), true)
+				} else {
+					fmt.Println("Finished successfully")
+					addMessage("", true)
+				}
+				goto nextSession
 			}
 		}
+	nextSession:
 	}
-
 	return nil
 }
