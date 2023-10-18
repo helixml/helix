@@ -197,12 +197,13 @@ func (d *PostgresStore) UpdateSession(
 			name = $2,
 			mode = $3,
 			type = $4,
-			finetune_file = $5,
-			interactions = $6,
-			owner = $7,
-			owner_type = $8
+			model_name = $5,
+			finetune_file = $6,
+			interactions = $7,
+			owner = $8,
+			owner_type = $9
 		WHERE id = $1
-	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
+	`, session.ID, session.Name, session.Mode, session.Type, session.ModelName, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
 		return nil, err
