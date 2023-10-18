@@ -8,21 +8,49 @@ import (
 )
 
 ////////////////////////////////////////////////////////////////////////////////
+// LANGUAGE
+
+type LanguageModel struct {
+	// INPUTS
+	Interactions types.Interactions `json:"interactions"`  // expects user to have given last instruction
+	FinetunePath string             `json:"finetune_path"` // path to finetuned model (optional)
+	FinetuneFile string             `json:"finetune_file"` // file within above path pointing to specific fine tune file (if applying finetune)
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string // NB PYTHONUNBUFFERED=1
+	FinishChan   chan error
+	Status       string `json:"status"` // running, finished, error
+}
+
+func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
+	l.Status = "running"
+	for i := 0; i < 5; i++ {
+		l.OutputStream <- "hello world"
+		time.Sleep(time.Second)
+	}
+	l.Status = "finished"
+	l.FinishChan <- nil
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // TEXT TO IMAGE
 
 type TextToImage struct {
 	// INPUTS
-	Prompt     string `json:"prompt"` // TODO: add support for negative prompts, other adjustments
-	OutputPath string `json:"output_path"`
+	Prompt       string `json:"prompt"` // TODO: add support for negative prompts, other adjustments
+	OutputPath   string `json:"output_path"`
+	FinetunePath string `json:"finetune_path"` // path to finetuned model (optional)
+	FinetuneFile string `json:"finetune_file"` // file within above path pointing to specific fine tune file (if applying finetune)
 	// OUTPUTS
 	DebugStream  chan string
 	OutputStream chan string
+	FinishChan   chan error
 	Status       string   `json:"status"`        // running, finished, error
 	ResultImages []string `json:"result_images"` // filenames relative to OutputPath, only expect this to be filled in when Status == finished
 }
 
 // base as opposed to refiner
-func (t *TextToImage) SDXL_1_0_Base(ctx context.Context) error {
+func (t *TextToImage) SDXL_1_0_Base(ctx context.Context) {
 	t.Status = "running"
 	for i := 0; i < 5; i++ {
 		t.OutputStream <- "hello world"
@@ -30,23 +58,7 @@ func (t *TextToImage) SDXL_1_0_Base(ctx context.Context) error {
 	}
 	t.ResultImages = []string{"imagine.jpg"}
 	t.Status = "finished"
-	return nil
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// LANGUAGE
-
-type LanguageModel struct {
-	// INPUTS
-	Interactions types.Interactions `json:"interactions"` // expects user to have given last instruction
-	// OUTPUTS
-	DebugStream  chan string
-	OutputStream chan string // NB PYTHONUNBUFFERED=1
-	Status       string      `json:"status"` // running, finished, error
-}
-
-func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) error {
-	return nil
+	t.FinishChan <- nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -59,6 +71,7 @@ type FinetuneLanguageModel struct {
 	// OUTPUTS
 	DebugStream  chan string
 	OutputStream chan string
+	FinishChan   chan error
 	Status       string `json:"status"`      // running, finished, error
 	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within the given output directory
 }
@@ -71,8 +84,8 @@ type ShareGPT struct {
 	} `json:"conversations"`
 }
 
-func (f *FinetuneTextToImage) Mistral_7B_Instruct_v0_1(ctx context.Context) error {
-	return nil
+func (f *FinetuneLanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
+	return
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -85,10 +98,11 @@ type FinetuneTextToImage struct {
 	// OUTPUTS
 	DebugStream  chan string
 	OutputStream chan string
+	FinishChan   chan error
 	Status       string `json:"status"`      // running, finished, error
 	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within that directory
 }
 
-func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) error {
-	return nil
+func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) {
+	return
 }
