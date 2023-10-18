@@ -178,9 +178,9 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 		Mode: req.FormValue("mode"),
 	}
 
-	if session.Mode == "Image" {
+	if session.Type == "Images" {
 		session.ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-	} else if session.Mode == "Text" {
+	} else if session.Type == "Text" {
 		session.ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
 	}
 
@@ -209,9 +209,10 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 	// so far it's a chat with one message and some uploads
 	session.Interactions = types.Interactions{
 		Messages: []types.UserMessage{{
-			User:    "user",
-			Message: req.FormValue("input"),
-			Uploads: paths,
+			User:     "user",
+			Message:  req.FormValue("input"),
+			Uploads:  paths,
+			Finished: true,
 		}},
 	}
 

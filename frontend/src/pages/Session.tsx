@@ -28,21 +28,19 @@ const Session: FC = () => {
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [chatHistory, setChatHistory] = useState<Array<{user: string, message: string}>>([])
-  const [selectedMode, setSelectedMode] = useState('Create')
-  const [selectedCreateType, setSelectedCreateType] = useState('Text')
-  const [selectedFineTuneType, setSelectedFineTuneType] = useState('Text')
   const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-  const currentSession = account.sessions?.find(session => session.id === params["session_id"])
+  const session = account.sessions?.find(session => session.id === params["session_id"])
 
   const onSend = async () => {
       // const statusResult = await axios.post('/api/v1/sessions', {
       //   files: files,
       // })
-      /// XXXXXXXXXXXXXXXXX NOT CREATE NEW ONE, NEED TO UPDATE
+      /// XXXXXXXXXXXXXXXXX NOT CREATE NEW ONE, NEED TO UPDATE (or even better,
+      /// POST to a new endpoint to add to the chat reliably)
       try {
         const formData = new FormData()
         files.forEach((file) => {
@@ -50,12 +48,6 @@ const Session: FC = () => {
         })
 
         formData.set('input', inputValue)
-        formData.set('mode', selectedMode)
-        if (selectedMode == "Create") {
-          formData.set("type", selectedCreateType)
-        } else {
-          formData.set("type", selectedFineTuneType)
-        }
 
         await api.put('/api/v1/sessions', formData, {
           // params: {
@@ -106,16 +98,16 @@ const Session: FC = () => {
     <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
       <Grid container spacing={3} direction="row" justifyContent="flex-start">
         <Grid item xs={12} md={12}>
-          <Typography sx={{fontSize: "small", color: "gray"}}>Session {currentSession?.name} in which we {currentSession?.mode.toLowerCase()} {currentSession?.type.toLowerCase()}...</Typography>
+          <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
           <br />
-          {currentSession?.interactions.messages.map((chat: any, index: any) => (
+          {session?.interactions.messages.map((chat: any, index: any) => (
             <Typography key={index}><strong>{chat.user}:</strong> {chat.message}</Typography>
           ))}
         </Grid>
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
         <Grid item xs={12} md={11}>
-          {selectedMode === 'Finetune' && selectedFineTuneType === 'Images' && (
+          {session?.mode === 'Finetune' && session?.type === 'Images' && (
             <FileUpload
               sx={{
                 width: '100%',
@@ -168,7 +160,7 @@ const Session: FC = () => {
             <TextField
               fullWidth
               label={(
-                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Chat with base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                session?.mode === 'Create' && session?.type === 'Text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'Create' && session?.type === 'Images' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'Finetune' && session?.type === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}

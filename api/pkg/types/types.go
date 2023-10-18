@@ -64,9 +64,10 @@ type Module struct {
 }
 
 type UserMessage struct {
-	User    string   `json:"user"`    // e.g. User
-	Message string   `json:"message"` // e.g. Prove pythagoras
-	Uploads []string `json:"uploads"` // list of filepath paths
+	User     string   `json:"user"`     // e.g. User
+	Message  string   `json:"message"`  // e.g. Prove pythagoras
+	Uploads  []string `json:"uploads"`  // list of filepath paths
+	Finished bool     `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 }
 
 type Interactions struct {
@@ -98,6 +99,55 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+type TextToImage struct {
+	// INPUTS
+	Prompt     string `json:"prompt"` // TODO: add support for negative prompts, other adjustments
+	OutputPath string `json:"output_path"`
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string
+	Status       string   `json:"status"`        // running, finished, error
+	ResultImages []string `json:"result_images"` // filenames relative to OutputPath, only expect this to be filled in when Status == finished
+}
+
+type LanguageModel struct {
+	// INPUTS
+	Interactions Interactions `json:"interactions"` // expects user to have given last instruction
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string // NB PYTHONUNBUFFERED=1
+	Status       string      `json:"status"` // running, finished, error
+}
+
+type FinetuneTextToImage struct {
+	// INPUTS
+	InputPath  string `json:"input_path"`  // path to directory containing file_1.png and file_1.txt captions
+	OutputPath string `json:"output_path"` // path to resulting directory
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string
+	Status       string `json:"status"`      // running, finished, error
+	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within that directory
+}
+
+type FinetuneLanguageModel struct {
+	// INPUTS
+	InputDataset ShareGPT `json:"input_dataset"` // literal input training dataset - https://github.com/OpenAccess-AI-Collective/axolotl#dataset
+	OutputPath   string   `json:"output_path"`   // path to resulting directory
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string
+	Status       string `json:"status"`      // running, finished, error
+	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within the given output directory
+}
+
+type ShareGPT struct {
+	Conversations []struct {
+		From  string `json:"from"`
+		Value string `json:"value"`
+	} `json:"conversations"`
 }
 
 // passed between the api server and the controller
