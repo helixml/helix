@@ -1,8 +1,12 @@
 package controller
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"log"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
@@ -24,14 +28,26 @@ type LanguageModel struct {
 }
 
 func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
-	l.Status = "running"
-	for i := 0; i < 5; i++ {
-		l.OutputStream <- "hello world "
-		log.Printf("ROUND WE GO")
-		time.Sleep(time.Second)
-	}
-	l.Status = "finished"
-	l.FinishChan <- nil
+
+	// l.streamOutput("CATS",
+	// 	"bash", "-c", `cat; for i in {1..5}; do echo "debug world $i " >&2; sleep 1; done`)
+	// l.streamOutput("CATS", "bash", "-c", `cat`)
+
+	// TODO: convert interactions into the delimited format the instruction
+	// tuned model expects with the right tokens and all that
+
+	lastUserMessage := l.Interactions.Messages[len(l.Interactions.Messages)-1].Message
+	l.OutputStream <- "🤔... "
+	l.streamOutput(
+		"[INST]"+lastUserMessage+"[/INST]",
+		"[/INST]", "</s>",
+		"ssh", "-o", "StrictHostKeyChecking=no", "luke@172.17.0.1", `bash -c "
+			cd /home/luke/pb/axolotl;
+			. venv/bin/activate;
+			python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml"`,
+	)
+	// echo "prove pythagoras theorem" |  -m axolotl.cli.inference examples/mistral/qlora.yml
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -105,4 +121,89 @@ type FinetuneTextToImage struct {
 }
 
 func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) {
+}
+
+// //////////////////////////////////////////////////////////////////////////////
+// PLUMBING
+
+// For testing:
+// l.streamOutput("bash", "-c", `for i in {1..5}; do echo "hello world $i "; sleep 1; done`)
+// l.streamOutput("bash", "-c", `for i in {1..5}; do echo "debug world $i " >&2; sleep 1; done`)
+
+func (l *LanguageModel) streamOutput(input string, start string, ignore string, command string, args ...string) {
+	l.Status = "running"
+	cmd := exec.Command(command, args...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		l.DebugStream <- fmt.Sprintf("Error getting stdin pipe: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		l.DebugStream <- fmt.Sprintf("Error getting stdout pipe: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		l.DebugStream <- fmt.Sprintf("Error getting stderr pipe: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		l.DebugStream <- fmt.Sprintf("Error starting command: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	go func() {
+		foundStartString := false
+		scanner := bufio.NewScanner(stdout)
+		// scanner.Split(bufio.ScanBytes)
+		scanner.Split(bufio.ScanWords)
+		for scanner.Scan() {
+			word := scanner.Text()
+			if start == "" || foundStartString {
+				if word != ignore {
+					l.OutputStream <- word + " "
+				}
+			} else {
+				log.Printf("output: %s", word)
+			}
+			if strings.HasSuffix(word, start) {
+				foundStartString = true
+			}
+		}
+	}()
+	go func() {
+		errScanner := bufio.NewScanner(stderr)
+		for errScanner.Scan() {
+			log.Printf("output: %s", errScanner.Text())
+			// l.DebugStream <- errScanner.Text()
+		}
+	}()
+	if _, err := stdin.Write([]byte(input)); err != nil {
+		l.DebugStream <- fmt.Sprintf("Error writing to stdin: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	if err := stdin.Close(); err != nil {
+		l.DebugStream <- fmt.Sprintf("Error closing stdin: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	if err := cmd.Wait(); err != nil {
+		l.DebugStream <- fmt.Sprintf("Command finished with error: %v", err)
+		l.Status = "error"
+		l.FinishChan <- err
+		return
+	}
+	l.Status = "finished"
+	l.FinishChan <- nil
 }

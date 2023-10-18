@@ -77,6 +77,8 @@ services:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
+      # Allow the container to SSH onto the host - don't ask, it's the day before a deadline
+      - ~/.ssh/id_rsa:/root/.ssh/id_rsa
   frontend:
     ports:
       - 8081:8081

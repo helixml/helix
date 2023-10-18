@@ -56,6 +56,7 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 		case session.Mode == "Create" && session.Type == "Text":
 			// session for text generation
 			llm := LanguageModel{
+				Interactions: session.Interactions,
 				DebugStream:  debugStream,
 				OutputStream: outputStream,
 				FinishChan:   finishChan,
@@ -64,6 +65,9 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 
 		case session.Mode == "Create" && session.Type == "Image":
 			// session for image generation
+
+			// TODO: set Prompt, etc, from interactions
+
 			t2i := TextToImage{
 				DebugStream:  debugStream,
 				OutputStream: outputStream,
@@ -77,6 +81,8 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 			// TODO: we might want to check that we have the QA correctly edited
 			// and have the user click an explicit "Start" button before
 			// proceeding here
+
+			// TODO: set InputDataset
 
 			llm_ft := FinetuneLanguageModel{
 				DebugStream:  debugStream,
@@ -92,7 +98,13 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 			// correctly added and have the user click an explicit "Start"
 			// button (an interaction type) before proceeding here
 
-			t2i_ft := FinetuneTextToImage{}
+			// TODO: set InputPath, OutputPath
+
+			t2i_ft := FinetuneTextToImage{
+				DebugStream:  debugStream,
+				OutputStream: outputStream,
+				FinishChan:   finishChan,
+			}
 			go t2i_ft.SDXL_1_0_Base_Finetune(ctx)
 
 		default:
