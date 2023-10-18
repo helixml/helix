@@ -151,6 +151,8 @@ func (c *Controller) triggerSessionTasks(ctx context.Context) error {
 					fmt.Println("Finished successfully")
 					addMessage("", true)
 				}
+				// maybe factor the main body of this loop into a separate fn so
+				// we can just return instead of using goto, heh
 				goto nextSession
 			}
 		}
