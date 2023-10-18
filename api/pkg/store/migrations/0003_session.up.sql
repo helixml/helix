@@ -8,7 +8,8 @@ create table session (
   mode varchar(255) NOT NULL,
   -- e.g. create, finetune
   type varchar(255) NOT NULL,
-  -- huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or stabilityai/stable-diffusion-xl-base-1.0
+  -- huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
+  -- stabilityai/stable-diffusion-xl-base-1.0
   model_name varchar(255) NOT NULL,
   -- if type == finetune, we record a filestore path to e.g. lora file here
   -- currently the only place you can do inference on a finetune is within the

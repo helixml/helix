@@ -169,13 +169,18 @@ func (d *PostgresStore) CreateSession(
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
-	_, err := d.db.Exec(`
+	interactions, err := json.Marshal(session.Interactions)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = d.db.Exec(`
 		INSERT INTO session (
-			id, name, mode, type, finetune_file, interactions, owner, owner_type
+			id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		)
-	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
+	`, session.ID, session.Name, session.Mode, session.Type, session.ModelName, session.FinetuneFile, interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
 		return nil, err
@@ -192,7 +197,12 @@ func (d *PostgresStore) UpdateSession(
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
-	_, err := d.db.Exec(`
+	interactions, err := json.Marshal(session.Interactions)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = d.db.Exec(`
 		UPDATE session SET
 			name = $2,
 			mode = $3,
@@ -203,7 +213,7 @@ func (d *PostgresStore) UpdateSession(
 			owner = $8,
 			owner_type = $9
 		WHERE id = $1
-	`, session.ID, session.Name, session.Mode, session.Type, session.ModelName, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
+	`, session.ID, session.Name, session.Mode, session.Type, session.ModelName, session.FinetuneFile, interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
 		return nil, err

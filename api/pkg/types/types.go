@@ -64,11 +64,14 @@ type Module struct {
 }
 
 type UserMessage struct {
-	User    string `json:"user"`    // e.g. User
-	Message string `json:"message"` // e.g. Prove pythagoras
+	User    string   `json:"user"`    // e.g. User
+	Message string   `json:"message"` // e.g. Prove pythagoras
+	Uploads []string `json:"uploads"` // list of filepath paths
 }
 
-type Interactions []UserMessage
+type Interactions struct {
+	Messages []UserMessage `json:"messages"`
+}
 
 type Session struct {
 	ID string `json:"id"`
