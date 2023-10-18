@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
@@ -25,7 +26,8 @@ type LanguageModel struct {
 func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
 	l.Status = "running"
 	for i := 0; i < 5; i++ {
-		l.OutputStream <- "hello world"
+		l.OutputStream <- "hello world "
+		log.Printf("ROUND WE GO")
 		time.Sleep(time.Second)
 	}
 	l.Status = "finished"
@@ -53,7 +55,7 @@ type TextToImage struct {
 func (t *TextToImage) SDXL_1_0_Base(ctx context.Context) {
 	t.Status = "running"
 	for i := 0; i < 5; i++ {
-		t.OutputStream <- "hello world"
+		t.OutputStream <- "hello world "
 		time.Sleep(time.Second)
 	}
 	t.ResultImages = []string{"imagine.jpg"}
@@ -85,7 +87,6 @@ type ShareGPT struct {
 }
 
 func (f *FinetuneLanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
-	return
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -104,5 +105,4 @@ type FinetuneTextToImage struct {
 }
 
 func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) {
-	return
 }
