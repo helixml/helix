@@ -35,9 +35,9 @@ type Store interface {
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
-	CreateSession(ctx context.Context, session types.Session) error
-	UpdateSession(ctx context.Context, session types.Session) error
-	DeleteSession(ctx context.Context, id string) error
+	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
+	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
+	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 }
 
 

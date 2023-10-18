@@ -99,6 +99,12 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 		})))
 	}
 
+	authRouter.HandleFunc("/sessions", wrapper(apiServer.getSessions)).Methods("GET")
+	authRouter.HandleFunc("/sessions", wrapper(apiServer.createSession)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.getSession)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.updateSession)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.deleteSession)).Methods("DELETE")
+
 	StartWebSocketServer(
 		ctx,
 		subrouter,

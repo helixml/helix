@@ -62,19 +62,23 @@ func NewPostgresStore(
 func (d *PostgresStore) DeleteSession(
 	ctx context.Context,
 	sessionID string,
-) error {
+) (*types.Session, error) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
-	_, err := d.db.Exec(`
-		DELETE FROM session WHERE id = $1
-	`, sessionID)
-
+	deleted, err := d.GetSession(ctx, sessionID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	_, err = d.db.Exec(`
+		DELETE FROM session WHERE id = $1
+	`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return deleted, nil
 }
 
 func (d *PostgresStore) GetSession(
@@ -161,7 +165,7 @@ func (d *PostgresStore) GetSessions(
 func (d *PostgresStore) CreateSession(
 	ctx context.Context,
 	session types.Session,
-) error {
+) (*types.Session, error) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
@@ -174,16 +178,16 @@ func (d *PostgresStore) CreateSession(
 	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return &session, nil
 }
 
 func (d *PostgresStore) UpdateSession(
 	ctx context.Context,
 	session types.Session,
-) error {
+) (*types.Session, error) {
 	// TODO: think about which of these fields are meant to be mutable
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
@@ -201,10 +205,11 @@ func (d *PostgresStore) UpdateSession(
 	`, session.ID, session.Name, session.Mode, session.Type, session.FinetuneFile, session.Interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	// TODO maybe do a SELECT to get the exact session that's in the database
+	return &session, nil
 }
 
 func (d *PostgresStore) GetJobs(
