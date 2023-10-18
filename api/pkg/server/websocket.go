@@ -34,6 +34,7 @@ func StartWebSocketServer(
 	r *mux.Router,
 	path string,
 	jobUpdatesChan chan *types.Job,
+	sessionUpdatesChan chan *types.Session,
 	getUserIDFromRequest GetUserIDFromRequest,
 ) {
 	var mutex = &sync.Mutex{}
@@ -63,6 +64,29 @@ func StartWebSocketServer(
 	go func() {
 		for {
 			select {
+			case sessionUpdate := <-sessionUpdatesChan:
+				event := types.WebsocketEvent{
+					Type:    types.WebsocketEventSessionUpdate,
+					Session: sessionUpdate,
+				}
+				message, err := json.Marshal(event)
+				if err != nil {
+					log.Error().Msgf("Error marshalling session update: %s", err.Error())
+					continue
+				}
+				// TODO: make this more efficient
+				for _, connWrapper := range connections {
+					// if connWrapper.user != sessionUpdate.Owner {
+					// 	continue
+					// }
+					connWrapper.mu.Lock()
+					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+						log.Error().Msgf("Error writing to websocket: %s", err.Error())
+						connWrapper.mu.Unlock()
+						return
+					}
+					connWrapper.mu.Unlock()
+				}
 			case jobUpdate := <-jobUpdatesChan:
 				event := types.WebsocketEvent{
 					Type: types.WebsocketEventJobUpdate,

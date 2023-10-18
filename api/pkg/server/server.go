@@ -110,6 +110,7 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 		subrouter,
 		"/ws",
 		apiServer.Controller.JobUpdatesChan,
+		apiServer.Controller.SessionUpdatesChan,
 		keyCloakMiddleware.userIDFromRequest,
 	)
 

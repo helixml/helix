@@ -163,4 +163,3 @@ func (c *Controller) FilestoreDelete(ctx types.RequestContext, path string) erro
 	}
 	return c.Options.Filestore.Delete(c.Ctx, filePath)
 }
-
