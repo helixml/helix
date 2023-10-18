@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
@@ -19,6 +21,43 @@ import (
 
 func generateUUID() string {
 	return uuid.New().String()
+}
+
+var adjectives = []string{
+	"enchanting",
+	"fascinating",
+	"elucidating",
+	"useful",
+	"helpful",
+	"constructive",
+	"charming",
+	"playful",
+	"whimsical",
+	"delightful",
+	"fantastical",
+	"magical",
+	"spellbinding",
+	"dazzling",
+}
+
+var nouns = []string{
+	"discussion",
+	"dialogue",
+	"convo", // Short for conversation
+	"chat",
+	"talk",
+	"exchange",
+	"debate",
+	"conference",
+	"seminar",
+	"symposium",
+}
+
+func generateAmusingName() string {
+	adj := adjectives[rand.Intn(len(adjectives))]
+	noun := nouns[rand.Intn(len(nouns))]
+	number := rand.Intn(900) + 100 // generates a random 3 digit number
+	return adj + "-" + noun + "-" + strconv.Itoa(number)
 }
 
 func (apiServer *LilysaasAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
@@ -131,7 +170,8 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 	}
 
 	session := types.Session{
-		ID: generateUUID(),
+		ID:   generateUUID(),
+		Name: generateAmusingName(),
 	}
 	// only allow users to create their own sessions
 	session.Owner = reqContext.Owner

@@ -89,16 +89,21 @@ func (d *PostgresStore) GetSession(
 	defer d.mtx.RUnlock()
 
 	row := d.db.QueryRow(`
-		SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+		SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 		FROM session WHERE id = $1
 	`, sessionID)
 
+	var interactions []byte
 	session := &types.Session{}
-	err := row.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.FinetuneFile, &session.Interactions, &session.Owner, &session.OwnerType)
+	err := row.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
+		return nil, err
+	}
+	err = json.Unmarshal(interactions, &session.Interactions)
+	if err != nil {
 		return nil, err
 	}
 
@@ -115,27 +120,28 @@ func (d *PostgresStore) GetSessions(
 	var rows *sql.Rows
 	var err error
 
+	/// XXX SECURITY not sure this is what we want - audit who can set these values?
 	if query.Owner != "" && query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1 AND owner_type = $2
 		`, query.Owner, query.OwnerType)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1
 		`, query.Owner)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner_type = $1
 		`, query.OwnerType)
 	} else {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, finetune_file, interactions, owner, owner_type
+			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 		`)
 	}
@@ -148,10 +154,17 @@ func (d *PostgresStore) GetSessions(
 	sessions := []*types.Session{}
 	for rows.Next() {
 		session := &types.Session{}
-		err := rows.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.FinetuneFile, &session.Interactions, &session.Owner, &session.OwnerType)
+
+		var interactions []byte
+		err := rows.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
 		if err != nil {
 			return nil, err
 		}
+		err = json.Unmarshal(interactions, &session.Interactions)
+		if err != nil {
+			return nil, err
+		}
+
 		sessions = append(sessions, session)
 	}
 

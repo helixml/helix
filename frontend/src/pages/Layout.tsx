@@ -120,6 +120,28 @@ const Layout: FC = ({
     setMobileOpen(!mobileOpen)
   }
 
+  const sessions = account.sessions && account.sessions.map(
+    (session, i) => (
+      <ListItem
+        disablePadding
+        key={ i }
+        onClick={ () => {
+          navigate(`session/${session.id}`)
+          setMobileOpen(false)
+        }}
+      >
+        <ListItemButton
+          selected={ name == `session/${session.id}` }
+        >
+          <ListItemIcon>
+            <DvrIcon color="primary" />
+          </ListItemIcon>
+          <ListItemText primary={ session.name } />
+        </ListItemButton>
+      </ListItem>
+    )
+  )
+
   const drawer = (
     <div>
       <Toolbar
@@ -137,19 +159,23 @@ const Layout: FC = ({
         {
           account.user ? (
 
-           <ListItem disablePadding
-                onClick={ () => {
-                  navigate('home')
-                  setMobileOpen(false)
-                }}
-           >
-              <ListItemButton>
-                <ListItemIcon>
-                  <AddIcon color="primary" />
-                </ListItemIcon>
-                <ListItemText primary="New Session" />
-              </ListItemButton>
-            </ListItem>
+          <div>
+            <ListItem disablePadding
+                  onClick={ () => {
+                    navigate('home')
+                    setMobileOpen(false)
+                  }}
+            >
+                <ListItemButton>
+                  <ListItemIcon>
+                    <AddIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText primary="New Session" />
+                </ListItemButton>
+              </ListItem>
+
+              <div>{sessions}</div>
+            </div>
 
           ) : (
             <>

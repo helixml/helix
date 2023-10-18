@@ -82,6 +82,26 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
+export interface ISession {
+  id: string;
+  name: string;
+  created: Date;
+  updated: Date;
+  mode: string;
+  type: string;
+  model_name: string;
+  finetune_file: string;
+  interactions: IInteractions;
+  owner: string;
+  owner_type: IOwnerType;
+}
+
+export interface IInteractions {
+  [key: string]: any;
+}
+
+export type IOwnerType = 'user' | 'system' | 'org';
+
 export interface IFileStoreBreadcrumb {
   path: string,
   title: string,
