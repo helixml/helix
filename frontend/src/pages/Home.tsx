@@ -109,6 +109,12 @@ const Dashboard: FC = () => {
     filestore.path,
   ])
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
+      onSend()
+      event.preventDefault()
+    }
+  }
 
   return (
     <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
@@ -156,57 +162,69 @@ const Dashboard: FC = () => {
         </Grid>
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
-
         <Grid item xs={12} md={11}>
-          <FileUpload
-            sx={{
-              width: '100%',
-              mt: 2,
-            }}
-            onUpload={ onUpload }
-          >
-            <Button
+          {selectedMode === 'Finetune' && selectedFineTuneType === 'Images' && (
+            <FileUpload
               sx={{
                 width: '100%',
+                mt: 2,
               }}
-              variant="contained"
-              color="secondary"
-              endIcon={<CloudUploadIcon />}
+              onUpload={ onUpload }
             >
-              Upload Files
-            </Button>
-            <Box
-              sx={{
-                border: '1px dashed #ccc',
-                p: 2,
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minHeight: '100px',
-                cursor: 'pointer',
-              }}
-            >
-              <Typography
+              <Button
                 sx={{
-                  color: '#999'
+                  width: '100%',
                 }}
-                variant="caption"
+                variant="contained"
+                color="secondary"
+                endIcon={<CloudUploadIcon />}
               >
-                drop files here to upload them...
-              </Typography>
-            </Box>
-          </FileUpload>
+                Upload Files
+              </Button>
+              <Box
+                sx={{
+                  border: '1px dashed #ccc',
+                  p: 2,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '100px',
+                  cursor: 'pointer',
+                  mb: 2,
+                }}
+              >
+                <Typography
+                  sx={{
+                    color: '#999'
+                  }}
+                  variant="caption"
+                >
+                  drop files here to upload them ...
+                  {
+                    files.length > 0 && files.map((file) => (
+                      <Typography key={file.name}>
+                        {file.name} ({file.size} bytes) - {file.type}
+                      </Typography>
+                    ))
+                  }
+                </Typography>
+              </Box>
+            </FileUpload> )}
         </Grid>
         <Grid item xs={12} md={11}>
             <TextField
               fullWidth
-              label={selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'}
+              label={(
+                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                ) + " (shift+enter to send)"
+              }
               value={inputValue}
               disabled={loading}
               onChange={handleInputChange}
               name="ai_submit"
               multiline={true}
+              onKeyDown={handleKeyDown}
             />
           </Grid>
         <Grid item xs={12} md={1}>
