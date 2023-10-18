@@ -115,10 +115,12 @@ type UserStatus struct {
 type WebsocketEventType string
 
 const (
-	WebsocketEventJobUpdate WebsocketEventType = "job"
+	WebsocketEventJobUpdate     WebsocketEventType = "job"
+	WebsocketEventSessionUpdate WebsocketEventType = "session"
 )
 
 type WebsocketEvent struct {
-	Type WebsocketEventType `json:"type"`
-	Job  *Job               `json:"job"`
+	Type    WebsocketEventType `json:"type"`
+	Job     *Job               `json:"job"`
+	Session *Session           `json:"session"`
 }

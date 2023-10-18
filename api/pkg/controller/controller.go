@@ -33,9 +33,10 @@ type ControllerOptions struct {
 }
 
 type Controller struct {
-	Ctx            context.Context
-	Options        ControllerOptions
-	JobUpdatesChan chan *types.Job
+	Ctx                context.Context
+	Options            ControllerOptions
+	JobUpdatesChan     chan *types.Job
+	SessionUpdatesChan chan *types.Session
 }
 
 func NewController(
@@ -52,9 +53,10 @@ func NewController(
 		return nil, fmt.Errorf("job runner is required")
 	}
 	controller := &Controller{
-		Ctx:            ctx,
-		Options:        options,
-		JobUpdatesChan: make(chan *types.Job),
+		Ctx:                ctx,
+		Options:            options,
+		JobUpdatesChan:     make(chan *types.Job),
+		SessionUpdatesChan: make(chan *types.Session),
 	}
 	return controller, nil
 }
@@ -70,7 +72,12 @@ func (c *Controller) Start() error {
 				return
 			default:
 				time.Sleep(1 * time.Second)
-				err := c.loop(c.Ctx)
+				err := c.loopSessions(c.Ctx)
+				if err != nil {
+					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
+					debug.PrintStack()
+				}
+				err = c.loop(c.Ctx)
 				if err != nil {
 					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
 					debug.PrintStack()
@@ -101,6 +108,37 @@ func (c *Controller) loop(ctx context.Context) error {
 
 	// an example of a function that is called in the loop
 	go runFunc(c.checkForRunningJobs)
+
+	go func() {
+		wg.Wait()
+		close(errChan)
+	}()
+
+	if err := <-errChan; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Controller) loopSessions(ctx context.Context) error {
+	var wg sync.WaitGroup
+	errChan := make(chan error, 1)
+
+	// Wrap the function in a closure and handle the WaitGroup and error channel
+	runFunc := func(f func(context.Context) error) {
+		defer wg.Done()
+		if err := f(ctx); err != nil {
+			select {
+			case errChan <- err:
+			default:
+			}
+		}
+	}
+
+	wg.Add(1)
+
+	// an example of a function that is called in the loop
+	go runFunc(c.triggerSessionTasks)
 
 	go func() {
 		wg.Wait()

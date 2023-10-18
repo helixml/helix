@@ -18,11 +18,11 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 
-const Dashboard: FC = () => {
+const Session: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
-  const {navigate} = useRouter()
+  const {navigate, params} = useRouter()
   const account = useAccount()
 
   const [loading, setLoading] = useState(false)
@@ -36,11 +36,13 @@ const Dashboard: FC = () => {
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
+  const currentSession = account.sessions?.find(session => session.id === params["session_id"])
 
   const onSend = async () => {
       // const statusResult = await axios.post('/api/v1/sessions', {
       //   files: files,
       // })
+      /// XXXXXXXXXXXXXXXXX NOT CREATE NEW ONE, NEED TO UPDATE
       try {
         const formData = new FormData()
         files.forEach((file) => {
@@ -55,7 +57,7 @@ const Dashboard: FC = () => {
           formData.set("type", selectedFineTuneType)
         }
 
-        await api.post('/api/v1/sessions', formData, {
+        await api.put('/api/v1/sessions', formData, {
           // params: {
           //   path,
           // },
@@ -69,13 +71,6 @@ const Dashboard: FC = () => {
           //     uploadedBytes: progressEvent.loaded || 0,
           //   })
           // }
-        }).then((response) => {
-          account.loadSessions()
-          setFiles([])
-          setInputValue("")
-          console.log("ABOUT TO NAVIGATE")
-          navigate('session', {session_id: response.id})
-          console.log("DONE NAVIGATE")
         })
         // result = true
       } catch(e) {
@@ -110,44 +105,10 @@ const Dashboard: FC = () => {
   return (
     <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
       <Grid container spacing={3} direction="row" justifyContent="flex-start">
-        <Grid item xs={2} md={2}>
-        </Grid>
-        <Grid item xs={4} md={4}>
-          <Button variant={selectedMode === 'Create' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Create')}>
-            Create
-            <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
-              <Select variant="standard"
-                labelId="create-type-select-label"
-                id="create-type-select"
-                value={selectedCreateType}
-                onChange={(event) => setSelectedCreateType(event.target.value)}
-              >
-                <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Images">Images</MenuItem>
-              </Select>
-            </FormControl>
-          </Button>
-        </Grid>
-        <Grid item xs={4} md={4}>
-          <Button variant={selectedMode === 'Finetune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Finetune')}>
-            Finetune
-            <FormControl sx={{minWidth: 120, marginLeft: 2}}>
-              <Select variant="standard"
-                labelId="fine-tune-type-select-label"
-                id="fine-tune-type-select"
-                value={selectedFineTuneType}
-                onChange={(event) => setSelectedFineTuneType(event.target.value)}
-              >
-                <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Images">Images</MenuItem>
-              </Select>
-            </FormControl>
-          </Button>
-        </Grid>
-        <Grid item xs={2} md={2}>
-        </Grid>
         <Grid item xs={12} md={12}>
-          {chatHistory.map((chat, index) => (
+          <Typography sx={{fontSize: "small", color: "gray"}}>Session {currentSession?.name} in which we {currentSession?.mode.toLowerCase()} {currentSession?.type.toLowerCase()}...</Typography>
+          <br />
+          {currentSession?.interactions.messages.map((chat: any, index: any) => (
             <Typography key={index}><strong>{chat.user}:</strong> {chat.message}</Typography>
           ))}
         </Grid>
@@ -207,7 +168,7 @@ const Dashboard: FC = () => {
             <TextField
               fullWidth
               label={(
-                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Chat with base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}
@@ -233,4 +194,4 @@ const Dashboard: FC = () => {
   )
 }
 
-export default Dashboard
+export default Session

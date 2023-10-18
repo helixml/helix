@@ -194,6 +194,15 @@ export const useAccountContext = (): IAccountContext => {
           return existingJob
         }))
       }
+      // we have a session update message
+      if(parsedData.type === 'session' && parsedData.session) {
+        console.log("got new session from backend over websocket!")
+        const newSession: ISession = parsedData.session
+        setSessions(sessions => sessions.map(existingSession => {
+          if(existingSession.id === newSession.id) return newSession
+          return existingSession
+        }))
+      }
     })
     return () => rws.close()
   }, [
