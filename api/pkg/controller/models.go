@@ -2,9 +2,13 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 )
+
+////////////////////////////////////////////////////////////////////////////////
+// TEXT TO IMAGE
 
 type TextToImage struct {
 	// INPUTS
@@ -18,9 +22,19 @@ type TextToImage struct {
 }
 
 // base as opposed to refiner
-func (t2i *TextToImage) SDXL_1_0_Base(ctx context.Context) error {
+func (t *TextToImage) SDXL_1_0_Base(ctx context.Context) error {
+	t.Status = "running"
+	for i := 0; i < 5; i++ {
+		t.OutputStream <- "hello world"
+		time.Sleep(time.Second)
+	}
+	t.ResultImages = []string{"imagine.jpg"}
+	t.Status = "finished"
 	return nil
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// LANGUAGE
 
 type LanguageModel struct {
 	// INPUTS
@@ -35,20 +49,8 @@ func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) error {
 	return nil
 }
 
-type FinetuneTextToImage struct {
-	// INPUTS
-	InputPath  string `json:"input_path"`  // path to directory containing file_1.png and file_1.txt captions
-	OutputPath string `json:"output_path"` // path to resulting directory
-	// OUTPUTS
-	DebugStream  chan string
-	OutputStream chan string
-	Status       string `json:"status"`      // running, finished, error
-	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within that directory
-}
-
-func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) error {
-	return nil
-}
+////////////////////////////////////////////////////////////////////////////////
+// FINE TUNE LANGUAGE
 
 type FinetuneLanguageModel struct {
 	// INPUTS
@@ -61,6 +63,7 @@ type FinetuneLanguageModel struct {
 	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within the given output directory
 }
 
+// input data format (maybe move this on disk if they get big enough)
 type ShareGPT struct {
 	Conversations []struct {
 		From  string `json:"from"`
@@ -69,5 +72,23 @@ type ShareGPT struct {
 }
 
 func (f *FinetuneTextToImage) Mistral_7B_Instruct_v0_1(ctx context.Context) error {
+	return nil
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// FINE TUNE TEXT TO IMAGE
+
+type FinetuneTextToImage struct {
+	// INPUTS
+	InputPath  string `json:"input_path"`  // path to directory containing file_1.png and file_1.txt captions
+	OutputPath string `json:"output_path"` // path to resulting directory
+	// OUTPUTS
+	DebugStream  chan string
+	OutputStream chan string
+	Status       string `json:"status"`      // running, finished, error
+	OutputFile   string `json:"output_file"` // a specific e.g. LoRA filename within that directory
+}
+
+func (f *FinetuneTextToImage) SDXL_1_0_Base_Finetune(ctx context.Context) error {
 	return nil
 }
