@@ -29,6 +29,7 @@ export interface IAccountContext {
   modules: IModule[],
   transactions: IBalanceTransfer[],
   sessions: ISession[],
+  loadSessions: () => void,
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -40,6 +41,7 @@ export const AccountContext = createContext<IAccountContext>({
   modules: [],
   sessions: [],
   transactions: [],
+  loadSessions: () => {},
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -206,6 +208,7 @@ export const useAccountContext = (): IAccountContext => {
     sessions,
     modules,
     transactions,
+    loadSessions,
     onLogin,
     onLogout,
   }), [
@@ -216,6 +219,7 @@ export const useAccountContext = (): IAccountContext => {
     sessions,
     modules,
     transactions,
+    loadSessions,
     onLogin,
     onLogout,
   ])

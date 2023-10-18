@@ -1,4 +1,5 @@
 import React, { FC, useState } from 'react'
+import axios from 'axios'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -11,6 +12,7 @@ import Divider from '@mui/material/Divider'
 import Container from '@mui/material/Container'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
+import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
@@ -20,7 +22,11 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 
-import DvrIcon from '@mui/icons-material/Dvr'
+import DeleteIcon from '@mui/icons-material/Delete'
+import ImageIcon from '@mui/icons-material/Image'
+import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
+import DescriptionIcon from '@mui/icons-material/Description'
+import PermMediaIcon from '@mui/icons-material/PermMedia'
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -36,6 +42,7 @@ import useAccount from '../hooks/useAccount'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { SensorsOutlined } from '@mui/icons-material'
 
 const drawerWidth: number = 280
 
@@ -99,6 +106,7 @@ const Layout: FC = ({
     name,
     meta,
     navigate,
+    params
   } = useRouter()
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
@@ -120,24 +128,56 @@ const Layout: FC = ({
     setMobileOpen(!mobileOpen)
   }
 
+  const handleDeleteSession = (sessionId: string) => {
+    if (window.confirm("Are you sure?")) {
+      axios.delete(`/api/v1/sessions/${sessionId}`)
+        .then(response => {
+          if (response.status != 200) {
+            throw new Error('Failed to delete session')
+          }
+
+          account.loadSessions()
+
+          // handle successful deletion
+        })
+        .catch(error => {
+          console.error(error)
+          // handle error
+        })
+    }
+  }
+
   const sessions = account.sessions && account.sessions.map(
     (session, i) => (
       <ListItem
         disablePadding
-        key={ i }
+        key={ session.id }
         onClick={ () => {
-          navigate(`session/${session.id}`)
+          navigate("session", {session_id: session.id})
           setMobileOpen(false)
         }}
       >
         <ListItemButton
-          selected={ name == `session/${session.id}` }
+          selected={ session.id == params["session_id"] }
         >
           <ListItemIcon>
-            <DvrIcon color="primary" />
+            { session.mode == "Create" &&  session.type == "Images" && <ImageIcon color="primary" /> }
+            { session.mode == "Create" && session.type == "Text" && <DescriptionIcon color="primary" /> }
+            { session.mode == "Finetune" &&  session.type == "Images" && <PermMediaIcon color="primary" /> }
+            { session.mode == "Finetune" && session.type == "Text" && <ModelTrainingIcon color="primary" /> }
           </ListItemIcon>
-          <ListItemText primary={ session.name } />
+          <ListItemText
+            sx={{marginLeft: "-15px"}}
+            primaryTypographyProps={{ fontSize: 'small' }}
+            primary={ session.name }
+            id={ session.id }
+          />
         </ListItemButton>
+        <ListItemSecondaryAction>
+          <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteSession(session.id)}>
+            <DeleteIcon />
+          </IconButton>
+        </ListItemSecondaryAction>
       </ListItem>
     )
   )
@@ -165,6 +205,7 @@ const Layout: FC = ({
                     navigate('home')
                     setMobileOpen(false)
                   }}
+                  sx={{mb:1}}
             >
                 <ListItemButton>
                   <ListItemIcon>
@@ -174,6 +215,7 @@ const Layout: FC = ({
                 </ListItemButton>
               </ListItem>
 
+              <Divider />
               <div>{sessions}</div>
             </div>
 

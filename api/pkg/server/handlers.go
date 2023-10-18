@@ -17,6 +17,7 @@ import (
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 func generateUUID() string {
@@ -43,7 +44,8 @@ var adjectives = []string{
 var nouns = []string{
 	"discussion",
 	"dialogue",
-	"convo", // Short for conversation
+	"convo",
+	"conversation",
 	"chat",
 	"talk",
 	"exchange",
@@ -140,7 +142,7 @@ func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req
 }
 
 func (apiServer *LilysaasAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	id := req.URL.Query().Get("id")
+	id := mux.Vars(req)["id"]
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
@@ -172,7 +174,16 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 	session := types.Session{
 		ID:   generateUUID(),
 		Name: generateAmusingName(),
+		Type: req.FormValue("type"),
+		Mode: req.FormValue("mode"),
 	}
+
+	if session.Mode == "Image" {
+		session.ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
+	} else if session.Mode == "Text" {
+		session.ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
+	}
+
 	// only allow users to create their own sessions
 	session.Owner = reqContext.Owner
 	session.OwnerType = reqContext.OwnerType
@@ -227,16 +238,25 @@ func (apiServer *LilysaasAPIServer) updateSession(res http.ResponseWriter, req *
 		return nil, fmt.Errorf("access denied")
 	}
 	request.Updated = time.Now()
+
+	id := mux.Vars(req)["id"]
+	if id != request.ID {
+		return nil, fmt.Errorf("id mismatch")
+	}
 	return apiServer.Store.UpdateSession(reqContext.Ctx, request)
 }
 
 func (apiServer *LilysaasAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
-	id := req.URL.Query().Get("id")
+	id := mux.Vars(req)["id"]
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	log.Printf("session %+v %+v", session, reqContext)
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		return nil, fmt.Errorf("access denied")
 	}

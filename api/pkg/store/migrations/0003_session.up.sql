@@ -4,9 +4,9 @@ create table session (
   name varchar(255),
   created timestamp default current_timestamp,
   updated timestamp default current_timestamp,
-  -- e.g. text, images
-  mode varchar(255) NOT NULL,
   -- e.g. create, finetune
+  mode varchar(255) NOT NULL,
+  -- e.g. text, images
   type varchar(255) NOT NULL,
   -- huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
   -- stabilityai/stable-diffusion-xl-base-1.0
