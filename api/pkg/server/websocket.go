@@ -76,6 +76,7 @@ func StartWebSocketServer(
 				}
 				// TODO: make this more efficient
 				for _, connWrapper := range connections {
+					// TODO: put this back after we start sending correct user/owner
 					// if connWrapper.user != sessionUpdate.Owner {
 					// 	continue
 					// }
