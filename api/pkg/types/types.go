@@ -80,9 +80,9 @@ type Session struct {
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
-	// e.g. text, images (mode as in modality, multi-modal etc)
-	Mode string `json:"mode"`
 	// e.g. create, finetune
+	Mode string `json:"mode"`
+	// e.g. text, images
 	Type string `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0

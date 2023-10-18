@@ -63,14 +63,13 @@ func (d *PostgresStore) DeleteSession(
 	ctx context.Context,
 	sessionID string,
 ) (*types.Session, error) {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
 	deleted, err := d.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
 	_, err = d.db.Exec(`
 		DELETE FROM session WHERE id = $1
 	`, sessionID)
@@ -88,6 +87,9 @@ func (d *PostgresStore) GetSession(
 	d.mtx.RLock()
 	defer d.mtx.RUnlock()
 
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID cannot be empty")
+	}
 	row := d.db.QueryRow(`
 		SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 		FROM session WHERE id = $1
@@ -126,23 +128,27 @@ func (d *PostgresStore) GetSessions(
 			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1 AND owner_type = $2
+			ORDER BY created DESC
 		`, query.Owner, query.OwnerType)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(`
 			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1
+			ORDER BY created DESC
 		`, query.Owner)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(`
 			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner_type = $1
+			ORDER BY created DESC
 		`, query.OwnerType)
 	} else {
 		rows, err = d.db.Query(`
 			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
+			ORDER BY created DESC
 		`)
 	}
 

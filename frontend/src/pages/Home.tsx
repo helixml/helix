@@ -15,11 +15,15 @@ import FileUpload from '../components/widgets/FileUpload'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
+import useRouter from '../hooks/useRouter'
+import useAccount from '../hooks/useAccount'
 
 const Dashboard: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
+  const {navigate} = useRouter()
+  const account = useAccount()
 
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
@@ -33,26 +37,6 @@ const Dashboard: FC = () => {
     setInputValue(event.target.value)
   }
 
-  const runJob = useCallback(async () => {
-    setLoading(true)
-    try {
-      const statusResult = await axios.post('/api/v1/jobs', {
-        module: 'cowsay:v0.0.1',
-        inputs: {
-          Message: inputValue,
-        }
-      })
-      setChatHistory([...chatHistory, {user: 'User', message: inputValue}, {user: 'ChatGPT', message: statusResult.data}])
-    } catch(e: any) {
-      alert(e.message)
-    }
-    setInputValue('')
-    setLoading(false)
-  }, [
-    inputValue,
-    chatHistory
-  ])
- 
   const onSend = async () => {
       // const statusResult = await axios.post('/api/v1/sessions', {
       //   files: files,
@@ -85,6 +69,13 @@ const Dashboard: FC = () => {
           //     uploadedBytes: progressEvent.loaded || 0,
           //   })
           // }
+        }).then((response) => {
+          account.loadSessions()
+          setFiles([])
+          setInputValue("")
+          console.log("ABOUT TO NAVIGATE")
+          navigate('session', {session_id: response.id})
+          console.log("DONE NAVIGATE")
         })
         // result = true
       } catch(e) {

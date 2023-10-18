@@ -3,6 +3,7 @@ import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 
 import Home from './pages/Home'
+import Session from './pages/Session'
 import Jobs from './pages/Jobs'
 import Account from './pages/Account'
 
@@ -31,9 +32,7 @@ const routes: IApplicationRoute[] = [{
     title: 'Home',
   },
   render: () => (
-    <FilestoreContextProvider>
-      <Home />
-    </FilestoreContextProvider>
+    <Home />
   ),
 }, {
   name: 'jobs',
@@ -52,6 +51,15 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
+  ),
+}, {
+  name: 'session',
+  path: '/session/:session_id',
+  meta: {
+    title: 'Session',
+  },
+  render: () => (
+      <Session />
   ),
 }, {
   name: 'account',
