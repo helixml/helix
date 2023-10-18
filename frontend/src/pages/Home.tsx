@@ -87,7 +87,9 @@ const Dashboard: FC = () => {
           // }
         })
         // result = true
-      } catch(e) {}
+      } catch(e) {
+        console.log(e)
+      }
       // setUploadProgress(undefined)
       // return result
 
