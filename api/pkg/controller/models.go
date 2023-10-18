@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -37,7 +38,7 @@ func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
 	// tuned model expects with the right tokens and all that
 
 	lastUserMessage := l.Interactions.Messages[len(l.Interactions.Messages)-1].Message
-	l.OutputStream <- "🤔... "
+	l.OutputStream <- "🤔... \n\n"
 	l.streamOutput(
 		"[INST]"+lastUserMessage+"[/INST]",
 		"[/INST]", "</s>",
@@ -164,13 +165,24 @@ func (l *LanguageModel) streamOutput(input string, start string, ignore string, 
 		foundStartString := false
 		scanner := bufio.NewScanner(stdout)
 		// scanner.Split(bufio.ScanBytes)
-		scanner.Split(bufio.ScanWords)
+		splitOnSpace := func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+			if atEOF && len(data) == 0 {
+				return 0, nil, nil
+			}
+			if i := bytes.IndexByte(data, ' '); i >= 0 {
+				return i + 1, data[0:i], nil
+			}
+			if atEOF {
+				return len(data), data, nil
+			}
+			return 0, nil, nil
+		}
+		scanner.Split(splitOnSpace)
 		for scanner.Scan() {
 			word := scanner.Text()
 			if start == "" || foundStartString {
-				if word != ignore {
-					l.OutputStream <- word + " "
-				}
+				word = strings.TrimSuffix(word, ignore)
+				l.OutputStream <- word + " "
 			} else {
 				log.Printf("output: %s", word)
 			}

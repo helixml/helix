@@ -5,6 +5,7 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
+import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
@@ -101,7 +102,13 @@ const Session: FC = () => {
           <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
           <br />
           {session?.interactions.messages.map((chat: any, index: any) => (
-            <Typography key={index}><strong>{chat.user}:</strong> {chat.message}</Typography>
+            <Typography key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
+              <Avatar sx={{ width: 24, height: 24 }}>{chat.user.charAt(0)}</Avatar>
+              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{chat.user.charAt(0).toUpperCase() + chat.user.slice(1)}</Typography>
+                <Typography dangerouslySetInnerHTML={{__html: chat.message.replace(/\n/g, '<br/>')}}></Typography>
+              </Box>
+            </Typography>
           ))}
         </Grid>
       </Grid>
