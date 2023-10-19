@@ -79,6 +79,16 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
+type SessionQuery struct {
+	// e.g. create, finetune
+	Mode string `json:"mode"`
+	// e.g. text, images
+	Type string `json:"type"`
+	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
+	// stabilityai/stable-diffusion-xl-base-1.0
+	ModelName string `json:"model_name"`
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
@@ -100,4 +110,15 @@ const (
 type WebsocketEvent struct {
 	Type    WebsocketEventType `json:"type"`
 	Session *Session           `json:"session"`
+}
+
+// something a backend will run on behalf on a session
+// the backends are looping asking constantly for the
+// they will either get one of these or nothing
+type WorkerTask struct {
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode"`
+	Type      string `json:"type"`
+	ModelName string `json:"model_name"`
+	Prompt    string `json:"prompt"`
 }

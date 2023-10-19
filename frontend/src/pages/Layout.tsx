@@ -295,18 +295,6 @@ const Layout: FC = ({
                     Home
                   </MenuItem>
 
-
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    navigate('jobs')
-                  }}>
-                    <ListItemIcon>
-                      <ListIcon fontSize="small" />
-                    </ListItemIcon> 
-                    Jobs
-                  </MenuItem>
-
-
                   <MenuItem onClick={ () => {
                     handleCloseAccountMenu()
                     navigate('files')

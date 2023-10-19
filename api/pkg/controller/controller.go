@@ -33,6 +33,8 @@ type Controller struct {
 	Ctx                context.Context
 	Options            ControllerOptions
 	SessionUpdatesChan chan *types.Session
+	sessionQueues      *sessionQueues
+	sessionQueueMtx    sync.Mutex
 }
 
 func NewController(
@@ -49,19 +51,23 @@ func NewController(
 		Ctx:                ctx,
 		Options:            options,
 		SessionUpdatesChan: make(chan *types.Session),
+		sessionQueues:      newSessionQueues(),
 	}
 	return controller, nil
 }
 
 func (c *Controller) Start() error {
+	err := c.loadSessionQueues(c.Ctx)
+	if err != nil {
+		return err
+	}
 	go func() {
 		for {
 			select {
 			case <-c.Ctx.Done():
 				return
 			default:
-				log.Debug().Msg("Starting loopSessions")
-				time.Sleep(1 * time.Second)
+				time.Sleep(10 * time.Second)
 				err := c.loop(c.Ctx)
 				if err != nil {
 					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
@@ -74,32 +80,32 @@ func (c *Controller) Start() error {
 }
 
 func (c *Controller) loop(ctx context.Context) error {
-	var wg sync.WaitGroup
-	errChan := make(chan error, 1)
+	// var wg sync.WaitGroup
+	// errChan := make(chan error, 1)
 
-	// Wrap the function in a closure and handle the WaitGroup and error channel
-	runFunc := func(f func(context.Context) error) {
-		defer wg.Done()
-		if err := f(ctx); err != nil {
-			select {
-			case errChan <- err:
-			default:
-			}
-		}
-	}
+	// // Wrap the function in a closure and handle the WaitGroup and error channel
+	// runFunc := func(f func(context.Context) error) {
+	// 	defer wg.Done()
+	// 	if err := f(ctx); err != nil {
+	// 		select {
+	// 		case errChan <- err:
+	// 		default:
+	// 		}
+	// 	}
+	// }
 
-	wg.Add(1)
+	// wg.Add(1)
 
-	// an example of a function that is called in the loop
-	go runFunc(c.triggerSessionTasks)
+	// // an example of a function that is called in the loop
+	// go runFunc(c.reloadSessionQueues)
 
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
+	// go func() {
+	// 	wg.Wait()
+	// 	close(errChan)
+	// }()
 
-	if err := <-errChan; err != nil {
-		return err
-	}
+	// if err := <-errChan; err != nil {
+	// 	return err
+	// }
 	return nil
 }
