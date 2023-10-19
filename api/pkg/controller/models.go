@@ -54,7 +54,7 @@ func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
 	l.streamOutput(
 		"[INST]"+lastUserMessage+"[/INST]",
 		"[/INST]", "</s>",
-		"ssh", "-o", "StrictHostKeyChecking=no", "luke@172.17.0.1", `bash -c "
+		"ssh", "-o", "StrictHostKeyChecking=no", "kai@192.168.86.40", `bash -c "
 			docker run --gpus all -i quay.io/lukemarsden/axolotl:v0.0.1 python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml"`,
 	)
 	// echo "prove pythagoras theorem" |  -m axolotl.cli.inference examples/mistral/qlora.yml
