@@ -28,6 +28,8 @@ type LanguageModel struct {
 	Status       string `json:"status"` // running, finished, error
 }
 
+// TODO: on startup, or when a new instruct session is loaded,
+
 func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
 
 	// l.streamOutput("CATS",
@@ -39,13 +41,21 @@ func (l *LanguageModel) Mistral_7B_Instruct_v0_1(ctx context.Context) {
 
 	lastUserMessage := l.Interactions.Messages[len(l.Interactions.Messages)-1].Message
 	l.OutputStream <- "🤔... \n\n"
+	// l.streamOutput(
+	// 	"[INST]"+lastUserMessage+"[/INST]",
+	// 	"[/INST]", "</s>",
+	// 	"ssh", "-o", "StrictHostKeyChecking=no", "luke@172.17.0.1", `bash -c "
+	// 		cd /home/luke/pb/axolotl;
+	// 		. venv/bin/activate;
+	// 		python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml"`,
+	// )
+	// luke@mind:~/pd/lilysaas$ echo "[INST]i really like you[/INST]" |docker run --gpus all -i quay.io/lukemarsden/axolotl:v0.0.1 python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
+
 	l.streamOutput(
 		"[INST]"+lastUserMessage+"[/INST]",
 		"[/INST]", "</s>",
 		"ssh", "-o", "StrictHostKeyChecking=no", "luke@172.17.0.1", `bash -c "
-			cd /home/luke/pb/axolotl;
-			. venv/bin/activate;
-			python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml"`,
+			docker run --gpus all -i quay.io/lukemarsden/axolotl:v0.0.1 python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml"`,
 	)
 	// echo "prove pythagoras theorem" |  -m axolotl.cli.inference examples/mistral/qlora.yml
 
