@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
-	"github.com/bacalhau-project/lilysaas/api/pkg/store"
-	"github.com/bacalhau-project/lilysaas/api/pkg/system"
 	"github.com/gorilla/mux"
+	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
 )
 
 type ServerOptions struct {
@@ -27,7 +27,7 @@ type ServerOptions struct {
 	LocalFilestorePath string
 }
 
-type LilysaasAPIServer struct {
+type HelixAPIServer struct {
 	Options    ServerOptions
 	Store      store.Store
 	Controller *controller.Controller
@@ -37,7 +37,7 @@ func NewServer(
 	options ServerOptions,
 	store store.Store,
 	controller *controller.Controller,
-) (*LilysaasAPIServer, error) {
+) (*HelixAPIServer, error) {
 	if options.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
@@ -54,14 +54,14 @@ func NewServer(
 		return nil, fmt.Errorf("keycloak token is required")
 	}
 
-	return &LilysaasAPIServer{
+	return &HelixAPIServer{
 		Options:    options,
 		Store:      store,
 		Controller: controller,
 	}, nil
 }
 
-func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
+func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 	router.Use(apiServer.corsMiddleware)
 
@@ -76,13 +76,8 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
-	subrouter.HandleFunc("/modules", wrapper(apiServer.getModules)).Methods("GET")
-
 	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
-	authRouter.HandleFunc("/jobs", wrapper(apiServer.getJobs)).Methods("GET")
 	authRouter.HandleFunc("/transactions", wrapper(apiServer.getTransactions)).Methods("GET")
-
-	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	authRouter.HandleFunc("/filestore/config", wrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", wrapper(apiServer.filestoreList)).Methods("GET")
@@ -109,7 +104,6 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 		ctx,
 		subrouter,
 		"/ws",
-		apiServer.Controller.JobUpdatesChan,
 		apiServer.Controller.SessionUpdatesChan,
 		keyCloakMiddleware.userIDFromRequest,
 	)

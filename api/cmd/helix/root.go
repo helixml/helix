@@ -1,4 +1,4 @@
-package lilysaas
+package helix
 
 import (
 	"context"
@@ -16,8 +16,8 @@ func init() { //nolint:gochecknoinits
 func NewRootCmd() *cobra.Command {
 	RootCmd := &cobra.Command{
 		Use:   getCommandLineExecutable(),
-		Short: "LilySaaS",
-		Long:  `LilySaaS`,
+		Short: "Helix",
+		Long:  `Helix`,
 	}
 	RootCmd.AddCommand(newServeCmd())
 	return RootCmd

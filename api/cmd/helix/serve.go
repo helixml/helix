@@ -1,4 +1,4 @@
-package lilysaas
+package helix
 
 import (
 	"context"
@@ -8,12 +8,11 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
-	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
-	"github.com/bacalhau-project/lilysaas/api/pkg/job"
-	"github.com/bacalhau-project/lilysaas/api/pkg/server"
-	"github.com/bacalhau-project/lilysaas/api/pkg/store"
-	"github.com/bacalhau-project/lilysaas/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/server"
+	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -35,7 +34,7 @@ func NewAllOptions() *AllOptions {
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
-			LocalFSPath:  getDefaultServeOptionString("FILESTORE_LOCALFS_PATH", "/tmp/lilysaas/filestore"),
+			LocalFSPath:  getDefaultServeOptionString("FILESTORE_LOCALFS_PATH", "/tmp/helix/filestore"),
 			GCSKeyBase64: getDefaultServeOptionString("FILESTORE_GCS_KEY_BASE64", ""),
 			GCSKeyFile:   getDefaultServeOptionString("FILESTORE_GCS_KEY_FILE", ""),
 			GCSBucket:    getDefaultServeOptionString("FILESTORE_GCS_BUCKET", ""),
@@ -43,7 +42,7 @@ func NewAllOptions() *AllOptions {
 		StoreOptions: store.StoreOptions{
 			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
 			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
-			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "lilysaas"),
+			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "helix"),
 			Username:    getDefaultServeOptionString("POSTGRES_USER", ""),
 			Password:    getDefaultServeOptionString("POSTGRES_PASSWORD", ""),
 			AutoMigrate: true,
@@ -63,8 +62,8 @@ func newServeCmd() *cobra.Command {
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
-		Short:   "Start the lilysaas api server.",
-		Long:    "Start the lilysaas api server.",
+		Short:   "Start the helix api server.",
+		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return serve(cmd, allOptions)
@@ -245,11 +244,6 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	jobRunner, err := job.NewJobRunner(ctx)
-	if err != nil {
-		return err
-	}
-
 	store, err := store.NewPostgresStore(options.StoreOptions)
 	if err != nil {
 		return err
@@ -257,7 +251,6 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
-	options.ControllerOptions.JobRunner = jobRunner
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
@@ -278,7 +271,7 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	log.Info().Msgf("LilySaaS server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
+	log.Info().Msgf("Helix server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)

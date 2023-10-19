@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -33,7 +33,6 @@ func StartWebSocketServer(
 	ctx context.Context,
 	r *mux.Router,
 	path string,
-	jobUpdatesChan chan *types.Job,
 	sessionUpdatesChan chan *types.Session,
 	getUserIDFromRequest GetUserIDFromRequest,
 ) {
@@ -80,29 +79,6 @@ func StartWebSocketServer(
 					// if connWrapper.user != sessionUpdate.Owner {
 					// 	continue
 					// }
-					connWrapper.mu.Lock()
-					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-						log.Error().Msgf("Error writing to websocket: %s", err.Error())
-						connWrapper.mu.Unlock()
-						return
-					}
-					connWrapper.mu.Unlock()
-				}
-			case jobUpdate := <-jobUpdatesChan:
-				event := types.WebsocketEvent{
-					Type: types.WebsocketEventJobUpdate,
-					Job:  jobUpdate,
-				}
-				message, err := json.Marshal(event)
-				if err != nil {
-					log.Error().Msgf("Error marshalling job update: %s", err.Error())
-					continue
-				}
-				// TODO: make this more efficient
-				for _, connWrapper := range connections {
-					if connWrapper.user != jobUpdate.Owner {
-						continue
-					}
 					connWrapper.mu.Lock()
 					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 						log.Error().Msgf("Error writing to websocket: %s", err.Error())
