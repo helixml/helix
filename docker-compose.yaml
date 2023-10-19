@@ -28,7 +28,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - lilysaas-postgres-db:/var/lib/postgresql/data
+      - helix-postgres-db:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
@@ -46,7 +46,7 @@ services:
       - KEYCLOAK_FRONTEND_URL=http://localhost/auth/
     volumes:
       - ./realm.json:/imported/realm.json
-      - lilysaas-keycloak-db:/opt/jboss/keycloak/standalone/data
+      - helix-keycloak-db:/opt/jboss/keycloak/standalone/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 10s
@@ -97,6 +97,6 @@ services:
       - ./frontend/vite.config.ts:/app/vite.config.ts
 
 volumes:
-  lilysaas-keycloak-db:
-  lilysaas-postgres-db:
+  helix-keycloak-db:
+  helix-postgres-db:
 
