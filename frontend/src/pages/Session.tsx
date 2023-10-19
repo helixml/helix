@@ -37,34 +37,26 @@ const Session: FC = () => {
   const session = account.sessions?.find(session => session.id === params["session_id"])
 
   const onSend = async () => {
+
+      if(!session) return
       // const statusResult = await axios.post('/api/v1/sessions', {
       //   files: files,
       // })
       /// XXXXXXXXXXXXXXXXX NOT CREATE NEW ONE, NEED TO UPDATE (or even better,
       /// POST to a new endpoint to add to the chat reliably)
       try {
-        const formData = new FormData()
-        files.forEach((file) => {
-          formData.append("files", file)
+        const newSession = JSON.parse(JSON.stringify(session))
+
+        newSession.interactions.messages.push({
+          User:     "user",
+          Message:  inputValue,
+          Uploads:  [],
+          Finished: true,
         })
 
-        formData.set('input', inputValue)
-
-        await api.put('/api/v1/sessions', formData, {
-          // params: {
-          //   path,
-          // },
-          // onUploadProgress: (progressEvent) => {
-          //   const percent = progressEvent.total && progressEvent.total > 0 ?
-          //     Math.round((progressEvent.loaded * 100) / progressEvent.total) :
-          //     0
-          //   setUploadProgress({
-          //     percent,
-          //     totalBytes: progressEvent.total || 0,
-          //     uploadedBytes: progressEvent.loaded || 0,
-          //   })
-          // }
-        })
+        await api.put(`/api/v1/sessions/${session.id}`, newSession)
+        setInputValue('')
+        account.loadSessions()
         // result = true
       } catch(e) {
         console.log(e)

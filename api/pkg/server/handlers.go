@@ -119,7 +119,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 }
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	id := mux.Vars(req)["id"]
+	id := req.URL.Query().Get("id")
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
@@ -194,12 +194,24 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	// create session in database
-	return apiServer.Store.CreateSession(reqContext.Ctx, session)
+	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	// add the session to the controller queue
+	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessionData, nil
 }
 
 func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 	request := types.Session{}
+
 	bs, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
@@ -209,6 +221,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	if err != nil {
 		return nil, err
 	}
+
 	if request.ID == "" {
 		return nil, fmt.Errorf("cannot update session without id")
 	}
@@ -221,12 +234,20 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	if id != request.ID {
 		return nil, fmt.Errorf("id mismatch")
 	}
-	return apiServer.Store.UpdateSession(reqContext.Ctx, request)
+	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, request)
+
+	// add the session to the controller queue
+	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessionData, nil
 }
 
 func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
-	id := mux.Vars(req)["id"]
+	id := req.URL.Query().Get("id")
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
@@ -239,4 +260,37 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("access denied")
 	}
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
+}
+
+func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+	queryMode := req.URL.Query().Get("mode")
+	queryType := req.URL.Query().Get("type")
+	queryModelName := req.URL.Query().Get("model_name")
+
+	if queryMode == "" {
+		return nil, fmt.Errorf("mode is required")
+	}
+	if queryType == "" {
+		return nil, fmt.Errorf("type is required")
+	}
+	if queryModelName == "" {
+		return nil, fmt.Errorf("model_name is required")
+	}
+
+	task, err := apiServer.Controller.PopSessionTask(req.Context(), types.SessionQuery{
+		Mode:      queryMode,
+		Type:      queryType,
+		ModelName: queryModelName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
+	// that is how the workers will know to wait before asking again
+	if task == nil {
+		return nil, fmt.Errorf("no task found")
+	}
+
+	return task, nil
 }
