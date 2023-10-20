@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+type ModelName string
+
+const (
+	Model_None      ModelName = ""
+	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
+	Model_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
+)
+
 type OwnerType string
 
 const (
@@ -65,7 +73,7 @@ type Session struct {
 	Type string `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName string `json:"model_name"`
+	ModelName ModelName `json:"model_name"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated
@@ -79,14 +87,14 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-type SessionQuery struct {
+type SessionFilter struct {
 	// e.g. create, finetune
 	Mode string `json:"mode"`
 	// e.g. text, images
 	Type string `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
-	ModelName string `json:"model_name"`
+	ModelName ModelName `json:"model_name"`
 }
 
 // passed between the api server and the controller
@@ -116,15 +124,24 @@ type WebsocketEvent struct {
 // the backends are looping asking constantly for the
 // they will either get one of these or nothing
 type WorkerTask struct {
-	SessionID string `json:"session_id"`
-	Mode      string `json:"mode"`
-	Type      string `json:"type"`
-	ModelName string `json:"model_name"`
-	Prompt    string `json:"prompt"`
+	SessionID string    `json:"session_id"`
+	Mode      string    `json:"mode"`
+	Type      string    `json:"type"`
+	ModelName ModelName `json:"model_name"`
+	Prompt    string    `json:"prompt"`
 }
+
+type WorkerTaskResponseAction string
+
+const (
+	WorkerTaskResponseAction_Begin    WorkerTaskResponseAction = "begin"
+	WorkerTaskResponseAction_Continue WorkerTaskResponseAction = "continue"
+	WorkerTaskResponseAction_End      WorkerTaskResponseAction = "end"
+)
 
 type WorkerTaskResponse struct {
 	SessionID string `json:"session_id"`
-	Action    string `json:"action"`
-	Message   string `json:"message"`
+	// this is begin, continue or end
+	Action  WorkerTaskResponseAction `json:"action"`
+	Message string                   `json:"message"`
 }

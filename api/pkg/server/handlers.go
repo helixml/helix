@@ -5,61 +5,17 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
-
-func generateUUID() string {
-	return uuid.New().String()
-}
-
-var adjectives = []string{
-	"enchanting",
-	"fascinating",
-	"elucidating",
-	"useful",
-	"helpful",
-	"constructive",
-	"charming",
-	"playful",
-	"whimsical",
-	"delightful",
-	"fantastical",
-	"magical",
-	"spellbinding",
-	"dazzling",
-}
-
-var nouns = []string{
-	"discussion",
-	"dialogue",
-	"convo",
-	"conversation",
-	"chat",
-	"talk",
-	"exchange",
-	"debate",
-	"conference",
-	"seminar",
-	"symposium",
-}
-
-func generateAmusingName() string {
-	adj := adjectives[rand.Intn(len(adjectives))]
-	noun := nouns[rand.Intn(len(nouns))]
-	number := rand.Intn(900) + 100 // generates a random 3 digit number
-	return adj + "-" + noun + "-" + strconv.Itoa(number)
-}
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
@@ -150,17 +106,18 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	session := types.Session{
-		ID:   generateUUID(),
-		Name: generateAmusingName(),
+		ID:   system.GenerateUUID(),
+		Name: system.GenerateAmusingName(),
 		Type: req.FormValue("type"),
 		Mode: req.FormValue("mode"),
 	}
 
-	if session.Type == "Images" {
-		session.ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-	} else if session.Type == "Text" {
-		session.ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
+	modelName, err := model.GetModelNameForSession(reqContext.Ctx, &session)
+	if err != nil {
+		return nil, err
 	}
+
+	session.ModelName = modelName
 
 	// only allow users to create their own sessions
 	session.Owner = reqContext.Owner
@@ -264,33 +221,31 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 }
 
 func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
-	queryMode := req.URL.Query().Get("mode")
-	queryType := req.URL.Query().Get("type")
-	queryModelName := req.URL.Query().Get("model_name")
 
-	if queryMode == "" {
-		return nil, fmt.Errorf("mode is required")
-	}
-	if queryType == "" {
-		return nil, fmt.Errorf("type is required")
-	}
-	if queryModelName == "" {
-		return nil, fmt.Errorf("model_name is required")
-	}
-
-	task, err := apiServer.Controller.PopSessionTask(req.Context(), types.SessionQuery{
-		Mode:      queryMode,
-		Type:      queryType,
-		ModelName: queryModelName,
+	// alow the worker to filter what tasks it wants
+	// if any of these values are defined then we will only consider those in the response
+	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), types.SessionFilter{
+		Mode:      req.URL.Query().Get("mode"),
+		Type:      req.URL.Query().Get("type"),
+		ModelName: types.ModelName(req.URL.Query().Get("model_name")),
 	})
 	if err != nil {
 		return nil, err
 	}
-
 	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
 	// that is how the workers will know to wait before asking again
-	if task == nil {
+	if nextSession == nil {
 		return nil, fmt.Errorf("no task found")
+	}
+
+	err = apiServer.Controller.AddActiveSession(req.Context(), nextSession)
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := apiServer.Controller.ConvertSessionToTask(req.Context(), nextSession)
+	if err != nil {
+		return nil, err
 	}
 
 	return task, nil
@@ -302,7 +257,9 @@ func (apiServer *HelixAPIServer) respondWorkerTask(res http.ResponseWriter, req 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("taskResponse --------------------------------------\n")
-	spew.Dump(taskResponse)
+	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
+	if err != nil {
+		return nil, err
+	}
 	return taskResponse, nil
 }

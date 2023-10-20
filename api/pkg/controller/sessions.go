@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -14,79 +15,34 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-// we keep in memory queues of sessions that need to be processed
-// agents will be reaching out over http to ask "got any jobs"
-// and it would be nice to respond quickly - hence keeping this in memory
-// but then you have restarts and shit to deal with, so every 10 seconds
-// we clear the queues and reload them from the database
-// the queues are pure backlog - nothing actually running lives in these queues
-type sessionQueues struct {
-	textInference  []*types.Session
-	imageInference []*types.Session
-	textFinetune   []*types.Session
-	imageFinetune  []*types.Session
-}
-
-func newSessionQueues() *sessionQueues {
-	return &sessionQueues{
-		textInference:  []*types.Session{},
-		imageInference: []*types.Session{},
-		textFinetune:   []*types.Session{},
-		imageFinetune:  []*types.Session{},
-	}
-}
-
-// given a mode and type - pop the next session from the queue
-func (c *Controller) PopSessionQueue(ctx context.Context, query types.SessionQuery) (*types.Session, error) {
+// the core function - decide which task to give to a worker
+// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
+// try to send similar tasks to the same worker
+func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter) (*types.Session, error) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
-	switch {
-	case query.Mode == "Create" && query.Type == "Text":
-		for i, session := range c.sessionQueues.textInference {
-			if session.ModelName == query.ModelName {
-				// remove the session from the queue
-				c.sessionQueues.textInference = append(c.sessionQueues.textInference[:i], c.sessionQueues.textInference[i+1:]...)
-				return session, nil
-			}
+	// right now this is very dumb - it literally just returns the next thing and doesn't even care what type it is
+	// TODO: get the worker auth system plugged in so we know who is asking for the task
+	// and then we can keep track of the last thing they ran and pick better
+	for i, session := range c.sessionQueue {
+		if filter.Mode != "" && session.Mode != filter.Mode {
+			continue
 		}
-		return nil, nil
-	case query.Mode == "Create" && query.Type == "Image":
-		for i, session := range c.sessionQueues.imageInference {
-			if session.ModelName == query.ModelName {
-				// remove the session from the queue
-				c.sessionQueues.imageInference = append(c.sessionQueues.imageInference[:i], c.sessionQueues.imageInference[i+1:]...)
-				return session, nil
-			}
+		if filter.Type != "" && session.Type != filter.Type {
+			continue
 		}
-		return nil, nil
-	case query.Mode == "Finetune" && query.Type == "Text":
-		for i, session := range c.sessionQueues.textFinetune {
-			if session.ModelName == query.ModelName {
-				// remove the session from the queue
-				c.sessionQueues.textFinetune = append(c.sessionQueues.textFinetune[:i], c.sessionQueues.textFinetune[i+1:]...)
-				return session, nil
-			}
+		if filter.ModelName != "" && session.ModelName != filter.ModelName {
+			continue
 		}
-		return nil, nil
-	case query.Mode == "Finetune" && query.Type == "Image":
-		for i, session := range c.sessionQueues.imageFinetune {
-			if session.ModelName == query.ModelName {
-				// remove the session from the queue
-				c.sessionQueues.imageFinetune = append(c.sessionQueues.imageFinetune[:i], c.sessionQueues.imageFinetune[i+1:]...)
-				return session, nil
-			}
-		}
-		return nil, nil
+		c.sessionQueue = append(c.sessionQueue[:i], c.sessionQueue[i+1:]...)
+		return session, nil
 	}
+
 	return nil, nil
 }
 
-func (c *Controller) PopSessionTask(ctx context.Context, query types.SessionQuery) (*types.WorkerTask, error) {
-	session, err := c.PopSessionQueue(ctx, query)
-	if err != nil {
-		return nil, err
-	}
+func (c *Controller) ConvertSessionToTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
 	if session == nil {
 		return nil, nil
 	}
@@ -99,27 +55,37 @@ func (c *Controller) PopSessionTask(ctx context.Context, query types.SessionQuer
 	}
 
 	switch {
-	case query.Mode == "Create" && query.Type == "Text":
-		var messages string
-		for _, message := range session.Interactions.Messages {
-			messages += message.Message + "\n"
+	case session.Mode == "Create" && session.Type == "Text":
+		model, err := model.GetLanguageModel(session.ModelName)
+		if err != nil {
+			return nil, err
 		}
-		task.Prompt = fmt.Sprintf("[INST]%s[/INST]", messages)
+		prompt, err := model.GetPrompt(ctx, session)
+		if err != nil {
+			return nil, err
+		}
+		task.Prompt = prompt
 		return task, nil
-	case query.Mode == "Create" && query.Type == "Image":
+	case session.Mode == "Create" && session.Type == "Image":
 		return nil, nil
-	case query.Mode == "Finetune" && query.Type == "Text":
+	case session.Mode == "Finetune" && session.Type == "Text":
 		return nil, nil
-	case query.Mode == "Finetune" && query.Type == "Image":
+	case session.Mode == "Finetune" && session.Type == "Image":
 		return nil, nil
 	}
 	return nil, nil
 }
 
-func insertSessionIntoQueue(sessions []*types.Session, session *types.Session) []*types.Session {
+// add the given session onto the end of the queue
+// unless it's already waiting and present in the queue
+// in which case let's replace it at it's current position
+func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Session) error {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+
 	existing := false
 	newQueue := []*types.Session{}
-	for _, existingSession := range sessions {
+	for _, existingSession := range c.sessionQueue {
 		if existingSession.ID == session.ID {
 			newQueue = append(newQueue, session)
 			existing = true
@@ -131,39 +97,67 @@ func insertSessionIntoQueue(sessions []*types.Session, session *types.Session) [
 		newQueue = append(newQueue, session)
 	}
 
-	return newQueue
-}
-
-func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Session) error {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
-
-	switch {
-	case session.Mode == "Create" && session.Type == "Text":
-		c.sessionQueues.textInference = insertSessionIntoQueue(c.sessionQueues.textInference, session)
-	case session.Mode == "Create" && session.Type == "Image":
-		c.sessionQueues.imageInference = insertSessionIntoQueue(c.sessionQueues.imageInference, session)
-	case session.Mode == "Finetune" && session.Type == "Text":
-		c.sessionQueues.textFinetune = insertSessionIntoQueue(c.sessionQueues.textFinetune, session)
-	case session.Mode == "Finetune" && session.Type == "Image":
-		c.sessionQueues.imageFinetune = insertSessionIntoQueue(c.sessionQueues.imageFinetune, session)
-	}
+	c.sessionQueue = newQueue
 	return nil
 }
 
-// reload the current session queues from the database
-// this is called on startup and every 10 seconds
+func (c *Controller) AddActiveSession(ctx context.Context, session *types.Session) error {
+	c.activeSessionMtx.Lock()
+	defer c.activeSessionMtx.Unlock()
+	c.activeSessions[session.ID] = session
+	return nil
+}
+
+func (c *Controller) GetActiveSession(ctx context.Context, id string) (*types.Session, error) {
+	c.activeSessionMtx.Lock()
+	defer c.activeSessionMtx.Unlock()
+	session, ok := c.activeSessions[id]
+	if !ok {
+		return nil, fmt.Errorf("session not found")
+	}
+	return session, nil
+}
+
+func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
+	c.activeSessionMtx.Lock()
+	defer c.activeSessionMtx.Unlock()
+	if _, ok := c.activeSessions[id]; !ok {
+		return fmt.Errorf("session not found")
+	}
+	delete(c.activeSessions, id)
+	return nil
+}
+
+// if the action is "begin" - then we need to ceate a new textstream that is hooked up correctly
+// then we stash that in a map
+// if the action is "continue" - load the textstream and write to it
+// if the action is "end" - unload the text stream
+func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	// session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	if taskResponse.Action == types.WorkerTaskResponseAction_Begin {
+		return taskResponse, nil
+	} else if taskResponse.Action == types.WorkerTaskResponseAction_Continue {
+		return taskResponse, nil
+	} else if taskResponse.Action == types.WorkerTaskResponseAction_End {
+		return taskResponse, nil
+	} else {
+		return nil, nil
+	}
+}
+
+// load the session queues from the database in case of restart
 func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
-	queues := newSessionQueues()
+	sessionQueue := []*types.Session{}
 
 	st := c.Options.Store
 
-	// fetch all sessions
-	// NOTE: this will fetch in DESC order so the latest is first
-	// if we want to do a FIFO queue then we need to pick from the end
+	// fetch all sessions - this is in DESC order so we need to reverse the array
 	sessions, err := st.GetSessions(ctx, store.GetSessionsQuery{})
 	if err != nil {
 		return err
@@ -185,19 +179,11 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 			continue
 		}
 
-		switch {
-		case session.Mode == "Create" && session.Type == "Text":
-			queues.textInference = append(queues.textInference, session)
-		case session.Mode == "Create" && session.Type == "Image":
-			queues.imageInference = append(queues.imageInference, session)
-		case session.Mode == "Finetune" && session.Type == "Text":
-			queues.textFinetune = append(queues.textFinetune, session)
-		case session.Mode == "Finetune" && session.Type == "Image":
-			queues.imageFinetune = append(queues.imageFinetune, session)
-		}
+		sessionQueue = append(sessionQueue, session)
 	}
 
-	c.sessionQueues = queues
+	// now we have the queue in oldest first order
+	c.sessionQueue = sessionQueue
 	return nil
 }
 
