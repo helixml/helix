@@ -135,6 +135,8 @@ func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
 func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
 	fmt.Printf("taskResponse --------------------------------------\n")
 	fmt.Printf("%+v --------------------------------------\n", taskResponse)
+
+	session, err := c.GetActiveSession(ctx, taskResponse.)
 	
 	// session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	// if err != nil {
