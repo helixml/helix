@@ -33,8 +33,10 @@ type Controller struct {
 	Ctx                context.Context
 	Options            ControllerOptions
 	SessionUpdatesChan chan *types.Session
+	// the backlog of sessions that need a GPU
 	sessionQueue       []*types.Session
 	sessionQueueMtx    sync.Mutex
+	// the map of active sessions that are currently running on a GPU
 	activeSessions     map[string]*types.Session
 	activeSessionMtx   sync.Mutex
 }
