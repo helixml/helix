@@ -83,6 +83,17 @@ accelerate launch --num_cpu_threads_per_process 1 sdxl_train_network.py \
 
 # inference on SDXL
 
+without lora file:
+
+```
+accelerate launch --num_cpu_threads_per_process 1 sdxl_minimal_inference.py \
+	--ckpt_path=sdxl/sd_xl_base_1.0.safetensors \
+	--prompt="a unicorn in space" \
+	--output_dir=./output_images
+```
+
+with lora file:
+
 ```
 accelerate launch --num_cpu_threads_per_process 1 sdxl_minimal_inference.py \
 	--ckpt_path=sdxl/sd_xl_base_1.0.safetensors \
