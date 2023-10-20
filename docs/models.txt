@@ -58,39 +58,37 @@ python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
 * github.com/lukemarsden/sd-scripts
 
 see https://github.com/lukemarsden/dagger-ai/blob/main/sdxl_lora.py
-
 sample data:
 https://storage.googleapis.com/dagger-assets/sdxl_for-sale-signs.zip
 
 ```
-"accelerate", "launch", "--num_cpu_threads_per_process", "1", "sdxl_train_network.py",
-	"--pretrained_model_name_or_path=./sdxl/sd_xl_base_1.0.safetensors",
-	"--dataset_config=/config.toml",
-	"--output_dir=/output",
-	"--output_name=lora",
-	"--save_model_as=safetensors",
-	"--prior_loss_weight=1.0",
-	"--max_train_steps=400",
-	"--vae=madebyollin/sdxl-vae-fp16-fix",
-	"--learning_rate=1e-4",
-	"--optimizer_type=AdamW8bit",
-	"--xformers",
-	"--mixed_precision=fp16",
-	"--cache_latents",
-	"--gradient_checkpointing",
-	"--save_every_n_epochs=1",
-	"--network_module=networks.lora",
+accelerate launch --num_cpu_threads_per_process 1 sdxl_train_network.py \
+	  --pretrained_model_name_or_path=./sdxl/sd_xl_base_1.0.safetensors \
+  	--dataset_config=/home/kai/projects/helix/helix/docs/config.toml \
+  	--output_dir=./output \
+  	--output_name=lora \
+  	--save_model_as=safetensors \
+  	--prior_loss_weight=1.0 \
+  	--max_train_steps=400 \
+  	--vae=madebyollin/sdxl-vae-fp16-fix \
+  	--learning_rate=1e-4 \
+  	--optimizer_type=AdamW8bit \
+  	--xformers \
+  	--mixed_precision=fp16 \
+  	--cache_latents \
+  	--gradient_checkpointing \
+  	--save_every_n_epochs=1 \
+  	--network_module=networks.lora
 ```
-
 
 # inference on SDXL
 
 ```
-"accelerate", "launch", "--num_cpu_threads_per_process", "1", "sdxl_minimal_inference.py",
-	"--ckpt_path=sdxl/sd_xl_base_1.0.safetensors",
-	f'--lora_weights=/input/lora.safetensors;{COEFF}', 
-	f'--prompt={prompt}',
-	"--output_dir=/output",
+accelerate launch --num_cpu_threads_per_process 1 sdxl_minimal_inference.py \
+	--ckpt_path=sdxl/sd_xl_base_1.0.safetensors \
+	--lora_weights=./output/lora.safetensors \
+	--prompt="cj hole for sale sign in front of a posh house with a tesla in winter with snow" \
+	--output_dir=./output_images
 ```
 
 try prompt "cj hole for sale sign in front of a posh house with a tesla in winter with snow"
