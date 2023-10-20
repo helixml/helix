@@ -18,3 +18,8 @@ type LanguageModel interface {
 	// return a text stream that knows how to parse the output of the model
 	GetTextStream(ctx context.Context) (*TextStream, error)
 }
+
+type ImageModel interface {
+	// return the prompt we send into a model given the current session
+	GetPrompt(ctx context.Context, session *types.Session) (string, error)
+}

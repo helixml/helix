@@ -161,9 +161,9 @@ const Layout: FC = ({
           selected={ session.id == params["session_id"] }
         >
           <ListItemIcon>
-            { session.mode == "Create" &&  session.type == "Images" && <ImageIcon color="primary" /> }
+            { session.mode == "Create" &&  session.type == "Image" && <ImageIcon color="primary" /> }
             { session.mode == "Create" && session.type == "Text" && <DescriptionIcon color="primary" /> }
-            { session.mode == "Finetune" &&  session.type == "Images" && <PermMediaIcon color="primary" /> }
+            { session.mode == "Finetune" &&  session.type == "Image" && <PermMediaIcon color="primary" /> }
             { session.mode == "Finetune" && session.type == "Text" && <ModelTrainingIcon color="primary" /> }
           </ListItemIcon>
           <ListItemText

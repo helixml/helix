@@ -15,8 +15,15 @@ func GetLanguageModel(model types.ModelName) (LanguageModel, error) {
 	return nil, fmt.Errorf("no model for model name %s", model)
 }
 
+func GetImageModel(model types.ModelName) (ImageModel, error) {
+	if model == types.Model_SDXL {
+		return &SDXL{}, nil
+	}
+	return nil, fmt.Errorf("no model for model name %s", model)
+}
+
 func GetModelNameForSession(ctx context.Context, session *types.Session) (types.ModelName, error) {
-	if session.Type == "Images" {
+	if session.Type == "Image" {
 		return types.Model_SDXL, nil
 	} else if session.Type == "Text" {
 		return types.Model_Mistral7b, nil
