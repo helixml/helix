@@ -37,14 +37,17 @@ func NewTextStream(
 }
 
 func (stream *TextStream) Write(data []byte) {
-	stream.writer.Write(data)
+	_, err := stream.writer.Write(data)
+	if err != nil {
+		log.Printf("error writing to stream: %s", err)
+	}
 }
 
 // designed to be run in a goroutine
 func (stream *TextStream) Start(ctx context.Context) {
 	foundStartString := false
 	scanner := bufio.NewScanner(stream.reader)
-	scanner.Split(splitOnSpace)
+	scanner.Split(stream.splitter)
 	for scanner.Scan() {
 		word := scanner.Text()
 		if stream.start == "" || foundStartString {
@@ -57,4 +60,8 @@ func (stream *TextStream) Start(ctx context.Context) {
 			foundStartString = true
 		}
 	}
+}
+
+func (stream *TextStream) Close(ctx context.Context) error {
+	return stream.reader.Close()
 }

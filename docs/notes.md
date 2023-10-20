@@ -139,7 +139,8 @@ Our container will only run Mode=create, Type=text and ModelName=mistralai/Mistr
 So we pass those filters to the URL to ensure we get the correct type of task:
 
 ```bash
-export HELIX_GET_JOB_URL='http://192.168.86.24/api/v1/worker/task?mode=Create&type=Text&model_name=mistralai/Mistral-7B-Instruct-v0.1'
+export HELIX_GET_JOB_URL='http://192.168.86.24/api/v1/worker/task'
+export HELIX_RESPOND_JOB_URL='http://192.168.86.24/api/v1/worker/response'
 python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
 ```
 
