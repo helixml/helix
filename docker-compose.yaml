@@ -43,7 +43,7 @@ services:
       - KC_PROXY=edge
       - DB_VENDOR=h2
       - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
-      - KEYCLOAK_FRONTEND_URL=http://localhost/auth/
+      - KEYCLOAK_FRONTEND_URL=http://beefy/auth/
     volumes:
       - ./realm.json:/imported/realm.json
       - helix-keycloak-db:/opt/jboss/keycloak/standalone/data
@@ -59,12 +59,12 @@ services:
       dockerfile: Dockerfile.api
     restart: always
     environment:
-      - APP_URL=http://localhost
+      - APP_URL=http://beefy
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - SERVER_URL=http://localhost
+      - SERVER_URL=http://beefy
       - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
