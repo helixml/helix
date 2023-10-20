@@ -104,7 +104,56 @@ func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Sessio
 func (c *Controller) AddActiveSession(ctx context.Context, session *types.Session) error {
 	c.activeSessionMtx.Lock()
 	defer c.activeSessionMtx.Unlock()
+
 	c.activeSessions[session.ID] = session
+
+	// spawn a new text stream to listen in for responses
+	if session.Type == "Text" && session.Mode == "Create" {
+		sessionModel, err := model.GetLanguageModel(session.ModelName)
+		if err != nil {
+			return err
+		}
+
+		// this knows how to parse the output of the model
+		textStream, err := sessionModel.GetTextStream(ctx)
+		if err != nil {
+			return err
+		}
+
+		c.activeTextStreamsMtx.Lock()
+		defer c.activeTextStreamsMtx.Unlock()
+		c.activeTextStreams[session.ID] = textStream
+
+		go textStream.Start(ctx)
+
+		// this is what will listen to the text stream and send messages to the
+		// database and the websockets
+		go func() {
+			for {
+				select {
+				case msg := <-textStream.Output:
+					func() {
+						c.activeSessionMtx.Lock()
+						defer c.activeSessionMtx.Unlock()
+
+						msgs := session.Interactions.Messages
+						latest := msgs[len(msgs)-1]
+						latest.Message += msg
+						msgs[len(msgs)-1] = latest
+						session.Interactions.Messages = msgs
+
+						_, err := c.Options.Store.UpdateSession(ctx, *session)
+						if err != nil {
+							log.Printf("Error adding message: %s", err)
+						}
+
+						c.SessionUpdatesChan <- session
+					}()
+					fmt.Print("Got message from text stream: ", msg)
+				}
+			}
+		}()
+	}
 	return nil
 }
 
@@ -118,6 +167,16 @@ func (c *Controller) GetActiveSession(ctx context.Context, id string) (*types.Se
 	return session, nil
 }
 
+func (c *Controller) GetActiveTextStream(ctx context.Context, id string) (*model.TextStream, error) {
+	c.activeTextStreamsMtx.Lock()
+	defer c.activeTextStreamsMtx.Unlock()
+	textStream, ok := c.activeTextStreams[id]
+	if !ok {
+		return nil, fmt.Errorf("text stream not found")
+	}
+	return textStream, nil
+}
+
 func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
 	c.activeSessionMtx.Lock()
 	defer c.activeSessionMtx.Unlock()
@@ -128,25 +187,73 @@ func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *Controller) RemoveActiveTextStream(ctx context.Context, id string) error {
+	c.activeTextStreamsMtx.Lock()
+	defer c.activeTextStreamsMtx.Unlock()
+	if _, ok := c.activeTextStreams[id]; !ok {
+		return fmt.Errorf("text stream not found")
+	}
+	delete(c.activeTextStreams, id)
+	return nil
+}
+
 // if the action is "begin" - then we need to ceate a new textstream that is hooked up correctly
 // then we stash that in a map
 // if the action is "continue" - load the textstream and write to it
 // if the action is "end" - unload the text stream
 func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	fmt.Printf("taskResponse --------------------------------------\n")
-	fmt.Printf("%+v --------------------------------------\n", taskResponse)
+	session, err := c.GetActiveSession(ctx, taskResponse.SessionID)
+	if err != nil {
+		return nil, err
+	}
 
-	session, err := c.GetActiveSession(ctx, taskResponse.)
-	
-	// session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	switch {
+	case session.Mode == "Create" && session.Type == "Text":
+		return c.handleWorkerResponseLanguageInference(ctx, taskResponse, session)
+	case session.Mode == "Create" && session.Type == "Image":
+		return nil, nil
+	case session.Mode == "Finetune" && session.Type == "Text":
+		return nil, nil
+	case session.Mode == "Finetune" && session.Type == "Image":
+		return nil, nil
+	}
+	return nil, nil
+}
+
+func (c *Controller) handleWorkerResponseLanguageInference(ctx context.Context, taskResponse *types.WorkerTaskResponse, session *types.Session) (*types.WorkerTaskResponse, error) {
 	if taskResponse.Action == types.WorkerTaskResponseAction_Begin {
+		session.Interactions.Messages = append(session.Interactions.Messages, types.UserMessage{
+			User:     "system",
+			Message:  taskResponse.Message,
+			Uploads:  []string{}, // cool, computer can create images here
+			Finished: false,
+		})
+		_, err := c.Options.Store.UpdateSession(ctx, *session)
+		if err != nil {
+			return nil, err
+		}
+		c.SessionUpdatesChan <- session
 		return taskResponse, nil
 	} else if taskResponse.Action == types.WorkerTaskResponseAction_Continue {
+		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		textStream.Write([]byte(taskResponse.Message))
 		return taskResponse, nil
 	} else if taskResponse.Action == types.WorkerTaskResponseAction_End {
+		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		err = textStream.Close(ctx)
+		if err != nil {
+			return nil, err
+		}
+		err = c.RemoveActiveTextStream(ctx, taskResponse.SessionID)
+		if err != nil {
+			return nil, err
+		}
 		return taskResponse, nil
 	} else {
 		return nil, nil

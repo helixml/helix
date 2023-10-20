@@ -18,17 +18,12 @@ func (l *Mistral7bInstruct01) GetPrompt(ctx context.Context, session *types.Sess
 	return fmt.Sprintf("[INST]%s[/INST]", lastMessage.Message), nil
 }
 
-func (l *Mistral7bInstruct01) GetLoading(ctx context.Context) (string, error) {
-	return "🤔... \n\n", nil
-}
-
 func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context) (*TextStream, error) {
-	stream := NewTextStream(
+	return NewTextStream(
 		splitOnSpace,
 		"[/INST]",
 		"</s>",
-	)
-	return stream, nil
+	), nil
 }
 
 // Compile-time interface check:

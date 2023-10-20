@@ -15,8 +15,6 @@ type TextStreamProcessor struct {
 type LanguageModel interface {
 	// return the prompt we send into a model given the current session
 	GetPrompt(ctx context.Context, session *types.Session) (string, error)
-	// display the following text to the user whilst we are waiting for output
-	GetLoading(ctx context.Context) (string, error)
 	// return a text stream that knows how to parse the output of the model
 	GetTextStream(ctx context.Context) (*TextStream, error)
 }
