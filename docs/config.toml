@@ -8,6 +8,6 @@ resolution = 1024                           # Training resolution
 batch_size = 4                              # Batch size
 
   [[datasets.subsets]]
-  image_dir = './input'                     # Specify the folder containing the training images
+  image_dir = '/home/kai/projects/helix/helix/docs/for-sale-signs' # Specify the folder containing the training images
   caption_extension = '.txt'                # Caption file extension; change this if using .txt
   num_repeats = 10                          # Number of repetitions for training images
