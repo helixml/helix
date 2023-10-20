@@ -33,8 +33,10 @@ type Controller struct {
 	Ctx                context.Context
 	Options            ControllerOptions
 	SessionUpdatesChan chan *types.Session
-	sessionQueues      *sessionQueues
+	sessionQueue       []*types.Session
 	sessionQueueMtx    sync.Mutex
+	activeSessions     map[string]*types.Session
+	activeSessionMtx   sync.Mutex
 }
 
 func NewController(
@@ -51,7 +53,8 @@ func NewController(
 		Ctx:                ctx,
 		Options:            options,
 		SessionUpdatesChan: make(chan *types.Session),
-		sessionQueues:      newSessionQueues(),
+		activeSessions:     map[string]*types.Session{},
+		sessionQueue:       []*types.Session{},
 	}
 	return controller, nil
 }
