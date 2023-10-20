@@ -144,3 +144,52 @@ python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
 ```
 
 Now the container will get jobs targeted to it.
+
+## running beefy
+
+On a new GPU machine with the `install gpu node` section complete - here is how we setup a local dev env.
+
+This forms the basis of our runner Dockerfile.
+
+```bash
+mkdir -p ~/projects/helix
+cd ~/projects/helix
+git clone git@github.com:lukemarsden/axolotl.git
+git clone git@github.com:lukemarsden/sd-scripts.git
+git clone git@github.com:lukemarsden/helix.git
+```
+
+Then - let's install the various libs:
+
+```bash
+sudo apt install python3-virtualenv libgl1-mesa-glx ffmpeg libsm6 libxext6
+```
+
+Now - let's install axolotl:
+
+```bash
+cd axolotl
+virtualenv venv
+. venv/bin/activate
+pip3 install packaging
+pip install torch==2.0.1
+pip3 install -e '.[flash-attn,deepspeed]'
+# this downloads the large weights files from huggingface
+python3 -c "from transformers import AutoModelForCausalLM; model_id = 'mistralai/Mistral-7B-v0.1'; AutoModelForCausalLM.from_pretrained(model_id)"
+python3 -c "from transformers import AutoModelForCausalLM; model_id = 'mistralai/Mistral-7B-Instruct-v0.1'; AutoModelForCausalLM.from_pretrained(model_id)"
+```
+
+Now - let's install sd-scripts:
+
+```bash
+cd sd-scripts
+virtualenv venv
+. venv/bin/activate
+pip install -r requirements.txt
+pip install bitsandbytes==0.41.1
+pip install xformers==0.0.22.post4
+# this downloads the large weights files from huggingface
+mkdir sdxl && ( \
+  cd sdxl; wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
+)
+```

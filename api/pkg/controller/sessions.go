@@ -133,6 +133,9 @@ func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
 // if the action is "continue" - load the textstream and write to it
 // if the action is "end" - unload the text stream
 func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	fmt.Printf("taskResponse --------------------------------------\n")
+	fmt.Printf("%+v --------------------------------------\n", taskResponse)
+	
 	// session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	// if err != nil {
 	// 	return nil, err
