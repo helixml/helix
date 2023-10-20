@@ -122,3 +122,9 @@ type WorkerTask struct {
 	ModelName string `json:"model_name"`
 	Prompt    string `json:"prompt"`
 }
+
+type WorkerTaskResponse struct {
+	SessionID string `json:"session_id"`
+	Action    string `json:"action"`
+	Message   string `json:"message"`
+}

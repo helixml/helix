@@ -122,7 +122,23 @@ So - we need to duplicate `do_inference` and change the `get_multi_line_input` f
 Whilst iterating I just ran the container above and then used poor mans git:
 
 ```bash
-cat __init__.py | ssh kai@beefy bash -c 'cat | docker exec -i c4c5960200e0 bash -c "cat > src/axolotl/cli/__init__.py"'
+cd axolotl/src/axolotl/cli
+cat __init__.py | ssh kai@beefy bash -c 'cat | docker exec -i 8b9a8531e242 bash -c "cat > src/axolotl/cli/__init__.py"'
 ```
 
 Now you can change the do_inference to start the http client loop and iterate.
+
+Then - we just run the axolotl inference again but giving it a http url to ask for jobs.
+
+The http URL is a pointing back at the Helix api server from wherever the container is running.
+
+Our container will only run Mode=create, Type=text and ModelName=mistralai/Mistral-7B-Instruct-v0.1
+
+So we pass those filters to the URL to ensure we get the correct type of task:
+
+```bash
+export HELIX_GET_JOB_URL='http://192.168.86.24/api/v1/worker/task?mode=Create&type=Text&model_name=mistralai/Mistral-7B-Instruct-v0.1'
+python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
+```
+
+Now the container will get jobs targeted to it.

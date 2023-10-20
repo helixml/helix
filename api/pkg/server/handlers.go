@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
@@ -293,4 +294,15 @@ func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *htt
 	}
 
 	return task, nil
+}
+
+func (apiServer *HelixAPIServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+	taskResponse := &types.WorkerTaskResponse{}
+	err := json.NewDecoder(req.Body).Decode(taskResponse)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("taskResponse --------------------------------------\n")
+	spew.Dump(taskResponse)
+	return taskResponse, nil
 }
