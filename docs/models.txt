@@ -50,7 +50,7 @@ accelerate launch -m axolotl.cli.train examples/mistral/qlora.yml
 
 # inference on text
 
-python -u -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
+accelerate launch -m axolotl.cli.inference examples/mistral/qlora-instruct.yml
 
 
 # fine tuning SDXL
