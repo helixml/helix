@@ -123,7 +123,7 @@ const Dashboard: FC = () => {
                 onChange={(event) => setSelectedCreateType(event.target.value)}
               >
                 <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Images">Images</MenuItem>
+                <MenuItem value="Image">Images</MenuItem>
               </Select>
             </FormControl>
           </Button>
@@ -139,7 +139,7 @@ const Dashboard: FC = () => {
                 onChange={(event) => setSelectedFineTuneType(event.target.value)}
               >
                 <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Images">Images</MenuItem>
+                <MenuItem value="Image">Images</MenuItem>
               </Select>
             </FormControl>
           </Button>
@@ -154,7 +154,7 @@ const Dashboard: FC = () => {
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
         <Grid item xs={12} md={11}>
-          {selectedMode === 'Finetune' && selectedFineTuneType === 'Images' && (
+          {selectedMode === 'Finetune' && selectedFineTuneType === 'Image' && (
             <FileUpload
               sx={{
                 width: '100%',
@@ -207,7 +207,7 @@ const Dashboard: FC = () => {
             <TextField
               fullWidth
               label={(
-                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Images' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Image' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}
