@@ -42,7 +42,7 @@ export const THEMES: Record<string, ITheme> = {
           ml: 2,
           mr: 1,
         }}>
-          DaggerGPT
+          Helix
         </Typography>
       </Box>
     ),
