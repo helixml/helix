@@ -3,6 +3,7 @@ import axios from 'axios'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
+import GlobalStyles from '@mui/material/GlobalStyles'
 import MuiDrawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
@@ -614,6 +615,7 @@ const Layout: FC = ({
   return (
     <Box sx={{ display: 'flex' }} component="div">
       <CssBaseline />
+      <GlobalStyles styles={{ body: { fontFamily: 'Open Sauce Sans', fontSize: "x-large" } }} />
       <AppBar
         elevation={ 0 }
         position="fixed"
@@ -628,7 +630,7 @@ const Layout: FC = ({
         <Toolbar
           sx={{
             pr: '24px', // keep right padding when drawer closed
-            backgroundColor: '#fff'
+            backgroundColor: '#fff',
           }}
         >
           {
@@ -661,6 +663,7 @@ const Layout: FC = ({
                   <MenuIcon />
                 </IconButton>
                 { themeConfig.logo() }
+                <div style={{flex: 1}}></div>
               </>
             )
           }
@@ -767,7 +770,7 @@ const Layout: FC = ({
         sx={{
           backgroundColor: (theme) =>
             theme.palette.mode === 'light'
-              ? theme.palette.grey[100]
+              ? "#FAEFE0" 
               : theme.palette.grey[900],
           flexGrow: 1,
           height: '100vh',

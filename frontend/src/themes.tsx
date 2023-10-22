@@ -19,8 +19,8 @@ export const THEMES: Record<string, ITheme> = {
   helix: {
     company: 'MLOps Consulting',
     url: 'https://mlops.consulting/',
-    primary: '#8DA4BB',
-    secondary: '#64BEA9',
+    primary: '#7db6c7',
+    secondary: '#e450bf',
     // this means ALL
     activeSections: [],
     logo: () => (
