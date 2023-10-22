@@ -52,7 +52,7 @@ function OpenAIBlock() {
             <LeftContent>
                 <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px"}} />
                 <h1>Open AI 😉</h1>
-                <p>Deploy the latest open source models securely in your cloud</p>
+                <p>Deploy the best open source models securely in your cloud</p>
                 <p>Or let us run them for you</p>
             </LeftContent>
             <RightMedia>
@@ -165,7 +165,7 @@ function Footer() {
     return (
         <Block>
             <LeftContent>
-                <h1>Clone us on GitHub</h1>
+                <h1>Clone us from GitHub</h1>
                 <p>Bring new models to the open stack</p>
                 <Button
                   variant="contained"
