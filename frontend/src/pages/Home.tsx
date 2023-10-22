@@ -3,7 +3,7 @@ import Button from '@mui/material/Button'
 import { styled } from '@mui/system';
 
 const XContainer = styled('div')({
-    maxWidth: '800px',
+    maxWidth: '1200px',
     margin: '0 auto',
     padding: '20px',
 });
@@ -31,19 +31,19 @@ const RightMedia = styled('div')({
 const RightContent = styled('div')({
     flex: '1',
     textAlign: 'left',
-    fontWeight: 499,
+    fontWeight: 500,
 });
 
 const LeftMedia = styled('div')({
     flex: '1',
-    paddingRight: '39px',
+    paddingRight: '40px',
 });
 
 const LeftContent = styled('div')({
     flex: '1',
     textAlign: 'left',
     fontWeight: 499,
-    paddingRight: '39px',
+    paddingRight: '40px',
 });
 
 function OpenAIBlock() {
@@ -56,7 +56,7 @@ function OpenAIBlock() {
                 <p>Or let us run them for you</p>
             </LeftContent>
             <RightMedia>
-                <video autoPlay loop muted style={{width:"350px", float: "right", marginRight: "-50px"}}>
+                <video autoPlay loop muted style={{width:"500px", float: "right", marginRight: "-50px"}}>
                     <source src="/img/typing.mp4" type="video/mp4"/>
                 </video>
             </RightMedia>
@@ -68,7 +68,7 @@ function ImageModelsBlock() {
     return (
         <Block>
             <LeftMedia>
-                <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{width:"300px"}} />
+                <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{width:"500px"}} />
             </LeftMedia>
             <RightContent>
                 <h1>Image models</h1>
@@ -79,7 +79,7 @@ function ImageModelsBlock() {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
-                  sx={{mb:1}}
+                  sx={{mb:2, fontSize: "large"}}
                 >MAKE BEAUTIFUL IMAGES</Button>
                 <br />
                 <Button
@@ -88,6 +88,7 @@ function ImageModelsBlock() {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
+                  sx={{fontSize: "large"}}
                 >FINE TUNE SDXL</Button>
             </RightContent>
         </Block>
@@ -106,18 +107,20 @@ function LanguageModelsBlock() {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
-                  sx={{mb:1}}
+                  sx={{fontSize: "large", mb:2}}
                 >CHAT TO MISTRAL</Button>
+                <br />
                 <Button
                   variant="outlined"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
+                  sx={{fontSize: "large"}}
                 >FINE TUNE MISTRAL-7B</Button>
             </LeftContent>
             <RightMedia>
-                <img src="/img/mistral.png" alt="Mistral-8B" style={{width:"300px", float: "right"}} />
+                <img src="/img/mistral.png" alt="Mistral-8B" style={{width:"500px", float: "right"}} />
             </RightMedia>
         </Block>
     );
@@ -127,7 +130,7 @@ function DeploymentBlock() {
     return (
         <Block>
             <LeftMedia>
-                <img src="/img/servers.png" alt="Servers in a data center" style={{width:"299px"}} />
+                <img src="/img/servers.png" alt="Servers in a data center" style={{width:"500px"}} />
             </LeftMedia>
             <RightContent>
                 <h1>Deployment</h1>
@@ -142,14 +145,16 @@ function DeploymentBlock() {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
-                  sx={{mb:1}}
+                  sx={{mb:2, fontSize: "large"}}
                 >CONNECT RUNNER</Button>
+                <br />
                 <Button
                   variant="outlined"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
+                  sx={{fontSize: "large"}}
                 >DEPLOY ON YOUR INFRA</Button>
             </RightContent>
         </Block>
@@ -168,16 +173,19 @@ function Footer() {
                     // endIcon={<LoginIcon />}
                     // account.onLogin()
                   }}
+                  sx={{fontSize: "large"}}
                 >JOIN MLOPS.COMMUNITY SLACK</Button>
+                <br />
                 <Button
                   variant="outlined"
                   onClick={ () => {
                   }}
-                  sx={{mt:1}}
+                  sx={{mt:2, fontSize: "large"}}
                 >GITHUB.COM/HELIX-ML/HELIX</Button>
+                <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px", marginTop: "4em"}} />
             </LeftContent>
             <RightMedia>
-                <img src="/img/github.png" alt="GitHub users collaborating" style={{width:"249px", float: "right"}} />
+                <img src="/img/github.png" alt="GitHub users collaborating" style={{width:"500px", float: "right"}} />
             </RightMedia>
         </Block>
     );
