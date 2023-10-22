@@ -1,7 +1,7 @@
 {
-  "id": "lilypad",
-  "realm": "lilypad",
-  "displayName": "Lilypad AI",
+  "id": "helix",
+  "realm": "helix",
+  "displayName": "Helix",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
   "revokeRefreshToken": false,
@@ -52,12 +52,12 @@
         "description": "${role_offline-access}",
         "composite": false,
         "clientRole": false,
-        "containerId": "lilypad",
+        "containerId": "helix",
         "attributes": {}
       },
       {
         "id": "0ecdb0d3-241f-416f-8e2e-df2c462f43b0",
-        "name": "default-roles-lilypad",
+        "name": "default-roles-helix",
         "description": "${role_default-roles}",
         "composite": true,
         "composites": {
@@ -67,7 +67,7 @@
           ]
         },
         "clientRole": false,
-        "containerId": "lilypad",
+        "containerId": "helix",
         "attributes": {}
       },
       {
@@ -76,7 +76,7 @@
         "description": "${role_uma_authorization}",
         "composite": false,
         "clientRole": false,
-        "containerId": "lilypad",
+        "containerId": "helix",
         "attributes": {}
       }
     ],
@@ -323,11 +323,11 @@
   "groups": [],
   "defaultRole": {
     "id": "0ecdb0d3-241f-416f-8e2e-df2c462f43b0",
-    "name": "default-roles-lilypad",
+    "name": "default-roles-helix",
     "description": "${role_default-roles}",
     "composite": true,
     "clientRole": false,
-    "containerId": "lilypad"
+    "containerId": "helix"
   },
   "requiredCredentials": [
     "password"
@@ -390,13 +390,13 @@
       "clientId": "account",
       "name": "${client_account}",
       "rootUrl": "${authBaseUrl}",
-      "baseUrl": "/realms/lilypad/account/",
+      "baseUrl": "/realms/helix/account/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/realms/lilypad/account/*"
+        "/realms/helix/account/*"
       ],
       "webOrigins": [],
       "notBefore": 0,
@@ -431,13 +431,13 @@
       "clientId": "account-console",
       "name": "${client_account-console}",
       "rootUrl": "${authBaseUrl}",
-      "baseUrl": "/realms/lilypad/account/",
+      "baseUrl": "/realms/helix/account/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/realms/lilypad/account/*"
+        "/realms/helix/account/*"
       ],
       "webOrigins": [],
       "notBefore": 0,
@@ -721,13 +721,13 @@
       "clientId": "security-admin-console",
       "name": "${client_security-admin-console}",
       "rootUrl": "${authAdminUrl}",
-      "baseUrl": "/admin/lilypad/console/",
+      "baseUrl": "/admin/helix/console/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/admin/lilypad/console/*"
+        "/admin/helix/console/*"
       ],
       "webOrigins": [
         "+"

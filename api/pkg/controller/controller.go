@@ -83,7 +83,7 @@ func (c *Controller) Start() error {
 				time.Sleep(10 * time.Second)
 				err := c.loop(c.Ctx)
 				if err != nil {
-					log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
+					log.Error().Msgf("Helix error in controller loop: %s", err.Error())
 					debug.PrintStack()
 				}
 			}
