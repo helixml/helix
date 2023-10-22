@@ -17,6 +17,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import Homepage from './Homepage'
 
 const Dashboard: FC = () => {
   const filestore = useFilestore()
@@ -107,7 +108,7 @@ const Dashboard: FC = () => {
     }
   }
 
-  return (
+  return account.user ? (
     <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
       <Grid container spacing={3} direction="row" justifyContent="flex-start">
         <Grid item xs={2} md={2}>
@@ -230,7 +231,7 @@ const Dashboard: FC = () => {
         </Grid>
       </Grid>
     </Container>
-  )
+  ) : (<Homepage/>)
 }
 
 export default Dashboard
