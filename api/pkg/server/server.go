@@ -22,7 +22,7 @@ type ServerOptions struct {
 	// and we need to add a route to view files based on their path
 	// we are assuming all file storage is open right now
 	// so we just deep link to the object path and don't apply auth
-	// (this is so lilypad nodes can see files)
+	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
 }
