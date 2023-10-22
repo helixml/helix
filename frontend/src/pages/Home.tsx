@@ -166,7 +166,7 @@ function Footer() {
         <Block>
             <LeftContent>
                 <h1>Clone us from GitHub</h1>
-                <p>Bring new models to the open stack</p>
+                <p>Customize it for your DevOps &ndash; or add models &ndash; to the open stack</p>
                 <Button
                   variant="contained"
                   onClick={ () => {
