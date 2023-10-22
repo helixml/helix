@@ -25,14 +25,14 @@ const Button = styled('button')({
     backgroundColor: '#007BFF',
     color: 'white',
     borderRadius: '4px',
-    cursor: 'pointer',
+    // cursor: 'pointer',
 });
 
 function App() {
     return (
         <Container>
             <Header>
-                <img src="/img/helix-text-logo.png" alt="Helix Logo" />
+                <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"400px"}} />
             </Header>
             <OpenAIBlock />
             <ImageModelsBlock />
@@ -46,8 +46,8 @@ function App() {
 function OpenAIBlock() {
     return (
         <Block>
-            <video autoPlay loop muted>
-                <source src="/img/typing.mp4" type="video/mp4" />
+            <video autoPlay loop muted  style={{width:"400px"}}>
+                <source src="/img/typing.mp4" type="video/mp4"/>
             </video>
             <h2>Open AI 😉</h2>
             <p>Deploy the latest open source models securely into your cloud</p>
@@ -59,7 +59,7 @@ function OpenAIBlock() {
 function ImageModelsBlock() {
     return (
         <Block>
-            <img src="/img/sdxl.png" alt="Stable Diffusion XL" />
+            <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{width:"400px"}} />
             <h2>Image models</h2>
             <p>Train your own SDXL customized to your brand or style</p>
             <Button>FINE TUNE SDXL</Button>
@@ -70,7 +70,7 @@ function ImageModelsBlock() {
 function LanguageModelsBlock() {
     return (
         <Block>
-            <img src="/img/mistral.png" alt="Mistral-7B" />
+            <img src="/img/mistral.png" alt="Mistral-7B" style={{width:"400px"}} />
             <h2>Language models</h2>
             <p>Small open source LLMs are beating proprietary models</p>
             <Button>FINE TUNE MISTRAL-7B</Button>
@@ -81,7 +81,7 @@ function LanguageModelsBlock() {
 function DeploymentBlock() {
     return (
         <Block>
-            <img src="/img/servers.png" alt="Servers in a data center" />
+            <img src="/img/servers.png" alt="Servers in a data center" style={{width:"400px"}} />
             <h2>Deployment</h2>
             <ul>
                 <li>GPU scheduler</li>
@@ -96,7 +96,7 @@ function DeploymentBlock() {
 function Footer() {
     return (
         <Block>
-            <img src="/img/github.png" alt="GitHub users collaborating" />
+            <img src="/img/github.png" alt="GitHub users collaborating" style={{width:"400px"}} />
             <h2>Clone us on GitHub</h2>
             <p>Bring new models to the open stack</p>
             <a href="https://github.com/helix-ml/helix">GITHUB.COM/HELIX-ML/HELIX</a>
