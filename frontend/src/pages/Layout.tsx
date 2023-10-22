@@ -28,6 +28,7 @@ import ImageIcon from '@mui/icons-material/Image'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import DescriptionIcon from '@mui/icons-material/Description'
 import PermMediaIcon from '@mui/icons-material/PermMedia'
+import HomeIcon from '@mui/icons-material/Home'
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -198,12 +199,26 @@ const Layout: FC = ({
       <Divider />
       <List>
         {
-          account.user ? (
+          (
 
           <div>
             <ListItem disablePadding
                   onClick={ () => {
                     navigate('home')
+                    setMobileOpen(false)
+                  }}
+                  sx={{mb:1}}
+            >
+                <ListItemButton>
+                  <ListItemIcon>
+                    <HomeIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText primary="Home" />
+                </ListItemButton>
+              </ListItem>
+            <ListItem disablePadding
+                  onClick={ () => {
+                    navigate('new')
                     setMobileOpen(false)
                   }}
                   sx={{mb:1}}
@@ -220,23 +235,6 @@ const Layout: FC = ({
               <div>{sessions}</div>
             </div>
 
-          ) : (
-            <>
-              <ListItem
-                disablePadding
-                onClick={ () => {
-                  account.onLogin()
-                  setMobileOpen(false)
-                }}
-              >
-                <ListItemButton>
-                  <ListItemIcon>
-                    <LoginIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText primary="Login/Register" />
-                </ListItemButton>
-              </ListItem>
-            </>
           )
         }
       </List>
