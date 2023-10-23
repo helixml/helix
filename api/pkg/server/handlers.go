@@ -5,120 +5,54 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"time"
 
-	"github.com/bacalhau-project/lilypad/pkg/data"
-	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
-	"github.com/bacalhau-project/lilysaas/api/pkg/job"
-	"github.com/bacalhau-project/lilysaas/api/pkg/store"
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/model"
+	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
-func generateUUID() string {
-	return uuid.New().String()
-}
-
-var adjectives = []string{
-	"enchanting",
-	"fascinating",
-	"elucidating",
-	"useful",
-	"helpful",
-	"constructive",
-	"charming",
-	"playful",
-	"whimsical",
-	"delightful",
-	"fantastical",
-	"magical",
-	"spellbinding",
-	"dazzling",
-}
-
-var nouns = []string{
-	"discussion",
-	"dialogue",
-	"convo",
-	"conversation",
-	"chat",
-	"talk",
-	"exchange",
-	"debate",
-	"conference",
-	"seminar",
-	"symposium",
-}
-
-func generateAmusingName() string {
-	adj := adjectives[rand.Intn(len(adjectives))]
-	noun := nouns[rand.Intn(len(nouns))]
-	number := rand.Intn(900) + 100 // generates a random 3 digit number
-	return adj + "-" + noun + "-" + strconv.Itoa(number)
-}
-
-func (apiServer *LilysaasAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
+func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
 }
 
-func (apiServer *LilysaasAPIServer) getJobs(res http.ResponseWriter, req *http.Request) ([]*types.Job, error) {
-	return apiServer.Controller.GetJobs(apiServer.getRequestContext(req))
-}
-
-func (apiServer *LilysaasAPIServer) getTransactions(res http.ResponseWriter, req *http.Request) ([]*types.BalanceTransfer, error) {
+func (apiServer *HelixAPIServer) getTransactions(res http.ResponseWriter, req *http.Request) ([]*types.BalanceTransfer, error) {
 	return apiServer.Controller.GetTransactions(apiServer.getRequestContext(req))
 }
 
-func (apiServer *LilysaasAPIServer) getModules(res http.ResponseWriter, req *http.Request) ([]types.Module, error) {
-	return job.GetModules()
-}
-
-func (apiServer *LilysaasAPIServer) createJob(res http.ResponseWriter, req *http.Request) (data.JobOfferContainer, error) {
-	request := types.JobSpec{}
-	bs, err := io.ReadAll(req.Body)
-	if err != nil {
-		return data.JobOfferContainer{}, err
-	}
-	err = json.Unmarshal(bs, &request)
-	if err != nil {
-		return data.JobOfferContainer{}, err
-	}
-	return apiServer.Controller.CreateJob(apiServer.getRequestContext(req), request)
-}
-
-func (apiServer *LilysaasAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
+func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
 	return apiServer.Controller.FilestoreConfig(apiServer.getRequestContext(req))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreList(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreGet(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreCreateFolder(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
+func (apiServer *HelixAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
 	return apiServer.Controller.FilestoreRename(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
 
-func (apiServer *LilysaasAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
+func (apiServer *HelixAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
 	err := apiServer.Controller.FilestoreDelete(apiServer.getRequestContext(req), path)
 	return path, err
 }
 
 // TODO version of this which is session specific
-func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (bool, error) {
+func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *http.Request) (bool, error) {
 	path := req.URL.Query().Get("path")
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -141,8 +75,8 @@ func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req
 	return true, nil
 }
 
-func (apiServer *LilysaasAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	id := mux.Vars(req)["id"]
+func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	id := req.URL.Query().Get("id")
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
@@ -154,7 +88,7 @@ func (apiServer *LilysaasAPIServer) getSession(res http.ResponseWriter, req *htt
 	return session, nil
 }
 
-func (apiServer *LilysaasAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.Session, error) {
+func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 	query := store.GetSessionsQuery{}
 	query.Owner = reqContext.Owner
@@ -162,7 +96,7 @@ func (apiServer *LilysaasAPIServer) getSessions(res http.ResponseWriter, req *ht
 	return apiServer.Store.GetSessions(reqContext.Ctx, query)
 }
 
-func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 
 	// now upload any files that were included
@@ -172,17 +106,18 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 	}
 
 	session := types.Session{
-		ID:   generateUUID(),
-		Name: generateAmusingName(),
+		ID:   system.GenerateUUID(),
+		Name: system.GenerateAmusingName(),
 		Type: req.FormValue("type"),
 		Mode: req.FormValue("mode"),
 	}
 
-	if session.Type == "Images" {
-		session.ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-	} else if session.Type == "Text" {
-		session.ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
+	modelName, err := model.GetModelNameForSession(reqContext.Ctx, &session)
+	if err != nil {
+		return nil, err
 	}
+
+	session.ModelName = modelName
 
 	// only allow users to create their own sessions
 	session.Owner = reqContext.Owner
@@ -217,12 +152,24 @@ func (apiServer *LilysaasAPIServer) createSession(res http.ResponseWriter, req *
 	}
 
 	// create session in database
-	return apiServer.Store.CreateSession(reqContext.Ctx, session)
+	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	// add the session to the controller queue
+	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessionData, nil
 }
 
-func (apiServer *LilysaasAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 	request := types.Session{}
+
 	bs, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
@@ -232,6 +179,7 @@ func (apiServer *LilysaasAPIServer) updateSession(res http.ResponseWriter, req *
 	if err != nil {
 		return nil, err
 	}
+
 	if request.ID == "" {
 		return nil, fmt.Errorf("cannot update session without id")
 	}
@@ -244,12 +192,20 @@ func (apiServer *LilysaasAPIServer) updateSession(res http.ResponseWriter, req *
 	if id != request.ID {
 		return nil, fmt.Errorf("id mismatch")
 	}
-	return apiServer.Store.UpdateSession(reqContext.Ctx, request)
+	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, request)
+
+	// add the session to the controller queue
+	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
+
+	return sessionData, nil
 }
 
-func (apiServer *LilysaasAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
-	id := mux.Vars(req)["id"]
+	id := req.URL.Query().Get("id")
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
@@ -262,4 +218,48 @@ func (apiServer *LilysaasAPIServer) deleteSession(res http.ResponseWriter, req *
 		return nil, fmt.Errorf("access denied")
 	}
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
+}
+
+func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+
+	// alow the worker to filter what tasks it wants
+	// if any of these values are defined then we will only consider those in the response
+	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), types.SessionFilter{
+		Mode:      req.URL.Query().Get("mode"),
+		Type:      req.URL.Query().Get("type"),
+		ModelName: types.ModelName(req.URL.Query().Get("model_name")),
+	})
+	if err != nil {
+		return nil, err
+	}
+	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
+	// that is how the workers will know to wait before asking again
+	if nextSession == nil {
+		return nil, fmt.Errorf("no task found")
+	}
+
+	err = apiServer.Controller.AddActiveSession(req.Context(), nextSession)
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := apiServer.Controller.ConvertSessionToTask(req.Context(), nextSession)
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}
+
+func (apiServer *HelixAPIServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+	taskResponse := &types.WorkerTaskResponse{}
+	err := json.NewDecoder(req.Body).Decode(taskResponse)
+	if err != nil {
+		return nil, err
+	}
+	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
+	if err != nil {
+		return nil, err
+	}
+	return taskResponse, nil
 }

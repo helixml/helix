@@ -4,8 +4,8 @@ import browserPlugin from 'router5-plugin-browser'
 
 import Home from './pages/Home'
 import Session from './pages/Session'
-import Jobs from './pages/Jobs'
 import Account from './pages/Account'
+import New from './pages/New'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -35,13 +35,6 @@ const routes: IApplicationRoute[] = [{
     <Home />
   ),
 }, {
-  name: 'jobs',
-  path: '/jobs',
-  meta: {
-    title: 'Jobs',
-  },
-  render: () => <Jobs />,
-}, {
   name: 'files',
   path: '/files',
   meta: {
@@ -51,6 +44,15 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
+  ),
+}, {
+  name: 'new',
+  path: '/new',
+  meta: {
+    title: 'New Session',
+  },
+  render: () => (
+      <New />
   ),
 }, {
   name: 'session',

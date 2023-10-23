@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
-func (apiServer *LilysaasAPIServer) corsMiddleware(next http.Handler) http.Handler {
+func (apiServer *HelixAPIServer) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		res.Header().Set("Access-Control-Allow-Origin", "*")
 		next.ServeHTTP(res, req)
 	})
 }
 
-func (apiServer *LilysaasAPIServer) getRequestContext(req *http.Request) types.RequestContext {
+func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.RequestContext {
 	return types.RequestContext{
 		Ctx:       req.Context(),
 		Owner:     getRequestUser(req),
