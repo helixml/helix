@@ -20,7 +20,7 @@ func GetModel(modelName types.ModelName) (Model, error) {
 // rather then keep processing model names from sessions into instances of the model struct
 // (just so we can ask it GetMemoryRequirements())
 // this gives us an in memory cache of model instances we can quickly lookup from
-func GetModels(modelName types.ModelName) (map[types.ModelName]Model, error) {
+func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
 	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
 	models[types.Model_SDXL] = &SDXL{}
@@ -34,4 +34,23 @@ func GetModelNameForSession(ctx context.Context, session *types.Session) (types.
 		return types.Model_Mistral7b, nil
 	}
 	return types.Model_None, fmt.Errorf("no model for session type %s", session.Type)
+}
+
+func GetLowestMemoryRequirement() (uint64, error) {
+	models, err := GetModels()
+	if err != nil {
+		return 0, err
+	}
+	lowestMemoryRequirement := uint64(0)
+	for _, model := range models {
+		finetune := model.GetMemoryRequirements(types.SessionModeFinetune)
+		if finetune > 0 && (lowestMemoryRequirement == 0 || finetune < lowestMemoryRequirement) {
+			lowestMemoryRequirement = finetune
+		}
+		inference := model.GetMemoryRequirements(types.SessionModeInference)
+		if inference > 0 && (lowestMemoryRequirement == 0 || inference < lowestMemoryRequirement) {
+			lowestMemoryRequirement = inference
+		}
+	}
+	return lowestMemoryRequirement, err
 }
