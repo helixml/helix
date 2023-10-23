@@ -10,8 +10,16 @@ import (
 type SDXL struct {
 }
 
-func (l *SDXL) GetMemoryRequirements(ctx context.Context) uint64 {
-	return GB * 12
+func (l *SDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
+	if mode == types.SessionModeFinetune {
+		return GB * 12
+	} else {
+		return GB * 6
+	}
+}
+
+func (l *SDXL) GetType() types.SessionType {
+	return types.SessionTypeImage
 }
 
 func (l *SDXL) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
@@ -22,6 +30,13 @@ func (l *SDXL) GetPrompt(ctx context.Context, session *types.Session) (string, e
 	return lastMessage.Message, nil
 }
 
+func (l *SDXL) GetTextStream(ctx context.Context) (*TextStream, error) {
+	return nil, nil
+}
+
+func (l *SDXL) RunProcess(mode types.SessionMode) error {
+	return nil
+}
+
 // Compile-time interface check:
-var _ ImageModel = (*SDXL)(nil)
 var _ Model = (*SDXL)(nil)

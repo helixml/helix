@@ -52,32 +52,20 @@ func (c *Controller) ConvertSessionToTask(ctx context.Context, session *types.Se
 		Session:   *session,
 	}
 
+	model, err := model.GetModel(session.ModelName)
+	if err != nil {
+		return nil, err
+	}
+
 	switch {
-	case session.Mode == "Create" && session.Type == "Text":
-		model, err := model.GetLanguageModel(session.ModelName)
-		if err != nil {
-			return nil, err
-		}
+	case session.Mode == types.SessionModeInference:
 		prompt, err := model.GetPrompt(ctx, session)
 		if err != nil {
 			return nil, err
 		}
 		task.Prompt = prompt
 		return task, nil
-	case session.Mode == "Create" && session.Type == "Image":
-		model, err := model.GetImageModel(session.ModelName)
-		if err != nil {
-			return nil, err
-		}
-		prompt, err := model.GetPrompt(ctx, session)
-		if err != nil {
-			return nil, err
-		}
-		task.Prompt = prompt
-		return task, nil
-	case session.Mode == "Finetune" && session.Type == "Text":
-		return nil, nil
-	case session.Mode == "Finetune" && session.Type == "Image":
+	case session.Mode == types.SessionModeFinetune:
 		return nil, nil
 	}
 	return nil, nil
@@ -112,55 +100,55 @@ func (c *Controller) AddActiveSession(ctx context.Context, session *types.Sessio
 	c.activeSessionMtx.Lock()
 	defer c.activeSessionMtx.Unlock()
 
-	c.activeSessions[session.ID] = session
+	// c.activeSessions[session.ID] = session
 
-	// spawn a new text stream to listen in for responses
-	if session.Type == "Text" && session.Mode == "Create" {
-		sessionModel, err := model.GetLanguageModel(session.ModelName)
-		if err != nil {
-			return err
-		}
+	// // spawn a new text stream to listen in for responses
+	// if session.Type == "Text" && session.Mode == "Create" {
+	// 	sessionModel, err := model.GetLanguageModel(session.ModelName)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		// this knows how to parse the output of the model
-		textStream, err := sessionModel.GetTextStream(ctx)
-		if err != nil {
-			return err
-		}
+	// 	// this knows how to parse the output of the model
+	// 	textStream, err := sessionModel.GetTextStream(ctx)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		c.activeTextStreamsMtx.Lock()
-		defer c.activeTextStreamsMtx.Unlock()
-		c.activeTextStreams[session.ID] = textStream
+	// 	c.activeTextStreamsMtx.Lock()
+	// 	defer c.activeTextStreamsMtx.Unlock()
+	// 	c.activeTextStreams[session.ID] = textStream
 
-		go textStream.Start(ctx)
+	// 	go textStream.Start(ctx)
 
-		// // this is what will listen to the text stream and send messages to the
-		// // database and the websockets
-		// go func() {
-		// 	for {
-		// 		select {
-		// 		case msg := <-textStream.Output:
-		// 			func() {
-		// 				c.activeSessionMtx.Lock()
-		// 				defer c.activeSessionMtx.Unlock()
+	// 	// // this is what will listen to the text stream and send messages to the
+	// 	// // database and the websockets
+	// 	// go func() {
+	// 	// 	for {
+	// 	// 		select {
+	// 	// 		case msg := <-textStream.Output:
+	// 	// 			func() {
+	// 	// 				c.activeSessionMtx.Lock()
+	// 	// 				defer c.activeSessionMtx.Unlock()
 
-		// 				msgs := session.Interactions.Messages
-		// 				latest := msgs[len(msgs)-1]
-		// 				latest.Message += msg
-		// 				msgs[len(msgs)-1] = latest
-		// 				session.Interactions.Messages = msgs
+	// 	// 				msgs := session.Interactions.Messages
+	// 	// 				latest := msgs[len(msgs)-1]
+	// 	// 				latest.Message += msg
+	// 	// 				msgs[len(msgs)-1] = latest
+	// 	// 				session.Interactions.Messages = msgs
 
-		// 				_, err := c.Options.Store.UpdateSession(ctx, *session)
-		// 				if err != nil {
-		// 					log.Printf("Error adding message: %s", err)
-		// 				}
+	// 	// 				_, err := c.Options.Store.UpdateSession(ctx, *session)
+	// 	// 				if err != nil {
+	// 	// 					log.Printf("Error adding message: %s", err)
+	// 	// 				}
 
-		// 				c.SessionUpdatesChan <- session
-		// 			}()
-		// 			fmt.Print("Got message from text stream: ", msg)
-		// 		}
-		// 	}
-		// }()
-	}
+	// 	// 				c.SessionUpdatesChan <- session
+	// 	// 			}()
+	// 	// 			fmt.Print("Got message from text stream: ", msg)
+	// 	// 		}
+	// 	// 	}
+	// 	// }()
+	// }
 	return nil
 }
 
