@@ -15,7 +15,7 @@ type TextStreamProcessor struct {
 type Model interface {
 	// return the number of bytes of memory this model will require
 	// this enables the runner to multiplex models onto one GPU
-	GetMemoryUsage(ctx context.Context) (uint64, error)
+	GetMemoryRequirements(ctx context.Context) (uint64, error)
 }
 
 type LanguageModel interface {

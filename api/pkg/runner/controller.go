@@ -14,6 +14,11 @@ import (
 
 type RunnerOptions struct {
 	ApiURL string
+	// how many bytes of memory does our GPU have?
+	// we report this back to the api when we ask
+	// for the global next task (well, this minus the
+	// currently running models)
+	Memory uint64
 }
 
 type Runner struct {
@@ -41,6 +46,9 @@ func NewRunner(
 	if options.ApiURL == "" {
 		return nil, fmt.Errorf("api url is required")
 	}
+	if options.Memory == 0 {
+		return nil, fmt.Errorf("memory is required")
+	}
 	runner := &Runner{
 		Ctx:                ctx,
 		Options:            options,
@@ -53,7 +61,7 @@ func NewRunner(
 }
 
 func (r *Runner) Start() error {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -70,5 +78,14 @@ func (r *Runner) Start() error {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
+	fmt.Printf("runner loop --------------------------------------\n")
 	return nil
+}
+
+// ask the master API if they have the next session for us
+// we check with the various models and filter based on the currently free memory
+// we pass that free memory back to the master API - it will filter out any tasks
+// for models that would require more memory than we have available
+func (r *Runner) getNextGlobalSession(ctx context.Context, options RunnerOptions) (*types.Session, error) {
+	return nil, nil
 }

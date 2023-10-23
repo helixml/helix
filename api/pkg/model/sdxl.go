@@ -4,19 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 type SDXL struct {
 }
 
-func (l *SDXL) GetMemoryUsage(ctx context.Context) (uint64, error) {
-	b, err := bytesize.Parse("12GB")
-	if err != nil {
-		return 0, err
-	}
-	return uint64(b), err
+func (l *SDXL) GetMemoryRequirements(ctx context.Context) uint64 {
+	return GB * 12
 }
 
 func (l *SDXL) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
