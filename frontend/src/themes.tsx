@@ -2,7 +2,7 @@ import React, { ReactElement } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
-const DEFAULT_THEME_NAME = 'lilypad'
+const DEFAULT_THEME_NAME = 'helix'
 
 export interface ITheme {
   company: string,
@@ -16,11 +16,11 @@ export interface ITheme {
 }
 
 export const THEMES: Record<string, ITheme> = {
-  lilypad: {
+  helix: {
     company: 'MLOps Consulting',
     url: 'https://mlops.consulting/',
-    primary: '#8DA4BB',
-    secondary: '#64BEA9',
+    primary: '#7db6c7',
+    secondary: '#e450bf',
     // this means ALL
     activeSections: [],
     logo: () => (
@@ -32,7 +32,7 @@ export const THEMES: Record<string, ITheme> = {
         <Box
           component="img"
           src="/img/logo.png"
-          alt="Lilypad" 
+          alt="Helix" 
           sx={{
             height: 30,
             ml: 1,
@@ -42,7 +42,7 @@ export const THEMES: Record<string, ITheme> = {
           ml: 2,
           mr: 1,
         }}>
-          DaggerGPT
+          Helix
         </Typography>
       </Box>
     ),
@@ -50,7 +50,7 @@ export const THEMES: Record<string, ITheme> = {
 }
 
 export const THEME_DOMAINS: Record<string, string> = {
-  'lilypad.tech': 'lilypad',
+  'helix.ml': 'helix',
 }
 
 
