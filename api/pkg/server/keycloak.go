@@ -11,7 +11,7 @@ import (
 )
 
 const CLIENT_ID = "api"
-const REALM = "lilypad"
+const REALM = "helix"
 
 type keycloak struct {
 	gocloak      *gocloak.GoCloak // keycloak client
