@@ -11,11 +11,11 @@ type Mistral7bInstruct01 struct {
 }
 
 func (l *Mistral7bInstruct01) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
-	if len(session.Interactions.Messages) == 0 {
+	if len(session.Interactions) == 0 {
 		return "", fmt.Errorf("session has no messages")
 	}
-	lastMessage := session.Interactions.Messages[len(session.Interactions.Messages)-1]
-	return fmt.Sprintf("[INST]%s[/INST]", lastMessage.Message), nil
+	lastInteraction := session.Interactions[len(session.Interactions)-1]
+	return fmt.Sprintf("[INST]%s[/INST]", lastInteraction.Message), nil
 }
 
 func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context) (*TextStream, error) {

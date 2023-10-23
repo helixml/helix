@@ -5,28 +5,6 @@ import (
 	"time"
 )
 
-type ModelName string
-
-const (
-	Model_None      ModelName = ""
-	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
-	Model_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-)
-
-type OwnerType string
-
-const (
-	OwnerTypeUser OwnerType = "user"
-)
-
-type PaymentType string
-
-const (
-	PaymentTypeAdmin  PaymentType = "admin"
-	PaymentTypeStripe PaymentType = "stripe"
-	PaymentTypeJob    PaymentType = "job"
-)
-
 type BalanceTransferData struct {
 	JobID           string `json:"job_id"`
 	StripePaymentID string `json:"stripe_payment_id"`
@@ -49,15 +27,11 @@ type Module struct {
 	Template string `json:"template"`
 }
 
-type UserMessage struct {
-	User     string   `json:"user"`     // e.g. User
-	Message  string   `json:"message"`  // e.g. Prove pythagoras
-	Uploads  []string `json:"uploads"`  // list of filepath paths
-	Finished bool     `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-}
-
-type Interactions struct {
-	Messages []UserMessage `json:"messages"`
+type Interaction struct {
+	Creator  CreatorType `json:"creator"`  // e.g. User
+	Message  string      `json:"message"`  // e.g. Prove pythagoras
+	Uploads  []string    `json:"uploads"`  // list of filepath paths
+	Finished bool        `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 }
 
 type Session struct {
@@ -67,10 +41,10 @@ type Session struct {
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
-	// e.g. create, finetune
-	Mode string `json:"mode"`
-	// e.g. text, images
-	Type string `json:"type"`
+	// e.g. inference, finetune
+	Mode SessionMode `json:"mode"`
+	// e.g. text, image
+	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
 	ModelName ModelName `json:"model_name"`
@@ -80,7 +54,7 @@ type Session struct {
 	FinetuneFile string `json:"finetune_file"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions Interactions `json:"interactions"`
+	Interactions []Interaction `json:"interactions"`
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
@@ -88,13 +62,15 @@ type Session struct {
 }
 
 type SessionFilter struct {
-	// e.g. create, finetune
-	Mode string `json:"mode"`
-	// e.g. text, images
-	Type string `json:"type"`
+	// e.g. inference, finetune
+	Mode SessionMode `json:"mode"`
+	// e.g. text, image
+	Type SessionType `json:"type"`
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
 	ModelName ModelName `json:"model_name"`
+	// the filestore path to the file being used for finetuning
+	FinetuneFile string `json:"finetune_file"`
 }
 
 // passed between the api server and the controller
@@ -109,39 +85,36 @@ type UserStatus struct {
 	Credits int    `json:"credits"`
 }
 
-type WebsocketEventType string
-
-const (
-	WebsocketEventSessionUpdate WebsocketEventType = "session"
-)
-
 type WebsocketEvent struct {
 	Type    WebsocketEventType `json:"type"`
 	Session *Session           `json:"session"`
 }
 
-// something a backend will run on behalf on a session
-// the backends are looping asking constantly for the
-// they will either get one of these or nothing
+// the api and runner parent controller will speak to each other
+// in terms of "sessions" - i.e. entities with full historical context
+// the running controller - when preparing a task for the python child
+// will convert the session into what we are calling a "prompt"
+// each model knows how to convert a full session in a text string that we feed into the
+// mode as a prompt (for example Mistral will wrap the last message with [INST][/INST])
+// the WorkerPrompt object has the result of this conversion and is the thing
+// the python code will pull in from the runner controller
+// the WorkerPrompt also contains the full session so that if the Python wants to do
+// something funky - it can by ignoring the top level prompt and interpreting the session
+// how it wants - most models python code will only use the top level fields however
 type WorkerTask struct {
-	SessionID string    `json:"session_id"`
-	Mode      string    `json:"mode"`
-	Type      string    `json:"type"`
-	ModelName ModelName `json:"model_name"`
-	Prompt    string    `json:"prompt"`
+	SessionID string  `json:"session_id"`
+	Session   Session `json:"session"`
+	// the string that we are calling the prompt that we will feed into the model
+	Prompt string `json:"prompt"`
+	// the path to the local files we will use for fine tuning
+	FinetuneFile string `json:"finetune_file"`
 }
 
-type WorkerTaskResponseAction string
-
-const (
-	WorkerTaskResponseAction_Begin    WorkerTaskResponseAction = "begin"
-	WorkerTaskResponseAction_Continue WorkerTaskResponseAction = "continue"
-	WorkerTaskResponseAction_End      WorkerTaskResponseAction = "end"
-)
-
 type WorkerTaskResponse struct {
-	SessionID string `json:"session_id"`
-	// this is begin, continue or end
-	Action  WorkerTaskResponseAction `json:"action"`
-	Message string                   `json:"message"`
+	SessionID string                 `json:"session_id"`
+	Type      WorkerTaskResponseType `json:"type"`
+	// this is a partial response for text streaming
+	Chunk string `json:"chunk"`
+	// this is the full response for "interaction" style messages
+	Interaction Interaction `json:"interaction"`
 }

@@ -11,10 +11,10 @@ type SDXL struct {
 }
 
 func (l *SDXL) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
-	if len(session.Interactions.Messages) == 0 {
+	if len(session.Interactions) == 0 {
 		return "", fmt.Errorf("session has no messages")
 	}
-	lastMessage := session.Interactions.Messages[len(session.Interactions.Messages)-1]
+	lastMessage := session.Interactions[len(session.Interactions)-1]
 	return lastMessage.Message, nil
 }
 
