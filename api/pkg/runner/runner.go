@@ -1,4 +1,4 @@
-package controller
+package runner
 
 import (
 	"context"
@@ -7,32 +7,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
-type ControllerOptions struct {
-	Store     store.Store
-	Filestore filestore.FileStore
-	// this is an "env" prefix like "dev"
-	// the user prefix is handled inside the controller
-	// (see getFilestorePath)
-	FilePrefixGlobal string
-	// this is a golang template that is used to prefix the user
-	// path in the filestore - it is passed Owner and OwnerType values
-	// write me an example FilePrefixUser as a go template
-	// e.g. "users/{{.Owner}}"
-	FilePrefixUser string
-	// a static path used to denote what sub-folder job results live in
-	FilePrefixResults string
+type RunnerOptions struct {
+	ApiURL string
 }
 
-type Controller struct {
+type Runner struct {
 	Ctx                context.Context
-	Options            ControllerOptions
+	Options            RunnerOptions
 	SessionUpdatesChan chan *types.Session
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
@@ -48,17 +34,14 @@ type Controller struct {
 	activeTextStreamsMtx sync.Mutex
 }
 
-func NewController(
+func NewRunner(
 	ctx context.Context,
-	options ControllerOptions,
-) (*Controller, error) {
-	if options.Store == nil {
-		return nil, fmt.Errorf("store is required")
+	options RunnerOptions,
+) (*Runner, error) {
+	if options.ApiURL == "" {
+		return nil, fmt.Errorf("api url is required")
 	}
-	if options.Filestore == nil {
-		return nil, fmt.Errorf("filestore is required")
-	}
-	controller := &Controller{
+	runner := &Runner{
 		Ctx:                ctx,
 		Options:            options,
 		SessionUpdatesChan: make(chan *types.Session),
@@ -66,22 +49,18 @@ func NewController(
 		activeTextStreams:  map[string]*model.TextStream{},
 		sessionQueue:       []*types.Session{},
 	}
-	return controller, nil
+	return runner, nil
 }
 
-func (c *Controller) Start() error {
-	err := c.loadSessionQueues(c.Ctx)
-	if err != nil {
-		return err
-	}
+func (r *Runner) Start() error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-c.Ctx.Done():
+		case <-r.Ctx.Done():
 			return nil
 		case <-ticker.C:
-			err := c.loop(c.Ctx)
+			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
 				debug.PrintStack()
@@ -90,6 +69,6 @@ func (c *Controller) Start() error {
 	}
 }
 
-func (c *Controller) loop(ctx context.Context) error {
+func (r *Runner) loop(ctx context.Context) error {
 	return nil
 }

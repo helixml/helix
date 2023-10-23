@@ -18,15 +18,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type AllOptions struct {
+type ServeOptions struct {
 	ControllerOptions controller.ControllerOptions
 	FilestoreOptions  filestore.FileStoreOptions
 	StoreOptions      store.StoreOptions
 	ServerOptions     server.ServerOptions
 }
 
-func NewAllOptions() *AllOptions {
-	return &AllOptions{
+func NewServeOptions() *ServeOptions {
+	return &ServeOptions{
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
@@ -58,7 +58,7 @@ func NewAllOptions() *AllOptions {
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions := NewAllOptions()
+	allOptions := NewServeOptions()
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
@@ -163,7 +163,7 @@ func newServeCmd() *cobra.Command {
 	return serveCmd
 }
 
-func getFilestore(ctx context.Context, options *AllOptions) (filestore.FileStore, error) {
+func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileStore, error) {
 	var store filestore.FileStore
 	if options.ServerOptions.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -225,7 +225,7 @@ func getFilestore(ctx context.Context, options *AllOptions) (filestore.FileStore
 	return store, nil
 }
 
-func serve(cmd *cobra.Command, options *AllOptions) error {
+func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
