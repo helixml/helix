@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"os/exec"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -34,8 +35,8 @@ func (l *SDXL) GetTextStream(ctx context.Context) (*TextStream, error) {
 	return nil, nil
 }
 
-func (l *SDXL) RunProcess(mode types.SessionMode) error {
-	return nil
+func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error) {
+	return nil, nil
 }
 
 // Compile-time interface check:
