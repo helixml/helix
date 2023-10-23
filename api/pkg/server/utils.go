@@ -45,7 +45,7 @@ type httpWrapper[T any] func(res http.ResponseWriter, req *http.Request) (T, err
 
 // wrap a http handler with some error handling
 // so if it returns an error we handle it
-func wrapper[T any](handler httpWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
+func Wrapper[T any](handler httpWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
 	ret := func(res http.ResponseWriter, req *http.Request) {
 		data, err := handler(res, req)
 		if err != nil {

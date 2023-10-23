@@ -76,16 +76,16 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
-	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
-	authRouter.HandleFunc("/transactions", wrapper(apiServer.getTransactions)).Methods("GET")
+	authRouter.HandleFunc("/status", Wrapper(apiServer.status)).Methods("GET")
+	authRouter.HandleFunc("/transactions", Wrapper(apiServer.getTransactions)).Methods("GET")
 
-	authRouter.HandleFunc("/filestore/config", wrapper(apiServer.filestoreConfig)).Methods("GET")
-	authRouter.HandleFunc("/filestore/list", wrapper(apiServer.filestoreList)).Methods("GET")
-	authRouter.HandleFunc("/filestore/get", wrapper(apiServer.filestoreGet)).Methods("GET")
-	authRouter.HandleFunc("/filestore/folder", wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
-	authRouter.HandleFunc("/filestore/upload", wrapper(apiServer.filestoreUpload)).Methods("POST")
-	authRouter.HandleFunc("/filestore/rename", wrapper(apiServer.filestoreRename)).Methods("PUT")
-	authRouter.HandleFunc("/filestore/delete", wrapper(apiServer.filestoreDelete)).Methods("DELETE")
+	authRouter.HandleFunc("/filestore/config", Wrapper(apiServer.filestoreConfig)).Methods("GET")
+	authRouter.HandleFunc("/filestore/list", Wrapper(apiServer.filestoreList)).Methods("GET")
+	authRouter.HandleFunc("/filestore/get", Wrapper(apiServer.filestoreGet)).Methods("GET")
+	authRouter.HandleFunc("/filestore/folder", Wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
+	authRouter.HandleFunc("/filestore/upload", Wrapper(apiServer.filestoreUpload)).Methods("POST")
+	authRouter.HandleFunc("/filestore/rename", Wrapper(apiServer.filestoreRename)).Methods("PUT")
+	authRouter.HandleFunc("/filestore/delete", Wrapper(apiServer.filestoreDelete)).Methods("DELETE")
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
@@ -94,17 +94,17 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		})))
 	}
 
-	authRouter.HandleFunc("/sessions", wrapper(apiServer.getSessions)).Methods("GET")
-	authRouter.HandleFunc("/sessions", wrapper(apiServer.createSession)).Methods("POST")
-	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.getSession)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.updateSession)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.deleteSession)).Methods("DELETE")
+	authRouter.HandleFunc("/sessions", Wrapper(apiServer.getSessions)).Methods("GET")
+	authRouter.HandleFunc("/sessions", Wrapper(apiServer.createSession)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.getSession)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.updateSession)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
 	// TODO: this has no auth right now
 	// we need to add JWTs to the urls we are using to connect models to the worker
 	// the task filters (mode, type and modelName) are all given as query params
-	subrouter.HandleFunc("/worker/task", wrapper(apiServer.getWorkerTask)).Methods("GET")
-	subrouter.HandleFunc("/worker/response", wrapper(apiServer.respondWorkerTask)).Methods("POST")
+	subrouter.HandleFunc("/worker/task", Wrapper(apiServer.getWorkerTask)).Methods("GET")
+	subrouter.HandleFunc("/worker/response", Wrapper(apiServer.respondWorkerTask)).Methods("POST")
 
 	StartWebSocketServer(
 		ctx,

@@ -16,12 +16,8 @@ import (
 )
 
 type RunnerOptions struct {
-	ApiURL   string
+	ApiHost  string
 	ApiToken string
-	// we run a http server for children processes
-	// to pull their next tasks fromm
-	// what port does that server run on?
-	ServerPort int
 	// how many bytes of memory does our GPU have?
 	// we report this back to the api when we ask
 	// for the global next task (well, this minus the
@@ -53,7 +49,7 @@ func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
 ) (*Runner, error) {
-	if options.ApiURL == "" {
+	if options.ApiHost == "" {
 		return nil, fmt.Errorf("api url is required")
 	}
 	if options.ApiToken == "" {
@@ -78,7 +74,7 @@ func NewRunner(
 		Options:                 options,
 		lowestMemoryRequirement: lowestMemoryRequirement,
 		httpClientOptions: server.ClientOptions{
-			Host:  options.ApiURL,
+			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
 	}
