@@ -105,11 +105,21 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	sessionMode, err := types.ValidateSessionMode(req.FormValue("mode"), false)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionType, err := types.ValidateSessionType(req.FormValue("type"), false)
+	if err != nil {
+		return nil, err
+	}
+
 	session := types.Session{
 		ID:   system.GenerateUUID(),
 		Name: system.GenerateAmusingName(),
-		Type: req.FormValue("type"),
-		Mode: req.FormValue("mode"),
+		Type: sessionType,
+		Mode: sessionMode,
 	}
 
 	modelName, err := model.GetModelNameForSession(reqContext.Ctx, &session)
@@ -142,13 +152,13 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	// so far it's a chat with one message and some uploads
-	session.Interactions = types.Interactions{
-		Messages: []types.UserMessage{{
-			User:     "user",
+	session.Interactions = []types.Interaction{
+		{
+			Creator:  types.CreatorTypeUser,
 			Message:  req.FormValue("input"),
 			Uploads:  paths,
 			Finished: true,
-		}},
+		},
 	}
 
 	// create session in database
@@ -222,12 +232,27 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 
 func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 
+	sessionMode, err := types.ValidateSessionMode(req.URL.Query().Get("mode"), true)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionType, err := types.ValidateSessionType(req.URL.Query().Get("type"), true)
+	if err != nil {
+		return nil, err
+	}
+
+	modelName, err := types.ValidateModelName(req.URL.Query().Get("model_name"), true)
+	if err != nil {
+		return nil, err
+	}
+
 	// alow the worker to filter what tasks it wants
 	// if any of these values are defined then we will only consider those in the response
 	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), types.SessionFilter{
-		Mode:      req.URL.Query().Get("mode"),
-		Type:      req.URL.Query().Get("type"),
-		ModelName: types.ModelName(req.URL.Query().Get("model_name")),
+		Mode:      sessionMode,
+		Type:      sessionType,
+		ModelName: modelName,
 	})
 	if err != nil {
 		return nil, err

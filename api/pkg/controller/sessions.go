@@ -5,7 +5,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/model"
@@ -50,9 +49,7 @@ func (c *Controller) ConvertSessionToTask(ctx context.Context, session *types.Se
 
 	task := &types.WorkerTask{
 		SessionID: session.ID,
-		Mode:      session.Mode,
-		Type:      session.Type,
-		ModelName: session.ModelName,
+		Session:   *session,
 	}
 
 	switch {
@@ -136,33 +133,33 @@ func (c *Controller) AddActiveSession(ctx context.Context, session *types.Sessio
 
 		go textStream.Start(ctx)
 
-		// this is what will listen to the text stream and send messages to the
-		// database and the websockets
-		go func() {
-			for {
-				select {
-				case msg := <-textStream.Output:
-					func() {
-						c.activeSessionMtx.Lock()
-						defer c.activeSessionMtx.Unlock()
+		// // this is what will listen to the text stream and send messages to the
+		// // database and the websockets
+		// go func() {
+		// 	for {
+		// 		select {
+		// 		case msg := <-textStream.Output:
+		// 			func() {
+		// 				c.activeSessionMtx.Lock()
+		// 				defer c.activeSessionMtx.Unlock()
 
-						msgs := session.Interactions.Messages
-						latest := msgs[len(msgs)-1]
-						latest.Message += msg
-						msgs[len(msgs)-1] = latest
-						session.Interactions.Messages = msgs
+		// 				msgs := session.Interactions.Messages
+		// 				latest := msgs[len(msgs)-1]
+		// 				latest.Message += msg
+		// 				msgs[len(msgs)-1] = latest
+		// 				session.Interactions.Messages = msgs
 
-						_, err := c.Options.Store.UpdateSession(ctx, *session)
-						if err != nil {
-							log.Printf("Error adding message: %s", err)
-						}
+		// 				_, err := c.Options.Store.UpdateSession(ctx, *session)
+		// 				if err != nil {
+		// 					log.Printf("Error adding message: %s", err)
+		// 				}
 
-						c.SessionUpdatesChan <- session
-					}()
-					fmt.Print("Got message from text stream: ", msg)
-				}
-			}
-		}()
+		// 				c.SessionUpdatesChan <- session
+		// 			}()
+		// 			fmt.Print("Got message from text stream: ", msg)
+		// 		}
+		// 	}
+		// }()
 	}
 	return nil
 }
@@ -231,43 +228,44 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 }
 
 func (c *Controller) handleWorkerResponseLanguageInference(ctx context.Context, taskResponse *types.WorkerTaskResponse, session *types.Session) (*types.WorkerTaskResponse, error) {
-	if taskResponse.Action == types.WorkerTaskResponseAction_Begin {
-		session.Interactions.Messages = append(session.Interactions.Messages, types.UserMessage{
-			User:     "system",
-			Message:  taskResponse.Message,
-			Uploads:  []string{}, // cool, computer can create images here
-			Finished: false,
-		})
-		_, err := c.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
-			return nil, err
-		}
-		c.SessionUpdatesChan <- session
-		return taskResponse, nil
-	} else if taskResponse.Action == types.WorkerTaskResponseAction_Continue {
-		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		textStream.Write([]byte(taskResponse.Message))
-		return taskResponse, nil
-	} else if taskResponse.Action == types.WorkerTaskResponseAction_End {
-		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		err = textStream.Close(ctx)
-		if err != nil {
-			return nil, err
-		}
-		err = c.RemoveActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		return taskResponse, nil
-	} else {
-		return nil, nil
-	}
+	// if taskResponse.Action == types.WorkerTaskResponseActionStreamOpen {
+	// 	session.Interactions = append(session.Interactions, types.Interaction{
+	// 		Creator:  types.MessageCreatorSystem,
+	// 		Message:  taskResponse.Chunk,
+	// 		Uploads:  []string{}, // cool, computer can create images here
+	// 		Finished: false,
+	// 	})
+	// 	_, err := c.Options.Store.UpdateSession(ctx, *session)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	c.SessionUpdatesChan <- session
+	// 	return taskResponse, nil
+	// } else if taskResponse.Action == types.WorkerTaskResponseActionStreamContinue {
+	// 	textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	textStream.Write([]byte(taskResponse.Message))
+	// 	return taskResponse, nil
+	// } else if taskResponse.Action == types.WorkerTaskResponseActionEnd {
+	// 	textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	err = textStream.Close(ctx)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	err = c.RemoveActiveTextStream(ctx, taskResponse.SessionID)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	return taskResponse, nil
+	// } else {
+	// 	return nil, nil
+	// }
+	return nil, nil
 }
 
 func (c *Controller) handleWorkerResponseImageInference(ctx context.Context, taskResponse *types.WorkerTaskResponse, session *types.Session) (*types.WorkerTaskResponse, error) {
@@ -294,15 +292,15 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	for i := len(sessions) - 1; i >= 0; i-- {
 		session := sessions[i]
 
-		msgs := session.Interactions.Messages
-		if len(msgs) == 0 {
+		interactions := session.Interactions
+		if interactions == nil || len(interactions) == 0 {
 			// should never happen, sessions are always initiated by the user
 			// creating an initial message
 			continue
 		}
 
-		latest := msgs[len(msgs)-1]
-		if latest.User == "system" {
+		latest := interactions[len(interactions)-1]
+		if latest.Creator == types.CreatorTypeSystem {
 			// we've already given a response, don't need to do anything
 			continue
 		}
