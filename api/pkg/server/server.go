@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/controller"
-	"github.com/bacalhau-project/lilysaas/api/pkg/store"
-	"github.com/bacalhau-project/lilysaas/api/pkg/system"
 	"github.com/gorilla/mux"
+	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
 )
 
 type ServerOptions struct {
@@ -22,12 +22,12 @@ type ServerOptions struct {
 	// and we need to add a route to view files based on their path
 	// we are assuming all file storage is open right now
 	// so we just deep link to the object path and don't apply auth
-	// (this is so lilypad nodes can see files)
+	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
 }
 
-type LilysaasAPIServer struct {
+type HelixAPIServer struct {
 	Options    ServerOptions
 	Store      store.Store
 	Controller *controller.Controller
@@ -37,7 +37,7 @@ func NewServer(
 	options ServerOptions,
 	store store.Store,
 	controller *controller.Controller,
-) (*LilysaasAPIServer, error) {
+) (*HelixAPIServer, error) {
 	if options.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
@@ -54,14 +54,14 @@ func NewServer(
 		return nil, fmt.Errorf("keycloak token is required")
 	}
 
-	return &LilysaasAPIServer{
+	return &HelixAPIServer{
 		Options:    options,
 		Store:      store,
 		Controller: controller,
 	}, nil
 }
 
-func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
+func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 	router.Use(apiServer.corsMiddleware)
 
@@ -76,13 +76,8 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
-	subrouter.HandleFunc("/modules", wrapper(apiServer.getModules)).Methods("GET")
-
 	authRouter.HandleFunc("/status", wrapper(apiServer.status)).Methods("GET")
-	authRouter.HandleFunc("/jobs", wrapper(apiServer.getJobs)).Methods("GET")
 	authRouter.HandleFunc("/transactions", wrapper(apiServer.getTransactions)).Methods("GET")
-
-	authRouter.HandleFunc("/jobs", wrapper(apiServer.createJob)).Methods("POST")
 
 	authRouter.HandleFunc("/filestore/config", wrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", wrapper(apiServer.filestoreList)).Methods("GET")
@@ -105,11 +100,16 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", wrapper(apiServer.deleteSession)).Methods("DELETE")
 
+	// TODO: this has no auth right now
+	// we need to add JWTs to the urls we are using to connect models to the worker
+	// the task filters (mode, type and modelName) are all given as query params
+	subrouter.HandleFunc("/worker/task", wrapper(apiServer.getWorkerTask)).Methods("GET")
+	subrouter.HandleFunc("/worker/response", wrapper(apiServer.respondWorkerTask)).Methods("POST")
+
 	StartWebSocketServer(
 		ctx,
 		subrouter,
 		"/ws",
-		apiServer.Controller.JobUpdatesChan,
 		apiServer.Controller.SessionUpdatesChan,
 		keyCloakMiddleware.userIDFromRequest,
 	)

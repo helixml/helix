@@ -3,35 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export RUN_LILYPAD=${RUN_LILYPAD:-""}
-export LILYPAD_DIR=${LILYPAD_DIR:-"$DIR/../lilypad"}
-export TMUX_SESSION=${TMUX_SESSION:="lilysaas"}
-
-function check-for-lilypad() {
-  if [ ! -d "$LILYPAD_DIR" ]; then
-    echo "Lilypad directory not found at $LILYPAD_DIR"
-    exit 1
-  fi
-}
-
-function lilypad-stack() {
-  check-for-lilypad
-  (
-    set -euo pipefail
-    cd $LILYPAD_DIR
-    ./stack "$@"
-  )
-}
-
-function generate-golang-bindings() {
-  check-for-lilypad
-  (
-    set -euo pipefail
-    cd $LILYPAD_DIR
-    ./stack generate-golang-bindings contract "$DIR/api/pkg/contract"
-  )
-  echo "Generated Go bindings"
-}
+export TMUX_SESSION=${TMUX_SESSION:="helix"}
 
 function psql() {
   docker-compose exec postgres psql --user postgres "$@"
@@ -47,11 +19,6 @@ function start() {
   
   export MANUALRUN=1
   export LOG_LEVEL=debug
-
-  if [[ -n "$RUN_LILYPAD" ]]; then
-    echo "Starting lilypad"
-    lilypad-stack boot
-  fi
 
   echo "Starting docker-compose"
   docker-compose up -d
@@ -75,22 +42,6 @@ function start() {
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
   tmux send-keys -t 2 './stack psql'
-
-  if [[ -n "$RUN_LILYPAD" ]]; then
-    tmux select-pane -t 3
-    tmux split-window -h -d
-    tmux select-pane -t 4
-    tmux split-window -v -d
-    tmux select-pane -t 4
-    tmux split-window -v -d
-    tmux select-pane -t 6
-    tmux split-window -v -d
-
-    tmux send-keys -t 3 './stack lilypad-stack bacalhau-serve' C-m
-    tmux send-keys -t 4 './stack lilypad-stack solver --server-url http://172.17.0.1:8080' C-m
-    tmux send-keys -t 5 'sleep 10 && ./stack lilypad-stack mediator' C-m
-    tmux send-keys -t 6 'sleep 10 && ./stack lilypad-stack resource-provider' C-m
-  fi
 
   tmux -2 attach-session -t $TMUX_SESSION
 }

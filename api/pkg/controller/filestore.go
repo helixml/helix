@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
-	"github.com/bacalhau-project/lilysaas/api/pkg/types"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 type userPathTemplateData struct {

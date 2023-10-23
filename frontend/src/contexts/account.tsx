@@ -11,13 +11,11 @@ import router from '../router'
 
 import {
   IUser,
-  IJob,
-  IModule,
   IBalanceTransfer,
   ISession,
 } from '../types'
 
-const REALM = 'lilypad'
+const REALM = 'helix'
 const KEYCLOAK_URL = '/auth/'
 const CLIENT_ID = 'frontend'
 
@@ -25,8 +23,6 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   user?: IUser,
-  jobs: IJob[],
-  modules: IModule[],
   transactions: IBalanceTransfer[],
   sessions: ISession[],
   loadSessions: () => void,
@@ -37,8 +33,6 @@ export interface IAccountContext {
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
-  jobs: [],
-  modules: [],
   sessions: [],
   transactions: [],
   loadSessions: () => {},
@@ -55,9 +49,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
-  const [ jobs, setJobs ] = useState<IJob[]>([])
   const [ sessions, setSessions ] = useState<ISession[]>([])
-  const [ modules, setModules ] = useState<IModule[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -67,18 +59,6 @@ export const useAccountContext = (): IAccountContext => {
     })
   }, [])
 
-  const loadModules = useCallback(async () => {
-    const result = await api.get<IModule[]>('/api/v1/modules')
-    if(!result) return
-    setModules(result)
-  }, [])
-
-  const loadJobs = useCallback(async () => {
-    const result = await api.get<IJob[]>('/api/v1/jobs')
-    if(!result) return
-    setJobs(result)
-  }, [])
-  
   const loadSessions = useCallback(async () => {
     const result = await api.get<ISession[]>('/api/v1/sessions')
     if(!result) return
@@ -99,15 +79,11 @@ export const useAccountContext = (): IAccountContext => {
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
-      loadModules(),
-      loadJobs(),
       loadSessions(),
       loadTransactions(),
       loadStatus(),
     ])
   }, [
-    loadModules,
-    loadJobs,
     loadTransactions,
     loadStatus,
   ])
@@ -186,14 +162,6 @@ export const useAccountContext = (): IAccountContext => {
       const parsedData = JSON.parse(event.data)
       console.dir(parsedData)
 
-      // we have a job update message
-      if(parsedData.type === 'job' && parsedData.job) {
-        const newJob: IJob = parsedData.job
-        setJobs(jobs => jobs.map(existingJob => {
-          if(existingJob.id === newJob.id) return newJob
-          return existingJob
-        }))
-      }
       // we have a session update message
       if(parsedData.type === 'session' && parsedData.session) {
         console.log("got new session from backend over websocket!")
@@ -213,9 +181,7 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     credits,
-    jobs,
     sessions,
-    modules,
     transactions,
     loadSessions,
     onLogin,
@@ -224,9 +190,7 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     credits,
-    jobs,
     sessions,
-    modules,
     transactions,
     loadSessions,
     onLogin,
