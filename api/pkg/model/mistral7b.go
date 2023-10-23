@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"os/exec"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -38,8 +39,8 @@ func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context) (*TextStream, e
 	), nil
 }
 
-func (l *Mistral7bInstruct01) RunProcess(mode types.SessionMode) error {
-	return nil
+func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error) {
+	return nil, nil
 }
 
 // Compile-time interface check:

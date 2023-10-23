@@ -41,7 +41,7 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
 	// pull the next task for an already running wrapper
-	subrouter.HandleFunc("/worker/task", server.Wrapper(runnerServer.getWorkerTask)).Methods("GET")
+	subrouter.HandleFunc("/worker/task/:instanceid", server.Wrapper(runnerServer.getWorkerTask)).Methods("GET")
 
 	// post a response for an already running wrapper
 	subrouter.HandleFunc("/worker/response", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
@@ -57,7 +57,17 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 	return srv.ListenAndServe()
 }
 
+// get the next task for a running instance
+// we look at the instance by ID and check if it has a nextSession
+// if it does then we assign that as the current session
+// if it does not - then we need to reach out to the master API to get one
 func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+	vars := mux.Vars(req)
+	instanceID := vars["instanceid"]
+	_, err := runnerServer.Controller.getNextInstanceSession(req.Context(), instanceID)
+	if err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
