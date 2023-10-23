@@ -11,13 +11,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewRunnerOptions() *runner.RunnerOptions {
-	return &runner.RunnerOptions{
-		ApiURL:       getDefaultServeOptionString("API_URL", ""),
-		ApiToken:     getDefaultServeOptionString("API_URL", ""),
-		ServerPort:   getDefaultServeOptionInt("API_URL", 8080),
-		MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
-		MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
+type RunnerOptions struct {
+	Runner runner.RunnerOptions
+	Server runner.RunnerServerOptions
+}
+
+func NewRunnerOptions() *RunnerOptions {
+	return &RunnerOptions{
+		Runner: runner.RunnerOptions{
+			ApiHost:      getDefaultServeOptionString("API_HOST", ""),
+			ApiToken:     getDefaultServeOptionString("API_URL", ""),
+			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
+			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
+		},
+		Server: runner.RunnerServerOptions{
+			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
+		},
 	}
 }
 
@@ -35,14 +45,38 @@ func newRunnerCmd() *cobra.Command {
 	}
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.ApiURL, "api-url", allOptions.ApiURL,
-		`The base URL of the api - should end with /api/v1`,
+		&allOptions.Runner.ApiHost, "api-host", allOptions.Runner.ApiHost,
+		`The base URL of the api - e.g. http://1.2.3.4:8080`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.ApiToken, "api-token", allOptions.Runner.ApiToken,
+		`The auth token for this runner`,
+	)
+
+	runnerCmd.PersistentFlags().Uint64Var(
+		&allOptions.Runner.MemoryBytes, "memory-bytes", allOptions.Runner.MemoryBytes,
+		`The number of bytes of GPU memory available - e.g. 1073741824`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.MemoryString, "memory", allOptions.Runner.MemoryString,
+		`Short notation for the amount of GPU memory available - e.g. 1GB`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Server.Host, "server-host", allOptions.Server.Host,
+		`The host to bind the runner server to.`,
+	)
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
+		`The port to bind the runner server to.`,
 	)
 
 	return runnerCmd
 }
 
-func runnerCLI(cmd *cobra.Command, options *runner.RunnerOptions) error {
+func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
@@ -56,7 +90,7 @@ func runnerCLI(cmd *cobra.Command, options *runner.RunnerOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	runnerController, err := runner.NewRunner(ctx, *options)
+	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
 		return err
 	}
@@ -64,6 +98,20 @@ func runnerCLI(cmd *cobra.Command, options *runner.RunnerOptions) error {
 	if err := runnerController.Start(); err != nil {
 		return err
 	}
+
+	server, err := runner.NewRunnerServer(options.Server, runnerController)
+	if err != nil {
+		return err
+	}
+
+	log.Info().Msgf("Helix runner listening on %s:%d", options.Server.Host, options.Server.Port)
+
+	go func() {
+		err := server.ListenAndServe(ctx, cm)
+		if err != nil {
+			panic(err)
+		}
+	}()
 
 	<-ctx.Done()
 	return nil
