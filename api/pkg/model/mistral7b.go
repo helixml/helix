@@ -4,10 +4,19 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 type Mistral7bInstruct01 struct {
+}
+
+func (l *Mistral7bInstruct01) GetMemoryUsage(ctx context.Context) (uint64, error) {
+	b, err := bytesize.Parse("12GB")
+	if err != nil {
+		return 0, err
+	}
+	return uint64(b), err
 }
 
 func (l *Mistral7bInstruct01) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
@@ -28,3 +37,4 @@ func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context) (*TextStream, e
 
 // Compile-time interface check:
 var _ LanguageModel = (*Mistral7bInstruct01)(nil)
+var _ Model = (*Mistral7bInstruct01)(nil)

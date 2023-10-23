@@ -12,6 +12,12 @@ type TextStreamProcessor struct {
 	Output chan string
 }
 
+type Model interface {
+	// return the number of bytes of memory this model will require
+	// this enables the runner to multiplex models onto one GPU
+	GetMemoryUsage(ctx context.Context) (uint64, error)
+}
+
 type LanguageModel interface {
 	// return the prompt we send into a model given the current session
 	GetPrompt(ctx context.Context, session *types.Session) (string, error)
