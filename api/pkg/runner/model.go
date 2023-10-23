@@ -21,6 +21,12 @@ type ModelWrapper struct {
 	modelName types.ModelName
 	mode      types.SessionMode
 	model     model.Model
+
+	// the session currently running on this model
+	currentSession *types.Session
+
+	// the next session that will be run on this model
+	nextSession *types.Session
 }
 
 func NewModelWrapper(

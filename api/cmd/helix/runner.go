@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog"
@@ -12,15 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type RunnerOptions struct {
-	ApiURL string
-	Memory string
-}
-
-func NewRunnerOptions() *RunnerOptions {
-	return &RunnerOptions{
-		ApiURL: getDefaultServeOptionString("API_URL", ""),
-		Memory: getDefaultServeOptionString("MEMORY", ""),
+func NewRunnerOptions() *runner.RunnerOptions {
+	return &runner.RunnerOptions{
+		ApiURL:       getDefaultServeOptionString("API_URL", ""),
+		ApiToken:     getDefaultServeOptionString("API_URL", ""),
+		ServerPort:   getDefaultServeOptionInt("API_URL", 8080),
+		MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
+		MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
 	}
 }
 
@@ -33,18 +30,7 @@ func newRunnerCmd() *cobra.Command {
 		Long:    "Start a helix runner.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if allOptions.Memory == "" {
-				return cmd.Help()
-			}
-			bytes, err := bytesize.Parse(allOptions.Memory)
-			if err != nil {
-				return err
-			}
-			convertedOptions := &runner.RunnerOptions{
-				ApiURL: allOptions.ApiURL,
-				Memory: uint64(bytes),
-			}
-			return runnerCLI(cmd, convertedOptions)
+			return runnerCLI(cmd, allOptions)
 		},
 	}
 
