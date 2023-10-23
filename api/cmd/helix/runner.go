@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog"
@@ -11,9 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewRunnerOptions() *runner.RunnerOptions {
-	return &runner.RunnerOptions{
+type RunnerOptions struct {
+	ApiURL string
+	Memory string
+}
+
+func NewRunnerOptions() *RunnerOptions {
+	return &RunnerOptions{
 		ApiURL: getDefaultServeOptionString("API_URL", ""),
+		Memory: getDefaultServeOptionString("MEMORY", ""),
 	}
 }
 
@@ -26,7 +33,18 @@ func newRunnerCmd() *cobra.Command {
 		Long:    "Start a helix runner.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runnerCLI(cmd, allOptions)
+			if allOptions.Memory == "" {
+				return cmd.Help()
+			}
+			bytes, err := bytesize.Parse(allOptions.Memory)
+			if err != nil {
+				return err
+			}
+			convertedOptions := &runner.RunnerOptions{
+				ApiURL: allOptions.ApiURL,
+				Memory: uint64(bytes),
+			}
+			return runnerCLI(cmd, convertedOptions)
 		},
 	}
 
@@ -51,6 +69,15 @@ func runnerCLI(cmd *cobra.Command, options *runner.RunnerOptions) error {
 	// Context ensures main goroutine waits until killed with ctrl+c:
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
+
+	runnerController, err := runner.NewRunner(ctx, *options)
+	if err != nil {
+		return err
+	}
+
+	if err := runnerController.Start(); err != nil {
+		return err
+	}
 
 	<-ctx.Done()
 	return nil
