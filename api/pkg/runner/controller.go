@@ -22,21 +22,26 @@ type RunnerOptions struct {
 }
 
 type Runner struct {
-	Ctx                context.Context
-	Options            RunnerOptions
-	SessionUpdatesChan chan *types.Session
-	// the backlog of sessions that need a GPU
-	sessionQueue    []*types.Session
-	sessionQueueMtx sync.Mutex
-	// the map of active sessions that are currently running on a GPU
-	activeSessions   map[string]*types.Session
-	activeSessionMtx sync.Mutex
+	Ctx     context.Context
+	Options RunnerOptions
 
-	// the map of text streams attached to a session
-	// not all sessions will have an active text stream
-	// it depends what type the session is
-	activeTextStreams    map[string]*model.TextStream
-	activeTextStreamsMtx sync.Mutex
+	modelMutex sync.Mutex
+	// the map of models that we have loaded
+	activeModels map[string]model.Model
+
+	// SessionUpdatesChan chan *types.Session
+	// // the backlog of sessions that need a GPU
+	// sessionQueue    []*types.Session
+	// sessionQueueMtx sync.Mutex
+	// // the map of active sessions that are currently running on a GPU
+	// activeSessions   map[string]*types.Session
+	// activeSessionMtx sync.Mutex
+
+	// // the map of text streams attached to a session
+	// // not all sessions will have an active text stream
+	// // it depends what type the session is
+	// activeTextStreams    map[string]*model.TextStream
+	// activeTextStreamsMtx sync.Mutex
 }
 
 func NewRunner(
@@ -50,12 +55,8 @@ func NewRunner(
 		return nil, fmt.Errorf("memory is required")
 	}
 	runner := &Runner{
-		Ctx:                ctx,
-		Options:            options,
-		SessionUpdatesChan: make(chan *types.Session),
-		activeSessions:     map[string]*types.Session{},
-		activeTextStreams:  map[string]*model.TextStream{},
-		sessionQueue:       []*types.Session{},
+		Ctx:     ctx,
+		Options: options,
 	}
 	return runner, nil
 }
@@ -86,6 +87,20 @@ func (r *Runner) loop(ctx context.Context) error {
 // we check with the various models and filter based on the currently free memory
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
-func (r *Runner) getNextGlobalSession(ctx context.Context, options RunnerOptions) (*types.Session, error) {
+func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
 	return nil, nil
 }
+
+// func (r *Runner) getUsedMemory() uint64 {
+// 	r.modelMutex.Lock()
+// 	defer r.modelMutex.Unlock()
+// 	memoryUsed := uint64(0)
+// 	for _, model := range r.activeModels {
+// 		memoryUsed += model.GetMemoryRequirements()
+// 	}
+// 	return memoryUsed
+// }
+
+// func (r *Runner) getFreeMemory() uint64 {
+// 	return r.Options.Memory - r.getUsedMemory()
+// }
