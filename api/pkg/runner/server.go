@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -44,7 +45,7 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 	subrouter.HandleFunc("/worker/task/:instanceid", server.Wrapper(runnerServer.getWorkerTask)).Methods("GET")
 
 	// post a response for an already running wrapper
-	subrouter.HandleFunc("/worker/response", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
+	subrouter.HandleFunc("/worker/response/:instanceid", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", runnerServer.Options.Host, runnerServer.Options.Port),
@@ -63,14 +64,19 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 // if it does not - then we need to reach out to the master API to get one
 func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 	vars := mux.Vars(req)
-	instanceID := vars["instanceid"]
-	_, err := runnerServer.Controller.getInstanceNextSession(req.Context(), instanceID)
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
+	return runnerServer.Controller.getNextTask(req.Context(), vars["instanceid"])
 }
 
 func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
-	return nil, nil
+	vars := mux.Vars(req)
+	taskResponse := &types.WorkerTaskResponse{}
+	err := json.NewDecoder(req.Body).Decode(taskResponse)
+	if err != nil {
+		return nil, err
+	}
+	taskResponse, err = runnerServer.Controller.handleTaskResponse(req.Context(), vars["instanceid"], taskResponse)
+	if err != nil {
+		return nil, err
+	}
+	return taskResponse, nil
 }

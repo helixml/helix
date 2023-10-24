@@ -133,12 +133,11 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	for _, activeModelInstance := range r.activeModelInstances {
 		if activeModelInstance.lastJobCompletedTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
 			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
-			err := activeModelInstance.stop()
+			err := activeModelInstance.stopProcess()
 			if err != nil {
 				log.Error().Msgf("error stopping model instance %s: %s", activeModelInstance.id, err.Error())
 				continue
 			}
-			delete(r.activeModelInstances, activeModelInstance.id)
 		}
 	}
 	return nil
@@ -156,12 +155,41 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	defer r.modelMutex.Unlock()
 	log.Info().Msgf("Add global session %s", session.ID)
 	spew.Dump(session)
-	model, err := NewModelInstance(ctx, session.ModelName, session.Mode)
-	model.nextSession = session
+	model, err := NewModelInstance(ctx, session.ModelName, session.Mode, func(res *types.WorkerTaskResponse) error {
+
+		// this function will write any task responses back to the api server for it to process
+		// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
+		// and both of these will have an interaction ID and the full, latest copy of the text
+		// the job of the api server is to ensure the existence of the instance (create or update)
+		// and replace it's message property - this is the text streaming case
+		// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
+		// and the api server is just appending to the session
+		res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+			r.httpClientOptions,
+			"/worker/response",
+			res,
+		)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	model.initialSession = session
+	if err != nil {
+		return err
+	}
+	err = model.startProcess()
 	if err != nil {
 		return err
 	}
 	r.activeModelInstances[model.id] = model
+	go func() {
+		<-model.finishChan
+		r.modelMutex.Lock()
+		defer r.modelMutex.Unlock()
+		log.Info().Msgf("Remove global session %s", session.ID)
+		delete(r.activeModelInstances, model.id)
+	}()
 	return nil
 }
 
@@ -198,7 +226,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 
 	buffer, err := server.GetRequestBufferWithQuery(
 		r.httpClientOptions,
-		"/worker/task",
+		"/worker/nextsession",
 		params,
 	)
 
@@ -236,9 +264,7 @@ func (r *Runner) getFreeMemory() uint64 {
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) getInstanceNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
+func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -247,26 +273,84 @@ func (r *Runner) getInstanceNextSession(ctx context.Context, instanceID string) 
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
 
+	var session *types.Session
+	var err error
+
 	// we've already got a session lined up
-	if modelInstance.nextSession != nil {
-		modelInstance.currentSession = modelInstance.nextSession
-		modelInstance.nextSession = nil
-		return modelInstance.currentSession, nil
+	// this happens when a session is the first one for a model instance to
+	// process and we get into the state where the model instance is booting
+	// and it will turn around and start asking for work and we should reply with the
+	// initial session
+	if modelInstance.initialSession != nil {
+		session = modelInstance.initialSession
+		modelInstance.initialSession = nil
+	} else {
+		// we currently don't have any more work so let's ask the master api if it has some
+		session, err = server.GetRequest[*types.Session](
+			r.httpClientOptions,
+			"/worker/nextsession",
+			map[string]string{
+				"model_name": string(modelInstance.filter.ModelName),
+				"mode":       string(modelInstance.filter.Mode),
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// we currently don't have any more work so let's ask the master api if it has some
-	session, err := server.GetRequest[*types.Session](
-		r.httpClientOptions,
-		"/worker/task",
-		map[string]string{
-			"model_name": string(modelInstance.filter.ModelName),
-			"mode":       string(modelInstance.filter.Mode),
-		},
-	)
+	// we don't have any work for this model instance
+	if session == nil {
+		return nil, fmt.Errorf("no session found")
+	}
 
+	task, err := modelInstance.assignCurrentSession(session)
 	if err != nil {
 		return nil, err
 	}
 
-	return session, nil
+	// TODO: work out what to do with the text stream
+
+	return task, err
+}
+
+func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	if taskResponse == nil {
+		return nil, fmt.Errorf("task response is required")
+	}
+	modelInstance, ok := r.activeModelInstances[instanceID]
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+	switch {
+	case taskResponse.Type == types.WorkerTaskResponseTypeStreamOpen:
+		err := modelInstance.openTextStream(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error opening text stream: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeStreamContinue:
+		err := modelInstance.continueTextStream(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error opening text stream: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeStreamClose:
+		err := modelInstance.closeTextStream(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error opening text stream: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
+		err := modelInstance.handleResult(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error opening text stream: %s", err.Error())
+			return nil, err
+		}
+	}
+
+	return taskResponse, nil
 }

@@ -16,6 +16,7 @@ type TextStream struct {
 	splitter bufio.SplitFunc
 	start    string
 	ignore   string
+	Buffer   string
 	Output   chan string
 }
 
@@ -31,6 +32,7 @@ func NewTextStream(
 		splitter: splitter,
 		start:    start,
 		ignore:   ignore,
+		Buffer:   "",
 		Output:   make(chan string),
 	}
 	return stream
@@ -52,6 +54,7 @@ func (stream *TextStream) Start(ctx context.Context) {
 		word := scanner.Text()
 		if stream.start == "" || foundStartString {
 			word = strings.TrimSuffix(word, stream.ignore)
+			stream.Buffer += word + " "
 			stream.Output <- word + " "
 		} else {
 			log.Printf("output: %s", word)
