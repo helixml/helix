@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -179,13 +178,7 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		}
 	}
 	if targetInteraction == nil {
-		targetInteraction = &types.Interaction{
-			ID:       taskResponse.InteractionID,
-			Created:  time.Now(),
-			Creator:  types.CreatorTypeSystem,
-			Finished: false,
-		}
-		session.Interactions = append(session.Interactions, *targetInteraction)
+		return nil, fmt.Errorf("interaction not found: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
 	}
 
 	// mark the interaction as complete if we are a fully finished response
