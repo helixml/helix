@@ -382,9 +382,6 @@ func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, r
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("runnerID --------------------------------------\n")
-	spew.Dump(runnerID)
-	spew.Dump(taskResponse)
 
 	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
 	if err != nil {
