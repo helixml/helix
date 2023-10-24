@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -62,7 +63,6 @@ type ModelInstance struct {
 
 func NewModelInstance(
 	// this is the main runner CLI context
-	ctx context.Context,
 	modelName types.ModelName,
 	mode types.SessionMode,
 	// these URLs will have the instance ID appended by the model instance
@@ -79,7 +79,7 @@ func NewModelInstance(
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 	id := system.GenerateUUID()
 	return &ModelInstance{
 		id:              id,
@@ -222,6 +222,12 @@ func (instance *ModelInstance) startProcess() error {
 		TaskURL:     instance.taskURL,
 		ResponseURL: instance.responseURL,
 	})
+
+	log.Info().
+		Msgf("🟢 run model instance")
+	spew.Dump(cmd.Dir)
+	spew.Dump(cmd.Args)
+
 	if err != nil {
 		return err
 	}
@@ -237,6 +243,9 @@ func (instance *ModelInstance) startProcess() error {
 		if err := cmd.Wait(); err != nil {
 			log.Error().Msgf("Failed to wait for command: %v\n", err.Error())
 		}
+
+		log.Info().
+			Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
 
 		instance.finishChan <- true
 	}(cmd)
