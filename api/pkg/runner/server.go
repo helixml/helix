@@ -42,10 +42,10 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 	subrouter := router.PathPrefix("/api/v1").Subrouter()
 
 	// pull the next task for an already running wrapper
-	subrouter.HandleFunc("/worker/task/:instanceid", server.Wrapper(runnerServer.getWorkerTask)).Methods("GET")
+	subrouter.HandleFunc("/worker/task/{instanceid}", server.Wrapper(runnerServer.getWorkerTask)).Methods("GET")
 
 	// post a response for an already running wrapper
-	subrouter.HandleFunc("/worker/response/:instanceid", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
+	subrouter.HandleFunc("/worker/response/{instanceid}", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", runnerServer.Options.Host, runnerServer.Options.Port),

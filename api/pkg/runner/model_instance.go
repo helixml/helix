@@ -100,8 +100,8 @@ func getLastInteractionID(session *types.Session) (string, error) {
 		return "", fmt.Errorf("session has no messages")
 	}
 	interaction := session.Interactions[len(session.Interactions)-1]
-	if interaction.Creator != types.CreatorTypeUser {
-		return "", fmt.Errorf("session does not have user interaction as last message")
+	if interaction.Creator != types.CreatorTypeSystem {
+		return "", fmt.Errorf("session does not have a system interaction as last message")
 	}
 	return interaction.ID, nil
 }
@@ -156,12 +156,19 @@ func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session
 	if err != nil {
 		return nil, err
 	}
+	task.SessionID = session.ID
 	return task, nil
 }
 
 func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
 	if instance.currentSession == nil {
 		return fmt.Errorf("no current session")
+	}
+	if taskResponse.SessionID == "" {
+		return fmt.Errorf("no session ID")
+	}
+	if taskResponse.SessionID != instance.currentSession.ID {
+		return fmt.Errorf("session ID mismatch")
 	}
 	if instance.currentTextStream == nil {
 		return fmt.Errorf("no text stream to continue")
