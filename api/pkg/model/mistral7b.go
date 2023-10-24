@@ -48,11 +48,17 @@ func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context, mode types.Sess
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
 	if mode == types.SessionModeInference {
 		cmd := exec.CommandContext(ctx, "/bin/bash", "-c")
-
-		// activate the axolotl venv
 		cmd.Dir = path.Join("..", "axolotl")
-		cmd.Args = append(cmd.Args, "source venv/bin/activate")
-		// cmd.Args = append(cmd.Args, command)
+		cmd.Args = append(cmd.Args, "source venv/bin/activate;")
+		cmd.Args = append(
+			cmd.Args,
+			"python", "-u", "-m",
+			"axolotl.cli.inference",
+			"examples/mistral/qlora-instruct.yml",
+		)
+
+		cmd.Env = append(cmd.Env, fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL))
+		cmd.Env = append(cmd.Env, fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL))
 
 		return cmd, nil
 	}
