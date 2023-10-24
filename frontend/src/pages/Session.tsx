@@ -34,11 +34,7 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
   const session = account.sessions?.find(session => session.id === params["session_id"])
-
   const interaction = session?.interactions[session?.interactions.length - 1]
-
-  console.log('--------------------------------------------')
-  console.dir(interaction)
 
   const onSend = async () => {
     if(!session) return
@@ -78,12 +74,12 @@ const Session: FC = () => {
         <Grid item xs={12} md={12}>
           <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
           <br />
-          {session?.interactions.map((chat: any, index: any) => (
-            <Box key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
-              <Avatar sx={{ width: 24, height: 24 }}>{interaction?.creator.charAt(0)}</Avatar>
+          {session?.interactions.map((interaction: any) => (
+            <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
+              <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
               <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction?.creator.charAt(0).toUpperCase() + interaction?.creator.slice(1)}</Typography>
-                <Typography dangerouslySetInnerHTML={{__html: interaction?.message.replace(/\n/g, '<br/>')}}></Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
+                <Typography dangerouslySetInnerHTML={{__html: interaction.message.replace(/\n/g, '<br/>')}}></Typography>
               </Box>
             </Box>
           ))}
