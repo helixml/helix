@@ -241,7 +241,7 @@ func (instance *ModelInstance) startProcess() error {
 		}
 
 		if err = cmd.Wait(); err != nil {
-			log.Error().Msgf("Failed to wait for command: %v\n", err.Error())
+			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
 		}
 
 		log.Info().
@@ -256,11 +256,11 @@ func (instance *ModelInstance) stopProcess() error {
 	if instance.currentCommand == nil {
 		return fmt.Errorf("no process to stop")
 	}
-	fmt.Printf("we are stopping the process --------------------------------------\n")
+	log.Info().Msgf("🟢 stop model process")
 	if err := syscall.Kill(-instance.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
-		fmt.Printf("there was an error stopping the process: %s --------------------------------------\n", err.Error())
+		log.Error().Msgf("error stopping model process: %s", err.Error())
 		return err
 	}
-	fmt.Printf("we have stopped the process --------------------------------------\n")
+	log.Info().Msgf("🟢 stopped model process")
 	return nil
 }
