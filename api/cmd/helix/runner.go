@@ -78,9 +78,7 @@ func newRunnerCmd() *cobra.Command {
 }
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
-
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: zerolog.TimeFormatUnix})
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
@@ -103,8 +101,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	}
 
 	go runnerController.StartLooping()
-
-	fmt.Printf("here --------------------------------------\n")
 
 	server, err := runner.NewRunnerServer(options.Server, runnerController)
 	if err != nil {
