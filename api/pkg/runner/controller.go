@@ -112,6 +112,9 @@ func (r *Runner) StartLooping() {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
+	log.Debug().
+		Msgf("🔵 runner loop")
+
 	// check for running model instances that have not seen a job in a while
 	// and kill them if they are over the timeout
 	// TODO: get the timeout to be configurable from the api and so dynamic
