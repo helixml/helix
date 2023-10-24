@@ -223,7 +223,11 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	// update the message if we've been given one
 	if taskResponse.Message != "" {
-		targetInteraction.Message = taskResponse.Message
+		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+			targetInteraction.Message = taskResponse.Message
+		} else if taskResponse.Type == types.WorkerTaskResponseTypeStream {
+			targetInteraction.Message += taskResponse.Message
+		}
 	}
 
 	// update the files if there are some
