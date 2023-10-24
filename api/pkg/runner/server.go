@@ -64,7 +64,7 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 	vars := mux.Vars(req)
 	instanceID := vars["instanceid"]
-	_, err := runnerServer.Controller.getNextInstanceSession(req.Context(), instanceID)
+	_, err := runnerServer.Controller.getInstanceNextSession(req.Context(), instanceID)
 	if err != nil {
 		return nil, err
 	}

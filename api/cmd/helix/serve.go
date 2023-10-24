@@ -261,10 +261,12 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
-	err = controller.Start()
+	err = controller.Initialize()
 	if err != nil {
 		return err
 	}
+
+	go controller.StartLooping()
 
 	server, err := server.NewServer(options.ServerOptions, store, controller)
 	if err != nil {

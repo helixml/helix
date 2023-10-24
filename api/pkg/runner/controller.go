@@ -84,14 +84,13 @@ func NewRunner(
 	return runner, nil
 }
 
-func (r *Runner) Start() error {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+// this should be run in a go-routine
+func (r *Runner) StartLooping() {
 	for {
 		select {
 		case <-r.Ctx.Done():
-			return nil
-		case <-ticker.C:
+			return
+		case <-time.After(100 * time.Millisecond):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
@@ -102,14 +101,14 @@ func (r *Runner) Start() error {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
-
 	// check for running model instances that have not seen a job in a while
 	// and kill them if they are over the timeout
 	// TODO: get the timeout to be configurable from the api and so dynamic
 	// based on load
 	err := r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds))
+	if err != nil {
+		return err
+	}
 	// ask the api server if it currently has any work based on our free memory
 	session, err := r.getNextGlobalSession(ctx)
 	if err != nil {
@@ -124,7 +123,11 @@ func (r *Runner) loop(ctx context.Context) error {
 	return nil
 }
 
+// loop over the active model instances and stop any that have not processed a job
+// in the last timeout seconds
 func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration) error {
+	r.modelMutex.Lock()
+	defer r.modelMutex.Unlock()
 	for _, activeModelInstance := range r.activeModelInstances {
 		if activeModelInstance.lastJobCompletedTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
 			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
@@ -142,6 +145,8 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 // we have popped the next session from the master API
 // let's create a model for it
 func (r *Runner) addGlobalSession(ctx context.Context, session *types.Session) error {
+	r.modelMutex.Lock()
+	defer r.modelMutex.Unlock()
 	log.Info().Msgf("Add global session %s", session.ID)
 	spew.Dump(session)
 	model, err := NewModelInstance(ctx, session.ModelName, session.Mode)
@@ -158,6 +163,8 @@ func (r *Runner) addGlobalSession(ctx context.Context, session *types.Session) e
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
 func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
+	r.modelMutex.Lock()
+	defer r.modelMutex.Unlock()
 	freeMemory := r.getFreeMemory()
 
 	if freeMemory < r.lowestMemoryRequirement {
@@ -202,7 +209,7 @@ func (r *Runner) getFreeMemory() uint64 {
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) getNextInstanceSession(ctx context.Context, instanceID string) (*types.Session, error) {
+func (r *Runner) getInstanceNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
 	if instanceID == "" {
