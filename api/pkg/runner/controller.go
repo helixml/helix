@@ -229,36 +229,11 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	return nil
 }
 
-// ask the master API if they have the next session for us
-// we check with the various models and filter based on the currently free memory
-// we pass that free memory back to the master API - it will filter out any tasks
-// for models that would require more memory than we have available
-func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	freeMemory := r.getFreeMemory()
-
-	if freeMemory < r.lowestMemoryRequirement {
-		// we don't have enough memory to run anything
-		// so we just wait for more memory to become available
-		return nil, nil
-	}
-
-	queryParams := url.Values{}
-
-	// this means "only give me sessions that will fit in this much RAM"
-	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
-
-	// now let's loop over our running model instances and de-prioritise them
-	// we might still get sessions of this type but only if there isn't another
-	// type in the queue - this is to avoid running only one type of model
-	// because of the random order the requests arrived in
-	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
-	// before trying to run another type of model
-
-	for _, modelInstance := range r.activeModelInstances {
-		queryParams.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
-	}
-
+func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
 	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
+	if err != nil {
+		return nil, err
+	}
 	parsedURL.RawQuery = queryParams.Encode()
 
 	req, err := http.NewRequest("GET", parsedURL.String(), nil)
@@ -292,6 +267,38 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	}
 
 	return session, nil
+}
+
+// ask the master API if they have the next session for us
+// we check with the various models and filter based on the currently free memory
+// we pass that free memory back to the master API - it will filter out any tasks
+// for models that would require more memory than we have available
+func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
+	freeMemory := r.getFreeMemory()
+
+	if freeMemory < r.lowestMemoryRequirement {
+		// we don't have enough memory to run anything
+		// so we just wait for more memory to become available
+		return nil, nil
+	}
+
+	queryParams := url.Values{}
+
+	// this means "only give me sessions that will fit in this much RAM"
+	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
+
+	// now let's loop over our running model instances and de-prioritise them
+	// we might still get sessions of this type but only if there isn't another
+	// type in the queue - this is to avoid running only one type of model
+	// because of the random order the requests arrived in
+	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
+	// before trying to run another type of model
+
+	for _, modelInstance := range r.activeModelInstances {
+		queryParams.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+	}
+
+	return r.getNextSession(ctx, queryParams)
 }
 
 func (r *Runner) getUsedMemory() uint64 {
@@ -336,15 +343,12 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		session = modelInstance.initialSession
 		modelInstance.initialSession = nil
 	} else {
-		// we currently don't have any more work so let's ask the master api if it has some
-		session, err = server.GetRequest[*types.Session](
-			r.httpClientOptions,
-			fmt.Sprintf("/runner/%s/nextsession", r.Options.ID),
-			map[string]string{
-				"model_name": string(modelInstance.filter.ModelName),
-				"mode":       string(modelInstance.filter.Mode),
-			},
-		)
+		queryParams := url.Values{}
+
+		queryParams.Add("model_name", string(modelInstance.filter.ModelName))
+		queryParams.Add("mode", string(modelInstance.filter.Mode))
+
+		session, err = r.getNextSession(ctx, queryParams)
 		if err != nil {
 			return nil, err
 		}
