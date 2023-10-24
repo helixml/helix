@@ -23,15 +23,17 @@ func (l *SDXL) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
-func (l *SDXL) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
+func (l *SDXL) GetTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
 	if len(session.Interactions) == 0 {
-		return "", fmt.Errorf("session has no messages")
+		return nil, fmt.Errorf("session has no messages")
 	}
 	lastMessage := session.Interactions[len(session.Interactions)-1]
-	return lastMessage.Message, nil
+	return &types.WorkerTask{
+		Prompt: lastMessage.Message,
+	}, nil
 }
 
-func (l *SDXL) GetTextStream(ctx context.Context) (*TextStream, error) {
+func (l *SDXL) GetTextStream(ctx context.Context, mode types.SessionMode) (*TextStream, error) {
 	return nil, nil
 }
 

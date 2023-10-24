@@ -23,20 +23,25 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetPrompt(ctx context.Context, session *types.Session) (string, error) {
+func (l *Mistral7bInstruct01) GetTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
 	if len(session.Interactions) == 0 {
-		return "", fmt.Errorf("session has no messages")
+		return nil, fmt.Errorf("session has no messages")
 	}
 	lastInteraction := session.Interactions[len(session.Interactions)-1]
-	return fmt.Sprintf("[INST]%s[/INST]", lastInteraction.Message), nil
+	return &types.WorkerTask{
+		Prompt: fmt.Sprintf("[INST]%s[/INST]", lastInteraction.Message),
+	}, nil
 }
 
-func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context) (*TextStream, error) {
-	return NewTextStream(
-		splitOnSpace,
-		"[/INST]",
-		"</s>",
-	), nil
+func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context, mode types.SessionMode) (*TextStream, error) {
+	if mode == types.SessionModeInference {
+		return NewTextStream(
+			splitOnSpace,
+			"[/INST]",
+			"</s>",
+		), nil
+	}
+	return nil, nil
 }
 
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error) {

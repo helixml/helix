@@ -28,9 +28,11 @@ type Module struct {
 }
 
 type Interaction struct {
+	ID       string      `json:"id"`
+	Created  time.Time   `json:"created"`
 	Creator  CreatorType `json:"creator"`  // e.g. User
 	Message  string      `json:"message"`  // e.g. Prove pythagoras
-	Uploads  []string    `json:"uploads"`  // list of filepath paths
+	Files    []string    `json:"uploads"`  // list of filepath paths
 	Finished bool        `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 }
 
@@ -123,10 +125,12 @@ type WorkerTask struct {
 }
 
 type WorkerTaskResponse struct {
-	SessionID string                 `json:"session_id"`
 	Type      WorkerTaskResponseType `json:"type"`
-	// this is a partial response for text streaming
-	Chunk string `json:"chunk"`
-	// this is the full response for "interaction" style messages
-	Interaction Interaction `json:"interaction"`
+	SessionID string                 `json:"session_id"`
+	// this is filled in by the runner parent before posting back to the api
+	// it is not handled by the python process and so is not defined in the task
+	InteractionID string `json:"interaction_id"`
+	// the fields of an interaction that the backend python process can update
+	Message string   `json:"message"` // e.g. Prove pythagoras
+	Files   []string `json:"uploads"` // list of filepath paths
 }

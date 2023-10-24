@@ -37,15 +37,6 @@ type Controller struct {
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
 	sessionQueueMtx sync.Mutex
-	// the map of active sessions that are currently running on a GPU
-	activeSessions   map[string]*types.Session
-	activeSessionMtx sync.Mutex
-
-	// the map of text streams attached to a session
-	// not all sessions will have an active text stream
-	// it depends what type the session is
-	activeTextStreams    map[string]*model.TextStream
-	activeTextStreamsMtx sync.Mutex
 
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us
@@ -70,8 +61,6 @@ func NewController(
 		Ctx:                ctx,
 		Options:            options,
 		SessionUpdatesChan: make(chan *types.Session),
-		activeSessions:     map[string]*types.Session{},
-		activeTextStreams:  map[string]*model.TextStream{},
 		sessionQueue:       []*types.Session{},
 		models:             models,
 	}

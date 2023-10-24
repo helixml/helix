@@ -158,7 +158,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		{
 			Creator:  types.CreatorTypeUser,
 			Message:  req.FormValue("input"),
-			Uploads:  paths,
+			Files:    paths,
 			Finished: true,
 		},
 	}
@@ -232,8 +232,7 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
 }
 
-func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
-
+func (apiServer *HelixAPIServer) getWorkerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	sessionMode, err := types.ValidateSessionMode(req.URL.Query().Get("mode"), true)
 	if err != nil {
 		return nil, err
@@ -302,20 +301,10 @@ func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no task found")
 	}
 
-	err = apiServer.Controller.AddActiveSession(req.Context(), nextSession)
-	if err != nil {
-		return nil, err
-	}
-
-	task, err := apiServer.Controller.ConvertSessionToTask(req.Context(), nextSession)
-	if err != nil {
-		return nil, err
-	}
-
-	return task, nil
+	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+func (apiServer *HelixAPIServer) respondWorkerSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
