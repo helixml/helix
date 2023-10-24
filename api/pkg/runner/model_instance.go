@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -38,8 +39,9 @@ type ModelInstance struct {
 	// we create a cancel context for the running process
 	// which is derived from the main runner context
 	ctx context.Context
-	// the process running the python model will quit when we call this
-	processCancelFunc context.CancelFunc
+
+	// the command we are currently executing
+	currentCommand *exec.Cmd
 
 	// the session currently running on this model
 	currentSession *types.Session
@@ -48,9 +50,6 @@ type ModelInstance struct {
 	// this is assigned by calling model.GetTextStream(mode) on the model
 	// instance - this means models get to decide if/when they need text stream processing
 	currentTextStream *model.TextStream
-
-	// the function we call to stop the current text stream if we have one
-	textStreamCancelFunc context.CancelFunc
 
 	// the very first session that we will run - the precense of which caused
 	// use to be instantiated - this will get switched to currentSession
@@ -62,6 +61,7 @@ type ModelInstance struct {
 }
 
 func NewModelInstance(
+	ctx context.Context,
 	// this is the main runner CLI context
 	modelName types.ModelName,
 	mode types.SessionMode,
@@ -79,10 +79,10 @@ func NewModelInstance(
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	id := system.GenerateUUID()
 	return &ModelInstance{
 		id:              id,
+		ctx:             ctx,
 		finishChan:      make(chan bool, 1),
 		model:           modelInstance,
 		responseHandler: responseHandler,
@@ -92,8 +92,6 @@ func NewModelInstance(
 			ModelName: modelName,
 			Mode:      mode,
 		},
-		ctx:               ctx,
-		processCancelFunc: cancel,
 	}, nil
 }
 
@@ -112,11 +110,12 @@ func getLastInteractionID(session *types.Session) (string, error) {
 // it gets the text stream setup if the model returns one
 // and generally initializes a new task to be run on the model
 // it also returns the task that will be fed down into the python code to execute
-func (instance *ModelInstance) assignCurrentSession(session *types.Session) (*types.WorkerTask, error) {
-	if instance.textStreamCancelFunc != nil {
-		instance.textStreamCancelFunc()
-		instance.textStreamCancelFunc = nil
+func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
+	if instance.currentTextStream != nil {
+		instance.currentTextStream.Close(ctx)
+		instance.currentTextStream = nil
 	}
+
 	instance.currentSession = session
 
 	interactionID, err := getLastInteractionID(session)
@@ -130,15 +129,13 @@ func (instance *ModelInstance) assignCurrentSession(session *types.Session) (*ty
 	}
 
 	if textStream != nil {
-		ctx, cancel := context.WithCancel(instance.ctx)
-		instance.textStreamCancelFunc = cancel
 		instance.currentTextStream = textStream
 
 		go textStream.Start(ctx)
 		go func() {
 			for {
 				select {
-				case <-ctx.Done():
+				case <-textStream.Closed:
 					return
 				case <-textStream.Output:
 					err := instance.responseHandler(&types.WorkerTaskResponse{
@@ -185,9 +182,8 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	}
 
 	// reset the text stream if we have one
-	if instance.currentTextStream != nil && instance.textStreamCancelFunc != nil {
-		instance.textStreamCancelFunc()
-		instance.textStreamCancelFunc = nil
+	if instance.currentTextStream != nil {
+		instance.currentTextStream.Close(ctx)
 		instance.currentTextStream = nil
 	}
 
@@ -234,13 +230,17 @@ func (instance *ModelInstance) startProcess() error {
 	if cmd == nil {
 		return fmt.Errorf("no command to run")
 	}
+
+	instance.currentCommand = cmd
 	go func(cmd *exec.Cmd) {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 		if err := cmd.Start(); err != nil {
 			log.Error().Msgf("Failed to start command: %v\n", err.Error())
 			return
 		}
 
-		if err := cmd.Wait(); err != nil {
+		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Failed to wait for command: %v\n", err.Error())
 		}
 
@@ -252,10 +252,15 @@ func (instance *ModelInstance) startProcess() error {
 	return nil
 }
 
-func (model *ModelInstance) stopProcess() error {
-	if model.processCancelFunc == nil {
+func (instance *ModelInstance) stopProcess() error {
+	if instance.currentCommand == nil {
 		return fmt.Errorf("no process to stop")
 	}
-	model.processCancelFunc()
+	fmt.Printf("we are stopping the process --------------------------------------\n")
+	if err := syscall.Kill(-instance.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+		fmt.Printf("there was an error stopping the process: %s --------------------------------------\n", err.Error())
+		return err
+	}
+	fmt.Printf("we have stopped the process --------------------------------------\n")
 	return nil
 }

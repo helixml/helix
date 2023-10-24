@@ -154,6 +154,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
 	for _, activeModelInstance := range r.activeModelInstances {
+		// if activeModelInstance.lastJobCompletedTimestamp == 0 {
+		// 	continue
+		// }
 		if activeModelInstance.lastJobCompletedTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
 			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
 			err := activeModelInstance.stopProcess()
@@ -179,6 +182,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	log.Info().Msgf("Add global session %s", session.ID)
 	spew.Dump(session)
 	model, err := NewModelInstance(
+		r.Ctx,
 		session.ModelName,
 		session.Mode,
 		r.Options.TaskURL,
@@ -309,6 +313,8 @@ func (r *Runner) getFreeMemory() uint64 {
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
 func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+	fmt.Printf("instanceID --------------------------------------\n")
+	spew.Dump(instanceID)
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -348,7 +354,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		return nil, fmt.Errorf("no session found")
 	}
 
-	task, err := modelInstance.assignCurrentSession(session)
+	task, err := modelInstance.assignCurrentSession(ctx, session)
 	if err != nil {
 		return nil, err
 	}
