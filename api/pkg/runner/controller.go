@@ -189,6 +189,9 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		r.Options.ResponseURL,
 		func(res *types.WorkerTaskResponse) error {
 
+			log.Debug().Msgf("🟠 Sending task response %s", session.ID)
+			spew.Dump(res)
+
 			// this function will write any task responses back to the api server for it to process
 			// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
 			// and both of these will have an interaction ID and the full, latest copy of the text
@@ -313,8 +316,6 @@ func (r *Runner) getFreeMemory() uint64 {
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
 func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
-	fmt.Printf("instanceID --------------------------------------\n")
-	spew.Dump(instanceID)
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}

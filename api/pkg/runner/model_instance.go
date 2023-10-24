@@ -156,12 +156,19 @@ func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session
 	if err != nil {
 		return nil, err
 	}
+	task.SessionID = session.ID
 	return task, nil
 }
 
 func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
 	if instance.currentSession == nil {
 		return fmt.Errorf("no current session")
+	}
+	if taskResponse.SessionID == "" {
+		return fmt.Errorf("no session ID")
+	}
+	if taskResponse.SessionID != instance.currentSession.ID {
+		return fmt.Errorf("session ID mismatch")
 	}
 	if instance.currentTextStream == nil {
 		return fmt.Errorf("no text stream to continue")
