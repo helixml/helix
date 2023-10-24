@@ -376,11 +376,16 @@ func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, r
 	if runnerID == "" {
 		return nil, fmt.Errorf("cannot get next session without runner id")
 	}
+
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("runnerID --------------------------------------\n")
+	spew.Dump(runnerID)
+	spew.Dump(taskResponse)
+
 	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
 	if err != nil {
 		return nil, err

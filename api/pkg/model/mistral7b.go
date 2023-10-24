@@ -29,7 +29,16 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
-	lastInteraction := session.Interactions[len(session.Interactions)-1]
+	lastInteraction, err := getUserInteraction(session)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if lastInteraction == nil {
+		return nil, fmt.Errorf("session has no user messages")
+	}
+
 	return &types.WorkerTask{
 		Prompt: fmt.Sprintf("[INST]%s[/INST]", lastInteraction.Message),
 	}, nil
