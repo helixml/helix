@@ -92,6 +92,11 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 			continue
 		}
 
+		if latest.Runner != "" {
+			// this session is already being worked on
+			continue
+		}
+
 		sessionQueue = append(sessionQueue, session)
 	}
 
@@ -103,7 +108,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 // the core function - decide which task to give to a worker
 // TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
 // try to send similar tasks to the same worker
-func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter) (*types.Session, error) {
+func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
@@ -125,6 +130,19 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		spew.Dump(session)
 
 		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+
+		if len(session.Interactions) == 0 {
+			return nil, fmt.Errorf("no interactions found")
+		}
+
+		// update the runner id on the last interaction
+		session.Interactions[len(session.Interactions)-1].Runner = runnerID
+
+		_, err := c.Options.Store.UpdateSession(ctx, *session)
+		if err != nil {
+			return nil, err
+		}
+
 		return session, nil
 	}
 

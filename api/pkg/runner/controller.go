@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -21,6 +21,7 @@ import (
 )
 
 type RunnerOptions struct {
+	ID       string
 	ApiHost  string
 	ApiToken string
 
@@ -66,6 +67,9 @@ func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
 ) (*Runner, error) {
+	if options.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
 	if options.ApiHost == "" {
 		return nil, fmt.Errorf("api url is required")
 	}
@@ -129,7 +133,7 @@ func (r *Runner) loop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if session != nil {
 		fmt.Printf("session --------------------------------------\n")
 		spew.Dump(session)
@@ -138,7 +142,7 @@ func (r *Runner) loop(ctx context.Context) error {
 		// 	return err
 		// }
 	}
-	
+
 	return nil
 }
 
@@ -189,7 +193,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 			// and the api server is just appending to the session
 			res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
 				r.httpClientOptions,
-				"/worker/response",
+				fmt.Sprintf("/runner/%s/response", r.Options.ID),
 				res,
 			)
 			if err != nil {
@@ -246,7 +250,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		queryParams.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
 	}
 
-	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, "/worker/nextsession"))
+	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
 	parsedURL.RawQuery = queryParams.Encode()
 
 	req, err := http.NewRequest("GET", parsedURL.String(), nil)
@@ -327,7 +331,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		// we currently don't have any more work so let's ask the master api if it has some
 		session, err = server.GetRequest[*types.Session](
 			r.httpClientOptions,
-			"/worker/nextsession",
+			fmt.Sprintf("/runner/%s/nextsession", r.Options.ID),
 			map[string]string{
 				"model_name": string(modelInstance.filter.ModelName),
 				"mode":       string(modelInstance.filter.Mode),
