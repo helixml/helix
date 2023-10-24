@@ -28,12 +28,14 @@ type Module struct {
 }
 
 type Interaction struct {
-	ID       string      `json:"id"`
-	Created  time.Time   `json:"created"`
-	Creator  CreatorType `json:"creator"`  // e.g. User
-	Message  string      `json:"message"`  // e.g. Prove pythagoras
-	Files    []string    `json:"uploads"`  // list of filepath paths
-	Finished bool        `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	ID      string      `json:"id"`
+	Created time.Time   `json:"created"`
+	Creator CreatorType `json:"creator"` // e.g. User
+	// the ID of the runner that processed this interaction
+	Runner   string   `json:"runner"`   // e.g. 0
+	Message  string   `json:"message"`  // e.g. Prove pythagoras
+	Files    []string `json:"uploads"`  // list of filepath paths
+	Finished bool     `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 }
 
 type Session struct {

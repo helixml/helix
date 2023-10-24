@@ -103,10 +103,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	// TODO: this has no auth right now
 	// we need to add JWTs to the urls we are using to connect models to the worker
 	// the task filters (mode, type and modelName) are all given as query params
-	subrouter.HandleFunc("/worker/nextsession", WrapperWithConfig(apiServer.getWorkerSession, WrapperConfig{
+	subrouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
-	subrouter.HandleFunc("/worker/response", Wrapper(apiServer.respondWorkerSession)).Methods("POST")
+	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.respondRunnerSession)).Methods("POST")
 
 	StartWebSocketServer(
 		ctx,

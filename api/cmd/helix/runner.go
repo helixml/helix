@@ -19,6 +19,7 @@ type RunnerOptions struct {
 func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.RunnerOptions{
+			ID:           getDefaultServeOptionString("RUNNER_ID", ""),
 			ApiHost:      getDefaultServeOptionString("API_HOST", ""),
 			ApiToken:     getDefaultServeOptionString("API_URL", ""),
 			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
@@ -43,6 +44,11 @@ func newRunnerCmd() *cobra.Command {
 			return runnerCLI(cmd, allOptions)
 		},
 	}
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.ID, "runner-id", allOptions.Runner.ID,
+		`The ID of this runner to report to the api server when asking for jobs`,
+	)
 
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.ApiHost, "api-host", allOptions.Runner.ApiHost,

@@ -289,7 +289,13 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
 }
 
-func (apiServer *HelixAPIServer) getWorkerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	runnerID := vars["runnerid"]
+	if runnerID == "" {
+		return nil, fmt.Errorf("cannot get next session without runner id")
+	}
+
 	sessionMode, err := types.ValidateSessionMode(req.URL.Query().Get("mode"), true)
 	if err != nil {
 		return nil, err
@@ -350,10 +356,11 @@ func (apiServer *HelixAPIServer) getWorkerSession(res http.ResponseWriter, req *
 
 	// alow the worker to filter what tasks it wants
 	// if any of these values are defined then we will only consider those in the response
-	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), filter)
+	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), filter, runnerID)
 	if err != nil {
 		return nil, err
 	}
+
 	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
 	// that is how the workers will know to wait before asking again
 	if nextSession == nil {
@@ -363,7 +370,12 @@ func (apiServer *HelixAPIServer) getWorkerSession(res http.ResponseWriter, req *
 	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) respondWorkerSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+	vars := mux.Vars(req)
+	runnerID := vars["runnerid"]
+	if runnerID == "" {
+		return nil, fmt.Errorf("cannot get next session without runner id")
+	}
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
