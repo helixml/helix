@@ -154,9 +154,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
 	for _, activeModelInstance := range r.activeModelInstances {
-		// if activeModelInstance.lastJobCompletedTimestamp == 0 {
-		// 	continue
-		// }
+		if activeModelInstance.lastJobCompletedTimestamp == 0 {
+			continue
+		}
 		if activeModelInstance.lastJobCompletedTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
 			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
 			err := activeModelInstance.stopProcess()
