@@ -102,17 +102,24 @@ func GetRequestBuffer(
 	path string,
 	queryParams map[string]string,
 ) (*bytes.Buffer, error) {
+	urlValues := url.Values{}
+	for key, value := range queryParams {
+		urlValues.Add(key, value)
+	}
+	return GetRequestBufferWithQuery(options, path, urlValues)
+}
+
+func GetRequestBufferWithQuery(
+	options ClientOptions,
+	path string,
+	queryParams url.Values,
+) (*bytes.Buffer, error) {
 	client := newRetryClient()
 	parsedURL, err := url.Parse(URL(options, path))
 	if err != nil {
 		return nil, err
 	}
-	urlValues := url.Values{}
-	for key, value := range queryParams {
-		urlValues.Add(key, value)
-	}
-	parsedURL.RawQuery = urlValues.Encode()
-
+	parsedURL.RawQuery = queryParams.Encode()
 	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), nil)
 	if err != nil {
 		return nil, err

@@ -46,6 +46,10 @@ type Controller struct {
 	// it depends what type the session is
 	activeTextStreams    map[string]*model.TextStream
 	activeTextStreamsMtx sync.Mutex
+
+	// keep a map of instantiated models so we can ask it about memory
+	// the models package looks after instantiating this for us
+	models map[types.ModelName]model.Model
 }
 
 func NewController(
@@ -58,6 +62,10 @@ func NewController(
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")
 	}
+	models, err := model.GetModels()
+	if err != nil {
+		return nil, err
+	}
 	controller := &Controller{
 		Ctx:                ctx,
 		Options:            options,
@@ -65,6 +73,7 @@ func NewController(
 		activeSessions:     map[string]*types.Session{},
 		activeTextStreams:  map[string]*model.TextStream{},
 		sessionQueue:       []*types.Session{},
+		models:             models,
 	}
 	return controller, nil
 }

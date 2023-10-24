@@ -15,16 +15,8 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-// the core function - decide which task to give to a worker
-// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
-// try to send similar tasks to the same worker
-func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter) (*types.Session, error) {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
-
-	// right now this is very dumb - it literally just returns the next thing and doesn't even care what type it is
-	// TODO: get the worker auth system plugged in so we know who is asking for the task
-	// and then we can keep track of the last thing they ran and pick better
+// this function expects the sessionQueueMtx to be locked when it is run
+func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter, deprioritize bool) int {
 	for i, session := range c.sessionQueue {
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
@@ -35,7 +27,57 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		if filter.ModelName != "" && session.ModelName != filter.ModelName {
 			continue
 		}
-		c.sessionQueue = append(c.sessionQueue[:i], c.sessionQueue[i+1:]...)
+
+		// we are asking for sessions that will fit in an amount of RAM
+		// so we need to ask the associated model instance what the memory
+		// requirements are for this session
+		if filter.Memory > 0 {
+			model, ok := c.models[session.ModelName]
+			if !ok {
+				continue
+			}
+			if model.GetMemoryRequirements(session.Mode) > filter.Memory {
+				continue
+			}
+		}
+
+		// if we are in deprioritize mode - it means we will ignore anything
+		// that is mentioned in the deprioritize list
+		// this function will be run twice - the first time with deprioritize=true
+		// and if nothing is returned then again with deprioritize=false
+		// TODO: we can probably be more efficient than an inner loop here
+		if deprioritize {
+			for _, deprioritizeEntry := range filter.Deprioritize {
+				if deprioritizeEntry.ModelName == session.ModelName && deprioritizeEntry.Mode == session.Mode {
+					continue
+				}
+			}
+		}
+
+		// if we've made it this far we've got a session!
+		return i
+	}
+
+	return -1
+}
+
+// the core function - decide which task to give to a worker
+// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
+// try to send similar tasks to the same worker
+func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter) (*types.Session, error) {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+
+	// do the 2 phase filter - first applying the deprioritize filter
+	// and then if we don't get a match - without it the second time
+	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter, true)
+	if sessionIndex == -1 {
+		sessionIndex = c.getMatchingSessionFilterIndex(ctx, filter, false)
+	}
+
+	if sessionIndex >= 0 {
+		session := c.sessionQueue[sessionIndex]
+		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
 		return session, nil
 	}
 
