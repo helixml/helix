@@ -174,12 +174,23 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 
 	sessionID := system.GenerateUUID()
 
-	interaction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
+	// the user interaction is the request from the user
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
 	if err != nil {
 		return nil, err
 	}
-	if interaction == nil {
+	if userInteraction == nil {
 		return nil, fmt.Errorf("no interaction found")
+	}
+
+	// the system interaction is the task we will run on a GPU and update in place
+	systemInteraction := &types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		Finished: false,
 	}
 
 	session := types.Session{
@@ -193,7 +204,8 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Created:   time.Now(),
 		Updated:   time.Now(),
 		Interactions: []types.Interaction{
-			*interaction,
+			*userInteraction,
+			*systemInteraction,
 		},
 	}
 
@@ -245,15 +257,23 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 
 	sessionCopy := *session
 
-	interaction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
 	if err != nil {
 		return nil, err
 	}
-	if interaction == nil {
+	if userInteraction == nil {
 		return nil, fmt.Errorf("no interaction found")
 	}
+	systemInteraction := &types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		Finished: false,
+	}
 	sessionCopy.Updated = time.Now()
-	sessionCopy.Interactions = append(sessionCopy.Interactions, *interaction)
+	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
 
 	log.Debug().
 		Msgf("🟢 update session")

@@ -5,11 +5,9 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -135,22 +133,6 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 
 		if len(session.Interactions) == 0 {
 			return nil, fmt.Errorf("no interactions found")
-		}
-
-		// update the runner id on the last interaction
-		session.Interactions = append(session.Interactions, types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Creator:  types.CreatorTypeSystem,
-			Message:  "",
-			Files:    []string{},
-			Finished: false,
-			Runner:   runnerID,
-		})
-
-		_, err := c.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
-			return nil, err
 		}
 
 		return session, nil
