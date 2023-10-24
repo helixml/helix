@@ -103,13 +103,6 @@ const (
 type WorkerTaskResponseType string
 
 const (
-	// "stream_open" (open stream)
-	// "stream_continue" (here is a chunk)
-	// "stream_close" (close stream)
-	// "result" (post final result)
-	// only text models that do streaming will use the first three
-	WorkerTaskResponseTypeStreamOpen     WorkerTaskResponseType = "stream_open"
-	WorkerTaskResponseTypeStreamContinue WorkerTaskResponseType = "stream_continue"
-	WorkerTaskResponseTypeStreamClose    WorkerTaskResponseType = "stream_close"
-	WorkerTaskResponseTypeResult         WorkerTaskResponseType = "result"
+	WorkerTaskResponseTypeStream WorkerTaskResponseType = "stream"
+	WorkerTaskResponseTypeResult WorkerTaskResponseType = "result"
 )

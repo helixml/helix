@@ -18,11 +18,11 @@ type Model interface {
 	// and downloading files from the filestore
 	// we don't need to fill in the SessionID and Session fields
 	// the runner controller will do that for us
-	GetTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error)
+	GetTask(session *types.Session) (*types.WorkerTask, error)
 	// return a text stream that knows how to parse the output of the model
 	// only language models doing inference on text will implement this
 	// returning nil is normal behavior meaning "this model does not stream text"
-	GetTextStream(ctx context.Context, mode types.SessionMode) (*TextStream, error)
+	GetTextStream(mode types.SessionMode) (*TextStream, error)
 	// the function we call to get the python process booted and
 	// asking us for work
 	// this relies on the axotl and sd-script repos existing

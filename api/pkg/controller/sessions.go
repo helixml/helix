@@ -158,47 +158,50 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		return nil, err
 	}
 
-	if taskResponse.Type == types.WorkerTaskResponseTypeStreamContinue || taskResponse.Type == types.WorkerTaskResponseTypeResult {
-		var targetInteraction *types.Interaction
-		for _, interaction := range session.Interactions {
-			if interaction.ID == taskResponse.InteractionID {
-				targetInteraction = &interaction
-				break
-			}
-		}
-		if targetInteraction == nil {
-			targetInteraction = &types.Interaction{
-				ID:       taskResponse.InteractionID,
-				Created:  time.Now(),
-				Creator:  types.CreatorTypeSystem,
-				Finished: false,
-			}
-			session.Interactions = append(session.Interactions, *targetInteraction)
-		}
-
-		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-			targetInteraction.Finished = true
-		}
-
-		if taskResponse.Message != "" {
-			targetInteraction.Message = taskResponse.Message
-		}
-
-		if taskResponse.Files != nil {
-			targetInteraction.Files = taskResponse.Files
-		}
-
-		_, err := c.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
-			log.Printf("Error adding message: %s", err)
-		}
-
-		c.SessionUpdatesChan <- session
-
-		return taskResponse, nil
-	} else if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-		return taskResponse, nil
+	if session == nil {
+		return nil, fmt.Errorf("session not found: %s", taskResponse.SessionID)
 	}
 
-	return nil, fmt.Errorf("unknown task response type: %s", taskResponse.Type)
+	// let's see if we are updating an existing interaction
+	// or appending a new one
+	var targetInteraction *types.Interaction
+	for _, interaction := range session.Interactions {
+		if interaction.ID == taskResponse.InteractionID {
+			targetInteraction = &interaction
+			break
+		}
+	}
+	if targetInteraction == nil {
+		targetInteraction = &types.Interaction{
+			ID:       taskResponse.InteractionID,
+			Created:  time.Now(),
+			Creator:  types.CreatorTypeSystem,
+			Finished: false,
+		}
+		session.Interactions = append(session.Interactions, *targetInteraction)
+	}
+
+	// mark the interaction as complete if we are a fully finished response
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+		targetInteraction.Finished = true
+	}
+
+	// update the message if we've been given one
+	if taskResponse.Message != "" {
+		targetInteraction.Message = taskResponse.Message
+	}
+
+	// update the files if there are some
+	if taskResponse.Files != nil {
+		targetInteraction.Files = taskResponse.Files
+	}
+
+	_, err = c.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		log.Printf("Error adding message: %s", err)
+	}
+
+	c.SessionUpdatesChan <- session
+
+	return taskResponse, nil
 }
