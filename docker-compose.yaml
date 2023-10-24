@@ -59,6 +59,7 @@ services:
       dockerfile: Dockerfile.api
     restart: always
     environment:
+      - LOG_LEVEL=debug
       - APP_URL=http://localhost
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres

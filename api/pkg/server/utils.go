@@ -49,7 +49,7 @@ func Wrapper[T any](handler httpWrapper[T]) func(res http.ResponseWriter, req *h
 	ret := func(res http.ResponseWriter, req *http.Request) {
 		data, err := handler(res, req)
 		if err != nil {
-			log.Ctx(req.Context()).Error().Msgf("error for route: %s", err.Error())
+			log.Error().Msgf("error for route: %s", err.Error())
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		} else {

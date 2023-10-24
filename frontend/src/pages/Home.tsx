@@ -46,7 +46,6 @@ const Dashboard: FC = () => {
   }
 
   const onSend = async () => {
-      
     const formData = new FormData()
     files.forEach((file) => {
       formData.append("files", file)
@@ -56,32 +55,13 @@ const Dashboard: FC = () => {
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
     
-    const response = await api.post('/api/v1/sessions', formData)
-    if(!response) return
+    const session = await api.post('/api/v1/sessions', formData)
+    if(!session) return
     account.loadSessions()
 
-    console.log('--------------------------------------------')
-    console.log('--------------------------------------------')
-    console.dir(response.data)
-        // setFiles([])
-        // setInputValue("")
-        // console.log("ABOUT TO NAVIGATE")
-        // navigate('session', {session_id: response.data.id})
-        // console.log("DONE NAVIGATE")
-        // result = true
-      // } catch(e) {
-      //   console.log(e)
-      // }
-      // setUploadProgress(undefined)
-      // return result
-
-    // TODO: put this in state, when user clicks send, POST all three things
-    // (files, text, type) to a new endpoint which accepts files
-
-    // const result = await filestore.upload("lhwoo", files)
-    // if(!result) return
-    // await filestore.loadFiles(filestore.path)
-    // snackbar.success('Files Uploaded')
+    setFiles([])
+    setInputValue("")
+    navigate('session', {session_id: session.id})
   }
 
   const onUpload = useCallback(async (files: File[]) => {
