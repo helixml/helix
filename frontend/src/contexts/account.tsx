@@ -15,7 +15,7 @@ import {
   ISession,
 } from '../types'
 
-const REALM = 'lilypad'
+const REALM = 'helix'
 const KEYCLOAK_URL = '/auth/'
 const CLIENT_ID = 'frontend'
 
