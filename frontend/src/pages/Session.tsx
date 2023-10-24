@@ -159,7 +159,7 @@ const Session: FC = () => {
             <TextField
               fullWidth
               label={(
-                session?.mode === 'Create' && session?.type === 'Text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'Create' && session?.type === 'Image' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'Finetune' && session?.type === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                session?.mode === 'inference' && session?.type === 'text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'inference' && session?.type === 'image' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}

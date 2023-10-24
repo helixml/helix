@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -116,8 +117,14 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 
 	if sessionIndex >= 0 {
 		session := c.sessionQueue[sessionIndex]
-		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
-		return session, nil
+
+		fmt.Printf("POP SESSION --------------------------------------\n")
+		spew.Dump(session)
+
+		// c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+		// return session, nil
+
+		return nil, nil
 	}
 
 	return nil, nil

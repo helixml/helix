@@ -66,3 +66,13 @@ export interface IFileStoreConfig {
   user_prefix: string,
   folders: IFileStoreFolder[],
 }
+
+export type ISessionMode = 'inference' | 'finetune'
+
+export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
+export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
+
+export type ISessionType = 'text' | 'image'
+
+export const SESSION_TYPE_TEXT: ISessionType = 'text'
+export const SESSION_TYPE_IMAGE: ISessionType = 'image'
