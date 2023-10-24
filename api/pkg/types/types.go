@@ -71,6 +71,8 @@ type SessionFilter struct {
 	ModelName ModelName `json:"model_name"`
 	// the filestore path to the file being used for finetuning
 	FinetuneFile string `json:"finetune_file"`
+	// this means "only give me sessions that will fit in this much ram"
+	Memory uint64 `json:"memory"`
 }
 
 // passed between the api server and the controller

@@ -69,21 +69,24 @@ func NewController(
 	return controller, nil
 }
 
-func (c *Controller) Start() error {
+func (c *Controller) Initialize() error {
 	err := c.loadSessionQueues(c.Ctx)
 	if err != nil {
 		return err
 	}
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	return nil
+}
+
+// this should be run in a go-routine
+func (c *Controller) StartLooping() {
 	for {
 		select {
 		case <-c.Ctx.Done():
-			return nil
-		case <-ticker.C:
+			return
+		case <-time.After(10 * time.Second):
 			err := c.loop(c.Ctx)
 			if err != nil {
-				log.Error().Msgf("Lilypad error in controller loop: %s", err.Error())
+				log.Error().Msgf("error in controller loop: %s", err.Error())
 				debug.PrintStack()
 			}
 		}

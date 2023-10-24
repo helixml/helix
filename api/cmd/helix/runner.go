@@ -95,9 +95,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return err
 	}
 
-	if err := runnerController.Start(); err != nil {
-		return err
-	}
+	go runnerController.StartLooping()
 
 	server, err := runner.NewRunnerServer(options.Server, runnerController)
 	if err != nil {
