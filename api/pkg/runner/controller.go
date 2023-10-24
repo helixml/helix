@@ -20,6 +20,15 @@ import (
 type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
+
+	// these URLs will have the instance ID appended by the model instance
+	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/task
+	TaskURL string
+	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/response
+	ResponseURL string
+
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
 	// how many bytes of memory does our GPU have?
@@ -155,25 +164,32 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	defer r.modelMutex.Unlock()
 	log.Info().Msgf("Add global session %s", session.ID)
 	spew.Dump(session)
-	model, err := NewModelInstance(ctx, session.ModelName, session.Mode, func(res *types.WorkerTaskResponse) error {
+	model, err := NewModelInstance(
+		ctx,
+		session.ModelName,
+		session.Mode,
+		r.Options.TaskURL,
+		r.Options.ResponseURL,
+		func(res *types.WorkerTaskResponse) error {
 
-		// this function will write any task responses back to the api server for it to process
-		// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
-		// and both of these will have an interaction ID and the full, latest copy of the text
-		// the job of the api server is to ensure the existence of the instance (create or update)
-		// and replace it's message property - this is the text streaming case
-		// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
-		// and the api server is just appending to the session
-		res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
-			r.httpClientOptions,
-			"/worker/response",
-			res,
-		)
-		if err != nil {
-			return err
-		}
-		return nil
-	})
+			// this function will write any task responses back to the api server for it to process
+			// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
+			// and both of these will have an interaction ID and the full, latest copy of the text
+			// the job of the api server is to ensure the existence of the instance (create or update)
+			// and replace it's message property - this is the text streaming case
+			// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
+			// and the api server is just appending to the session
+			res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+				r.httpClientOptions,
+				"/worker/response",
+				res,
+			)
+			if err != nil {
+				return err
+			}
+			return nil
+		},
+	)
 	model.initialSession = session
 	if err != nil {
 		return err

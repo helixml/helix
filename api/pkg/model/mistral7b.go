@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -44,8 +45,19 @@ func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context, mode types.Sess
 	return nil, nil
 }
 
-func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error) {
-	return nil, nil
+func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	if mode == types.SessionModeInference {
+		cmd := exec.CommandContext(ctx, "/bin/bash", "-c")
+
+		// activate the axolotl venv
+		cmd.Dir = path.Join("..", "axolotl")
+		cmd.Args = append(cmd.Args, "source venv/bin/activate")
+		// cmd.Args = append(cmd.Args, command)
+
+		return cmd, nil
+	}
+
+	return nil, fmt.Errorf("not implemented")
 }
 
 // Compile-time interface check:
