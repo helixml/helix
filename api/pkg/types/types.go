@@ -116,34 +116,30 @@ type RunnerProcessConfig struct {
 	ResponseURL string `json:"response_url"`
 }
 
-// the api and runner parent controller will speak to each other
-// in terms of "sessions" - i.e. entities with full historical context
-// the running controller - when preparing a task for the python child
-// will convert the session into what we are calling a "prompt"
-// each model knows how to convert a full session in a text string that we feed into the
-// mode as a prompt (for example Mistral will wrap the last message with [INST][/INST])
-// the WorkerPrompt object has the result of this conversion and is the thing
-// the python code will pull in from the runner controller
-// the WorkerPrompt also contains the full session so that if the Python wants to do
-// something funky - it can by ignoring the top level prompt and interpreting the session
-// how it wants - most models python code will only use the top level fields however
+// a session will run "tasks" on runners
+// task's job is to take the most recent user interaction
+// and add a response to it in the form of a system interaction
+// the api controller will have already appended the system interaction
+// to the very end of the Session.Interactions list
+// our job is to fill in the Message and Files field of that interaction
 type WorkerTask struct {
-	SessionID string  `json:"session_id"`
-	Session   Session `json:"session"`
+	SessionID string `json:"session_id"`
 	// the string that we are calling the prompt that we will feed into the model
 	Prompt string `json:"prompt"`
 	// the path to the local files we will use for fine tuning
+	// the runner will have downloaded these from the filestore
+	// before giving this task to the python code
 	FinetuneFile string `json:"finetune_file"`
 }
 
 type WorkerTaskResponse struct {
-	// the python code MUST include these 2 fields at least
+	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	// this is filled in by the runner parent before posting back to the api
-	// the python does not need to know which interaction id it's handling
+	// this is filled in by the runner on the way back to the api
 	InteractionID string `json:"interaction_id"`
-	// the fields of an interaction that the backend python process can update
+	// which fields the python code decides to fill in here depends
+	// on what the type of model it is
 	Message string   `json:"message"` // e.g. Prove pythagoras
 	Files   []string `json:"uploads"` // list of filepath paths
 }
