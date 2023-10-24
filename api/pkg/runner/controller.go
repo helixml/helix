@@ -98,6 +98,7 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
+		activeModelInstances: map[string]*ModelInstance{},
 	}
 	return runner, nil
 }
@@ -135,12 +136,13 @@ func (r *Runner) loop(ctx context.Context) error {
 	}
 
 	if session != nil {
-		fmt.Printf("session --------------------------------------\n")
+		log.Debug().
+			Msgf("🔵 runner start model instance")
 		spew.Dump(session)
-		// err = r.createModelInstance(ctx, session)
-		// if err != nil {
-		// 	return err
-		// }
+		err = r.createModelInstance(ctx, session)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -177,7 +179,6 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	log.Info().Msgf("Add global session %s", session.ID)
 	spew.Dump(session)
 	model, err := NewModelInstance(
-		ctx,
 		session.ModelName,
 		session.Mode,
 		r.Options.TaskURL,

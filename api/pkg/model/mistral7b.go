@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"os"
 	"path"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -47,19 +48,32 @@ func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream
 
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
 	if mode == types.SessionModeInference {
-		cmd := exec.CommandContext(ctx, "/bin/bash", "-c")
-		cmd.Dir = path.Join("..", "axolotl")
-		cmd.Args = append(cmd.Args, "source venv/bin/activate;")
-		cmd.Args = append(
-			cmd.Args,
-			"python", "-u", "-m",
-			"axolotl.cli.inference",
-			"examples/mistral/qlora-instruct.yml",
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+
+		// this bash script will be in the dockerfile that we use to
+		// manage runners
+		// TODO: should this be included in the gofs and written to the FS dynamically
+		// so we can distribute a go binary if needed?
+		cmd := exec.CommandContext(
+			ctx,
+			"bash", "runner/venv_command.sh",
+				"python", "-u", "-m",
+				"axolotl.cli.inference",
+				"examples/mistral/qlora-instruct.yml",
 		)
-
-		cmd.Env = append(cmd.Env, fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL))
-		cmd.Env = append(cmd.Env, fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL))
-
+		
+		cmd.Env = []string{
+			fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
+			// fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+			// fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+		}
+			
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		
 		return cmd, nil
 	}
 
