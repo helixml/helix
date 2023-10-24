@@ -123,10 +123,10 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		session := c.sessionQueue[sessionIndex]
 
 		log.Debug().
-			Msgf("🔵 runner session query")
+			Msgf("🔵 scheduler hit query")
 		spew.Dump(filter)
 		log.Debug().
-			Msgf("🔵 runner session data")
+			Msgf("🔵 scheduler hit session")
 		spew.Dump(session)
 
 		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
