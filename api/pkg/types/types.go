@@ -61,6 +61,11 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
+type SessionFilterDeprioritize struct {
+	Mode      SessionMode `json:"mode"`
+	ModelName ModelName   `json:"model_name"`
+}
+
 type SessionFilter struct {
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
@@ -73,6 +78,11 @@ type SessionFilter struct {
 	FinetuneFile string `json:"finetune_file"`
 	// this means "only give me sessions that will fit in this much ram"
 	Memory uint64 `json:"memory"`
+
+	// the list of model name / mode combos that we should skip over
+	// on the first pass - we are allowed to return one of these types
+	// as long as we've chcked for other types first
+	Deprioritize []SessionFilterDeprioritize `json:"deprioritize"`
 }
 
 // passed between the api server and the controller

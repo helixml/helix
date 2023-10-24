@@ -2,7 +2,9 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -115,7 +117,7 @@ func (r *Runner) loop(ctx context.Context) error {
 		return err
 	}
 	if session != nil {
-		err = r.addGlobalSession(ctx, session)
+		err = r.createModelInstance(ctx, session)
 		if err != nil {
 			return err
 		}
@@ -144,7 +146,12 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 
 // we have popped the next session from the master API
 // let's create a model for it
-func (r *Runner) addGlobalSession(ctx context.Context, session *types.Session) error {
+// this means instantiating the model instance and then starting it
+// because this model consumes memory it means the global next job filter
+// will take into account the fact this model is running
+// and will add the de-prioritise filter to the next request
+// so that we get a different job type
+func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
 	log.Info().Msgf("Add global session %s", session.ID)
@@ -173,19 +180,39 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return nil, nil
 	}
 
-	// TODO: we should send a filter to the api endpoint
-	// that lists the currently running model instances
-	// and say something like "de-prioritise these models"
-	// this is to prevent us randomly allocating instances
-	// for all the same type that means other job types
-	// never get a chance to run
-	return server.GetRequest[*types.Session](
+	params := url.Values{}
+
+	// this means "only give me sessions that will fit in this much RAM"
+	params.Add("memory", fmt.Sprintf("%d", freeMemory))
+
+	// now let's loop over our running model instances and de-prioritise them
+	// we might still get sessions of this type but only if there isn't another
+	// type in the queue - this is to avoid running only one type of model
+	// because of the random order the requests arrived in
+	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
+	// before trying to run another type of model
+
+	for _, modelInstance := range r.activeModelInstances {
+		params.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+	}
+
+	buffer, err := server.GetRequestBufferWithQuery(
 		r.httpClientOptions,
 		"/worker/task",
-		map[string]string{
-			"memory": fmt.Sprintf("%d", freeMemory),
-		},
+		params,
 	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var session *types.Session
+	err = json.Unmarshal(buffer.Bytes(), &session)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
 }
 
 func (r *Runner) getUsedMemory() uint64 {

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -247,12 +249,49 @@ func (apiServer *HelixAPIServer) getWorkerTask(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	memory := uint64(0)
+	memoryString := req.URL.Query().Get("memory")
+	if memoryString != "" {
+		memory, err = strconv.ParseUint(memoryString, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// there are multiple entries for this param all of the format:
+	// model_name:mode
+	deprioritize := []types.SessionFilterDeprioritize{}
+	deprioritizePairs, ok := req.URL.Query()["deprioritize"]
+
+	if ok && len(deprioritizePairs) > 0 {
+		for _, deprioritizePair := range deprioritizePairs {
+			pair := strings.Split(deprioritizePair, ":")
+			if len(pair) != 2 {
+				return nil, fmt.Errorf("invalid deprioritize pair: %s", deprioritizePair)
+			}
+			deprioritizeModelName, err := types.ValidateModelName(pair[0], false)
+			if err != nil {
+				return nil, err
+			}
+			deprioritizeModelMode, err := types.ValidateSessionMode(pair[1], false)
+			if err != nil {
+				return nil, err
+			}
+			deprioritize = append(deprioritize, types.SessionFilterDeprioritize{
+				ModelName: deprioritizeModelName,
+				Mode:      deprioritizeModelMode,
+			})
+		}
+	}
+
 	// alow the worker to filter what tasks it wants
 	// if any of these values are defined then we will only consider those in the response
 	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), types.SessionFilter{
-		Mode:      sessionMode,
-		Type:      sessionType,
-		ModelName: modelName,
+		Mode:         sessionMode,
+		Type:         sessionType,
+		ModelName:    modelName,
+		Memory:       memory,
+		Deprioritize: deprioritize,
 	})
 	if err != nil {
 		return nil, err
