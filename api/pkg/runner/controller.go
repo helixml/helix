@@ -129,13 +129,14 @@ func (r *Runner) loop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("session --------------------------------------\n")
-	spew.Dump(session)
-	if session != nil {	
-		err = r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
+	
+	if session != nil {
+		fmt.Printf("session --------------------------------------\n")
+		spew.Dump(session)
+		// err = r.createModelInstance(ctx, session)
+		// if err != nil {
+		// 	return err
+		// }
 	}
 	
 	return nil
@@ -263,7 +264,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("next session non 200 status code: %d", resp.StatusCode)
+		return nil, nil
 	}
 
 	var buffer bytes.Buffer
