@@ -79,7 +79,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
-	id := vars["sessionid"]
+	id := vars["id"]
 
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
@@ -140,6 +140,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 	return &types.Interaction{
 		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
 		Creator:  types.CreatorTypeUser,
 		Message:  message,
 		Files:    filePaths,
@@ -225,7 +226,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	}
 
 	vars := mux.Vars(req)
-	sessionID := vars["sessionid"]
+	sessionID := vars["id"]
 	if sessionID == "" {
 		return nil, fmt.Errorf("cannot update session without id")
 	}
@@ -242,6 +243,8 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("access denied")
 	}
 
+	sessionCopy := *session
+
 	interaction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
 	if err != nil {
 		return nil, err
@@ -249,13 +252,17 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	if interaction == nil {
 		return nil, fmt.Errorf("no interaction found")
 	}
-	session.Updated = time.Now()
+	sessionCopy.Updated = time.Now()
+	sessionCopy.Interactions = append(sessionCopy.Interactions, *interaction)
 
-	session.Interactions = append(session.Interactions, *interaction)
-	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, *session)
+	log.Debug().
+		Msgf("🟢 update session")
+	spew.Dump(sessionCopy)
+
+	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, sessionCopy)
 
 	// add the session to the controller queue
-	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
+	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, &sessionCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +272,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 
 func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
-	id := vars["sessionid"]
+	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
 
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
