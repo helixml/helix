@@ -1,7 +1,6 @@
 package model
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -27,13 +26,13 @@ func GetModels() (map[types.ModelName]Model, error) {
 	return models, nil
 }
 
-func GetModelNameForSession(ctx context.Context, session *types.Session) (types.ModelName, error) {
-	if session.Type == "Image" {
+func GetModelNameForSession(sessionType types.SessionType) (types.ModelName, error) {
+	if sessionType == types.SessionTypeImage {
 		return types.Model_SDXL, nil
-	} else if session.Type == "Text" {
+	} else if sessionType == types.SessionTypeText {
 		return types.Model_Mistral7b, nil
 	}
-	return types.Model_None, fmt.Errorf("no model for session type %s", session.Type)
+	return types.Model_None, fmt.Errorf("no model for session type %s", sessionType)
 }
 
 func GetLowestMemoryRequirement() (uint64, error) {

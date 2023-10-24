@@ -3,20 +3,20 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
@@ -78,7 +78,9 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 }
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	id := req.URL.Query().Get("id")
+	vars := mux.Vars(req)
+	id := vars["sessionid"]
+
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
@@ -96,6 +98,53 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
 	return apiServer.Store.GetSessions(reqContext.Ctx, query)
+}
+
+// based on a multi-part form that has message and files
+// return a user interaction we can add to a session
+func (apiServer *HelixAPIServer) getUserInteractionFromForm(
+	req *http.Request,
+	sessionID string,
+	sessionMode types.SessionMode,
+) (*types.Interaction, error) {
+	message := req.FormValue("input")
+
+	if sessionMode == types.SessionModeInference && message == "" {
+		return nil, fmt.Errorf("inference sessions require a message")
+	}
+
+	filePaths := []string{}
+	files, okFiles := req.MultipartForm.File["files"]
+
+	if okFiles {
+		for _, fileHeader := range files {
+			file, err := fileHeader.Open()
+			if err != nil {
+				return nil, fmt.Errorf("unable to open file")
+			}
+			defer file.Close()
+			path := fmt.Sprintf("/sessions/%s", sessionID)
+			filePaths = append(filePaths, filepath.Join(path, fileHeader.Filename))
+			log.Printf("uploading file %s/%s", path, fileHeader.Filename)
+			_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
+			if err != nil {
+				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
+			}
+			log.Printf("success uploading files!")
+		}
+	}
+
+	if sessionMode == types.SessionModeFinetune && len(filePaths) == 0 {
+		return nil, fmt.Errorf("finetune sessions require some files")
+	}
+
+	return &types.Interaction{
+		ID:       system.GenerateUUID(),
+		Creator:  types.CreatorTypeUser,
+		Message:  message,
+		Files:    filePaths,
+		Finished: true,
+	}, nil
 }
 
 func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -117,51 +166,39 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	session := types.Session{
-		ID:   system.GenerateUUID(),
-		Name: system.GenerateAmusingName(),
-		Type: sessionType,
-		Mode: sessionMode,
-	}
-
-	modelName, err := model.GetModelNameForSession(reqContext.Ctx, &session)
+	modelName, err := model.GetModelNameForSession(sessionType)
 	if err != nil {
 		return nil, err
 	}
 
-	session.ModelName = modelName
+	sessionID := system.GenerateUUID()
 
-	// only allow users to create their own sessions
-	session.Owner = reqContext.Owner
-	session.OwnerType = reqContext.OwnerType
-
-	paths := []string{}
-	files := req.MultipartForm.File["files"]
-	for _, fileHeader := range files {
-		file, err := fileHeader.Open()
-		if err != nil {
-			return nil, fmt.Errorf("unable to open file")
-		}
-		defer file.Close()
-		path := fmt.Sprintf("/sessions/%s", session.ID)
-		paths = append(paths, filepath.Join(path, fileHeader.Filename))
-		log.Printf("uploading file %s/%s", path, fileHeader.Filename)
-		_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
-		if err != nil {
-			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-		}
-		log.Printf("success!")
+	interaction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
+	if err != nil {
+		return nil, err
+	}
+	if interaction == nil {
+		return nil, fmt.Errorf("no interaction found")
 	}
 
-	// so far it's a chat with one message and some uploads
-	session.Interactions = []types.Interaction{
-		{
-			Creator:  types.CreatorTypeUser,
-			Message:  req.FormValue("input"),
-			Files:    paths,
-			Finished: true,
+	session := types.Session{
+		ID:        sessionID,
+		Name:      system.GenerateAmusingName(),
+		ModelName: modelName,
+		Type:      sessionType,
+		Mode:      sessionMode,
+		Owner:     reqContext.Owner,
+		OwnerType: reqContext.OwnerType,
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Interactions: []types.Interaction{
+			*interaction,
 		},
 	}
+
+	log.Debug().
+		Msgf("🟢 new session")
+	spew.Dump(session)
 
 	// create session in database
 	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
@@ -180,31 +217,42 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 
 func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
-	request := types.Session{}
 
-	bs, err := io.ReadAll(req.Body)
-	if err != nil {
-		return nil, err
-	}
-	// TODO: consider only allow updating certain fields
-	err = json.Unmarshal(bs, &request)
+	// now upload any files that were included
+	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
 		return nil, err
 	}
 
-	if request.ID == "" {
+	vars := mux.Vars(req)
+	sessionID := vars["sessionid"]
+	if sessionID == "" {
 		return nil, fmt.Errorf("cannot update session without id")
 	}
-	if request.Owner != reqContext.Owner || request.OwnerType != reqContext.OwnerType {
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", sessionID)
+	}
+
+	if session.Owner != reqContext.Owner || session.OwnerType != reqContext.OwnerType {
 		return nil, fmt.Errorf("access denied")
 	}
-	request.Updated = time.Now()
 
-	id := mux.Vars(req)["id"]
-	if id != request.ID {
-		return nil, fmt.Errorf("id mismatch")
+	interaction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
+	if err != nil {
+		return nil, err
 	}
-	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, request)
+	if interaction == nil {
+		return nil, fmt.Errorf("no interaction found")
+	}
+	session.Updated = time.Now()
+
+	session.Interactions = append(session.Interactions, *interaction)
+	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, *session)
 
 	// add the session to the controller queue
 	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
@@ -216,8 +264,10 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 }
 
 func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["sessionid"]
 	reqContext := apiServer.getRequestContext(req)
-	id := req.URL.Query().Get("id")
+
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
