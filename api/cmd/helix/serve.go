@@ -226,9 +226,7 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 }
 
 func serve(cmd *cobra.Command, options *ServeOptions) error {
-
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: zerolog.TimeFormatUnix})
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
