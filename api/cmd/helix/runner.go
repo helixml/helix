@@ -1,9 +1,10 @@
 package helix
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
-	"fmt"
+
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog"
@@ -102,6 +103,8 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	}
 
 	go runnerController.StartLooping()
+
+	fmt.Printf("here --------------------------------------\n")
 
 	server, err := runner.NewRunnerServer(options.Server, runnerController)
 	if err != nil {

@@ -340,15 +340,21 @@ func (apiServer *HelixAPIServer) getWorkerSession(res http.ResponseWriter, req *
 		}
 	}
 
-	// alow the worker to filter what tasks it wants
-	// if any of these values are defined then we will only consider those in the response
-	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), types.SessionFilter{
+	filter := types.SessionFilter{
 		Mode:         sessionMode,
 		Type:         sessionType,
 		ModelName:    modelName,
 		Memory:       memory,
 		Deprioritize: deprioritize,
-	})
+	}
+
+	log.Debug().
+		Msgf("🔵 runner session query")
+	spew.Dump(filter)
+
+	// alow the worker to filter what tasks it wants
+	// if any of these values are defined then we will only consider those in the response
+	nextSession, err := apiServer.Controller.ShiftSessionQueue(req.Context(), filter)
 	if err != nil {
 		return nil, err
 	}
