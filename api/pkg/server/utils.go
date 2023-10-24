@@ -43,13 +43,23 @@ func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.Requ
 
 type httpWrapper[T any] func(res http.ResponseWriter, req *http.Request) (T, error)
 
+type WrapperConfig struct {
+	SilenceErrors bool
+}
+
 // wrap a http handler with some error handling
 // so if it returns an error we handle it
 func Wrapper[T any](handler httpWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
+	return WrapperWithConfig[T](handler, WrapperConfig{})
+}
+
+func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func(res http.ResponseWriter, req *http.Request) {
 	ret := func(res http.ResponseWriter, req *http.Request) {
 		data, err := handler(res, req)
 		if err != nil {
-			log.Error().Msgf("error for route: %s", err.Error())
+			if !config.SilenceErrors {
+				log.Error().Msgf("error for route: %s", err.Error())
+			}
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		} else {
