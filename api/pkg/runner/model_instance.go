@@ -191,7 +191,7 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	// reset the text stream if we have one
 	if instance.currentTextStream != nil {
 		// give the text stream enough time to get the final answer
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 1000)
 		taskResponse.Message = instance.currentTextStream.Buffer
 		instance.currentTextStream.Close(ctx)
 		instance.currentTextStream = nil
