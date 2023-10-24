@@ -18,6 +18,15 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 
+import {
+  ISessionMode,
+  ISessionType,
+  SESSION_MODE_INFERENCE,
+  SESSION_MODE_FINETUNE,
+  SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
+} from '../types'
+
 const Dashboard: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
@@ -28,9 +37,8 @@ const Dashboard: FC = () => {
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [chatHistory, setChatHistory] = useState<Array<{user: string, message: string}>>([])
-  const [selectedMode, setSelectedMode] = useState('Create')
-  const [selectedCreateType, setSelectedCreateType] = useState('Text')
-  const [selectedFineTuneType, setSelectedFineTuneType] = useState('Text')
+  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
+  const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
   const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -38,49 +46,32 @@ const Dashboard: FC = () => {
   }
 
   const onSend = async () => {
-      // const statusResult = await axios.post('/api/v1/sessions', {
-      //   files: files,
-      // })
-      try {
-        const formData = new FormData()
-        files.forEach((file) => {
-          formData.append("files", file)
-        })
+      
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
 
-        formData.set('input', inputValue)
-        formData.set('mode', selectedMode)
-        if (selectedMode == "Create") {
-          formData.set("type", selectedCreateType)
-        } else {
-          formData.set("type", selectedFineTuneType)
-        }
+    formData.set('input', inputValue)
+    formData.set('mode', selectedMode)
+    formData.set('type', selectedType)
+    
+    const response = await api.post('/api/v1/sessions', formData)
+    if(!response) return
+    account.loadSessions()
 
-        await api.post('/api/v1/sessions', formData, {
-          // params: {
-          //   path,
-          // },
-          // onUploadProgress: (progressEvent) => {
-          //   const percent = progressEvent.total && progressEvent.total > 0 ?
-          //     Math.round((progressEvent.loaded * 100) / progressEvent.total) :
-          //     0
-          //   setUploadProgress({
-          //     percent,
-          //     totalBytes: progressEvent.total || 0,
-          //     uploadedBytes: progressEvent.loaded || 0,
-          //   })
-          // }
-        }).then((response) => {
-          account.loadSessions()
-          setFiles([])
-          setInputValue("")
-          console.log("ABOUT TO NAVIGATE")
-          navigate('session', {session_id: response.id})
-          console.log("DONE NAVIGATE")
-        })
+    console.log('--------------------------------------------')
+    console.log('--------------------------------------------')
+    console.dir(response.data)
+        // setFiles([])
+        // setInputValue("")
+        // console.log("ABOUT TO NAVIGATE")
+        // navigate('session', {session_id: response.data.id})
+        // console.log("DONE NAVIGATE")
         // result = true
-      } catch(e) {
-        console.log(e)
-      }
+      // } catch(e) {
+      //   console.log(e)
+      // }
       // setUploadProgress(undefined)
       // return result
 
@@ -113,33 +104,33 @@ const Dashboard: FC = () => {
         <Grid item xs={2} md={2}>
         </Grid>
         <Grid item xs={4} md={4}>
-          <Button variant={selectedMode === 'Create' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Create')}>
+          <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_INFERENCE)}>
             Create
             <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
               <Select variant="standard"
                 labelId="create-type-select-label"
                 id="create-type-select"
-                value={selectedCreateType}
-                onChange={(event) => setSelectedCreateType(event.target.value)}
+                value={selectedType}
+                onChange={(event) => setSelectedType(event.target.value as ISessionType)}
               >
-                <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Image">Images</MenuItem>
+                <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
+                <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
               </Select>
             </FormControl>
           </Button>
         </Grid>
         <Grid item xs={4} md={4}>
-          <Button variant={selectedMode === 'Finetune' ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode('Finetune')}>
+          <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_FINETUNE)}>
             Finetune
             <FormControl sx={{minWidth: 120, marginLeft: 2}}>
               <Select variant="standard"
                 labelId="fine-tune-type-select-label"
                 id="fine-tune-type-select"
-                value={selectedFineTuneType}
-                onChange={(event) => setSelectedFineTuneType(event.target.value)}
+                value={selectedType}
+                onChange={(event) => setSelectedType(event.target.value as ISessionType)}
               >
-                <MenuItem value="Text">Text</MenuItem>
-                <MenuItem value="Image">Images</MenuItem>
+                <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
+                <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
               </Select>
             </FormControl>
           </Button>
@@ -154,7 +145,7 @@ const Dashboard: FC = () => {
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
         <Grid item xs={12} md={11}>
-          {selectedMode === 'Finetune' && selectedFineTuneType === 'Image' && (
+          {selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && (
             <FileUpload
               sx={{
                 width: '100%',
@@ -207,7 +198,13 @@ const Dashboard: FC = () => {
             <TextField
               fullWidth
               label={(
-                selectedMode === 'Create' && selectedCreateType === 'Text' ? 'Start a chat with a base Mistral-7B-Instruct model' : selectedMode === 'Create' && selectedCreateType === 'Image' ? 'Describe an image to create it with a base SDXL model' : selectedMode === 'Finetune' && selectedFineTuneType === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                selectedMode === SESSION_MODE_INFERENCE && selectedType === SESSION_TYPE_TEXT ? 
+                  'Start a chat with a base Mistral-7B-Instruct model' : 
+                  selectedMode === SESSION_MODE_INFERENCE && selectedType === SESSION_TYPE_IMAGE ? 
+                    'Describe an image to create it with a base SDXL model' : 
+                    selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT ? 
+                      'Enter question-answer pairs to fine tune a language model' :
+                      'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}

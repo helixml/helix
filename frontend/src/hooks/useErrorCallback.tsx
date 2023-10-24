@@ -5,8 +5,12 @@ import {
 } from '../contexts/snackbar'
 
 export const extractErrorMessage = (error: any): string => {
-  if(error.response && error.response.data && (error.response.data.message || error.response.data.error)) {
-    return error.response.data.message || error.response.data.error
+  if(error.response && error.response.data) {
+    if (error.response.data.message || error.response.data.error) {
+      return (error.response.data.message || error.response.data.error) as string
+    }
+    if (error.response.data) return error.response.data as string
+    return error.toString()
   }
   else {
     return error.toString()

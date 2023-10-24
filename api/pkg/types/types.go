@@ -137,10 +137,11 @@ type WorkerTask struct {
 }
 
 type WorkerTaskResponse struct {
+	// the python code MUST include these 2 fields at least
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
 	// this is filled in by the runner parent before posting back to the api
-	// it is not handled by the python process and so is not defined in the task
+	// the python does not need to know which interaction id it's handling
 	InteractionID string `json:"interaction_id"`
 	// the fields of an interaction that the backend python process can update
 	Message string   `json:"message"` // e.g. Prove pythagoras
