@@ -25,6 +25,12 @@ type ModelInstance struct {
 
 	finishChan chan bool
 
+	// these URLs will have the instance ID appended by the model instance
+	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
+	taskURL string
+	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
+	responseURL string
+
 	// we write responses to this function and they will be sent to the api
 	responseHandler func(res *types.WorkerTaskResponse) error
 
@@ -63,6 +69,14 @@ func NewModelInstance(
 	ctx context.Context,
 	modelName types.ModelName,
 	mode types.SessionMode,
+	// these URLs will have the instance ID appended by the model instance
+	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/task
+	taskURL string,
+	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/response
+	responseURL string,
+
 	responseHandler func(res *types.WorkerTaskResponse) error,
 ) (*ModelInstance, error) {
 	modelInstance, err := model.GetModel(modelName)
@@ -70,11 +84,14 @@ func NewModelInstance(
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	id := system.GenerateUUID()
 	return &ModelInstance{
-		id:              system.GenerateUUID(),
+		id:              id,
 		finishChan:      make(chan bool, 1),
 		model:           modelInstance,
 		responseHandler: responseHandler,
+		taskURL:         fmt.Sprintf("%s/%s", taskURL, id),
+		responseURL:     fmt.Sprintf("%s/%s", responseURL, id),
 		filter: types.SessionFilter{
 			ModelName: modelName,
 			Mode:      mode,
@@ -193,11 +210,17 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
 func (instance *ModelInstance) startProcess() error {
-	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter.Mode)
+	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter.Mode, types.RunnerProcessConfig{
+		InstanceID:  instance.id,
+		TaskURL:     instance.taskURL,
+		ResponseURL: instance.responseURL,
+	})
 	if err != nil {
 		return err
 	}
-
+	if cmd == nil {
+		return fmt.Errorf("no command to run")
+	}
 	go func(cmd *exec.Cmd) {
 		if err := cmd.Start(); err != nil {
 			log.Error().Msgf("Failed to start command: %v\n", err.Error())

@@ -134,3 +134,15 @@ type WorkerTaskResponse struct {
 	Message string   `json:"message"` // e.g. Prove pythagoras
 	Files   []string `json:"uploads"` // list of filepath paths
 }
+
+// the context of a long running python process
+// on a runner - this will be used to inject the env
+// into the cmd returned by the model instance.GetCommand() function
+type RunnerProcessConfig struct {
+	// the id of the model instance
+	InstanceID string `json:"instance_id"`
+	// the URL to ask for more tasks
+	TaskURL string `json:"task_url"`
+	// the URL to send responses to
+	ResponseURL string `json:"response_url"`
+}

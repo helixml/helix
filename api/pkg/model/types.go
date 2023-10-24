@@ -28,5 +28,5 @@ type Model interface {
 	// this relies on the axotl and sd-script repos existing
 	// at the same level as the helix - and the weights downloaded
 	// we are either booting for inference or fine-tuning
-	GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error)
+	GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error)
 }

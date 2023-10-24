@@ -37,8 +37,8 @@ func (l *SDXL) GetTextStream(ctx context.Context, mode types.SessionMode) (*Text
 	return nil, nil
 }
 
-func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode) (*exec.Cmd, error) {
-	return nil, nil
+func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 // Compile-time interface check:
