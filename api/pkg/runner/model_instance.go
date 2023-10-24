@@ -101,57 +101,57 @@ func NewModelInstance(
 	}, nil
 }
 
+// this is the loading of a session onto a running model instance
+// it gets the text stream setup if the model returns one
+// and generally initializes a new task to be run on the model
+// it also returns the task that will be fed down into the python code to execute
 func (instance *ModelInstance) assignCurrentSession(session *types.Session) (*types.WorkerTask, error) {
+	if instance.textStreamCancelFunc != nil {
+		instance.textStreamCancelFunc()
+		instance.textStreamCancelFunc = nil
+	}
 	instance.currentSession = session
 	instance.currentInteractionID = system.GenerateUUID()
-	task, err := instance.model.GetTask(instance.ctx, session)
+
+	textStream, err := instance.model.GetTextStream(instance.filter.Mode)
+	if err != nil {
+		return nil, err
+	}
+
+	if textStream != nil {
+		ctx, cancel := context.WithCancel(instance.ctx)
+		instance.textStreamCancelFunc = cancel
+		instance.currentTextStream = textStream
+
+		go textStream.Start(ctx)
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-textStream.Output:
+					err := instance.responseHandler(&types.WorkerTaskResponse{
+						Type:          types.WorkerTaskResponseTypeStream,
+						SessionID:     instance.currentSession.ID,
+						InteractionID: instance.currentInteractionID,
+						Message:       textStream.Buffer,
+					})
+					if err != nil {
+						log.Error().Msgf("Error sending WorkerTaskResponse: %s", err.Error())
+					}
+				}
+			}
+		}()
+	}
+
+	task, err := instance.model.GetTask(session)
 	if err != nil {
 		return nil, err
 	}
 	return task, nil
 }
 
-func (instance *ModelInstance) openTextStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
-	if instance.currentSession == nil {
-		return fmt.Errorf("no current session")
-	}
-	if instance.textStreamCancelFunc != nil {
-		instance.textStreamCancelFunc()
-		instance.textStreamCancelFunc = nil
-	}
-
-	textStream, err := instance.model.GetTextStream(ctx, instance.filter.Mode)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(instance.ctx)
-	instance.textStreamCancelFunc = cancel
-	instance.currentTextStream = textStream
-
-	go textStream.Start(ctx)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-textStream.Output:
-				err := instance.responseHandler(&types.WorkerTaskResponse{
-					Type:          types.WorkerTaskResponseTypeStreamContinue,
-					SessionID:     instance.currentSession.ID,
-					InteractionID: instance.currentInteractionID,
-					Message:       textStream.Buffer,
-				})
-				if err != nil {
-					log.Error().Msgf("Error sending WorkerTaskResponse: %s", err.Error())
-				}
-			}
-		}
-	}()
-	return nil
-}
-
-func (instance *ModelInstance) continueTextStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
+func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
 	if instance.currentSession == nil {
 		return fmt.Errorf("no current session")
 	}
@@ -165,27 +165,6 @@ func (instance *ModelInstance) continueTextStream(ctx context.Context, taskRespo
 	return nil
 }
 
-func (instance *ModelInstance) closeTextStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
-	if instance.currentSession == nil {
-		return fmt.Errorf("no current session")
-	}
-	if instance.currentInteractionID == "" {
-		return fmt.Errorf("no current interaction ID")
-	}
-	if instance.currentTextStream == nil {
-		return fmt.Errorf("no text stream to close")
-	}
-	if instance.textStreamCancelFunc == nil {
-		return fmt.Errorf("no text stream function to close")
-	}
-
-	instance.textStreamCancelFunc()
-	instance.textStreamCancelFunc = nil
-	instance.currentTextStream = nil
-
-	return nil
-}
-
 func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
 	if instance.currentSession == nil {
 		return fmt.Errorf("no current session")
@@ -193,7 +172,26 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	if instance.currentInteractionID == "" {
 		return fmt.Errorf("no current interaction ID")
 	}
+	if taskResponse.SessionID == "" {
+		return fmt.Errorf("no session ID")
+	}
+	if taskResponse.SessionID != instance.currentSession.ID {
+		return fmt.Errorf("session ID mismatch")
+	}
+
+	// reset the text stream if we have one
+	if instance.currentTextStream != nil && instance.textStreamCancelFunc != nil {
+		instance.textStreamCancelFunc()
+		instance.textStreamCancelFunc = nil
+		instance.currentTextStream = nil
+	}
+
+	// we update the timeout timestamp
 	instance.lastJobCompletedTimestamp = time.Now().Unix()
+
+	// inject the interaction ID into the response
+	// this means the python code never needs to worry about
+	// feeding interaction ids back to us
 	taskResponseCopy := *taskResponse
 	taskResponseCopy.InteractionID = instance.currentInteractionID
 

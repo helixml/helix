@@ -342,20 +342,8 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
 	switch {
-	case taskResponse.Type == types.WorkerTaskResponseTypeStreamOpen:
-		err := modelInstance.openTextStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error opening text stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeStreamContinue:
-		err := modelInstance.continueTextStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error opening text stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeStreamClose:
-		err := modelInstance.closeTextStream(ctx, taskResponse)
+	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
+		err := modelInstance.handleStream(ctx, taskResponse)
 		if err != nil {
 			log.Error().Msgf("error opening text stream: %s", err.Error())
 			return nil, err

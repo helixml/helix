@@ -23,7 +23,7 @@ func (l *SDXL) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
-func (l *SDXL) GetTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
+func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
@@ -33,7 +33,7 @@ func (l *SDXL) GetTask(ctx context.Context, session *types.Session) (*types.Work
 	}, nil
 }
 
-func (l *SDXL) GetTextStream(ctx context.Context, mode types.SessionMode) (*TextStream, error) {
+func (l *SDXL) GetTextStream(mode types.SessionMode) (*TextStream, error) {
 	return nil, nil
 }
 

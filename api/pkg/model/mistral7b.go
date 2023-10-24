@@ -24,7 +24,7 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
+func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask, error) {
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
@@ -34,7 +34,7 @@ func (l *Mistral7bInstruct01) GetTask(ctx context.Context, session *types.Sessio
 	}, nil
 }
 
-func (l *Mistral7bInstruct01) GetTextStream(ctx context.Context, mode types.SessionMode) (*TextStream, error) {
+func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream, error) {
 	if mode == types.SessionModeInference {
 		return NewTextStream(
 			splitOnSpace,
