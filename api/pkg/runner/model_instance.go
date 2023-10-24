@@ -137,12 +137,12 @@ func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session
 				select {
 				case <-textStream.Closed:
 					return
-				case <-textStream.Output:
+				case msg := <-textStream.Output:
 					err := instance.responseHandler(&types.WorkerTaskResponse{
 						Type:          types.WorkerTaskResponseTypeStream,
 						SessionID:     instance.currentSession.ID,
 						InteractionID: interactionID,
-						Message:       textStream.Buffer,
+						Message:       msg,
 					})
 					if err != nil {
 						log.Error().Msgf("Error sending WorkerTaskResponse: %s", err.Error())
@@ -190,6 +190,9 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 
 	// reset the text stream if we have one
 	if instance.currentTextStream != nil {
+		// give the text stream enough time to get the final answer
+		time.Sleep(time.Millisecond * 100)
+		taskResponse.Message = instance.currentTextStream.Buffer
 		instance.currentTextStream.Close(ctx)
 		instance.currentTextStream = nil
 	}
