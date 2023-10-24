@@ -18,6 +18,7 @@ type TextStream struct {
 	ignore   string
 	Buffer   string
 	Output   chan string
+	Closed   chan bool
 }
 
 func NewTextStream(
@@ -34,6 +35,7 @@ func NewTextStream(
 		ignore:   ignore,
 		Buffer:   "",
 		Output:   make(chan string),
+		Closed:   make(chan bool),
 	}
 	return stream
 }
@@ -66,5 +68,14 @@ func (stream *TextStream) Start(ctx context.Context) {
 }
 
 func (stream *TextStream) Close(ctx context.Context) error {
-	return stream.reader.Close()
+	err := stream.reader.Close()
+	if err != nil {
+		return err
+	}
+	err = stream.writer.Close()
+	if err != nil {
+		return err
+	}
+	stream.Closed <- true
+	return nil
 }
