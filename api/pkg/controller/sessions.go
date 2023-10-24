@@ -5,9 +5,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -136,7 +138,15 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		}
 
 		// update the runner id on the last interaction
-		session.Interactions[len(session.Interactions)-1].Runner = runnerID
+		session.Interactions = append(session.Interactions, types.Interaction{
+			ID:       system.GenerateUUID(),
+			Created:  time.Now(),
+			Creator:  types.CreatorTypeSystem,
+			Message:  "",
+			Files:    []string{},
+			Finished: false,
+			Runner:   runnerID,
+		})
 
 		_, err := c.Options.Store.UpdateSession(ctx, *session)
 		if err != nil {
@@ -197,8 +207,13 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 			break
 		}
 	}
+
 	if targetInteraction == nil {
 		return nil, fmt.Errorf("interaction not found: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
+	}
+
+	if targetInteraction.Creator == types.CreatorTypeUser {
+		return nil, fmt.Errorf("interaction is not a system interaction cannot update: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
 	}
 
 	// mark the interaction as complete if we are a fully finished response
@@ -215,6 +230,20 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 	if taskResponse.Files != nil {
 		targetInteraction.Files = taskResponse.Files
 	}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == targetInteraction.ID {
+			newInteractions = append(newInteractions, *targetInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	session.Interactions = newInteractions
+
+	fmt.Printf("update session --------------------------------------\n")
+	spew.Dump(session)
 
 	_, err = c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
