@@ -5,11 +5,9 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -137,22 +135,6 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, fmt.Errorf("no interactions found")
 		}
 
-		// update the runner id on the last interaction
-		session.Interactions = append(session.Interactions, types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Creator:  types.CreatorTypeSystem,
-			Message:  "",
-			Files:    []string{},
-			Finished: false,
-			Runner:   runnerID,
-		})
-
-		_, err := c.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
-			return nil, err
-		}
-
 		return session, nil
 	}
 
@@ -223,7 +205,11 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	// update the message if we've been given one
 	if taskResponse.Message != "" {
-		targetInteraction.Message = taskResponse.Message
+		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+			targetInteraction.Message = taskResponse.Message
+		} else if taskResponse.Type == types.WorkerTaskResponseTypeStream {
+			targetInteraction.Message += taskResponse.Message
+		}
 	}
 
 	// update the files if there are some
