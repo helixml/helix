@@ -7,7 +7,6 @@ import (
 
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -78,7 +77,7 @@ func newRunnerCmd() *cobra.Command {
 }
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: zerolog.TimeFormatUnix})
+	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()

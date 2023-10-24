@@ -5,11 +5,11 @@ package controller
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // set to false in production (will log messages to web UI)
@@ -117,13 +117,15 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	if sessionIndex >= 0 {
 		session := c.sessionQueue[sessionIndex]
 
-		fmt.Printf("POP SESSION --------------------------------------\n")
+		log.Debug().
+			Msgf("🔵 runner session query")
+		spew.Dump(filter)
+		log.Debug().
+			Msgf("🔵 runner session data")
 		spew.Dump(session)
 
-		// c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
-		// return session, nil
-
-		return nil, nil
+		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+		return session, nil
 	}
 
 	return nil, nil
