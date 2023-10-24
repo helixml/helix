@@ -24,6 +24,7 @@ func NewRunnerOptions() *RunnerOptions {
 			ApiToken:     getDefaultServeOptionString("API_URL", ""),
 			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
+			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 60 * 3),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -68,6 +69,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.MemoryString, "memory", allOptions.Runner.MemoryString,
 		`Short notation for the amount of GPU memory available - e.g. 1GB`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.ModelInstanceTimeoutSeconds, "timeout-seconds", allOptions.Runner.ModelInstanceTimeoutSeconds,
+		`How many seconds without a task before we shutdown a running model instance`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(

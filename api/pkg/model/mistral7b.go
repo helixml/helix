@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/davecgh/go-spew/spew"
 )
 
 type Mistral7bInstruct01 struct {
@@ -64,11 +65,11 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.Session
 				"axolotl.cli.inference",
 				"examples/mistral/qlora-instruct.yml",
 		)
-		
+
 		cmd.Env = []string{
 			fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
-			// fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
-			// fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+			fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+			fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 		}
 			
 		cmd.Stdout = os.Stdout
