@@ -24,7 +24,9 @@ func NewRunnerOptions() *RunnerOptions {
 			ApiToken:     getDefaultServeOptionString("API_URL", ""),
 			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
-			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 60),
+			// TODO: this is currently very quick to unload a model
+			// this is so we can test quickly
+			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
