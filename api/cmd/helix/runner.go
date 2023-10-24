@@ -3,7 +3,7 @@ package helix
 import (
 	"os"
 	"os/signal"
-
+	"fmt"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog"
@@ -35,7 +35,7 @@ func newRunnerCmd() *cobra.Command {
 	allOptions := NewRunnerOptions()
 
 	runnerCmd := &cobra.Command{
-		Use:     "serve",
+		Use:     "runner",
 		Short:   "Start a helix runner.",
 		Long:    "Start a helix runner.",
 		Example: "TBD",
@@ -89,6 +89,12 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// Context ensures main goroutine waits until killed with ctrl+c:
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
+
+	// we will append the instance ID onto these paths
+	// because it's a model_instance that will spawn Python
+	// processes that will then speak back to these routes
+	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/task", options.Server.Port)
+	options.Runner.ResponseURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/response", options.Server.Port)
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
