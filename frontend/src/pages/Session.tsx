@@ -19,6 +19,11 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 
+import {
+  SESSION_TYPE_TEXT,
+  SESSION_CREATOR_SYSTEM,
+} from '../types'
+
 const Session: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
@@ -74,15 +79,35 @@ const Session: FC = () => {
         <Grid item xs={12} md={12}>
           <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
           <br />
-          {session?.interactions.map((interaction: any) => (
-            <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
-              <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
-                <Typography dangerouslySetInnerHTML={{__html: interaction.message.replace(/\n/g, '<br/>')}}></Typography>
-              </Box>
-            </Box>
-          ))}
+          {
+            session?.interactions.map((interaction: any, i: number) => {
+              
+              let displayMessage = ''
+
+              if(session.type == SESSION_TYPE_TEXT) {
+                const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+                displayMessage = interaction.message
+
+                if(!displayMessage && isLoading) {
+                  displayMessage = '🤔'
+                }
+              }
+
+              return (
+                <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
+                  <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
+                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
+                    {
+                      session.type == SESSION_TYPE_TEXT && (
+                        <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
+                      )
+                    }
+                  </Box>
+                </Box>
+              )   
+            })
+          }
         </Grid>
       </Grid>
       <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
