@@ -1,10 +1,13 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
+	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -47,7 +50,7 @@ type Runner struct {
 
 	httpClientOptions server.ClientOptions
 
-	modelMutex sync.Mutex
+	modelMutex sync.RWMutex
 	// the map of model instances that we have loaded
 	// and are currently running
 	activeModelInstances map[string]*ModelInstance
@@ -112,9 +115,6 @@ func (r *Runner) StartLooping() {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
-	log.Debug().
-		Msgf("🔵 runner loop")
-
 	// check for running model instances that have not seen a job in a while
 	// and kill them if they are over the timeout
 	// TODO: get the timeout to be configurable from the api and so dynamic
@@ -123,17 +123,21 @@ func (r *Runner) loop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	// ask the api server if it currently has any work based on our free memory
 	session, err := r.getNextGlobalSession(ctx)
 	if err != nil {
 		return err
 	}
-	if session != nil {
+	fmt.Printf("session --------------------------------------\n")
+	spew.Dump(session)
+	if session != nil {	
 		err = r.createModelInstance(ctx, session)
 		if err != nil {
 			return err
 		}
 	}
+	
 	return nil
 }
 
@@ -217,8 +221,6 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
 func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
 	freeMemory := r.getFreeMemory()
 
 	if freeMemory < r.lowestMemoryRequirement {
@@ -227,10 +229,10 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return nil, nil
 	}
 
-	params := url.Values{}
+	queryParams := url.Values{}
 
 	// this means "only give me sessions that will fit in this much RAM"
-	params.Add("memory", fmt.Sprintf("%d", freeMemory))
+	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
 
 	// now let's loop over our running model instances and de-prioritise them
 	// we might still get sessions of this type but only if there isn't another
@@ -240,15 +242,32 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// before trying to run another type of model
 
 	for _, modelInstance := range r.activeModelInstances {
-		params.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+		queryParams.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
 	}
 
-	buffer, err := server.GetRequestBufferWithQuery(
-		r.httpClientOptions,
-		"/worker/nextsession",
-		params,
-	)
+	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, "/worker/nextsession"))
+	parsedURL.RawQuery = queryParams.Encode()
 
+	req, err := http.NewRequest("GET", parsedURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.httpClientOptions.Token))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("next session non 200 status code: %d", resp.StatusCode)
+	}
+
+	var buffer bytes.Buffer
+	_, err = io.Copy(&buffer, resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +282,8 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 }
 
 func (r *Runner) getUsedMemory() uint64 {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
+	r.modelMutex.RLock()
+	defer r.modelMutex.RUnlock()
 	memoryUsed := uint64(0)
 	for _, modelInstance := range r.activeModelInstances {
 		memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
