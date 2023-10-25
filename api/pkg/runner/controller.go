@@ -198,10 +198,6 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		// into the filestore
 		// TODO: support the tar feature above
 		func(res *types.WorkerTaskResponse) error {
-
-			log.Debug().Msgf("🟠 Sending task response %s", session.ID)
-			spew.Dump(res)
-
 			if len(res.Files) > 0 {
 				// create a new multipart form
 				body := &bytes.Buffer{}
@@ -234,7 +230,9 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 					return err
 				}
 
-				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/response/session/%s/upload", r.Options.ID, session.ID))
+				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
+
+				log.Debug().Msgf("🟠 upload files %s", url)
 
 				// create a new POST request with the multipart form as the body
 				req, err := http.NewRequest("POST", url, body)
@@ -276,6 +274,9 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 
 				res.Files = mappedFiles
 			}
+
+			log.Debug().Msgf("🟠 Sending task response %s", session.ID)
+			spew.Dump(res)
 
 			// this function will write any task responses back to the api server for it to process
 			// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
