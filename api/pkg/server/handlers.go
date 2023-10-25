@@ -77,6 +77,45 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 	return true, nil
 }
 
+// TODO: this need auth because right now it's an open filestore
+func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+	vars := mux.Vars(req)
+	sessionid := vars["sessionid"]
+
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
+	if err != nil {
+		return nil, err
+	}
+
+	reqContext := types.RequestContext{
+		Ctx:       req.Context(),
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	}
+
+	result := []filestore.FileStoreItem{}
+	files := req.MultipartForm.File["files"]
+	for _, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, fmt.Errorf("unable to open file")
+		}
+		defer file.Close()
+		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join("results", session.ID, fileHeader.Filename), file)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
+		}
+		result = append(result, item)
+	}
+
+	return result, nil
+}
+
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]

@@ -6,14 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/inhies/go-bytesize"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -188,10 +191,91 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		session.Mode,
 		r.Options.TaskURL,
 		r.Options.ResponseURL,
+
+		// this function will convert any files it sees locally into an upload
+		// to the api server filestore - all files will be written to the filestore
+		// under a session sub path - you can include tar files and they will untarred at the other end
+		// into the filestore
+		// TODO: support the tar feature above
 		func(res *types.WorkerTaskResponse) error {
 
 			log.Debug().Msgf("🟠 Sending task response %s", session.ID)
 			spew.Dump(res)
+
+			if len(res.Files) > 0 {
+				// create a new multipart form
+				body := &bytes.Buffer{}
+				writer := multipart.NewWriter(body)
+
+				// loop over each file and add it to the form
+				for _, filepath := range res.Files {
+					file, err := os.Open(filepath)
+					if err != nil {
+						return err
+					}
+					defer file.Close()
+
+					// create a new form field for the file
+					part, err := writer.CreateFormFile("files", filepath)
+					if err != nil {
+						return err
+					}
+
+					// copy the file contents into the form field
+					_, err = io.Copy(part, file)
+					if err != nil {
+						return err
+					}
+				}
+
+				// close the multipart form
+				err := writer.Close()
+				if err != nil {
+					return err
+				}
+
+				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/response/session/%s/upload", r.Options.ID, session.ID))
+
+				// create a new POST request with the multipart form as the body
+				req, err := http.NewRequest("POST", url, body)
+				if err != nil {
+					return err
+				}
+				req.Header.Set("Content-Type", writer.FormDataContentType())
+
+				// send the request
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+
+				// handle the response
+				if resp.StatusCode != http.StatusOK {
+					return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+				}
+
+				var data []filestore.FileStoreItem
+				resultBody, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return err
+				}
+
+				// parse body as json into result
+				err = json.Unmarshal(resultBody, &data)
+				if err != nil {
+					return err
+				}
+
+				mappedFiles := []string{}
+
+				for _, fileItem := range data {
+					mappedFiles = append(mappedFiles, fileItem.URL)
+				}
+
+				res.Files = mappedFiles
+			}
 
 			// this function will write any task responses back to the api server for it to process
 			// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult

@@ -213,6 +213,11 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	taskResponseCopy := *taskResponse
 	taskResponseCopy.InteractionID = interactionID
 
+	// now we pass the response through the model handler
+	// this gives each model a chance to process the result
+	// for example, the SDXL model will upload the files to the filestore
+	// and turn them into full URLs that can be displayed in the UI
+
 	err = instance.responseHandler(&taskResponseCopy)
 	if err != nil {
 		return err
