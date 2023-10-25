@@ -1,5 +1,6 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import axios from 'axios'
+import { styled } from '@mui/system'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -7,6 +8,7 @@ import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Link from '@mui/material/Link'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import InputLabel from '@mui/material/InputLabel'
@@ -19,13 +21,14 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
 } from '../types'
+
+const GeneratedImage = styled('img')()
 
 const Session: FC = () => {
   const filestore = useFilestore()
@@ -78,6 +81,8 @@ const Session: FC = () => {
     }
   }
 
+  console.dir(session)
+
   useEffect(() => {
     if(!session) return
     const divElement = divRef.current
@@ -114,6 +119,7 @@ const Session: FC = () => {
             session?.interactions.map((interaction: any, i: number) => {
               
               let displayMessage = ''
+              let imageURLs = []
               const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
 
               if(session.type == SESSION_TYPE_TEXT) {
@@ -130,6 +136,8 @@ const Session: FC = () => {
                 
                 if(isLoading) {
                   displayMessage = '🤔'
+                } else if(interaction.files && interaction.files.length > 0) {
+                  imageURLs = interaction.files
                 }
               }
 
@@ -142,6 +150,34 @@ const Session: FC = () => {
                       displayMessage && (
                         <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
                       )
+                    }
+                    {
+                      imageURLs.map((imageURL: string) => {
+                        return (
+                          <Box
+                            sx={{
+                              mt: 2,
+                            }}
+                            key={ imageURL }
+                          >
+                            <Link
+                              href={ imageURL }
+                              target="_blank"
+                            >
+                              <GeneratedImage
+                                sx={{
+                                  height: '600px',
+                                  maxHeight: '600px',
+                                  border: '1px solid #000000',
+                                  filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
+                                }}
+                                src={ imageURL }
+                              />  
+                            </Link>
+                          </Box>
+                        )
+                        
+                      })
                     }
                   </Box>
                 </Box>

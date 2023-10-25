@@ -234,7 +234,9 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 					return err
 				}
 
-				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/response/session/%s/upload", r.Options.ID, session.ID))
+				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
+
+				log.Debug().Msgf("🟠 upload files %s", url)
 
 				// create a new POST request with the multipart form as the body
 				req, err := http.NewRequest("POST", url, body)
@@ -469,13 +471,13 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
 		err := modelInstance.handleStream(ctx, taskResponse)
 		if err != nil {
-			log.Error().Msgf("error opening text stream: %s", err.Error())
+			log.Error().Msgf("error handling stream: %s", err.Error())
 			return nil, err
 		}
 	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
 		err := modelInstance.handleResult(ctx, taskResponse)
 		if err != nil {
-			log.Error().Msgf("error opening text stream: %s", err.Error())
+			log.Error().Msgf("error handling job result: %s", err.Error())
 			return nil, err
 		}
 	}
