@@ -12,7 +12,7 @@ const Disclaimer: FC<{
   const themeConfig = useThemeConfig()
 
   return (
-    <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
+    <Container maxWidth={'xl'}>
       <Typography variant="body2" color="text.secondary" align="center">
         {'Open source models may produce inaccurate information about people, places, or facts. Created by '}
         <Link color="inherit" href={ themeConfig.url }>
