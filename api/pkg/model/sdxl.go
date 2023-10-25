@@ -3,7 +3,9 @@ package model
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
@@ -59,9 +61,9 @@ func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config ty
 			"bash", "runner/venv_command.sh",
 			"accelerate", "launch",
 			"--num_cpu_threads_per_process", "1",
-				"sdxl_minimal_inference.py",
-				"--ckpt_path=sdxl/sd_xl_base_1.0.safetensors",
-				"--output_dir=./output_images"
+			"sdxl_minimal_inference.py",
+			"--ckpt_path=sdxl/sd_xl_base_1.0.safetensors",
+			"--output_dir=./output_images",
 		)
 
 		cmd.Env = []string{
