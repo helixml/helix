@@ -9,14 +9,10 @@ import Container from '@mui/material/Container'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
-import MenuItem from '@mui/material/MenuItem'
-import Select from '@mui/material/Select'
-import InputLabel from '@mui/material/InputLabel'
-import FormControl from '@mui/material/FormControl'
+import LinearProgress from '@mui/material/LinearProgress'
 import useFilestore from '../hooks/useFilestore'
-import FileUpload from '../components/widgets/FileUpload'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Disclaimer from '../components/widgets/Disclaimer'
+import Progress from '../components/widgets/Progress'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -122,8 +118,9 @@ const Session: FC = () => {
             session?.interactions.map((interaction: any, i: number) => {
               
               let displayMessage = ''
+              let progress = 0
               let imageURLs = []
-              const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+              let isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
 
               if(session.type == SESSION_TYPE_TEXT) {
                 displayMessage = interaction.message
@@ -131,27 +128,37 @@ const Session: FC = () => {
                   displayMessage = '🤔'
                 }
               } else if(session.type == SESSION_TYPE_IMAGE) {
-                const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
-
                 if(interaction.creator == SESSION_CREATOR_USER) {
                   displayMessage = interaction.message
                 }
-                
-                if(isLoading) {
-                  displayMessage = '🤔'
-                } else if(interaction.files && interaction.files.length > 0) {
-                  imageURLs = interaction.files
+                else {
+                  if(isLoading) {
+                    if(interaction.progress > 0) {
+                      progress = interaction.progress
+                    } else {
+                      displayMessage = '🤔'
+                    }
+                  } else if(interaction.files && interaction.files.length > 0) {
+                    imageURLs = interaction.files
+                  }
                 }
               }
 
               return (
                 <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
                   <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
                     {
                       displayMessage && (
                         <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
+                      )
+                    }
+                    {
+                      progress > 0 && (
+                        <Progress
+                          progress={ progress }
+                        />
                       )
                     }
                     {
