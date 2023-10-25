@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import React, { FC, useState, useCallback, useMemo } from 'react'
 import axios from 'axios'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -74,12 +74,29 @@ const Session: FC = () => {
   }
 
   return (
-    <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
-      <Grid container spacing={3} direction="row" justifyContent="flex-start">
-        <Grid item xs={12} md={12}>
+    
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Box
+        sx={{
+          width: '100%',
+          flexGrow: 1,
+          overflowY: 'auto',
+          p: 2,
+        }}
+      >
+        <Container maxWidth="lg">
           <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
           <br />
-          {
+            {
             session?.interactions.map((interaction: any, i: number) => {
               
               let displayMessage = ''
@@ -108,60 +125,30 @@ const Session: FC = () => {
               )   
             })
           }
-        </Grid>
-      </Grid>
-      <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
-        <Grid item xs={12} md={11}>
-          {session?.mode === 'Finetune' && session?.type === 'Image' && (
-            <FileUpload
-              sx={{
-                width: '100%',
-                mt: 2,
-              }}
-              onUpload={ onUpload }
-            >
-              <Button
-                sx={{
-                  width: '100%',
-                }}
-                variant="contained"
-                color="secondary"
-                endIcon={<CloudUploadIcon />}
-              >
-                Upload Files
-              </Button>
-              <Box
-                sx={{
-                  border: '1px dashed #ccc',
-                  p: 2,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '100px',
-                  cursor: 'pointer',
-                  mb: 2,
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: '#999'
-                  }}
-                  variant="caption"
-                >
-                  drop files here to upload them ...
-                  {
-                    files.length > 0 && files.map((file) => (
-                      <Typography key={file.name}>
-                        {file.name} ({file.size} bytes) - {file.type}
-                      </Typography>
-                    ))
-                  }
-                </Typography>
-              </Box>
-            </FileUpload> )}
-        </Grid>
-        <Grid item xs={12} md={11}>
+        </Container>
+      </Box>
+      <Box
+        sx={{
+          width: '100%',
+          flexGrow: 0,
+          p: 2,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Container maxWidth="lg">
+          <Box
+            sx={{
+              width: '100%',
+              flexGrow: 0,
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <TextField
               fullWidth
               label={(
@@ -175,20 +162,138 @@ const Session: FC = () => {
               multiline={true}
               onKeyDown={handleKeyDown}
             />
-          </Grid>
-        <Grid item xs={12} md={1}>
-          <Button
-            variant='contained'
-            disabled={loading}
-            onClick={ onSend }
-            sx={{ ml: 2 }}
-          >
-            Send
-          </Button>
-        </Grid>
-      </Grid>
-    </Container>
+            <Button
+              variant='contained'
+              disabled={loading}
+              onClick={ onSend }
+              sx={{ ml: 2 }}
+            >
+              Send
+            </Button>
+          </Box>
+        </Container>
+        
+      </Box>
+
+    </Box>
   )
+
+  // return (
+  //   <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden', height: '100%', maxHeight: '100%', overflowY: 'auto' }}>
+  //     <Grid container spacing={3} direction="row" justifyContent="flex-start">
+  //       <Grid item xs={12} md={12}>
+  //         <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
+  //         <br />
+  //         {
+  //           session?.interactions.map((interaction: any, i: number) => {
+              
+  //             let displayMessage = ''
+
+  //             if(session.type == SESSION_TYPE_TEXT) {
+  //               const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+  //               displayMessage = interaction.message
+
+  //               if(!displayMessage && isLoading) {
+  //                 displayMessage = '🤔'
+  //               }
+  //             }
+
+  //             return (
+  //               <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
+  //                 <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
+  //                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+  //                   <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
+  //                   {
+  //                     session.type == SESSION_TYPE_TEXT && (
+  //                       <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
+  //                     )
+  //                   }
+  //                 </Box>
+  //               </Box>
+  //             )   
+  //           })
+  //         }
+  //       </Grid>
+  //     </Grid>
+  //     <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
+  //       <Grid item xs={12} md={11}>
+  //         {session?.mode === 'Finetune' && session?.type === 'Image' && (
+  //           <FileUpload
+  //             sx={{
+  //               width: '100%',
+  //               mt: 2,
+  //             }}
+  //             onUpload={ onUpload }
+  //           >
+  //             <Button
+  //               sx={{
+  //                 width: '100%',
+  //               }}
+  //               variant="contained"
+  //               color="secondary"
+  //               endIcon={<CloudUploadIcon />}
+  //             >
+  //               Upload Files
+  //             </Button>
+  //             <Box
+  //               sx={{
+  //                 border: '1px dashed #ccc',
+  //                 p: 2,
+  //                 display: 'flex',
+  //                 flexDirection: 'row',
+  //                 alignItems: 'center',
+  //                 justifyContent: 'center',
+  //                 minHeight: '100px',
+  //                 cursor: 'pointer',
+  //                 mb: 2,
+  //               }}
+  //             >
+  //               <Typography
+  //                 sx={{
+  //                   color: '#999'
+  //                 }}
+  //                 variant="caption"
+  //               >
+  //                 drop files here to upload them ...
+  //                 {
+  //                   files.length > 0 && files.map((file) => (
+  //                     <Typography key={file.name}>
+  //                       {file.name} ({file.size} bytes) - {file.type}
+  //                     </Typography>
+  //                   ))
+  //                 }
+  //               </Typography>
+  //             </Box>
+  //           </FileUpload> )}
+  //       </Grid>
+  //       <Grid item xs={12} md={11}>
+  //           <TextField
+  //             fullWidth
+  //             label={(
+  //               session?.mode === 'inference' && session?.type === 'text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'inference' && session?.type === 'image' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+  //               ) + " (shift+enter to send)"
+  //             }
+  //             value={inputValue}
+  //             disabled={loading}
+  //             onChange={handleInputChange}
+  //             name="ai_submit"
+  //             multiline={true}
+  //             onKeyDown={handleKeyDown}
+  //           />
+  //         </Grid>
+  //       <Grid item xs={12} md={1}>
+  //         <Button
+  //           variant='contained'
+  //           disabled={loading}
+  //           onClick={ onSend }
+  //           sx={{ ml: 2 }}
+  //         >
+  //           Send
+  //         </Button>
+  //       </Grid>
+  //     </Grid>
+  //   </Container>
+  // )
 }
 
 export default Session
