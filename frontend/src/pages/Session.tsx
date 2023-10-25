@@ -87,7 +87,10 @@ const Session: FC = () => {
     if(!session) return
     const divElement = divRef.current
     if(!divElement) return
-    divElement.scrollTop = divElement.scrollHeight;
+    divElement.scrollTo({
+      top: divElement.scrollHeight - divElement.clientHeight,
+      behavior: "smooth"
+    })
   }, [
     session,
   ])

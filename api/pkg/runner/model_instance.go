@@ -182,6 +182,30 @@ func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *t
 	return nil
 }
 
+func (instance *ModelInstance) handleProgress(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
+	if instance.currentSession == nil {
+		return fmt.Errorf("no current session")
+	}
+	if taskResponse.SessionID == "" {
+		return fmt.Errorf("no session ID")
+	}
+	if taskResponse.SessionID != instance.currentSession.ID {
+		return fmt.Errorf("session ID mismatch")
+	}
+	instance.lastActivityTimestamp = time.Now().Unix()
+	interactionID, err := getLastInteractionID(instance.currentSession)
+	if err != nil {
+		return err
+	}
+	taskResponseCopy := *taskResponse
+	taskResponseCopy.InteractionID = interactionID
+	err = instance.responseHandler(&taskResponseCopy)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
 	if instance.currentSession == nil {
 		return fmt.Errorf("no current session")

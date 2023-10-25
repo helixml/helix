@@ -103,6 +103,7 @@ const (
 type WorkerTaskResponseType string
 
 const (
-	WorkerTaskResponseTypeStream WorkerTaskResponseType = "stream"
-	WorkerTaskResponseTypeResult WorkerTaskResponseType = "result"
+	WorkerTaskResponseTypeStream   WorkerTaskResponseType = "stream"
+	WorkerTaskResponseTypeProgress WorkerTaskResponseType = "progress"
+	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
