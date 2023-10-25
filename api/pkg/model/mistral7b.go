@@ -17,7 +17,7 @@ func (l *Mistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint
 	if mode == types.SessionModeFinetune {
 		return GB * 24
 	} else {
-		return GB * 24
+		return GB * 7
 	}
 }
 
