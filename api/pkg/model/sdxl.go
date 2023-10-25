@@ -15,9 +15,9 @@ type SDXL struct {
 
 func (l *SDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
-		return GB * 12
+		return GB * 24
 	} else {
-		return GB * 6
+		return GB * 15
 	}
 }
 
