@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import axios from 'axios'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -22,7 +22,9 @@ import useAccount from '../hooks/useAccount'
 
 import {
   SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
   SESSION_CREATOR_SYSTEM,
+  SESSION_CREATOR_USER,
 } from '../types'
 
 const Session: FC = () => {
@@ -31,6 +33,8 @@ const Session: FC = () => {
   const api = useApi()
   const {navigate, params} = useRouter()
   const account = useAccount()
+
+  const divRef = useRef<HTMLDivElement>()
 
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
@@ -74,8 +78,16 @@ const Session: FC = () => {
     }
   }
 
-  return (
-    
+  useEffect(() => {
+    if(!session) return
+    const divElement = divRef.current
+    if(!divElement) return
+    divElement.scrollTop = divElement.scrollHeight;
+  }, [
+    session,
+  ])
+
+  return (    
     <Box
       sx={{
         width: '100%',
@@ -87,6 +99,7 @@ const Session: FC = () => {
       }}
     >
       <Box
+        ref={ divRef }
         sx={{
           width: '100%',
           flexGrow: 1,
@@ -101,12 +114,21 @@ const Session: FC = () => {
             session?.interactions.map((interaction: any, i: number) => {
               
               let displayMessage = ''
+              const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
 
               if(session.type == SESSION_TYPE_TEXT) {
-                const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
                 displayMessage = interaction.message
-
                 if(!displayMessage && isLoading) {
+                  displayMessage = '🤔'
+                }
+              } else if(session.type == SESSION_TYPE_IMAGE) {
+                const isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+
+                if(interaction.creator == SESSION_CREATOR_USER) {
+                  displayMessage = interaction.message
+                }
+                
+                if(isLoading) {
                   displayMessage = '🤔'
                 }
               }
@@ -117,7 +139,7 @@ const Session: FC = () => {
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
                     {
-                      session.type == SESSION_TYPE_TEXT && (
+                      displayMessage && (
                         <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
                       )
                     }
