@@ -212,6 +212,10 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		}
 	}
 
+	if taskResponse.Progress != 0 {
+		targetInteraction.Progress = taskResponse.Progress
+	}
+
 	// update the files if there are some
 	if taskResponse.Files != nil {
 		targetInteraction.Files = taskResponse.Files

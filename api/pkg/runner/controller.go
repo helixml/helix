@@ -473,6 +473,12 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 			log.Error().Msgf("error handling stream: %s", err.Error())
 			return nil, err
 		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
+		err := modelInstance.handleProgress(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling progress: %s", err.Error())
+			return nil, err
+		}
 	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
 		err := modelInstance.handleResult(ctx, taskResponse)
 		if err != nil {

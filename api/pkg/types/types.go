@@ -34,6 +34,7 @@ type Interaction struct {
 	// the ID of the runner that processed this interaction
 	Runner   string   `json:"runner"`   // e.g. 0
 	Message  string   `json:"message"`  // e.g. Prove pythagoras
+	Progress int      `json:"progress"` // e.g. 0-100
 	Files    []string `json:"files"`    // list of filepath paths
 	Finished bool     `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 }
@@ -142,6 +143,7 @@ type WorkerTaskResponse struct {
 	InteractionID string `json:"interaction_id"`
 	// which fields the python code decides to fill in here depends
 	// on what the type of model it is
-	Message string   `json:"message"` // e.g. Prove pythagoras
-	Files   []string `json:"files"`   // list of filepath paths
+	Message  string   `json:"message"`  // e.g. Prove pythagoras
+	Progress int      `json:"progress"` // e.g. 0-100
+	Files    []string `json:"files"`    // list of filepath paths
 }
