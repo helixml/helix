@@ -230,18 +230,17 @@ func (instance *ModelInstance) startProcess() error {
 		TaskURL:     instance.taskURL,
 		ResponseURL: instance.responseURL,
 	})
-
-	log.Info().
-		Msgf("🟢 run model instance")
-	spew.Dump(cmd.Dir)
-	spew.Dump(cmd.Args)
-
 	if err != nil {
 		return err
 	}
 	if cmd == nil {
 		return fmt.Errorf("no command to run")
 	}
+
+	log.Info().
+		Msgf("🟢 run model instance")
+	spew.Dump(cmd.Dir)
+	spew.Dump(cmd.Args)
 
 	instance.currentCommand = cmd
 	go func(cmd *exec.Cmd) {
