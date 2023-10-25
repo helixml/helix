@@ -70,7 +70,7 @@ export interface IFileStoreConfig {
 export type ISessionCreator = 'system' | 'user'
 
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
-export const SESSION_MODE_USER: ISessionCreator = 'user'
+export const SESSION_CREATOR_USER: ISessionCreator = 'user'
 
 export type ISessionMode = 'inference' | 'finetune'
 
