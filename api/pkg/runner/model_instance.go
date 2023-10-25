@@ -56,8 +56,10 @@ type ModelInstance struct {
 	// as though it had been loaded from api as normal
 	initialSession *types.Session
 
-	// basically the timestamp of when the last job was finished
-	lastJobCompletedTimestamp int64
+	// the timestamp of when this model instance either completed a job
+	// or a new job was pulled and allocated
+	// we use this timestamp to cleanup non-active model instances
+	lastActivityTimestamp int64
 }
 
 func NewModelInstance(
@@ -116,6 +118,8 @@ func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session
 		instance.currentTextStream = nil
 	}
 
+	// mark the instance as active so it doesn't get cleaned up
+	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
 
 	interactionID, err := getLastInteractionID(session)
@@ -173,6 +177,7 @@ func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *t
 	if instance.currentTextStream == nil {
 		return fmt.Errorf("no text stream to continue")
 	}
+	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentTextStream.Write([]byte(taskResponse.Message))
 	return nil
 }
@@ -195,7 +200,7 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	}
 
 	// we update the timeout timestamp
-	instance.lastJobCompletedTimestamp = time.Now().Unix()
+	instance.lastActivityTimestamp = time.Now().Unix()
 
 	interactionID, err := getLastInteractionID(instance.currentSession)
 	if err != nil {
