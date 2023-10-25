@@ -354,16 +354,22 @@ const Layout: FC = ({
   return (
     <Box sx={{ display: 'flex' }} component="div">
       <CssBaseline />
-      <GlobalStyles styles={{ body: { fontFamily: 'Open Sauce Sans' }, h1: {
-          letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
-        },
-        p: {
-          letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-        },
-        li: {
-          letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-        },
-        }} />
+      <GlobalStyles
+        styles={{
+          body: {
+            fontFamily: 'Open Sauce Sans'
+          },
+          h1: {
+            letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
+          },
+          p: {
+            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+          },
+          li: {
+            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+          },
+        }}
+      />
       <AppBar
         elevation={ 0 }
         position="fixed"
@@ -522,7 +528,6 @@ const Layout: FC = ({
               : theme.palette.grey[900],
           flexGrow: 1,
           height: '100vh',
-          overflow: 'auto',
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -540,30 +545,10 @@ const Layout: FC = ({
           component="div"
           sx={{
             flexGrow: 1,
-            py: 1,
-            px: 2,
+            overflow: 'auto',
           }}
         >
           { children }
-        </Box>
-        <Box
-          className='footer'
-          component="div"
-          sx={{
-            flexGrow: 0,
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
-            <Typography variant="body2" color="text.secondary" align="center">
-              {'Open source models may produce inaccurate information about people, places, or facts. Created by '}
-              <Link color="inherit" href={ themeConfig.url }>
-                { themeConfig.company }
-              </Link>{' '}
-              {new Date().getFullYear()}
-              {'.'}
-            </Typography>
-          </Container>
         </Box>
       </Box>
       <Snackbar />
