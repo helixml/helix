@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import axios from 'axios'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -31,6 +31,8 @@ const Session: FC = () => {
   const api = useApi()
   const {navigate, params} = useRouter()
   const account = useAccount()
+
+  const divRef = useRef<HTMLDivElement>()
 
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
@@ -74,6 +76,15 @@ const Session: FC = () => {
     }
   }
 
+  useEffect(() => {
+    if(!session) return
+    const divElement = divRef.current
+    if(!divElement) return
+    divElement.scrollTop = divElement.scrollHeight;
+  }, [
+    session,
+  ])
+
   return (
     
     <Box
@@ -87,6 +98,7 @@ const Session: FC = () => {
       }}
     >
       <Box
+        ref={ divRef }
         sx={{
           width: '100%',
           flexGrow: 1,
