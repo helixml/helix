@@ -160,7 +160,7 @@ export const useAccountContext = (): IAccountContext => {
     const rws = new ReconnectingWebSocket(url)
     rws.addEventListener('message', (event) => {
       const parsedData = JSON.parse(event.data)
-      console.dir(parsedData)
+      // console.dir(parsedData)
 
       // we have a session update message
       if(parsedData.type === 'session' && parsedData.session) {
