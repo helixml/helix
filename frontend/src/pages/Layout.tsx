@@ -451,7 +451,7 @@ const Layout: FC = ({
         >
           <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
             <Typography variant="body2" color="text.secondary" align="center">
-              {'Copyright © '}
+              {'Made with 💙 by '}
               <Link color="inherit" href={ themeConfig.url }>
                 { themeConfig.company }
               </Link>{' '}
