@@ -137,11 +137,60 @@ const New: FC = () => {
             </Grid>
             <Grid item xs={2} md={2}>
             </Grid>
-            <Grid item xs={12} md={12}>
-              {chatHistory.map((chat, index) => (
-                <Typography key={index}><strong>{chat.user}:</strong> {chat.message}</Typography>
-              ))}
-            </Grid>
+
+            {
+              selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && (
+                <Grid item xs={12} md={12}>
+                  <FileUpload
+                    sx={{
+                      width: '100%',
+                      mt: 2,
+                    }}
+                    onUpload={ onUpload }
+                  >
+                    <Button
+                      sx={{
+                        width: '100%',
+                      }}
+                      variant="contained"
+                      color="secondary"
+                      endIcon={<CloudUploadIcon />}
+                    >
+                      Upload Files
+                    </Button>
+                    <Box
+                      sx={{
+                        border: '1px dashed #ccc',
+                        p: 2,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100px',
+                        cursor: 'pointer',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          color: '#999'
+                        }}
+                        variant="caption"
+                      >
+                        drop files here to upload them ...
+                        {
+                          files.length > 0 && files.map((file) => (
+                            <Typography key={file.name}>
+                              {file.name} ({file.size} bytes) - {file.type}
+                            </Typography>
+                          ))
+                        }
+                      </Typography>
+                    </Box>
+                  </FileUpload>
+                </Grid>
+              )
+            }
           </Grid>
         </Container>
       </Box>
