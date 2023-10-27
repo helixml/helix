@@ -1,6 +1,5 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
-import axios from 'axios'
-import { styled } from '@mui/system'
+
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -9,7 +8,7 @@ import Container from '@mui/material/Container'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
-import LinearProgress from '@mui/material/LinearProgress'
+import Interaction from '../components/session/Interaction'
 import useFilestore from '../hooks/useFilestore'
 import Disclaimer from '../components/widgets/Disclaimer'
 import Progress from '../components/widgets/Progress'
@@ -24,7 +23,10 @@ import {
   SESSION_CREATOR_USER,
 } from '../types'
 
-const GeneratedImage = styled('img')()
+import {
+  ISession,
+  IInteraction,
+} from '../types'
 
 const Session: FC = () => {
   const filestore = useFilestore()
@@ -77,8 +79,6 @@ const Session: FC = () => {
     }
   }
 
-  console.dir(session)
-
   useEffect(() => {
     if(!session) return
     const divElement = divRef.current
@@ -116,81 +116,13 @@ const Session: FC = () => {
           <br />
             {
             session?.interactions.map((interaction: any, i: number) => {
-              
-              let displayMessage = ''
-              let progress = 0
-              let imageURLs = []
-              let isLoading = i == session.interactions.length - 1 && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
-
-              if(session.type == SESSION_TYPE_TEXT) {
-                displayMessage = interaction.message
-                if(!displayMessage && isLoading) {
-                  displayMessage = '🤔'
-                }
-              } else if(session.type == SESSION_TYPE_IMAGE) {
-                if(interaction.creator == SESSION_CREATOR_USER) {
-                  displayMessage = interaction.message
-                }
-                else {
-                  if(isLoading) {
-                    if(interaction.progress > 0) {
-                      progress = interaction.progress
-                    } else {
-                      displayMessage = '🤔'
-                    }
-                  } else if(interaction.files && interaction.files.length > 0) {
-                    imageURLs = interaction.files
-                  }
-                }
-              }
-
               return (
-                <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
-                  <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
-                    {
-                      displayMessage && (
-                        <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
-                      )
-                    }
-                    {
-                      progress > 0 && (
-                        <Progress
-                          progress={ progress }
-                        />
-                      )
-                    }
-                    {
-                      imageURLs.map((imageURL: string) => {
-                        return (
-                          <Box
-                            sx={{
-                              mt: 2,
-                            }}
-                            key={ imageURL }
-                          >
-                            <Link
-                              href={ imageURL }
-                              target="_blank"
-                            >
-                              <GeneratedImage
-                                sx={{
-                                  height: '600px',
-                                  maxHeight: '600px',
-                                  border: '1px solid #000000',
-                                  filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
-                                }}
-                                src={ imageURL }
-                              />  
-                            </Link>
-                          </Box>
-                        )
-                        
-                      })
-                    }
-                  </Box>
-                </Box>
+                <Interaction
+                  key={ interaction.id }
+                  type={ session.type }
+                  interaction={ interaction }
+                  isLast={ i === session.interactions.length - 1 }
+                />
               )   
             })
           }
