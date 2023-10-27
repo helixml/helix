@@ -23,24 +23,6 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
-export interface ISession {
-  id: string;
-  name: string;
-  created: Date;
-  updated: Date;
-  mode: string;
-  type: string;
-  model_name: string;
-  finetune_file: string;
-  interactions: IInteractions;
-  owner: string;
-  owner_type: IOwnerType;
-}
-
-export interface IInteractions {
-  [key: string]: any;
-}
-
 export type IOwnerType = 'user' | 'system' | 'org';
 
 export interface IFileStoreBreadcrumb {
@@ -81,3 +63,28 @@ export type ISessionType = 'text' | 'image'
 
 export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
+
+export interface IInteraction {
+  id: string,
+  created: number,
+  creator: ISessionCreator,
+  runner: string,
+  message: string,
+  progress: number,
+  files: string[],
+  finished: boolean,
+}
+
+export interface ISession {
+  id: string,
+  name: string,
+  created: number,
+  updated: number,
+  mode: ISessionMode,
+  type: ISessionType,
+  model_name: string,
+  finetune_file: string,
+  interactions: IInteraction[],
+  owner: string,
+  owner_type: IOwnerType,
+}
