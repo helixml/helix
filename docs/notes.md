@@ -7,7 +7,6 @@ First install [nvidia drivers](https://docs.nvidia.com/datacenter/tesla/tesla-in
 ```bash
 sudo apt-get update
 sudo apt-get -y install cuda-drivers
-sudo apt-get -y install nvidia-cuda-toolkit
 sudo apt-get -y install cuda
 ```
 then reboot
