@@ -17,11 +17,27 @@ def read_main():
 def cowsay(message):
     return "Hello " + message + "!"
 
-io = gr.Interface(
-    fn=cowsay,
-    inputs=gr.Textbox(lines=2, placeholder="What would you like the cow to say?"),
-    outputs="text",
-    allow_flagging="never"
+# TODO: update the following to call different functions which call into lilypad
+io = gr.TabbedInterface([
+        gr.Interface(
+            fn=cowsay,
+            inputs=gr.Textbox(lines=2, placeholder="Enter prompt for SDXL"),
+            outputs="image",
+            allow_flagging="never"
+        ),
+        gr.Interface(
+            fn=cowsay,
+            inputs="image",
+            outputs="files",
+            allow_flagging="never"
+        ),
+        gr.Interface(
+            fn=cowsay,
+            inputs=gr.Textbox(lines=2, placeholder="What would you like the cow to say?"),
+            outputs="text",
+            allow_flagging="never"
+        ),
+        ], ["SDXL Inference", "SDXL fine-tuning", "Cowsay"],
 )
 
 gradio_app = gr.routes.App.create_app(io)
