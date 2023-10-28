@@ -35,29 +35,16 @@ const Dashboard: FC = () => {
 
   return (
     <Container maxWidth={ 'xl' } sx={{ mt: 4, mb: 4 }}>
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={12}>
-          <Typography>Run cowsay...</Typography>
-        </Grid>
-        <Grid item xs={12} md={12}>
-          <TextField
-            fullWidth
-            label="Type something here"
-            value={inputValue}
-            disabled={loading}
-            onChange={handleInputChange}
-          />
-        </Grid>
-        <Grid item xs={12} md={12}>
-          <Button
-            variant='contained'
-            disabled={loading}
-            onClick={ runJob }
-          >
-            Run
-          </Button>
-        </Grid>
-      </Grid>
+      <iframe
+        src="/gradio"
+        title="Gradio"
+        style={{
+          width: '100%',
+          height: '600px',
+          border: 'none',
+          overflow: 'hidden',
+        }}
+      />
     </Container>
   )
 }

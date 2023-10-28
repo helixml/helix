@@ -66,6 +66,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
+      backgroundColor: "#f8f8f8",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -274,7 +275,7 @@ const Layout: FC = ({
         <Toolbar
           sx={{
             pr: '24px', // keep right padding when drawer closed
-            backgroundColor: '#fff'
+            backgroundColor: '#fafafa'
           }}
         >
           {
@@ -375,7 +376,7 @@ const Layout: FC = ({
                     account.onLogin()
                   }}
                 >
-                  Login
+                  Login/Register
                 </Button>
               </>
             )
@@ -413,7 +414,7 @@ const Layout: FC = ({
         sx={{
           backgroundColor: (theme) =>
             theme.palette.mode === 'light'
-              ? theme.palette.grey[100]
+              ? "#fff" 
               : theme.palette.grey[900],
           flexGrow: 1,
           height: '100vh',
