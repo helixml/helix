@@ -38,6 +38,7 @@ io = gr.TabbedInterface([
             allow_flagging="never"
         ),
         ], ["SDXL Inference", "SDXL fine-tuning", "Cowsay"],
+        css="footer {visibility: hidden}"
 )
 
 gradio_app = gr.routes.App.create_app(io)
