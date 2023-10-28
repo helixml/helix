@@ -1,20 +1,18 @@
-"""
-How to launch your Gradio app on a custom path, in this case localhost:8000/gradio
-
-Run this from the terminal as you would normally start a FastAPI app: `uvicorn run:app`
-and navigate to http://localhost:8000/gradio in your browser.
-"""
 from fastapi import FastAPI
 import gradio as gr
 
+# TODO: implement multiple pages within the app as separate gradio apps within
+# this python process
+
+# must match path nginx/noxy is proxying to (see docker-compose.yml)
 CUSTOM_PATH = "/gradio"
 
 app = FastAPI()
 
+# should never access this route directly
 @app.get("/")
 def read_main():
     return {"message": "here be dragons"}
-
 
 def cowsay(message):
     return "Hello " + message + "!"
