@@ -25,6 +25,7 @@ services:
       - NOXY_GRADIO_FRONT=/gradio
       - NOXY_GRADIO_HOST=gradio
       - NOXY_GRADIO_PORT=7860
+      - NOXY_GRADIO_WS=1
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -87,8 +88,10 @@ services:
       context: gradio
       dockerfile: Dockerfile
     restart: always
-    entrypoint: python main.py
-    # so you can just docker-compose restart gradio when changing the code
+    # TODO: in production, maybre remove --reload?
+    entrypoint: uvicorn main:app --reload --host 0.0.0.0 --port 7860
+    # uvicorn will auto-reload, or you can docker-compose restart gradio when
+    # changing the code
     # (you'll still need to docker-compose build gradio when changing the
     # requirements, or do things with exec/pip)
     volumes:
