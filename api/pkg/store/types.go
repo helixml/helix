@@ -11,7 +11,7 @@ type GetJobsQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
-type GetBalanceTransfersQuery struct {
+type OwnerQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 }
@@ -21,8 +21,12 @@ type Store interface {
 	GetJobs(ctx context.Context, query GetJobsQuery) ([]*types.Job, error)
 	CreateJob(ctx context.Context, job types.Job) error
 	UpdateJob(ctx context.Context, id string, state string, status string, data types.JobData) error
-	GetBalanceTransfers(ctx context.Context, query GetBalanceTransfersQuery) ([]*types.BalanceTransfer, error)
+	GetBalanceTransfers(ctx context.Context, query OwnerQuery) ([]*types.BalanceTransfer, error)
 	CreateBalanceTransfer(ctx context.Context, balanceTransfer types.BalanceTransfer) error
+	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error)
+	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
+	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
+	CheckAPIKey(ctx context.Context, apiKey string) (*OwnerQuery, error)
 }
 
 type StoreOptions struct {
