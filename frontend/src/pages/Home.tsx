@@ -35,21 +35,27 @@ const Dashboard: FC = () => {
 
   return (
     <Container maxWidth={ 'xl' } sx={{ mt: 4, mb: 4 }}>
-        <Grid container spacing={2} sx={{mb:6}}>
+        <Grid container spacing={2} sx={{mb:6, maxWidth:1200, marginLeft: "auto", marginRight: "auto"}}>
           <Grid item xs={12} sm={4}>
-            <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"400px"}} />
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}}>
+              <img src="/img/sdxl.jpeg" alt="Stable Diffusion XL" style={{width:"300px"}} />
+            </Button>
             <Typography variant="subtitle1" align="center">
               Stable Diffusion XL
             </Typography>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <img src="/img/mistral7b.jpeg" alt="Mistral-7B" style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"400px"}} />
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}} onClick={() => {console.log("here"); document.getElementById("component-45-button")?.click()}}>
+              <img src="/img/mistral7b.jpeg" alt="Mistral-7B" style={{width:"300px"}} />
+            </Button>
             <Typography variant="subtitle1" align="center">
               Mistral-7B-Instruct
             </Typography>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <img src="/img/cowsay.png" alt="Cowsay" style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"400px"}} />
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}}>
+              <img src="/img/cowsay.png" alt="Cowsay" style={{width:"300px"}} />
+            </Button>
             <Typography variant="subtitle1" align="center">
               Cowsay (this is not AI)
             </Typography>
