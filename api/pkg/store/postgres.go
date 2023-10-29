@@ -362,7 +362,7 @@ func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name
 	sqlStatement := `
 insert into api_key (owner, owner_type, key, name)
 values ($1, $2, $3, $4)
-returning id
+returning key
 `
 	var id string
 	err = d.db.QueryRow(
@@ -394,15 +394,13 @@ func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*ty
 	var apiKeys []*types.ApiKey
 	sqlStatement := `
 select
-	id,
+	key,
 	owner,
-	key
+	owner_type	
 from
 	api_key
 where
 	owner = $1 and owner_type = $2
-order by
-	created_at desc
 `
 	rows, err := d.db.Query(
 		sqlStatement,
@@ -418,7 +416,7 @@ order by
 		err := rows.Scan(
 			&apiKey.Key,
 			&apiKey.Owner,
-			&apiKey.Key,
+			&apiKey.OwnerType,
 		)
 		if err != nil {
 			return nil, err
@@ -436,7 +434,7 @@ func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) e
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 	sqlStatement := `
-delete from api_key where id = $1 and owner = $2 and owner_type = $3
+delete from api_key where key = $1 and owner = $2 and owner_type = $3
 `
 	_, err := d.db.Exec(
 		sqlStatement,
