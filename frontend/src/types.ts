@@ -82,6 +82,13 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
+export interface IApiKey {
+  owner: string;
+  owner_type: string;
+  key: string;
+  name: string;
+}
+
 export interface IFileStoreBreadcrumb {
   path: string,
   title: string,

@@ -14,8 +14,8 @@ app = FastAPI()
 def read_main():
     return {"message": "here be dragons"}
 
-def cowsay(message):
-    return "Hello " + message + "!"
+def cowsay(message, request: gr.Request):
+    return "Hello " + message + "! " + str(dict(request.query_params))
 
 def alternatingly_agree(message, history):
     if len(history) % 2 == 0:
