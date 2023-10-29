@@ -10,6 +10,7 @@ import (
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	"github.com/bacalhau-project/lilysaas/api/pkg/filestore"
 	"github.com/bacalhau-project/lilysaas/api/pkg/job"
+	"github.com/bacalhau-project/lilysaas/api/pkg/store"
 	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 )
 
@@ -89,4 +90,41 @@ func (apiServer *LilysaasAPIServer) filestoreUpload(res http.ResponseWriter, req
 	}
 
 	return true, nil
+}
+
+func (apiServer *LilysaasAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	name := req.URL.Query().Get("name")
+	apiKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), name)
+	if err != nil {
+		return "", err
+	}
+	return apiKey, nil
+}
+
+func (apiServer *LilysaasAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
+	apiKeys, err := apiServer.Controller.GetAPIKeys(apiServer.getRequestContext(req))
+	if err != nil {
+		return nil, err
+	}
+	return apiKeys, nil
+}
+
+func (apiServer *LilysaasAPIServer) deleteAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	apiKey := types.ApiKey{
+		Key: req.URL.Query().Get("key"),
+	}
+	err := apiServer.Controller.DeleteAPIKey(apiServer.getRequestContext(req), apiKey)
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+func (apiServer *LilysaasAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*store.OwnerQuery, error) {
+	apiKey := req.URL.Query().Get("key")
+	ownerQuery, err := apiServer.Controller.CheckAPIKey(apiServer.getRequestContext(req).Ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	return ownerQuery, nil
 }

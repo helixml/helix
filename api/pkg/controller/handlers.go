@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
@@ -105,6 +106,13 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.ApiKey, erro
 	if err != nil {
 		return nil, err
 	}
+	if apiKeys == nil {
+		_, err := c.CreateAPIKey(ctx, "default")
+		if err != nil {
+			return nil, err
+		}
+		return c.GetAPIKeys(ctx)
+	}
 	return apiKeys, nil
 }
 
@@ -123,8 +131,8 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey types.ApiKey)
 	return nil
 }
 
-func (c *Controller) CheckAPIKey(ctx types.RequestContext, apiKey string) (*store.OwnerQuery, error) {
-	ownerQuery, err := c.Options.Store.CheckAPIKey(ctx.Ctx, apiKey)
+func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*store.OwnerQuery, error) {
+	ownerQuery, err := c.Options.Store.CheckAPIKey(ctx, apiKey)
 	if err != nil {
 		return nil, err
 	}

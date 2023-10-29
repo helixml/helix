@@ -14,6 +14,7 @@ import {
   IJob,
   IModule,
   IBalanceTransfer,
+  IApiKey,
 } from '../types'
 
 const REALM = 'lilypad'
@@ -27,6 +28,7 @@ export interface IAccountContext {
   jobs: IJob[],
   modules: IModule[],
   transactions: IBalanceTransfer[],
+  apiKeys: IApiKey[],
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -37,6 +39,7 @@ export const AccountContext = createContext<IAccountContext>({
   jobs: [],
   modules: [],
   transactions: [],
+  apiKeys: [],
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -52,6 +55,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ jobs, setJobs ] = useState<IJob[]>([])
   const [ modules, setModules ] = useState<IModule[]>([])
+  const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -84,6 +88,13 @@ export const useAccountContext = (): IAccountContext => {
     if(!statusResult) return
     setCredits(statusResult.credits)
   }, [])
+  
+  const loadApiKeys = useCallback(async () => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys')
+    if(!result) return
+    setApiKeys(result)
+  }, [])
+
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
@@ -91,12 +102,14 @@ export const useAccountContext = (): IAccountContext => {
       loadJobs(),
       loadTransactions(),
       loadStatus(),
+      loadApiKeys(),
     ])
   }, [
     loadModules,
     loadJobs,
     loadTransactions,
     loadStatus,
+    loadApiKeys,
   ])
 
   const onLogin = useCallback(() => {
@@ -194,6 +207,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     transactions,
+    apiKeys,
     onLogin,
     onLogout,
   }), [
@@ -203,6 +217,7 @@ export const useAccountContext = (): IAccountContext => {
     jobs,
     modules,
     transactions,
+    apiKeys,
     onLogin,
     onLogout,
   ])

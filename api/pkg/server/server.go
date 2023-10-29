@@ -73,7 +73,7 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	}).Subrouter()
 
 	keycloak := newKeycloak(apiServer.Options)
-	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
+	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
 	subrouter.HandleFunc("/modules", wrapper(apiServer.getModules)).Methods("GET")
@@ -91,6 +91,11 @@ func (apiServer *LilysaasAPIServer) ListenAndServe(ctx context.Context, cm *syst
 	authRouter.HandleFunc("/filestore/upload", wrapper(apiServer.filestoreUpload)).Methods("POST")
 	authRouter.HandleFunc("/filestore/rename", wrapper(apiServer.filestoreRename)).Methods("PUT")
 	authRouter.HandleFunc("/filestore/delete", wrapper(apiServer.filestoreDelete)).Methods("DELETE")
+
+	authRouter.HandleFunc("/api_keys", wrapper(apiServer.createAPIKey)).Methods("POST")
+	authRouter.HandleFunc("/api_keys", wrapper(apiServer.getAPIKeys)).Methods("GET")
+	authRouter.HandleFunc("/api_keys", wrapper(apiServer.deleteAPIKey)).Methods("DELETE")
+	authRouter.HandleFunc("/api_keys/check", wrapper(apiServer.checkAPIKey)).Methods("GET")
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))

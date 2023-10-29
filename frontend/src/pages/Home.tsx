@@ -5,8 +5,10 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
+import useAccount from '../hooks/useAccount'
 
 const Dashboard: FC = () => {
+  const account = useAccount()
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [selectedModule, setSelectedModule] = useState('sdxl')
@@ -63,7 +65,7 @@ const Dashboard: FC = () => {
           </Grid>
         </Grid>
         <iframe
-          src={"/gradio/" + selectedModule + "?__theme=light"}
+          src={"/gradio/" + selectedModule + "?__theme=light&userApiToken=" + account.apiKeys[0]?.key}
           title="Gradio"
           style={{
             width: '100%',
