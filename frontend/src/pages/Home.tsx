@@ -9,6 +9,7 @@ import Container from '@mui/material/Container'
 const Dashboard: FC = () => {
   const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
+  const [selectedModule, setSelectedModule] = useState('sdxl')
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -35,26 +36,26 @@ const Dashboard: FC = () => {
 
   return (
     <Container maxWidth={ 'xl' } sx={{ mt: 4, mb: 4 }}>
-        <Grid container spacing={2} sx={{mb:6, maxWidth:1200, marginLeft: "auto", marginRight: "auto"}}>
-          <Grid item xs={12} sm={4}>
-            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}}>
-              <img src="/img/sdxl.jpeg" alt="Stable Diffusion XL" style={{width:"300px"}} />
+        <Grid container spacing={2} sx={{mb:6, maxWidth:1250, marginLeft: "auto", marginRight: "auto"}}>
+          <Grid item xs={12} sm={4} sx={{backgroundColor: selectedModule == "sdxl" ? "lightblue" : "" }}>
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}} onClick={() => setSelectedModule("sdxl")}>
+              <img src="/img/sdxl.jpeg" alt="Stable Diffusion XL" style={{width:"250px"}} />
             </Button>
             <Typography variant="subtitle1" align="center">
               Stable Diffusion XL
             </Typography>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}} onClick={() => {console.log("here"); document.getElementById("component-45-button")?.click()}}>
-              <img src="/img/mistral7b.jpeg" alt="Mistral-7B" style={{width:"300px"}} />
+          <Grid item xs={12} sm={4} sx={{backgroundColor: selectedModule == "mistral7b" ? "lightblue" : "" }}>
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}} onClick={() => setSelectedModule("mistral7b")}>
+              <img src="/img/mistral7b.jpeg" alt="Mistral-7B" style={{width:"250px"}} />
             </Button>
             <Typography variant="subtitle1" align="center">
               Mistral-7B-Instruct
             </Typography>
           </Grid>
-          <Grid item xs={12} sm={4}>
-            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}}>
-              <img src="/img/cowsay.png" alt="Cowsay" style={{width:"300px"}} />
+          <Grid item xs={12} sm={4} sx={{backgroundColor: selectedModule == "cowsay" ? "lightblue" : "" }}>
+            <Button style={{marginLeft: "auto", marginRight: "auto", display: "block", width:"320px"}} onClick={() => setSelectedModule("cowsay")}>
+              <img src="/img/cowsay.png" alt="Cowsay" style={{width:"250px"}} />
             </Button>
             <Typography variant="subtitle1" align="center">
               Cowsay (this is not AI)
@@ -62,13 +63,14 @@ const Dashboard: FC = () => {
           </Grid>
         </Grid>
         <iframe
-          src="/gradio?__theme=light"
+          src={"/gradio/" + selectedModule + "?__theme=light"}
           title="Gradio"
           style={{
             width: '100%',
-            height: '700px',
+            height: '610px',
             border: 'none',
             overflow: 'hidden',
+            marginTop: "-20px"
           }}
         />
     </Container>
