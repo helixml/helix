@@ -23,25 +23,25 @@ def alternatingly_agree(message, history):
     else:
         return "I don't think so"
 
-# TODO: update the following to call different functions which call into lilypad
-io = gr.TabbedInterface([
-        gr.Interface(
-            fn=cowsay,
-            inputs=gr.Textbox(lines=2, placeholder="Enter prompt for SDXL"),
-            outputs="image",
-            allow_flagging="never"
-        ),
-        gr.ChatInterface(alternatingly_agree),
+APPS = {
+    "cowsay":
         gr.Interface(
             fn=cowsay,
             inputs=gr.Textbox(lines=2, placeholder="What would you like the cow to say?"),
             outputs="text",
             allow_flagging="never"
         ),
-        ], ["Stable Diffusion XL", "Talk to Mistral", "Cowsay"],
-        css="footer {visibility: hidden}"
-)
+    "sdxl":
+        gr.Interface(
+            fn=cowsay,
+            inputs=gr.Textbox(lines=2, placeholder="Enter prompt for SDXL"),
+            outputs="image",
+            allow_flagging="never"
+        ),
+    "mistral7b":
+        gr.ChatInterface(alternatingly_agree),
+}
 
-gradio_app = gr.routes.App.create_app(io)
-
-app.mount(CUSTOM_PATH, gradio_app)
+for (app_name, gradio_app) in APPS.items():
+    print("mounting app", app_name, "->", gradio_app)
+    app.mount(CUSTOM_PATH+"/"+app_name, gr.routes.App.create_app(gradio_app))
