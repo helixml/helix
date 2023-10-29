@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -129,7 +131,7 @@ func (d *PostgresStore) GetJobs(
 
 func (d *PostgresStore) GetBalanceTransfers(
 	ctx context.Context,
-	query GetBalanceTransfersQuery,
+	query OwnerQuery,
 ) ([]*types.BalanceTransfer, error) {
 	d.mtx.RLock()
 	defer d.mtx.RUnlock()
@@ -344,6 +346,129 @@ where
 		id,
 	)
 	return err
+}
+
+func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	// Generate a new API key
+	key, err := generateAPIKey()
+	if err != nil {
+		return "", err
+	}
+
+	// Insert the new API key into the database
+	sqlStatement := `
+insert into api_key (owner, owner_type, key, name)
+values ($1, $2, $3, $4)
+returning id
+`
+	var id string
+	err = d.db.QueryRow(
+		sqlStatement,
+		owner.Owner,
+		owner.OwnerType,
+		key,
+		name,
+	).Scan(&id)
+	if err != nil {
+		return "", err
+	}
+
+	return id, nil
+}
+
+func generateAPIKey() (string, error) {
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
+	return "lp-" + base64.StdEncoding.EncodeToString(key), nil
+}
+
+func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+	var apiKeys []*types.ApiKey
+	sqlStatement := `
+select
+	id,
+	owner,
+	key
+from
+	api_key
+where
+	owner = $1 and owner_type = $2
+order by
+	created_at desc
+`
+	rows, err := d.db.Query(
+		sqlStatement,
+		query.Owner,
+		query.OwnerType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var apiKey types.ApiKey
+		err := rows.Scan(
+			&apiKey.Key,
+			&apiKey.Owner,
+			&apiKey.Key,
+		)
+		if err != nil {
+			return nil, err
+		}
+		apiKeys = append(apiKeys, &apiKey)
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+	return apiKeys, nil
+}
+
+func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+	sqlStatement := `
+delete from api_key where id = $1 and owner = $2 and owner_type = $3
+`
+	_, err := d.db.Exec(
+		sqlStatement,
+		apiKey.Key,
+		apiKey.Owner,
+		apiKey.OwnerType,
+	)
+	return err
+}
+
+func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*OwnerQuery, error) {
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+	var ownerQuery OwnerQuery
+	sqlStatement := `
+select
+	owner, owner_type
+from
+	api_key
+where
+	key = $1
+`
+	row := d.db.QueryRow(sqlStatement, apiKey)
+	err := row.Scan(&ownerQuery.Owner, &ownerQuery.OwnerType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// not an error, but not a valid api key either
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &ownerQuery, nil
 }
 
 // Compile-time interface check:

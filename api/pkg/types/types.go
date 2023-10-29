@@ -63,6 +63,13 @@ type Module struct {
 	Template string `json:"template"`
 }
 
+type ApiKey struct {
+	Owner     string    `json:"owner"`
+	OwnerType OwnerType `json:"owner_type"`
+	Key       string    `json:"key"`
+	Name      string    `json:"name"`
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
