@@ -17,6 +17,12 @@ def read_main():
 def cowsay(message):
     return "Hello " + message + "!"
 
+def alternatingly_agree(message, history):
+    if len(history) % 2 == 0:
+        return f"Yes, I do think that '{message}'"
+    else:
+        return "I don't think so"
+
 # TODO: update the following to call different functions which call into lilypad
 io = gr.TabbedInterface([
         gr.Interface(
@@ -25,19 +31,14 @@ io = gr.TabbedInterface([
             outputs="image",
             allow_flagging="never"
         ),
-        gr.Interface(
-            fn=cowsay,
-            inputs="image",
-            outputs="files",
-            allow_flagging="never"
-        ),
+        gr.ChatInterface(alternatingly_agree),
         gr.Interface(
             fn=cowsay,
             inputs=gr.Textbox(lines=2, placeholder="What would you like the cow to say?"),
             outputs="text",
             allow_flagging="never"
         ),
-        ], ["SDXL Inference", "SDXL fine-tuning", "Cowsay"],
+        ], ["Stable Diffusion XL", "Talk to Mistral", "Cowsay"],
         css="footer {visibility: hidden}"
 )
 
