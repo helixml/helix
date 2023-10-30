@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"path/filepath"
 
@@ -111,7 +110,6 @@ func (apiServer *LilysaasAPIServer) getAPIKeys(res http.ResponseWriter, req *htt
 
 func (apiServer *LilysaasAPIServer) deleteAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
 	apiKey := req.URL.Query().Get("key")
-	log.Printf("Deleting API Key: %s", apiKey)
 	err := apiServer.Controller.DeleteAPIKey(apiServer.getRequestContext(req), apiKey)
 	if err != nil {
 		return "", err
