@@ -201,7 +201,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 			return r.uploadWorkerResponse(res, session)
 		},
 	)
-	model.initialSession = session
+	model.nextSession = session
 	if err != nil {
 		return err
 	}
@@ -217,105 +217,6 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		log.Info().Msgf("Remove global session %s", session.ID)
 		delete(r.activeModelInstances, model.id)
 	}()
-	return nil
-}
-
-func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
-	if len(res.Files) > 0 {
-		// create a new multipart form
-		body := &bytes.Buffer{}
-		writer := multipart.NewWriter(body)
-
-		// loop over each file and add it to the form
-		for _, filepath := range res.Files {
-			file, err := os.Open(filepath)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			// create a new form field for the file
-			part, err := writer.CreateFormFile("files", filepath)
-			if err != nil {
-				return err
-			}
-
-			// copy the file contents into the form field
-			_, err = io.Copy(part, file)
-			if err != nil {
-				return err
-			}
-		}
-
-		// close the multipart form
-		err := writer.Close()
-		if err != nil {
-			return err
-		}
-
-		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
-
-		log.Debug().Msgf("🟠 upload files %s", url)
-
-		// create a new POST request with the multipart form as the body
-		req, err := http.NewRequest("POST", url, body)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", writer.FormDataContentType())
-
-		// send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		// handle the response
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		}
-
-		var data []filestore.FileStoreItem
-		resultBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		// parse body as json into result
-		err = json.Unmarshal(resultBody, &data)
-		if err != nil {
-			return err
-		}
-
-		mappedFiles := []string{}
-
-		for _, fileItem := range data {
-			mappedFiles = append(mappedFiles, fileItem.URL)
-		}
-
-		res.Files = mappedFiles
-	}
-
-	log.Debug().Msgf("🟠 Sending task response %s", session.ID)
-	spew.Dump(res)
-
-	// this function will write any task responses back to the api server for it to process
-	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
-	// and both of these will have an interaction ID and the full, latest copy of the text
-	// the job of the api server is to ensure the existence of the instance (create or update)
-	// and replace it's message property - this is the text streaming case
-	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
-	// and the api server is just appending to the session
-	res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
-		r.httpClientOptions,
-		fmt.Sprintf("/runner/%s/response", r.Options.ID),
-		res,
-	)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -422,28 +323,45 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 	}
 
 	var session *types.Session
-	var err error
 
-	// we've already got a session lined up
-	// this happens when a session is the first one for a model instance to
-	// process and we get into the state where the model instance is booting
-	// and it will turn around and start asking for work and we should reply with the
-	// initial session
-	if modelInstance.initialSession != nil {
-		session = modelInstance.initialSession
-		modelInstance.initialSession = nil
+	if modelInstance.nextSession != nil {
+		// if there is a session in the nextSession cache then we return it immediately
+		session = modelInstance.nextSession
+		modelInstance.nextSession = nil
+	} else if modelInstance.queuedSession != nil {
+		// if there is a session in the queuedSession cache then we are waiting for
+		// a task to complete before we want to actually run the session
 	} else {
+		// ask the upstream api server if there is another task
+		// if there is - then assign it to the queuedSession
+		// and call "pre"
 		queryParams := url.Values{}
 
 		queryParams.Add("model_name", string(modelInstance.filter.ModelName))
 		queryParams.Add("mode", string(modelInstance.filter.Mode))
 
-		session, err = r.getNextSession(ctx, queryParams)
+		apiSession, err := r.getNextSession(ctx, queryParams)
 		if err != nil {
 			return nil, err
 		}
-	}
 
+		modelInstance.queuedSession = apiSession
+		modelInstance.nextSession = nil
+
+		go func() {
+			apiSession, err = r.prepareSession(apiSession)
+
+			if err != nil {
+				log.Error().Msgf("error preparing session: %s", err.Error())
+				modelInstance.queuedSession = nil
+				modelInstance.nextSession = nil
+				return
+			}
+
+			modelInstance.queuedSession = nil
+			modelInstance.nextSession = apiSession
+		}()
+	}
 	// we don't have any work for this model instance
 	if session == nil {
 		return nil, fmt.Errorf("no session found")
@@ -454,9 +372,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		return nil, err
 	}
 
-	// TODO: work out what to do with the text stream
-
-	return task, err
+	return task, fmt.Errorf("no session found")
 }
 
 func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
@@ -492,4 +408,142 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 	}
 
 	return taskResponse, nil
+}
+
+func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
+	if len(res.Files) > 0 {
+		// create a new multipart form
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+
+		// loop over each file and add it to the form
+		for _, filepath := range res.Files {
+			file, err := os.Open(filepath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			// create a new form field for the file
+			part, err := writer.CreateFormFile("files", filepath)
+			if err != nil {
+				return err
+			}
+
+			// copy the file contents into the form field
+			_, err = io.Copy(part, file)
+			if err != nil {
+				return err
+			}
+		}
+
+		// close the multipart form
+		err := writer.Close()
+		if err != nil {
+			return err
+		}
+
+		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
+
+		log.Debug().Msgf("🟠 upload files %s", url)
+
+		// create a new POST request with the multipart form as the body
+		req, err := http.NewRequest("POST", url, body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		// send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		// handle the response
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		var data []filestore.FileStoreItem
+		resultBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		// parse body as json into result
+		err = json.Unmarshal(resultBody, &data)
+		if err != nil {
+			return err
+		}
+
+		mappedFiles := []string{}
+
+		for _, fileItem := range data {
+			mappedFiles = append(mappedFiles, fileItem.URL)
+		}
+
+		res.Files = mappedFiles
+	}
+
+	log.Debug().Msgf("🟠 Sending task response %s", session.ID)
+	spew.Dump(res)
+
+	// this function will write any task responses back to the api server for it to process
+	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
+	// and both of these will have an interaction ID and the full, latest copy of the text
+	// the job of the api server is to ensure the existence of the instance (create or update)
+	// and replace it's message property - this is the text streaming case
+	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
+	// and the api server is just appending to the session
+	res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+		r.httpClientOptions,
+		fmt.Sprintf("/runner/%s/response", r.Options.ID),
+		res,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Runner) prepareSession(session *types.Session) (*types.Session, error) {
+	err := r.downloadInteractionFiles(session)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func (r *Runner) downloadInteractionFiles(session *types.Session) error {
+	interaction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("interaction --------------------------------------\n")
+	spew.Dump(interaction)
+	// downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, interaction.ID)
+	// for _, filepath := range interaction.Files {
+	// 	file, err := os.Open(filepath)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	defer file.Close()
+
+	// 	// create a new form field for the file
+	// 	part, err := writer.CreateFormFile("files", filepath)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+
+	// 	// copy the file contents into the form field
+	// 	_, err = io.Copy(part, file)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
+
+	return nil
 }

@@ -133,6 +133,9 @@ type WorkerTask struct {
 	// the runner will have downloaded these from the filestore
 	// before giving this task to the python code
 	FinetuneFile string `json:"finetune_file"`
+
+	// the directory that contains all of the files attached to a session
+	FinetuneInputDir string `json:"finetune_input_dir"`
 }
 
 type WorkerTaskResponse struct {
