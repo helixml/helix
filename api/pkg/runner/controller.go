@@ -198,102 +198,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		// into the filestore
 		// TODO: support the tar feature above
 		func(res *types.WorkerTaskResponse) error {
-			if len(res.Files) > 0 {
-				// create a new multipart form
-				body := &bytes.Buffer{}
-				writer := multipart.NewWriter(body)
-
-				// loop over each file and add it to the form
-				for _, filepath := range res.Files {
-					file, err := os.Open(filepath)
-					if err != nil {
-						return err
-					}
-					defer file.Close()
-
-					// create a new form field for the file
-					part, err := writer.CreateFormFile("files", filepath)
-					if err != nil {
-						return err
-					}
-
-					// copy the file contents into the form field
-					_, err = io.Copy(part, file)
-					if err != nil {
-						return err
-					}
-				}
-
-				// close the multipart form
-				err := writer.Close()
-				if err != nil {
-					return err
-				}
-
-				url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
-
-				log.Debug().Msgf("🟠 upload files %s", url)
-
-				// create a new POST request with the multipart form as the body
-				req, err := http.NewRequest("POST", url, body)
-				if err != nil {
-					return err
-				}
-				req.Header.Set("Content-Type", writer.FormDataContentType())
-
-				// send the request
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				if err != nil {
-					return err
-				}
-				defer resp.Body.Close()
-
-				// handle the response
-				if resp.StatusCode != http.StatusOK {
-					return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-				}
-
-				var data []filestore.FileStoreItem
-				resultBody, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return err
-				}
-
-				// parse body as json into result
-				err = json.Unmarshal(resultBody, &data)
-				if err != nil {
-					return err
-				}
-
-				mappedFiles := []string{}
-
-				for _, fileItem := range data {
-					mappedFiles = append(mappedFiles, fileItem.URL)
-				}
-
-				res.Files = mappedFiles
-			}
-
-			log.Debug().Msgf("🟠 Sending task response %s", session.ID)
-			spew.Dump(res)
-
-			// this function will write any task responses back to the api server for it to process
-			// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
-			// and both of these will have an interaction ID and the full, latest copy of the text
-			// the job of the api server is to ensure the existence of the instance (create or update)
-			// and replace it's message property - this is the text streaming case
-			// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
-			// and the api server is just appending to the session
-			res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
-				r.httpClientOptions,
-				fmt.Sprintf("/runner/%s/response", r.Options.ID),
-				res,
-			)
-			if err != nil {
-				return err
-			}
-			return nil
+			return r.uploadWorkerResponse(res, session)
 		},
 	)
 	model.initialSession = session
@@ -312,6 +217,105 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		log.Info().Msgf("Remove global session %s", session.ID)
 		delete(r.activeModelInstances, model.id)
 	}()
+	return nil
+}
+
+func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
+	if len(res.Files) > 0 {
+		// create a new multipart form
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+
+		// loop over each file and add it to the form
+		for _, filepath := range res.Files {
+			file, err := os.Open(filepath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			// create a new form field for the file
+			part, err := writer.CreateFormFile("files", filepath)
+			if err != nil {
+				return err
+			}
+
+			// copy the file contents into the form field
+			_, err = io.Copy(part, file)
+			if err != nil {
+				return err
+			}
+		}
+
+		// close the multipart form
+		err := writer.Close()
+		if err != nil {
+			return err
+		}
+
+		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
+
+		log.Debug().Msgf("🟠 upload files %s", url)
+
+		// create a new POST request with the multipart form as the body
+		req, err := http.NewRequest("POST", url, body)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		// send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		// handle the response
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		var data []filestore.FileStoreItem
+		resultBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		// parse body as json into result
+		err = json.Unmarshal(resultBody, &data)
+		if err != nil {
+			return err
+		}
+
+		mappedFiles := []string{}
+
+		for _, fileItem := range data {
+			mappedFiles = append(mappedFiles, fileItem.URL)
+		}
+
+		res.Files = mappedFiles
+	}
+
+	log.Debug().Msgf("🟠 Sending task response %s", session.ID)
+	spew.Dump(res)
+
+	// this function will write any task responses back to the api server for it to process
+	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
+	// and both of these will have an interaction ID and the full, latest copy of the text
+	// the job of the api server is to ensure the existence of the instance (create or update)
+	// and replace it's message property - this is the text streaming case
+	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
+	// and the api server is just appending to the session
+	res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+		r.httpClientOptions,
+		fmt.Sprintf("/runner/%s/response", r.Options.ID),
+		res,
+	)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
