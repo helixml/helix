@@ -29,7 +29,7 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
-	lastInteraction, err := getUserInteraction(session)
+	lastInteraction, err := GetUserInteraction(session)
 
 	if err != nil {
 		return nil, err

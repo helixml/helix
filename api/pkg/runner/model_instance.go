@@ -46,15 +46,20 @@ type ModelInstance struct {
 	// the session currently running on this model
 	currentSession *types.Session
 
+	// if there is a value here - it will be fed into the running python
+	// process next - it acts as a buffer for a session we want to run right away
+	nextSession *types.Session
+
+	// this is the session that we are preparing to run next
+	// if there is a value here - then we return nil
+	// because there is a task running (e.g. downloading files)
+	// that we need to complete before we want this session to run
+	queuedSession *types.Session
+
 	// the currently active text stream if the model needs it
 	// this is assigned by calling model.GetTextStream(mode) on the model
 	// instance - this means models get to decide if/when they need text stream processing
 	currentTextStream *model.TextStream
-
-	// the very first session that we will run - the precense of which caused
-	// use to be instantiated - this will get switched to currentSession
-	// as though it had been loaded from api as normal
-	initialSession *types.Session
 
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
