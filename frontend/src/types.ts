@@ -23,16 +23,14 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
-<<<<<<< HEAD
 export type IOwnerType = 'user' | 'system' | 'org';
-=======
+
 export interface IApiKey {
   owner: string;
   owner_type: string;
   key: string;
   name: string;
 }
->>>>>>> lilysaas/gradio
 
 export interface IFileStoreBreadcrumb {
   path: string,
