@@ -143,7 +143,6 @@ func (r *Runner) loop(ctx context.Context) error {
 	if session != nil {
 		log.Debug().
 			Msgf("🔵 runner start model instance")
-		spew.Dump(session)
 		err = r.createModelInstance(ctx, session)
 		if err != nil {
 			return err
@@ -185,8 +184,6 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
-	log.Info().Msgf("Add global session %s", session.ID)
-	spew.Dump(session)
 	model, err := NewModelInstance(
 		r.Ctx,
 		session.ModelName,
@@ -206,6 +203,8 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	if err != nil {
 		return err
 	}
+	log.Debug().
+		Msgf("🔵 runner started model instance: %s", model.id)
 	r.queueSession(model, session)
 	err = model.startProcess()
 	if err != nil {
@@ -216,7 +215,8 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		<-model.finishChan
 		r.modelMutex.Lock()
 		defer r.modelMutex.Unlock()
-		log.Info().Msgf("Remove global session %s", session.ID)
+		log.Debug().
+			Msgf("🔵 runner stop model instance: %s", model.id)
 		delete(r.activeModelInstances, model.id)
 	}()
 	return nil
@@ -229,6 +229,10 @@ func (r *Runner) queueSession(modelInstance *ModelInstance, session *types.Sessi
 	go func() {
 		r.modelMutex.Lock()
 		defer r.modelMutex.Unlock()
+
+		log.Debug().
+			Msgf("🔵 runner prepare session: %s", session.ID)
+
 		session, err := r.prepareSession(session)
 
 		if err != nil {
@@ -237,6 +241,9 @@ func (r *Runner) queueSession(modelInstance *ModelInstance, session *types.Sessi
 			modelInstance.nextSession = nil
 			return
 		}
+
+		log.Debug().
+			Msgf("🔵 runner assign next session: %s", session.ID)
 
 		_, ok := r.activeModelInstances[modelInstance.id]
 
@@ -389,9 +396,6 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("task --------------------------------------\n")
-	spew.Dump(task)
 
 	return task, nil
 }
@@ -582,9 +586,24 @@ func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Sessio
 		}
 
 		remappedFilepaths = append(remappedFilepaths, path.Join(downloadFolder, filename))
+
+		log.Debug().
+			Msgf("🔵 runner downloaded interaction file: %s", filename)
 	}
 
 	interaction.Files = remappedFilepaths
+
+	newInteractions := []types.Interaction{}
+
+	for _, existingInteraction := range session.Interactions {
+		if existingInteraction.ID == interaction.ID {
+			newInteractions = append(newInteractions, *interaction)
+		} else {
+			newInteractions = append(newInteractions, existingInteraction)
+		}
+	}
+
+	session.Interactions = newInteractions
 
 	return session, nil
 }
