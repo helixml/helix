@@ -406,36 +406,36 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	// there are multiple entries for this param all of the format:
 	// model_name:mode
-	deprioritize := []types.SessionFilterDeprioritize{}
-	deprioritizePairs, ok := req.URL.Query()["deprioritize"]
+	reject := []types.SessionFilterModel{}
+	rejectPairs, ok := req.URL.Query()["reject"]
 
-	if ok && len(deprioritizePairs) > 0 {
-		for _, deprioritizePair := range deprioritizePairs {
-			pair := strings.Split(deprioritizePair, ":")
+	if ok && len(rejectPairs) > 0 {
+		for _, rejectPair := range rejectPairs {
+			pair := strings.Split(rejectPair, ":")
 			if len(pair) != 2 {
-				return nil, fmt.Errorf("invalid deprioritize pair: %s", deprioritizePair)
+				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			deprioritizeModelName, err := types.ValidateModelName(pair[0], false)
+			rejectModelName, err := types.ValidateModelName(pair[0], false)
 			if err != nil {
 				return nil, err
 			}
-			deprioritizeModelMode, err := types.ValidateSessionMode(pair[1], false)
+			rejectModelMode, err := types.ValidateSessionMode(pair[1], false)
 			if err != nil {
 				return nil, err
 			}
-			deprioritize = append(deprioritize, types.SessionFilterDeprioritize{
-				ModelName: deprioritizeModelName,
-				Mode:      deprioritizeModelMode,
+			reject = append(reject, types.SessionFilterModel{
+				ModelName: rejectModelName,
+				Mode:      rejectModelMode,
 			})
 		}
 	}
 
 	filter := types.SessionFilter{
-		Mode:         sessionMode,
-		Type:         sessionType,
-		ModelName:    modelName,
-		Memory:       memory,
-		Deprioritize: deprioritize,
+		Mode:      sessionMode,
+		Type:      sessionType,
+		ModelName: modelName,
+		Memory:    memory,
+		Reject:    reject,
 	}
 
 	// alow the worker to filter what tasks it wants

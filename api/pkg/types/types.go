@@ -66,7 +66,7 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
-type SessionFilterDeprioritize struct {
+type SessionFilterModel struct {
 	Mode      SessionMode `json:"mode"`
 	ModelName ModelName   `json:"model_name"`
 }
@@ -85,9 +85,9 @@ type SessionFilter struct {
 	Memory uint64 `json:"memory"`
 
 	// the list of model name / mode combos that we should skip over
-	// on the first pass - we are allowed to return one of these types
-	// as long as we've chcked for other types first
-	Deprioritize []SessionFilterDeprioritize `json:"deprioritize"`
+	// normally used by runners that are running multiple types in parallel
+	// who don't want another version of what they are already running
+	Reject []SessionFilterModel `json:"reject"`
 }
 
 // passed between the api server and the controller

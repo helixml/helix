@@ -16,7 +16,7 @@ import (
 const DEBUG = true
 
 // this function expects the sessionQueueMtx to be locked when it is run
-func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter, deprioritize bool) int {
+func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
@@ -41,16 +41,10 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 			}
 		}
 
-		// if we are in deprioritize mode - it means we will ignore anything
-		// that is mentioned in the deprioritize list
-		// this function will be run twice - the first time with deprioritize=true
-		// and if nothing is returned then again with deprioritize=false
-		// TODO: we can probably be more efficient than an inner loop here
-		if deprioritize {
-			for _, deprioritizeEntry := range filter.Deprioritize {
-				if deprioritizeEntry.ModelName == session.ModelName && deprioritizeEntry.Mode == session.Mode {
-					continue
-				}
+		// look to see if we have any rejection matches that we should not include
+		for _, rejectEntry := range filter.Reject {
+			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
+				continue
 			}
 		}
 
@@ -112,12 +106,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
-	// do the 2 phase filter - first applying the deprioritize filter
-	// and then if we don't get a match - without it the second time
-	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter, true)
-	if sessionIndex == -1 {
-		sessionIndex = c.getMatchingSessionFilterIndex(ctx, filter, false)
-	}
+	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter)
 
 	if sessionIndex >= 0 {
 		session := c.sessionQueue[sessionIndex]
