@@ -122,6 +122,9 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error
 	if err != nil {
 		return err
 	}
+	if fetchedApiKey == nil {
+		return errors.New("no such key")
+	}
 	// only the owner of an api key can delete it
 	if fetchedApiKey.Owner != ctx.Owner || fetchedApiKey.OwnerType != ctx.OwnerType {
 		return errors.New("unauthorized")
