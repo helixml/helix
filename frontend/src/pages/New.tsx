@@ -12,6 +12,7 @@ import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 import FormControl from '@mui/material/FormControl'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Interaction from '../components/session/Interaction'
+import GlobalLoading from '../components/system/GlobalLoading'
 
 import useFilestore from '../hooks/useFilestore'
 import FileUpload from '../components/widgets/FileUpload'
@@ -21,6 +22,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useLoading from '../hooks/useLoading'
 
 import {
   ISessionMode,
@@ -33,6 +35,10 @@ import {
 } from '../types'
 
 import {
+  IFilestoreUploadProgress,
+} from '../contexts/filestore'
+
+import {
   getSystemMessage,
 } from '../utils/session'
 
@@ -43,7 +49,8 @@ const New: FC = () => {
   const {navigate} = useRouter()
   const account = useAccount()
 
-  const [loading, setLoading] = useState(false)
+  const [ uploadProgress, setUploadProgress ] = useState<IFilestoreUploadProgress>()
+
   const [inputValue, setInputValue] = useState('')
   
   const [fineTuneStep, setFineTuneStep] = useState(0)
@@ -58,7 +65,7 @@ const New: FC = () => {
   }
 
   const onSend = async () => {
-    if(SESSION_MODE_FINETUNE) {
+    if(selectedMode == SESSION_MODE_FINETUNE) {
       snackbar.error('Please complete the fine-tuning process before trying to talk with your model')
       return
     }
@@ -74,13 +81,10 @@ const New: FC = () => {
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     account.loadSessions()
-
-    setFiles([])
-    setInputValue("")
     navigate('session', {session_id: session.id})
   }
 
-  const onUpload = useCallback(async (newFiles: File[]) => {
+  const onDropFiles = useCallback(async (newFiles: File[]) => {
     const existingFiles = files.reduce<Record<string, string>>((all, file) => {
       all[file.name] = file.name
       return all
@@ -91,7 +95,7 @@ const New: FC = () => {
     files,
   ])
 
-  const onSubmitImageLabels = useCallback(async () => {
+  const onUpload = useCallback(async () => {
     const errorFiles = files.filter(file => labels[file.name] ? false : true)
     if(errorFiles.length > 0) {
       setShowImageLabelErrors(true)
@@ -99,6 +103,41 @@ const New: FC = () => {
       return
     }
     setShowImageLabelErrors(false)
+
+    setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+
+    try {
+      const formData = new FormData()
+      files.forEach((file) => {
+        formData.append("files", file)
+        formData.set(file.name, labels[file.name])
+      })
+
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+
+      const session = await api.post('/api/v1/sessions', formData, {
+        onUploadProgress: (progressEvent) => {
+          const percent = progressEvent.total && progressEvent.total > 0 ?
+            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
+            0
+          setUploadProgress({
+            percent,
+            totalBytes: progressEvent.total || 0,
+            uploadedBytes: progressEvent.loaded || 0,
+          })
+        }
+      })
+      if(!session) return
+      account.loadSessions()
+      navigate('session', {session_id: session.id})
+    } catch(e: any) {}
+
+    setUploadProgress(undefined)
   }, [
     files,
     labels,
@@ -193,7 +232,7 @@ const New: FC = () => {
                     mt: 2,
                   }}
                   onlyImages
-                  onUpload={ onUpload }
+                  onUpload={ onDropFiles }
                 >
                   <Button
                     sx={{
@@ -203,7 +242,7 @@ const New: FC = () => {
                     color={ files.length > 0 ? "primary" : "secondary" }
                     endIcon={<CloudUploadIcon />}
                   >
-                    Upload Files
+                    Upload { files.length > 0 ? ' More' : '' } Files
                   </Button>
                   <Box
                     sx={{
@@ -365,9 +404,7 @@ const New: FC = () => {
                       variant="contained"
                       color="secondary"
                       endIcon={<ArrowCircleRightIcon />}
-                      onClick={ () => {
-                        onSubmitImageLabels()
-                      }}
+                      onClick={ onUpload }
                     >
                       Start Training
                     </Button>
@@ -413,7 +450,7 @@ const New: FC = () => {
                 ) + " (shift+enter to send)"
               }
               value={inputValue}
-              disabled={loading}
+              disabled={selectedMode == SESSION_MODE_FINETUNE}
               onChange={handleInputChange}
               name="ai_submit"
               multiline={true}
@@ -421,7 +458,7 @@ const New: FC = () => {
             />
             <Button
               variant='contained'
-              disabled={loading}
+              disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onSend }
               sx={{ ml: 2 }}
             >

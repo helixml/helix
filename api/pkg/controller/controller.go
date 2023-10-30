@@ -26,6 +26,8 @@ type ControllerOptions struct {
 	// write me an example FilePrefixUser as a go template
 	// e.g. "users/{{.Owner}}"
 	FilePrefixUser string
+
+	FilePrefixSessions string
 	// a static path used to denote what sub-folder job results live in
 	FilePrefixResults string
 }
