@@ -8,6 +8,8 @@ import (
 
 	gocloak "github.com/Nerzal/gocloak/v13"
 	jwt "github.com/golang-jwt/jwt/v4"
+	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 const CLIENT_ID = "api"
@@ -36,14 +38,35 @@ func newKeycloak(options ServerOptions) *keycloak {
 type keyCloakMiddleware struct {
 	keycloak *keycloak
 	options  ServerOptions
+	store    store.Store
 }
 
-func newMiddleware(keycloak *keycloak, options ServerOptions) *keyCloakMiddleware {
-	return &keyCloakMiddleware{keycloak: keycloak, options: options}
+func newMiddleware(keycloak *keycloak, options ServerOptions, store store.Store) *keyCloakMiddleware {
+	return &keyCloakMiddleware{keycloak: keycloak, options: options, store: store}
 }
 
 func extractBearerToken(token string) string {
 	return strings.Replace(token, "Bearer ", "", 1)
+}
+
+func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
+	// in case the request is authenticated with an lp- token, rather than a
+	// keycloak JWT, return the owner. Returns nil if it's not an lp- token.
+	token := r.Header.Get("Authorization")
+	token = extractBearerToken(token)
+
+	if strings.HasPrefix(token, "lp-") {
+		if owner, err := auth.store.CheckAPIKey(r.Context(), token); err != nil {
+			return nil, fmt.Errorf("error checking API key: %s", err.Error())
+		} else if owner == nil {
+			// user claimed to provide lp- token, but it was invalid
+			return nil, fmt.Errorf("invalid API key")
+		} else {
+			return owner, nil
+		}
+	}
+	// user didn't claim token was an lp token, so fallback to keycloak
+	return nil, nil
 }
 
 func (auth *keyCloakMiddleware) jwtFromRequest(r *http.Request) (*jwt.Token, error) {
@@ -107,12 +130,24 @@ func getRequestUser(req *http.Request) string {
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
 
 	f := func(w http.ResponseWriter, r *http.Request) {
-		token, err := auth.jwtFromRequest(r)
+		maybeOwner, err := auth.maybeOwnerFromRequest(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
-		r = r.WithContext(setRequestUser(r.Context(), getUserIdFromJWT(token)))
+		if maybeOwner == nil {
+			// check keycloak JWT
+			token, err := auth.jwtFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+			r = r.WithContext(setRequestUser(r.Context(), getUserIdFromJWT(token)))
+			next.ServeHTTP(w, r)
+			return
+		}
+		// successful api_key auth
+		r = r.WithContext(setRequestUser(r.Context(), maybeOwner.Owner))
 		next.ServeHTTP(w, r)
 	}
 
