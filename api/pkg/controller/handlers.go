@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	jobutils "github.com/bacalhau-project/lilysaas/api/pkg/job"
@@ -129,7 +128,6 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error
 	if fetchedApiKey.Owner != ctx.Owner || fetchedApiKey.OwnerType != ctx.OwnerType {
 		return errors.New("unauthorized")
 	}
-	log.Printf("Deleting API Key (2): %s", apiKey)
 	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, *fetchedApiKey)
 	if err != nil {
 		return err
