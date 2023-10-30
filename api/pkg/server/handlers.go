@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 				filenameParts[len(filenameParts)-1] = "txt"
 				labelFilename := strings.Join(filenameParts, ".")
 				labelFilepath := filepath.Join(inputPath, labelFilename)
-				filePaths = append(filePaths, filePath)
+				filePaths = append(filePaths, labelFilepath)
 
 				_, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(labelValues[0]))
 				if err != nil {
