@@ -77,6 +77,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
+      backgroundColor: "#f8f8f8",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -384,7 +385,11 @@ const Layout: FC = ({
         <Toolbar
           sx={{
             pr: '24px', // keep right padding when drawer closed
+<<<<<<< HEAD
             backgroundColor: '#fff',
+=======
+            backgroundColor: '#fafafa'
+>>>>>>> lilysaas/gradio
           }}
         >
           {
@@ -486,7 +491,7 @@ const Layout: FC = ({
                     account.onLogin()
                   }}
                 >
-                  Login
+                  Login/Register
                 </Button>
               </>
             )
@@ -524,7 +529,11 @@ const Layout: FC = ({
         sx={{
           backgroundColor: (theme) =>
             theme.palette.mode === 'light'
+<<<<<<< HEAD
               ? "#FAEFE0" 
+=======
+              ? "#fff" 
+>>>>>>> lilysaas/gradio
               : theme.palette.grey[900],
           flexGrow: 1,
           height: '100vh',
@@ -550,6 +559,28 @@ const Layout: FC = ({
         >
           { children }
         </Box>
+<<<<<<< HEAD
+=======
+        <Box
+          className='footer'
+          component="div"
+          sx={{
+            flexGrow: 0,
+            backgroundColor: 'transparent',
+          }}
+        >
+          <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
+            <Typography variant="body2" color="text.secondary" align="center">
+              {'Made with 💙 by '}
+              <Link color="inherit" href={ themeConfig.url }>
+                { themeConfig.company }
+              </Link>{' '}
+              {new Date().getFullYear()}
+              {'.'}
+            </Typography>
+          </Container>
+        </Box>
+>>>>>>> lilysaas/gradio
       </Box>
       <Snackbar />
       <GlobalLoading />

@@ -73,7 +73,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	}).Subrouter()
 
 	keycloak := newKeycloak(apiServer.Options)
-	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options)
+	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
 	authRouter.HandleFunc("/status", Wrapper(apiServer.status)).Methods("GET")
@@ -86,6 +86,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/filestore/upload", Wrapper(apiServer.filestoreUpload)).Methods("POST")
 	authRouter.HandleFunc("/filestore/rename", Wrapper(apiServer.filestoreRename)).Methods("PUT")
 	authRouter.HandleFunc("/filestore/delete", Wrapper(apiServer.filestoreDelete)).Methods("DELETE")
+
+	authRouter.HandleFunc("/api_keys", Wrapper(apiServer.createAPIKey)).Methods("POST")
+	authRouter.HandleFunc("/api_keys", Wrapper(apiServer.getAPIKeys)).Methods("GET")
+	authRouter.HandleFunc("/api_keys", Wrapper(apiServer.deleteAPIKey)).Methods("DELETE")
+	authRouter.HandleFunc("/api_keys/check", Wrapper(apiServer.checkAPIKey)).Methods("GET")
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
