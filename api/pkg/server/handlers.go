@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -76,6 +77,52 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 	}
 
 	return true, nil
+}
+
+func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	sessionid := vars["sessionid"]
+	filePath := req.URL.Query().Get("path")
+	filename := filepath.Base(filePath)
+
+	err := func() error {
+
+		session, err := apiServer.Store.GetSession(req.Context(), sessionid)
+		if err != nil {
+			return err
+		}
+
+		if session == nil {
+			return fmt.Errorf("no session found with id %v", sessionid)
+		}
+
+		stream, err := apiServer.Controller.FilestoreDownload(types.RequestContext{
+			Ctx:       req.Context(),
+			Owner:     session.Owner,
+			OwnerType: session.OwnerType,
+		}, filePath)
+
+		if err != nil {
+			return err
+		}
+
+		// Set the appropriate mime-type headers
+		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+		res.Header().Set("Content-Type", http.DetectContentType([]byte(filename)))
+
+		// Write the file to the http.ResponseWriter
+		_, err = io.Copy(res, stream)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}()
+
+	if err != nil {
+		log.Ctx(req.Context()).Error().Msgf("error for download file: %s", err.Error())
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // TODO: this need auth because right now it's an open filestore

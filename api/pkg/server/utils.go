@@ -84,6 +84,16 @@ func AddHeaders(
 	return nil
 }
 
+func AddHeadersVanilla(
+	req *http.Request,
+	token string,
+) error {
+	if token != "" {
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	return nil
+}
+
 func GetRequest[ResultType any](
 	options ClientOptions,
 	path string,

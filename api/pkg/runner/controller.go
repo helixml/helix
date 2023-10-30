@@ -9,7 +9,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	urllib "net/url"
 	"os"
+	"path"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -201,10 +203,10 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 			return r.uploadWorkerResponse(res, session)
 		},
 	)
-	model.nextSession = session
 	if err != nil {
 		return err
 	}
+	r.queueSession(model, session)
 	err = model.startProcess()
 	if err != nil {
 		return err
@@ -218,6 +220,34 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		delete(r.activeModelInstances, model.id)
 	}()
 	return nil
+}
+
+func (r *Runner) queueSession(modelInstance *ModelInstance, session *types.Session) {
+	modelInstance.queuedSession = session
+	modelInstance.nextSession = nil
+
+	go func() {
+		r.modelMutex.Lock()
+		defer r.modelMutex.Unlock()
+		session, err := r.prepareSession(session)
+
+		if err != nil {
+			log.Error().Msgf("error preparing session: %s", err.Error())
+			modelInstance.queuedSession = nil
+			modelInstance.nextSession = nil
+			return
+		}
+
+		_, ok := r.activeModelInstances[modelInstance.id]
+
+		if ok {
+			modelInstance.queuedSession = nil
+			modelInstance.nextSession = session
+		} else {
+			modelInstance.queuedSession = nil
+			modelInstance.nextSession = nil
+		}
+	}()
 }
 
 func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
@@ -345,23 +375,11 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 			return nil, err
 		}
 
-		modelInstance.queuedSession = apiSession
-		modelInstance.nextSession = nil
-
-		go func() {
-			apiSession, err = r.prepareSession(apiSession)
-
-			if err != nil {
-				log.Error().Msgf("error preparing session: %s", err.Error())
-				modelInstance.queuedSession = nil
-				modelInstance.nextSession = nil
-				return
-			}
-
-			modelInstance.queuedSession = nil
-			modelInstance.nextSession = apiSession
-		}()
+		if apiSession != nil {
+			r.queueSession(modelInstance, apiSession)
+		}
 	}
+
 	// we don't have any work for this model instance
 	if session == nil {
 		return nil, fmt.Errorf("no session found")
@@ -372,7 +390,10 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		return nil, err
 	}
 
-	return task, fmt.Errorf("no session found")
+	fmt.Printf("task --------------------------------------\n")
+	spew.Dump(task)
+
+	return task, nil
 }
 
 func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
@@ -453,6 +474,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 			return err
 		}
 		req.Header.Set("Content-Type", writer.FormDataContentType())
+		server.AddHeadersVanilla(req, r.httpClientOptions.Token)
 
 		// send the request
 		client := &http.Client{}
@@ -510,40 +532,59 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 }
 
 func (r *Runner) prepareSession(session *types.Session) (*types.Session, error) {
-	err := r.downloadInteractionFiles(session)
+	session, err := r.downloadInteractionFiles(session)
 	if err != nil {
 		return nil, err
 	}
 	return session, nil
 }
 
-func (r *Runner) downloadInteractionFiles(session *types.Session) error {
+func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Session, error) {
 	interaction, err := model.GetUserInteraction(session)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	fmt.Printf("interaction --------------------------------------\n")
-	spew.Dump(interaction)
-	// downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, interaction.ID)
-	// for _, filepath := range interaction.Files {
-	// 	file, err := os.Open(filepath)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	defer file.Close()
 
-	// 	// create a new form field for the file
-	// 	part, err := writer.CreateFormFile("files", filepath)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, interaction.ID)
+	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create folder: %w", err)
+	}
 
-	// 	// copy the file contents into the form field
-	// 	_, err = io.Copy(part, file)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
+	remappedFilepaths := []string{}
 
-	return nil
+	for _, filepath := range interaction.Files {
+		filename := path.Base(filepath)
+		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download", r.Options.ID, session.ID))
+		urlValues := urllib.Values{}
+		urlValues.Add("path", filepath)
+
+		req, err := http.NewRequest("GET", url+"?"+urlValues.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		server.AddHeadersVanilla(req, r.httpClientOptions.Token)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		file, err := os.Create(path.Join(downloadFolder, filename))
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(file, resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		remappedFilepaths = append(remappedFilepaths, path.Join(downloadFolder, filename))
+	}
+
+	interaction.Files = remappedFilepaths
+
+	return session, nil
 }
