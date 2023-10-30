@@ -40,6 +40,18 @@ func GetFolders() ([]filestore.FilestoreFolder, error) {
 	return folders, nil
 }
 
+func GetSessionFolder(sessionID string) string {
+	return filepath.Join("sessions", sessionID)
+}
+
+func GetSessionInputsFolder(sessionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "inputs")
+}
+
+func GetSessionResultsFolder(sessionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "results")
+}
+
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
 func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, error) {

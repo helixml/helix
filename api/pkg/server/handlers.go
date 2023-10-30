@@ -11,6 +11,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
+	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -106,7 +107,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 			return nil, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join("results", session.ID, fileHeader.Filename), file)
+		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(controller.GetSessionResultsFolder(session.ID), fileHeader.Filename), file)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -141,6 +142,10 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 
 // based on a multi-part form that has message and files
 // return a user interaction we can add to a session
+// if we are uploading files for a fine-tuning session for images
+// then the form data will have a field named after each of the filenames
+// this is the label for the file and we should create a text file
+// in the session folder that is named after the file and contains the label
 func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	req *http.Request,
 	sessionID string,
@@ -154,6 +159,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]
+	inputPath := controller.GetSessionInputsFolder(sessionID)
 
 	if okFiles {
 		for _, fileHeader := range files {
@@ -162,15 +168,34 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 				return nil, fmt.Errorf("unable to open file")
 			}
 			defer file.Close()
-			path := fmt.Sprintf("/sessions/%s", sessionID)
-			filePaths = append(filePaths, filepath.Join(path, fileHeader.Filename))
-			log.Printf("uploading file %s/%s", path, fileHeader.Filename)
-			_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
+
+			filePath := filepath.Join(inputPath, fileHeader.Filename)
+			filePaths = append(filePaths, filePath)
+
+			log.Printf("uploading file %s", filePath)
+			_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
-			log.Printf("success uploading files!")
+			log.Printf("success uploading file: %s", fileHeader.Filename)
+
+			// let's see if there is a single form field named after the filename
+			labelValues, ok := req.MultipartForm.Value[fileHeader.Filename]
+
+			if ok && len(labelValues) > 0 {
+				filenameParts := strings.Split(fileHeader.Filename, ".")
+				filenameParts[len(filenameParts)-1] = "txt"
+				labelFilename := strings.Join(filenameParts, ".")
+				labelFilepath := filepath.Join(inputPath, labelFilename)
+				filePaths = append(filePaths, filePath)
+
+				_, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(labelValues[0]))
+				if err != nil {
+					return nil, fmt.Errorf("unable to create label: %s", err.Error())
+				}
+			}
 		}
+		log.Printf("success uploading files")
 	}
 
 	if sessionMode == types.SessionModeFinetune && len(filePaths) == 0 {
