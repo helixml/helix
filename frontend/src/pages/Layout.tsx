@@ -77,6 +77,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
+      backgroundColor: "#f8f8f8",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -486,7 +487,7 @@ const Layout: FC = ({
                     account.onLogin()
                   }}
                 >
-                  Login
+                  Login/Register
                 </Button>
               </>
             )
