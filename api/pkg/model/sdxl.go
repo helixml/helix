@@ -91,6 +91,16 @@ func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config ty
 		cmd.Stderr = os.Stderr
 
 		return cmd, nil
+	} else if mode == types.SessionModeFinetune {
+		cmd := exec.CommandContext(
+			ctx,
+			"sleep", "100000",
+		)
+
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		return cmd, nil
 	}
 
 	return nil, fmt.Errorf("not implemented")

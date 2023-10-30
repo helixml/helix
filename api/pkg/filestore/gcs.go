@@ -94,6 +94,15 @@ func (s *GCSStorage) Upload(ctx context.Context, path string, r io.Reader) (File
 	}, nil
 }
 
+func (s *GCSStorage) Download(ctx context.Context, path string) (io.Reader, error) {
+	obj := s.bucket.Object(path)
+	reader, err := obj.NewReader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCS object reader: %w", err)
+	}
+	return reader, nil
+}
+
 func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {
 	src := s.bucket.Object(path)
 	dst := s.bucket.Object(newPath)
