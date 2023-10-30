@@ -381,7 +381,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// before trying to run another type of model
 
 	for _, modelInstance := range r.activeModelInstances {
-		queryParams.Add("deprioritize", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
 	}
 
 	return r.getNextSession(ctx, queryParams)
