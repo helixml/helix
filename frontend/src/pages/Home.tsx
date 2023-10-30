@@ -69,14 +69,17 @@ const Dashboard: FC = () => {
           title="Gradio"
           style={{
             width: '100%',
-            height: '610px',
+            height: '601px',
             border: 'none',
             overflow: 'hidden',
-            marginTop: "-20px"
+            marginTop: "-40px",
+            marginBottom: "-40px"
           }}
         />
     </Container>
   )
 }
+// TODO: replace iframe above with a gradio-embed javascript lib, otherwise it's
+// iframe-in-iframe, and scroll bars are undisablable
 
 export default Dashboard

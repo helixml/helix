@@ -23,23 +23,30 @@ def alternatingly_agree(message, history):
     else:
         return "I don't think so"
 
+# TODO: show the API call made to LilySaaS API in the UI, so users can see
+# easily how to recreate it
+
 APPS = {
     "cowsay":
         gr.Interface(
             fn=cowsay,
             inputs=gr.Textbox(lines=2, placeholder="What would you like the cow to say?"),
             outputs="text",
-            allow_flagging="never"
+            allow_flagging="never",
+            css="footer {visibility: hidden}"
         ),
     "sdxl":
         gr.Interface(
             fn=cowsay,
             inputs=gr.Textbox(lines=2, placeholder="Enter prompt for SDXL"),
             outputs="image",
-            allow_flagging="never"
+            allow_flagging="never",
+            css="footer {visibility: hidden}"
         ),
     "mistral7b":
-        gr.ChatInterface(alternatingly_agree),
+        gr.ChatInterface(alternatingly_agree,
+            css="footer {visibility: hidden}"
+        ),
 }
 
 for (app_name, gradio_app) in APPS.items():

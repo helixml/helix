@@ -445,20 +445,20 @@ delete from api_key where key = $1 and owner = $2 and owner_type = $3
 	return err
 }
 
-func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*OwnerQuery, error) {
+func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
 	d.mtx.RLock()
 	defer d.mtx.RUnlock()
-	var ownerQuery OwnerQuery
+	var key types.ApiKey
 	sqlStatement := `
 select
-	owner, owner_type
+	key, owner, owner_type
 from
 	api_key
 where
 	key = $1
 `
 	row := d.db.QueryRow(sqlStatement, apiKey)
-	err := row.Scan(&ownerQuery.Owner, &ownerQuery.OwnerType)
+	err := row.Scan(&key.Key, &key.Owner, &key.OwnerType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// not an error, but not a valid api key either
@@ -466,7 +466,7 @@ where
 		}
 		return nil, err
 	}
-	return &ownerQuery, nil
+	return &key, nil
 }
 
 // Compile-time interface check:
