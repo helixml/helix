@@ -26,7 +26,7 @@ type Store interface {
 	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error)
 	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
-	CheckAPIKey(ctx context.Context, apiKey string) (*OwnerQuery, error)
+	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
 }
 
 type StoreOptions struct {

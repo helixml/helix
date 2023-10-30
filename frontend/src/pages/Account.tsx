@@ -16,7 +16,7 @@ const Account: FC = () => {
   if(!account.user) return null
   const handleDeleteApiKey = async (key: string) => {
     try {
-      await axios.delete(`/api/v1/api_keys/${key}`)
+      await axios.delete(`/api/v1/api_keys?key=${key}`)
     } catch (error) {
       console.error(error)
     }

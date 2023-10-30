@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/bacalhau-project/lilypad/pkg/data"
 	jobutils "github.com/bacalhau-project/lilysaas/api/pkg/job"
@@ -116,25 +117,27 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.ApiKey, erro
 	return apiKeys, nil
 }
 
-func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey types.ApiKey) error {
-	fetchedApiKey, err := c.Options.Store.CheckAPIKey(ctx.Ctx, apiKey.Key)
+func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error {
+	fetchedApiKey, err := c.Options.Store.CheckAPIKey(ctx.Ctx, apiKey)
 	if err != nil {
 		return err
 	}
+	// only the owner of an api key can delete it
 	if fetchedApiKey.Owner != ctx.Owner || fetchedApiKey.OwnerType != ctx.OwnerType {
 		return errors.New("unauthorized")
 	}
-	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, apiKey)
+	log.Printf("Deleting API Key (2): %s", apiKey)
+	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, *fetchedApiKey)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*store.OwnerQuery, error) {
-	ownerQuery, err := c.Options.Store.CheckAPIKey(ctx, apiKey)
+func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
+	key, err := c.Options.Store.CheckAPIKey(ctx, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	return ownerQuery, nil
+	return key, nil
 }

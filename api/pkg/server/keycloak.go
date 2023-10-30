@@ -8,6 +8,7 @@ import (
 
 	gocloak "github.com/Nerzal/gocloak/v13"
 	"github.com/bacalhau-project/lilysaas/api/pkg/store"
+	"github.com/bacalhau-project/lilysaas/api/pkg/types"
 	jwt "github.com/golang-jwt/jwt/v4"
 )
 
@@ -48,7 +49,7 @@ func extractBearerToken(token string) string {
 	return strings.Replace(token, "Bearer ", "", 1)
 }
 
-func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*store.OwnerQuery, error) {
+func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
 	// in case the request is authenticated with an lp- token, rather than a
 	// keycloak JWT, return the owner. Returns nil if it's not an lp- token.
 	token := r.Header.Get("Authorization")
