@@ -12,11 +12,8 @@ import router from '../router'
 import {
   IUser,
   IBalanceTransfer,
-<<<<<<< HEAD
   ISession,
-=======
   IApiKey,
->>>>>>> lilysaas/gradio
 } from '../types'
 
 const REALM = 'helix'
@@ -28,12 +25,9 @@ export interface IAccountContext {
   credits: number,
   user?: IUser,
   transactions: IBalanceTransfer[],
-<<<<<<< HEAD
   sessions: ISession[],
   loadSessions: () => void,
-=======
   apiKeys: IApiKey[],
->>>>>>> lilysaas/gradio
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -43,11 +37,8 @@ export const AccountContext = createContext<IAccountContext>({
   credits: 0,
   sessions: [],
   transactions: [],
-<<<<<<< HEAD
   loadSessions: () => {},
-=======
   apiKeys: [],
->>>>>>> lilysaas/gradio
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -61,13 +52,8 @@ export const useAccountContext = (): IAccountContext => {
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
-<<<<<<< HEAD
   const [ sessions, setSessions ] = useState<ISession[]>([])
-=======
-  const [ jobs, setJobs ] = useState<IJob[]>([])
-  const [ modules, setModules ] = useState<IModule[]>([])
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
->>>>>>> lilysaas/gradio
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -210,11 +196,8 @@ export const useAccountContext = (): IAccountContext => {
     credits,
     sessions,
     transactions,
-<<<<<<< HEAD
     loadSessions,
-=======
     apiKeys,
->>>>>>> lilysaas/gradio
     onLogin,
     onLogout,
   }), [
@@ -223,11 +206,8 @@ export const useAccountContext = (): IAccountContext => {
     credits,
     sessions,
     transactions,
-<<<<<<< HEAD
     loadSessions,
-=======
     apiKeys,
->>>>>>> lilysaas/gradio
     onLogin,
     onLogout,
   ])

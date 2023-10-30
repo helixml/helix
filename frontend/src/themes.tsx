@@ -16,20 +16,12 @@ export interface ITheme {
 }
 
 export const THEMES: Record<string, ITheme> = {
-<<<<<<< HEAD
   helix: {
     company: 'MLOps Consulting',
     url: 'https://mlops.consulting/',
     primary: '#7db6c7',
     secondary: '#e450bf',
     // this means ALL
-=======
-  lilypad: {
-    company: 'Lilypad',
-    url: 'https://lilypad.tech/',
-    primary: '#14c7c3',
-    secondary: '#fec284',
->>>>>>> lilysaas/gradio
     activeSections: [],
     logo: () => (
       <Box sx={{
