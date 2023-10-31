@@ -16,17 +16,6 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import {
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  SESSION_CREATOR_SYSTEM,
-  SESSION_CREATOR_USER,
-} from '../types'
-
-import {
-  ISession,
-  IInteraction,
-} from '../types'
 
 const Session: FC = () => {
   const filestore = useFilestore()
