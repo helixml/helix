@@ -508,7 +508,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 		mappedFiles := []string{}
 
 		for _, fileItem := range data {
-			mappedFiles = append(mappedFiles, fileItem.URL)
+			mappedFiles = append(mappedFiles, fileItem.Path)
 		}
 
 		res.Files = mappedFiles
