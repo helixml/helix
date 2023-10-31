@@ -61,17 +61,9 @@ func (l *SDXL) GetTextStream(mode types.SessionMode) (*TextStream, error) {
 }
 
 func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
 	if mode == types.SessionModeInference {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-
-		// this bash script will be in the dockerfile that we use to
-		// manage runners
-		// TODO: should this be included in the gofs and written to the FS dynamically
-		// so we can distribute a go binary if needed?
-		cmd := exec.CommandContext(
+		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
 			"accelerate", "launch",
@@ -80,30 +72,49 @@ func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config ty
 			"--ckpt_path=sdxl/sd_xl_base_1.0.safetensors",
 			"--output_dir=./output_images",
 		)
-
-		cmd.Env = []string{
-			fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
-			fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
-			fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
-		}
-
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		return cmd, nil
 	} else if mode == types.SessionModeFinetune {
-		cmd := exec.CommandContext(
+		cmd = exec.CommandContext(
 			ctx,
-			"sleep", "100000",
+			"bash", "runner/venv_command.sh",
+			"accelerate", "launch",
+			"--num_cpu_threads_per_process", "1",
+			"sdxl_train_network.py",
+			"--pretrained_model_name_or_path=./sdxl/sd_xl_base_1.0.safetensors",
+			"--output_name=lora",
+			"--save_model_as=safetensors",
+			"--prior_loss_weight=1.0",
+			"--max_train_steps=400",
+			"--vae=madebyollin/sdxl-vae-fp16-fix",
+			"--learning_rate=1e-4",
+			"--optimizer_type=AdamW8bit",
+			"--xformers",
+			"--mixed_precision=fp16",
+			"--cache_latents",
+			"--gradient_checkpointing",
+			"--save_every_n_epochs=1",
+			"--network_module=networks.lora",
 		)
-
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		return cmd, nil
 	}
 
-	return nil, fmt.Errorf("not implemented")
+	if cmd == nil {
+		return nil, fmt.Errorf("not implemented")
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
+		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd, nil
 }
 
 // Compile-time interface check:

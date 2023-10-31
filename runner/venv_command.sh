@@ -2,6 +2,8 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+export APP_FOLDER=${APP_FOLDER:=""}
+
 # a wrapper script to first activate a venv in a folder
 # before running the provided command
 if [[ -z "$APP_FOLDER" ]]; then
