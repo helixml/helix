@@ -217,16 +217,17 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			defer file.Close()
 
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
-			filePaths = append(filePaths, filePath)
 
 			log.Printf("uploading file %s", filePath)
-			_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
+			imageItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
-			log.Printf("success uploading file: %s", fileHeader.Filename)
+			log.Printf("success uploading file: %s", imageItem.Path)
+			filePaths = append(filePaths, imageItem.Path)
 
 			// let's see if there is a single form field named after the filename
+			// this is for labelling images for fine tuning
 			labelValues, ok := req.MultipartForm.Value[fileHeader.Filename]
 
 			if ok && len(labelValues) > 0 {
@@ -234,12 +235,13 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 				filenameParts[len(filenameParts)-1] = "txt"
 				labelFilename := strings.Join(filenameParts, ".")
 				labelFilepath := filepath.Join(inputPath, labelFilename)
-				filePaths = append(filePaths, labelFilepath)
 
-				_, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(labelValues[0]))
+				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(labelValues[0]))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
+				log.Printf("success uploading file: %s", fileHeader.Filename)
+				filePaths = append(filePaths, labelItem.Path)
 			}
 		}
 		log.Printf("success uploading files")
