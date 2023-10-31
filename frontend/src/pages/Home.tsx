@@ -206,5 +206,7 @@ const Dashboard: FC = () => {
       </XContainer>
   );
 }
+// TODO: replace iframe above with a gradio-embed javascript lib, otherwise it's
+// iframe-in-iframe, and scroll bars are undisablable
 
 export default Dashboard

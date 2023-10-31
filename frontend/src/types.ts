@@ -25,6 +25,13 @@ export interface IBalanceTransfer {
 
 export type IOwnerType = 'user' | 'system' | 'org';
 
+export interface IApiKey {
+  owner: string;
+  owner_type: string;
+  key: string;
+  name: string;
+}
+
 export interface IFileStoreBreadcrumb {
   path: string,
   title: string,
