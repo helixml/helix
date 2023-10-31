@@ -520,3 +520,38 @@ func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, r
 	}
 	return taskResponse, nil
 }
+
+func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	name := req.URL.Query().Get("name")
+	apiKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), name)
+	if err != nil {
+		return "", err
+	}
+	return apiKey, nil
+}
+
+func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
+	apiKeys, err := apiServer.Controller.GetAPIKeys(apiServer.getRequestContext(req))
+	if err != nil {
+		return nil, err
+	}
+	return apiKeys, nil
+}
+
+func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	apiKey := req.URL.Query().Get("key")
+	err := apiServer.Controller.DeleteAPIKey(apiServer.getRequestContext(req), apiKey)
+	if err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+	apiKey := req.URL.Query().Get("key")
+	key, err := apiServer.Controller.CheckAPIKey(apiServer.getRequestContext(req).Ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	return key, nil
+}
