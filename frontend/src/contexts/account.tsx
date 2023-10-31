@@ -13,6 +13,7 @@ import {
   IUser,
   IBalanceTransfer,
   ISession,
+  IApiKey,
 } from '../types'
 
 const REALM = 'helix'
@@ -26,6 +27,7 @@ export interface IAccountContext {
   transactions: IBalanceTransfer[],
   sessions: ISession[],
   loadSessions: () => void,
+  apiKeys: IApiKey[],
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -36,6 +38,7 @@ export const AccountContext = createContext<IAccountContext>({
   sessions: [],
   transactions: [],
   loadSessions: () => {},
+  apiKeys: [],
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -50,6 +53,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ credits, setCredits ] = useState(0)
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ sessions, setSessions ] = useState<ISession[]>([])
+  const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -76,16 +80,25 @@ export const useAccountContext = (): IAccountContext => {
     if(!statusResult) return
     setCredits(statusResult.credits)
   }, [])
+  
+  const loadApiKeys = useCallback(async () => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys')
+    if(!result) return
+    setApiKeys(result)
+  }, [])
+
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
       loadSessions(),
       loadTransactions(),
       loadStatus(),
+      loadApiKeys(),
     ])
   }, [
     loadTransactions,
     loadStatus,
+    loadApiKeys,
   ])
 
   const onLogin = useCallback(() => {
@@ -184,6 +197,7 @@ export const useAccountContext = (): IAccountContext => {
     sessions,
     transactions,
     loadSessions,
+    apiKeys,
     onLogin,
     onLogout,
   }), [
@@ -193,6 +207,7 @@ export const useAccountContext = (): IAccountContext => {
     sessions,
     transactions,
     loadSessions,
+    apiKeys,
     onLogin,
     onLogout,
   ])
