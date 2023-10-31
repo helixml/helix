@@ -3,6 +3,7 @@ import { styled } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Progress from '../widgets/Progress'
 import {
@@ -34,6 +35,7 @@ export const Interaction: FC<{
   let progress = 0
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+  const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
 
   if(type == SESSION_TYPE_TEXT) {
     displayMessage = interaction.message
@@ -57,11 +59,61 @@ export const Interaction: FC<{
     }
   }
 
+  // console.log('--------------------------------------------')
+  // console.log(interaction)
+
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
+        {
+          isImageFinetune && interaction.files && interaction.files.length > 0 && (
+            <Box
+              sx={{
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}
+            >
+              <Grid container spacing={3} direction="row" justifyContent="flex-start">
+                {
+                  interaction.files.length > 0 && interaction.files.map((file) => {
+                    const useURL = `http://localhost/api/v1/filestore/viewer/${file}`
+
+                    console.log('--------------------------------------------')
+                    console.log(useURL)
+
+                    return (
+                      <Grid item xs={4} md={4} key={file}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#999'
+                          }}
+                        >
+                          <Box
+                            component="img"
+                            src={useURL}
+                            sx={{
+                              height: '50px',
+                              border: '1px solid #000000',
+                              filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
+                              mb: 1,
+                            }}
+                          />
+                        </Box>
+                      </Grid>
+                    )
+                  })
+                    
+                }
+              </Grid>
+            </Box>
+          )
+        }
         {
           displayMessage && (
             <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
@@ -76,15 +128,17 @@ export const Interaction: FC<{
         }
         {
           imageURLs.map((imageURL: string) => {
+            const useURL = `http://localhost/api/v1/filestore/viewer/${imageURL}`
+
             return (
               <Box
                 sx={{
                   mt: 2,
                 }}
-                key={ imageURL }
+                key={ useURL }
               >
                 <Link
-                  href={ imageURL }
+                  href={ useURL }
                   target="_blank"
                 >
                   <GeneratedImage
@@ -94,7 +148,7 @@ export const Interaction: FC<{
                       border: '1px solid #000000',
                       filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
                     }}
-                    src={ imageURL }
+                    src={ useURL }
                   />  
                 </Link>
               </Box>
