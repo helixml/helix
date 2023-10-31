@@ -133,8 +133,9 @@ const New: FC = () => {
         }
       })
       if(!session) return
-      account.loadSessions()
-      navigate('session', {session_id: session.id})
+      console.dir(session)
+      // account.loadSessions()
+      // navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
     setUploadProgress(undefined)
