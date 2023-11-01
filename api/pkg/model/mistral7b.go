@@ -80,9 +80,6 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.Session
 			fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 		}
 
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
 		return cmd, nil
 	}
 

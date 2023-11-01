@@ -1,8 +1,11 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -277,16 +280,66 @@ func (instance *ModelInstance) startProcess() error {
 	spew.Dump(cmd.Args)
 
 	instance.currentCommand = cmd
-	go func(cmd *exec.Cmd) {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-		if err := cmd.Start(); err != nil {
-			log.Error().Msgf("Failed to start command: %v\n", err.Error())
-			return
+	// Create pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	// Create buffers to store stdout and stderr
+	var stdoutBuf, stderrBuf bytes.Buffer
+
+	// Start a go routine to copy the contents of the stdout pipe to the buffer
+	go func() {
+		_, err := io.Copy(io.MultiWriter(os.Stdout, &stdoutBuf), stdoutPipe)
+		if err != nil {
+			log.Error().Msgf("Error copying stdout: %v", err)
 		}
+	}()
 
+	// Start a go routine to copy the contents of the stderr pipe to the buffer
+	go func() {
+		_, err := io.Copy(io.MultiWriter(os.Stderr, &stderrBuf), stderrPipe)
+		if err != nil {
+			log.Error().Msgf("Error copying stderr: %v", err)
+		}
+	}()
+
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		log.Error().Msgf("Failed to start command: %v\n", err.Error())
+		return err
+	}
+
+	go func(cmd *exec.Cmd) {
 		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
+
+			// we are currently running a session and we got an error from the Python process
+			// this normally means that a job caused an error so let's tell the api
+			// that this interaction has it's Error field set
+			if instance.currentSession != nil {
+				interactionID, getInteractionErr := getLastInteractionID(instance.currentSession)
+				if getInteractionErr != nil {
+					log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
+					return
+				}
+				apiUpdateErr := instance.responseHandler(&types.WorkerTaskResponse{
+					Type:          types.WorkerTaskResponseTypeResult,
+					SessionID:     instance.currentSession.ID,
+					InteractionID: interactionID,
+					Error:         stderrBuf.String(),
+				})
+				if apiUpdateErr != nil {
+					log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
+				}
+			}
 		}
 
 		log.Info().
