@@ -400,6 +400,9 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	spew.Dump(sessionCopy)
 
 	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, sessionCopy)
+	if err != nil {
+		return nil, err
+	}
 
 	// add the session to the controller queue
 	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, &sessionCopy)
