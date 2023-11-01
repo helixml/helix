@@ -78,7 +78,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
-	authRouter.HandleFunc("/config", Wrapper(apiServer.config)).Methods("GET")
+	subrouter.HandleFunc("/config", WrapperWithConfig(apiServer.config, WrapperConfig{
+		SilenceErrors: true,
+	})).Methods("GET")
+
 	authRouter.HandleFunc("/status", Wrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", Wrapper(apiServer.getTransactions)).Methods("GET")
 
