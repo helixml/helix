@@ -6,9 +6,9 @@ Your own ChatGPT as a service.
 
 Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under a similar license to Docker Desktop. You can run the open source code (in this repo) for free for:
 
-* Personal use: you are an individual
-* Educational use: you are a school/university
-* Small Business use: a company with under $10M annual revenue AND less than 250 employees
+* **Personal use:** you are an individual
+* **Educational use:** you are a school/university
+* **Small Business use:** a company with under $10M annual revenue AND less than 250 employees
 
 You're also not allowed to use our code to build a product that competes with us.
 
