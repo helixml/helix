@@ -5,11 +5,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/runner"
-	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -22,12 +19,11 @@ type RunnerOptions struct {
 func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.RunnerOptions{
-			ID:              getDefaultServeOptionString("RUNNER_ID", ""),
-			ApiHost:         getDefaultServeOptionString("API_HOST", ""),
-			ApiToken:        getDefaultServeOptionString("API_TOKEN", ""),
-			FilestorePrefix: getDefaultServeOptionString("FILESTORE_PREFIX", ""),
-			MemoryBytes:     uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
-			MemoryString:    getDefaultServeOptionString("MEMORY_STRING_", ""),
+			ID:           getDefaultServeOptionString("RUNNER_ID", ""),
+			ApiHost:      getDefaultServeOptionString("API_HOST", ""),
+			ApiToken:     getDefaultServeOptionString("API_TOKEN", ""),
+			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
+			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
 			// TODO: this is currently very quick to unload a model
 			// this is so we can test quickly
 			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
@@ -65,11 +61,6 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.ApiToken, "api-token", allOptions.Runner.ApiToken,
 		`The auth token for this runner`,
-	)
-
-	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Runner.FilestorePrefix, "filestore-prefix", allOptions.Runner.FilestorePrefix,
-		`The URL prefix for filestore paths`,
 	)
 
 	runnerCmd.PersistentFlags().Uint64Var(
@@ -116,34 +107,6 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// processes that will then speak back to these routes
 	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/task", options.Server.Port)
 	options.Runner.ResponseURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/response", options.Server.Port)
-
-	if options.Runner.FilestorePrefix == "" {
-		if options.Runner.ApiHost == "" {
-			return fmt.Errorf("api url is required")
-		}
-
-		if options.Runner.ApiToken == "" {
-			return fmt.Errorf("api token is required")
-		}
-
-		config, err := server.GetRequest[types.ServerConfig](
-			server.ClientOptions{
-				Host:  options.Runner.ApiHost,
-				Token: options.Runner.ApiToken,
-			},
-			"/api/v1/config",
-			map[string]string{},
-		)
-
-		if err != nil {
-			return err
-		}
-
-		options.Runner.FilestorePrefix = config.FilestorePrefix
-	}
-
-	fmt.Printf("options.Runner.FilestorePrefix --------------------------------------\n")
-	spew.Dump(options.Runner.FilestorePrefix)
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {

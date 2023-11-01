@@ -38,9 +38,6 @@ type RunnerOptions struct {
 	// we just pass http://localhost:8080/api/v1/worker/response
 	ResponseURL string
 
-	// the url prefix for filestore paths
-	FilestorePrefix string
-
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
 	// how many bytes of memory does our GPU have?
@@ -83,9 +80,6 @@ func NewRunner(
 	}
 	if options.ApiToken == "" {
 		return nil, fmt.Errorf("api token is required")
-	}
-	if options.FilestorePrefix == "" {
-		return nil, fmt.Errorf("filestore prefix is required")
 	}
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
@@ -587,6 +581,9 @@ func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Sessio
 		urlValues.Add("path", filepath)
 
 		fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
+
+		log.Debug().
+			Msgf("🔵 runner downloading interaction file: %s", fullURL)
 
 		req, err := http.NewRequest("GET", fullURL, nil)
 		if err != nil {
