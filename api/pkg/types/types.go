@@ -160,3 +160,12 @@ type WorkerTaskResponse struct {
 	Files    []string `json:"files"`    // list of filepath paths
 	Error    string   `json:"error"`
 }
+
+type ServerConfig struct {
+	// used to prepend onto raw filestore paths to download files
+	// the filestore path will have the user info in it - i.e.
+	// it's a low level filestore path
+	// if we are using an object storage thing - then this URL
+	// can be the prefix to the bucket
+	FilestorePrefix string `json:"filestore_prefix"`
+}

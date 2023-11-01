@@ -34,7 +34,6 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
   const session = account.sessions?.find(session => session.id === params["session_id"])
-  const interaction = session?.interactions[session?.interactions.length - 1]
 
   const onSend = async () => {
     if(!session) return
@@ -110,6 +109,7 @@ const Session: FC = () => {
                   key={ interaction.id }
                   type={ session.type }
                   interaction={ interaction }
+                  serverConfig={ account.serverConfig }
                   isLast={ i === session.interactions.length - 1 }
                 />
               )   
