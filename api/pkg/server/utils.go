@@ -168,7 +168,7 @@ func PostRequest[RequestType any, ResultType any](
 	var result ResultType
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
-		return result, fmt.Errorf("THIS IS A JOSN ERROR: %s", err.Error())
+		return result, fmt.Errorf("THIS IS A JSON ERROR: %s", err.Error())
 	}
 	return PostRequestBuffer[ResultType](
 		options,
@@ -188,7 +188,10 @@ func PostRequestBuffer[ResultType any](
 	if err != nil {
 		return result, err
 	}
-	AddHeaders(req, options.Token)
+	err = AddHeaders(req, options.Token)
+	if err != nil {
+		return result, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return result, err
