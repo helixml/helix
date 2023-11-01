@@ -542,7 +542,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+	_, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/response", r.Options.ID),
 		res,
