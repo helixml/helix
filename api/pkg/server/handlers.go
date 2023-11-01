@@ -21,6 +21,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
+	if apiServer.Options.LocalFilestorePath != "" {
+		return types.ServerConfig{
+			FilestorePrefix: fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX),
+		}, nil
+	}
+
+	// TODO: work out what to do for object storage here
+	return types.ServerConfig{}, fmt.Errorf("we currently only support local filestore")
+}
+
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
 }
