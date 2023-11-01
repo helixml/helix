@@ -72,14 +72,15 @@ func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
 ) (*Runner, error) {
-	if options.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if options.ApiHost == "" {
-		return nil, fmt.Errorf("api url is required")
-	}
-	if options.ApiToken == "" {
-		return nil, fmt.Errorf("api token is required")
+	if options.ApiHost != "" {
+		// these are only required if api-host is specified, we can also run in
+		// a purely local mode
+		if options.ID == "" {
+			return nil, fmt.Errorf("id is required")
+		}
+		if options.ApiToken == "" {
+			return nil, fmt.Errorf("api token is required")
+		}
 	}
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
@@ -320,6 +321,14 @@ func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*t
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
 func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
+	if r.httpClientOptions.Host == "" {
+		// we are in local only mode... the next session will be injected into
+		// us rather than queried from the control server
+		// TODO: it would be nice to still support memory limits and other
+		// smarts for local tasks
+		return nil, nil
+	}
+
 	freeMemory := r.getFreeMemory()
 
 	if freeMemory < r.lowestMemoryRequirement {
@@ -454,6 +463,10 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 }
 
 func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
+	if r.httpClientOptions.Host == "" {
+		// no upstream server configured, skip uploading
+		return nil
+	}
 	if len(res.Files) > 0 {
 		// create a new multipart form
 		body := &bytes.Buffer{}
