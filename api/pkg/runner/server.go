@@ -39,7 +39,7 @@ func NewRunnerServer(
 func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 
-	subrouter := router.PathPrefix("/api/v1").Subrouter()
+	subrouter := router.PathPrefix(server.API_SUB_PATH).Subrouter()
 
 	// pull the next task for an already running wrapper
 	subrouter.HandleFunc("/worker/task/{instanceid}", server.WrapperWithConfig(runnerServer.getWorkerTask, server.WrapperConfig{
