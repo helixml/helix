@@ -108,7 +108,6 @@ func GetRequest[ResultType any](
 	if err != nil {
 		return result, err
 	}
-
 	err = json.Unmarshal(buf.Bytes(), &result)
 	if err != nil {
 		return result, err
@@ -150,6 +149,10 @@ func GetRequestBufferWithQuery(
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("error response from server: %s %s", resp.Status, parsedURL.String())
+	}
 
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, resp.Body)
