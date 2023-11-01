@@ -10,6 +10,8 @@ Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under
 * **Educational use:** you are a school/university
 * **Small Business use:** a company with under $10M annual revenue and less than 250 employees
 
+If you fall outside of these terms, please [contact us](mailto:founders@helix.ml) to discuss purchasing a license for large commercial use.
+
 You are not allowed to use our code to build a product that competes with us.
 
 Contributions to the open source code are welcome, and will fall under the same conditions.
