@@ -14,7 +14,7 @@ If you fall outside of these terms, please [contact us](mailto:founders@helix.ml
 
 You are not allowed to use our code to build a product that competes with us.
 
-Contributions to the source code are welcome, and will fall under the same conditions.
+Contributions to the source code are welcome, and by contributing you confirm that your changes will fall under the same license.
 
 
 ### Why these clauses in your license?
