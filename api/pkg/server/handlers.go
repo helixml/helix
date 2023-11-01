@@ -90,6 +90,8 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 	return true, nil
 }
 
+// in this case the path contains the full /dev/users/XXX/sessions/XXX path
+// so we need to remove the /dev/users/XXX part and then we load the session based on it's ID
 func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
@@ -107,12 +109,23 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 			return fmt.Errorf("no session found with id %v", sessionid)
 		}
 
-		stream, err := apiServer.Controller.FilestoreDownload(types.RequestContext{
+		requestContext := types.RequestContext{
 			Ctx:       req.Context(),
 			Owner:     session.Owner,
 			OwnerType: session.OwnerType,
-		}, filePath)
+		}
 
+		// let's remove the /dev/users/XXX part of the path if it's there
+		userPath, err := apiServer.Controller.GetFilestoreUserPath(requestContext, "")
+		if err != nil {
+			return err
+		}
+
+		if strings.HasPrefix(filePath, userPath) {
+			filePath = strings.TrimPrefix(filePath, userPath)
+		}
+
+		stream, err := apiServer.Controller.FilestoreDownload(requestContext, filePath)
 		if err != nil {
 			return err
 		}

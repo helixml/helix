@@ -70,7 +70,7 @@ func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, e
 	return buf.String(), nil
 }
 
-func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+func (c *Controller) GetFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
 	userPrefix, err := c.getFilestoreUserPrefix(ctx)
 	if err != nil {
 		return "", err
@@ -82,7 +82,7 @@ func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string)
 // so, we must ensure that the users base path is created and then create each
 // special folder as listed above
 func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
-	userPath, err := c.getFilestoreUserPath(ctx, "")
+	userPath, err := c.GetFilestoreUserPath(ctx, "")
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +102,7 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path stri
 			return "", err
 		}
 	}
-	retPath, err := c.getFilestoreUserPath(ctx, path)
+	retPath, err := c.GetFilestoreUserPath(ctx, path)
 	if err != nil {
 		return "", err
 	}
