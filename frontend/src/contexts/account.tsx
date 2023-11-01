@@ -14,6 +14,7 @@ import {
   IBalanceTransfer,
   ISession,
   IApiKey,
+  IServerConfig,
 } from '../types'
 
 const REALM = 'helix'
@@ -24,6 +25,7 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   user?: IUser,
+  serverConfig: IServerConfig,
   transactions: IBalanceTransfer[],
   sessions: ISession[],
   loadSessions: () => void,
@@ -35,6 +37,9 @@ export interface IAccountContext {
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
+  serverConfig: {
+    filestore_prefix: '',
+  },
   sessions: [],
   transactions: [],
   loadSessions: () => {},
@@ -51,6 +56,9 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
+    filestore_prefix: '',
+  })
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ sessions, setSessions ] = useState<ISession[]>([])
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
@@ -80,6 +88,12 @@ export const useAccountContext = (): IAccountContext => {
     if(!statusResult) return
     setCredits(statusResult.credits)
   }, [])
+
+  const loadConfig = useCallback(async () => {
+    const configResult = await api.get('/api/v1/config')
+    if(!configResult) return
+    setServerConfig(configResult)
+  }, [])
   
   const loadApiKeys = useCallback(async () => {
     const result = await api.get<IApiKey[]>('/api/v1/api_keys')
@@ -93,11 +107,14 @@ export const useAccountContext = (): IAccountContext => {
       loadSessions(),
       loadTransactions(),
       loadStatus(),
+      loadConfig(),
       loadApiKeys(),
     ])
   }, [
+    loadSessions,
     loadTransactions,
     loadStatus,
+    loadConfig,
     loadApiKeys,
   ])
 
@@ -193,6 +210,7 @@ export const useAccountContext = (): IAccountContext => {
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
+    serverConfig,
     credits,
     sessions,
     transactions,
@@ -203,6 +221,7 @@ export const useAccountContext = (): IAccountContext => {
   }), [
     initialized,
     user,
+    serverConfig,
     credits,
     sessions,
     transactions,

@@ -97,3 +97,7 @@ export interface ISession {
   owner: string,
   owner_type: IOwnerType,
 }
+
+export interface IServerConfig {
+  filestore_prefix: string,
+}

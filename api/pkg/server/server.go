@@ -12,6 +12,8 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/system"
 )
 
+const API_PREFIX = "/api/v1"
+
 type ServerOptions struct {
 	URL           string
 	Host          string
@@ -65,7 +67,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	router := mux.NewRouter()
 	router.Use(apiServer.corsMiddleware)
 
-	subrouter := router.PathPrefix("/api/v1").Subrouter()
+	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
 
 	// add one more subrouter for the authenticated service methods
 	authRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
@@ -76,6 +78,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
+	authRouter.HandleFunc("/config", Wrapper(apiServer.config)).Methods("GET")
 	authRouter.HandleFunc("/status", Wrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", Wrapper(apiServer.getTransactions)).Methods("GET")
 
@@ -94,7 +97,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
-		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix("/api/v1/filestore/viewer/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			fileServer.ServeHTTP(w, r)
 		})))
 	}

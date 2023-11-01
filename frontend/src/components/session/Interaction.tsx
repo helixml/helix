@@ -20,17 +20,20 @@ import {
   ISessionType,
   ISessionMode,
   IInteraction,
+  IServerConfig,
 } from '../../types'
 
-const GeneratedImage = styled('img')()
+const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
   type: ISessionType,
   interaction: IInteraction,
+  serverConfig: IServerConfig,
   isLast?: boolean,
 }> = ({
   type,
   interaction,
+  serverConfig,
   isLast = false,
 }) => {
 
@@ -63,9 +66,9 @@ export const Interaction: FC<{
     }
   }
 
-  console.log('--------------------------------------------')
-  console.log('interaction')
-  console.log(interaction)
+  if(!serverConfig || !serverConfig.filestore_prefix) return null
+
+  console.dir(interaction)
 
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
@@ -82,37 +85,41 @@ export const Interaction: FC<{
             >
               <Grid container spacing={3} direction="row" justifyContent="flex-start">
                 {
-                  interaction.files.length > 0 && interaction.files.map((file) => {
-                    const useURL = `http://localhost/api/v1/filestore/viewer/${file}`
+                  interaction.files.length > 0 && interaction.files
+                    .filter(file => {
+                      return file.match(/\.txt$/i) ? false : true
+                    })
+                    .map((file) => {
+                      const useURL = `${serverConfig.filestore_prefix}/${file}`
+                      const filenameParts = file.split('/')
+                      const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
-                    console.log('--------------------------------------------')
-                    console.log(useURL)
-
-                    return (
-                      <Grid item xs={4} md={4} key={file}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#999'
-                          }}
-                        >
+                      return (
+                        <Grid item xs={3} md={3} key={file}>
                           <Box
-                            component="img"
-                            src={useURL}
                             sx={{
-                              height: '50px',
-                              border: '1px solid #000000',
-                              filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
-                              mb: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#999'
                             }}
-                          />
-                        </Box>
-                      </Grid>
-                    )
-                  })
+                          >
+                            <Box
+                              component="img"
+                              src={useURL}
+                              sx={{
+                                height: '50px',
+                                border: '1px solid #000000',
+                                filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
+                                mb: 1,
+                              }}
+                            />
+                            <Typography variant="caption">{label}</Typography>
+                          </Box>
+                        </Grid>
+                      )
+                    })
                     
                 }
               </Grid>
@@ -133,7 +140,7 @@ export const Interaction: FC<{
         }
         {
           imageURLs.map((imageURL: string) => {
-            const useURL = `http://localhost/api/v1/filestore/viewer/${imageURL}`
+            const useURL = `${serverConfig.filestore_prefix}/${imageURL}`
 
             return (
               <Box
