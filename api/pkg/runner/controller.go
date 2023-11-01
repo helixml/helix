@@ -239,23 +239,41 @@ func (r *Runner) queueSession(modelInstance *ModelInstance, session *types.Sessi
 		log.Debug().
 			Msgf("🔵 runner prepare session: %s", session.ID)
 
-		session, err := r.prepareSession(session)
+		preparedSession, err := r.prepareSession(session)
 
 		if err != nil {
+			defer func() {
+				modelInstance.queuedSession = nil
+				modelInstance.nextSession = nil
+			}()
 			log.Error().Msgf("error preparing session: %s", err.Error())
-			modelInstance.queuedSession = nil
-			modelInstance.nextSession = nil
+			interactionID, getInteractionErr := getLastInteractionID(session)
+			if getInteractionErr != nil {
+				log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
+				return
+			}
+
+			apiUpdateErr := r.uploadWorkerResponse(&types.WorkerTaskResponse{
+				Type:          types.WorkerTaskResponseTypeResult,
+				SessionID:     session.ID,
+				InteractionID: interactionID,
+				Error:         err.Error(),
+			}, session)
+
+			if apiUpdateErr != nil {
+				log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
+			}
 			return
 		}
 
 		log.Debug().
-			Msgf("🔵 runner assign next session: %s", session.ID)
+			Msgf("🔵 runner assign next session: %s", preparedSession.ID)
 
 		_, ok := r.activeModelInstances[modelInstance.id]
 
 		if ok {
 			modelInstance.queuedSession = nil
-			modelInstance.nextSession = session
+			modelInstance.nextSession = preparedSession
 		} else {
 			modelInstance.queuedSession = nil
 			modelInstance.nextSession = nil
@@ -530,7 +548,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	res, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+	_, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/response", r.Options.ID),
 		res,
@@ -568,7 +586,9 @@ func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Sessio
 		urlValues := urllib.Values{}
 		urlValues.Add("path", filepath)
 
-		req, err := http.NewRequest("GET", url+"?"+urlValues.Encode(), nil)
+		fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
+
+		req, err := http.NewRequest("GET", fullURL, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -579,6 +599,10 @@ func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Sessio
 			return nil, err
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
+		}
 
 		file, err := os.Create(path.Join(downloadFolder, filename))
 		if err != nil {
@@ -594,7 +618,7 @@ func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Sessio
 		remappedFilepaths = append(remappedFilepaths, path.Join(downloadFolder, filename))
 
 		log.Debug().
-			Msgf("🔵 runner downloaded interaction file: %s", filename)
+			Msgf("🔵 runner downloaded interaction file: %s -> %s", fullURL, filename)
 	}
 
 	interaction.Files = remappedFilepaths
