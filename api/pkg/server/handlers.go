@@ -208,6 +208,8 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	files, okFiles := req.MultipartForm.File["files"]
 	inputPath := controller.GetSessionInputsFolder(sessionID)
 
+	metadata := map[string]string{}
+
 	if okFiles {
 		for _, fileHeader := range files {
 			file, err := fileHeader.Open()
@@ -235,8 +237,11 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 				filenameParts[len(filenameParts)-1] = "txt"
 				labelFilename := strings.Join(filenameParts, ".")
 				labelFilepath := filepath.Join(inputPath, labelFilename)
+				label := labelValues[0]
 
-				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(labelValues[0]))
+				metadata[fileHeader.Filename] = label
+
+				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
@@ -258,6 +263,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		Message:  message,
 		Files:    filePaths,
 		Finished: true,
+		Metadata: metadata,
 	}, nil
 }
 
@@ -304,6 +310,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Message:  "",
 		Files:    []string{},
 		Finished: false,
+		Metadata: map[string]string{},
 	}
 
 	session := types.Session{

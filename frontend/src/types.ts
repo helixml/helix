@@ -80,6 +80,8 @@ export interface IInteraction {
   progress: number,
   files: string[],
   finished: boolean,
+  metadata: Record<string, string>,
+  error: string,
 }
 
 export interface ISession {

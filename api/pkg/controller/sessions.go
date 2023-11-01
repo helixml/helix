@@ -210,6 +210,10 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		targetInteraction.Files = taskResponse.Files
 	}
 
+	if taskResponse.Error != "" {
+		targetInteraction.Error = taskResponse.Error
+	}
+
 	newInteractions := []types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == targetInteraction.ID {

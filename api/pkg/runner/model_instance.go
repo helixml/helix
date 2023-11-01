@@ -287,6 +287,27 @@ func (instance *ModelInstance) startProcess() error {
 
 		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
+
+			// we are currently running a session and we got an error from the Python process
+			// this normally means that a job caused an error so let's tell the api
+			// that this interaction has it's Error field set
+			if instance.currentSession != nil {
+
+				interactionID, err := getLastInteractionID(instance.currentSession)
+				if err != nil {
+					log.Error().Msgf("Error reporting error to api: %v\n", err.Error())
+					return
+				}
+				err = instance.responseHandler(&types.WorkerTaskResponse{
+					Type:          types.WorkerTaskResponseTypeResult,
+					SessionID:     instance.currentSession.ID,
+					InteractionID: interactionID,
+					Error:         err.Error(),
+				})
+				if err != nil {
+					log.Error().Msgf("Error reporting error to api: %v\n", err.Error())
+				}
+			}
 		}
 
 		log.Info().

@@ -1,11 +1,14 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import { styled } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Progress from '../widgets/Progress'
+import TerminalWindow from '../widgets/TerminalWindow'
+import ClickLink from '../widgets/ClickLink'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -31,6 +34,7 @@ export const Interaction: FC<{
   isLast = false,
 }) => {
 
+  const [ viewingError, setViewingError ] = useState(false)
   let displayMessage = ''
   let progress = 0
   let imageURLs: string[] = []
@@ -59,8 +63,9 @@ export const Interaction: FC<{
     }
   }
 
-  // console.log('--------------------------------------------')
-  // console.log(interaction)
+  console.log('--------------------------------------------')
+  console.log('interaction')
+  console.log(interaction)
 
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
@@ -155,6 +160,25 @@ export const Interaction: FC<{
             )
             
           })
+        }
+        {
+          interaction.error && (
+            <Alert severity="error">The system has encountered an error - <ClickLink onClick={ () => {
+              setViewingError(true)
+            }}>click here</ClickLink> to view the details.</Alert>
+          ) 
+        }
+        {
+          viewingError && (
+            <TerminalWindow
+              open
+              title="Error"
+              data={ interaction.error }
+              onClose={ () => {
+                setViewingError(false)
+              }}
+            /> 
+          )
         }
       </Box>
     </Box>
