@@ -20,17 +20,20 @@ import {
   ISessionType,
   ISessionMode,
   IInteraction,
+  IServerConfig,
 } from '../../types'
 
-const GeneratedImage = styled('img')()
+const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
   type: ISessionType,
   interaction: IInteraction,
+  serverConfig: IServerConfig,
   isLast?: boolean,
 }> = ({
   type,
   interaction,
+  serverConfig,
   isLast = false,
 }) => {
 
@@ -63,9 +66,7 @@ export const Interaction: FC<{
     }
   }
 
-  console.log('--------------------------------------------')
-  console.log('interaction')
-  console.log(interaction)
+  if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
@@ -83,10 +84,7 @@ export const Interaction: FC<{
               <Grid container spacing={3} direction="row" justifyContent="flex-start">
                 {
                   interaction.files.length > 0 && interaction.files.map((file) => {
-                    const useURL = `http://localhost/api/v1/filestore/viewer/${file}`
-
-                    console.log('--------------------------------------------')
-                    console.log(useURL)
+                    const useURL = `${serverConfig.filestore_prefix}/${file}`
 
                     return (
                       <Grid item xs={4} md={4} key={file}>
@@ -133,7 +131,7 @@ export const Interaction: FC<{
         }
         {
           imageURLs.map((imageURL: string) => {
-            const useURL = `http://localhost/api/v1/filestore/viewer/${imageURL}`
+            const useURL = `${serverConfig.filestore_prefix}/${imageURL}`
 
             return (
               <Box
