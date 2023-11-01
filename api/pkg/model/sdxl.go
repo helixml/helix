@@ -111,9 +111,6 @@ func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config ty
 		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
 	return cmd, nil
 }
 
