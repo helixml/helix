@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -26,7 +26,6 @@ const Session: FC = () => {
 
   const divRef = useRef<HTMLDivElement>()
 
-  const [loading, setLoading] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [files, setFiles] = useState<File[]>([])
 
@@ -34,6 +33,14 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
   const session = account.sessions?.find(session => session.id === params["session_id"])
+
+  const loading = useMemo(() => {
+    if(!session || !session?.interactions || session?.interactions.length === 0) return false
+    const interaction = session?.interactions[session?.interactions.length - 1]
+    return interaction.finished ? false : true
+  }, [
+    session,
+  ])
 
   const onSend = async () => {
     if(!session) return
@@ -100,21 +107,30 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
+          <Typography
+            sx={{
+              fontSize: "small",
+              color: "gray"
+            }}
+          >
+            Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
+            { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
+          </Typography>
           <br />
             {
-            session?.interactions.map((interaction: any, i: number) => {
-              return (
-                <Interaction
-                  key={ interaction.id }
-                  type={ session.type }
-                  interaction={ interaction }
-                  serverConfig={ account.serverConfig }
-                  isLast={ i === session.interactions.length - 1 }
-                />
-              )   
-            })
-          }
+              session?.interactions.map((interaction: any, i: number) => {
+                return (
+                  <Interaction
+                    key={ interaction.id }
+                    type={ session.type }
+                    mode={ session.mode }
+                    interaction={ interaction }
+                    serverConfig={ account.serverConfig }
+                    isLast={ i === session.interactions.length - 1 }
+                  />
+                )   
+              })
+            }
         </Container>
       </Box>
       <Box
@@ -142,7 +158,7 @@ const Session: FC = () => {
             <TextField
               fullWidth
               label={(
-                session?.mode === 'inference' && session?.type === 'text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'inference' && session?.type === 'image' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}

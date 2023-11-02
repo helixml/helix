@@ -12,6 +12,8 @@ import ClickLink from '../widgets/ClickLink'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  SESSION_MODE_FINETUNE,
+  SESSION_MODE_INFERENCE,
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
 } from '../../types'
@@ -25,13 +27,21 @@ import {
 
 const GeneratedImage = styled('img')({})
 
+function isImage(filename: string): boolean {
+  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg'];
+  const extension = filename.split('.').pop()?.toLowerCase();
+  return extension ? imageExtensions.includes(extension) : false;
+}
+
 export const Interaction: FC<{
   type: ISessionType,
+  mode: ISessionMode,
   interaction: IInteraction,
   serverConfig: IServerConfig,
   isLast?: boolean,
 }> = ({
   type,
+  mode,
   interaction,
   serverConfig,
   isLast = false,
@@ -60,8 +70,10 @@ export const Interaction: FC<{
         } else {
           displayMessage = '🤔'
         }
-      } else if(interaction.files && interaction.files.length > 0) {
-        imageURLs = interaction.files
+      } else if(interaction.finetune_file) {
+        displayMessage = 'Fine fining complete - you can now use the model for inference.'
+      } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
+        imageURLs = interaction.files.filter(isImage)
       }
     }
   }
