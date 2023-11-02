@@ -214,6 +214,14 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		targetInteraction.Error = taskResponse.Error
 	}
 
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
+		// we got some files back from a finetune
+		// so let's hoist the session into inference mode but with the finetune file attached
+		session.Mode = types.SessionModeInference
+		session.FinetuneFile = taskResponse.Files[0]
+		targetInteraction.FinetuneFile = taskResponse.Files[0]
+	}
+
 	newInteractions := []types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == targetInteraction.ID {

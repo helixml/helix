@@ -39,6 +39,8 @@ type Interaction struct {
 	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
 	Error    string            `json:"error"`
+	// we hoist this from files so a single interaction knows that it "Created a finetune file"
+	FinetuneFile string `json:"finetune_file"`
 }
 
 type Session struct {
