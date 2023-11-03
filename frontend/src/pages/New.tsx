@@ -2,6 +2,7 @@ import React, { FC, useState, useCallback } from 'react'
 import axios from 'axios'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
+import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
@@ -224,6 +225,8 @@ const New: FC = () => {
                   <Interaction
                     interaction={ getSystemMessage('Firstly upload some images you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
+                    mode={ SESSION_MODE_INFERENCE }
+                    serverConfig={ account.serverConfig }
                   />
                 </Box>
                 <FileUpload
@@ -346,6 +349,8 @@ const New: FC = () => {
                   <Interaction
                     interaction={ getSystemMessage('Now, add a label to each of your images.  Try to add as much detail as possible to each image:') }
                     type={ SESSION_TYPE_TEXT }
+                    mode={ SESSION_MODE_INFERENCE }
+                    serverConfig={ account.serverConfig }
                   />
                 </Box>
               

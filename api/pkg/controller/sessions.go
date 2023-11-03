@@ -28,6 +28,17 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 			continue
 		}
 
+		if filter.FinetuneFile != "" && session.FinetuneFile != filter.FinetuneFile {
+			// in this case - the filter is asking for a session with a finetune file
+			// and so we can only reply with a session that has that exact finetune file
+			continue
+		} else if filter.FinetuneFile == types.FINETUNE_FILE_NONE && session.FinetuneFile != "" {
+			// in this case - the runner is asking specifically for a session
+			// that does not have a finetune file
+			// this cannot be empty string because that means "I don't care"
+			continue
+		}
+
 		// we are asking for sessions that will fit in an amount of RAM
 		// so we need to ask the associated model instance what the memory
 		// requirements are for this session
@@ -212,6 +223,14 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	if taskResponse.Error != "" {
 		targetInteraction.Error = taskResponse.Error
+	}
+
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
+		// we got some files back from a finetune
+		// so let's hoist the session into inference mode but with the finetune file attached
+		session.Mode = types.SessionModeInference
+		session.FinetuneFile = taskResponse.Files[0]
+		targetInteraction.FinetuneFile = taskResponse.Files[0]
 	}
 
 	newInteractions := []types.Interaction{}

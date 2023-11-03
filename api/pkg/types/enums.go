@@ -107,3 +107,5 @@ const (
 	WorkerTaskResponseTypeProgress WorkerTaskResponseType = "progress"
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
+
+const FINETUNE_FILE_NONE = "none"
