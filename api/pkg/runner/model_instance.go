@@ -75,6 +75,7 @@ func NewModelInstance(
 	// this is the main runner CLI context
 	modelName types.ModelName,
 	mode types.SessionMode,
+	finetuneFile string,
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
@@ -99,8 +100,9 @@ func NewModelInstance(
 		taskURL:         fmt.Sprintf("%s/%s", taskURL, id),
 		responseURL:     fmt.Sprintf("%s/%s", responseURL, id),
 		filter: types.SessionFilter{
-			ModelName: modelName,
-			Mode:      mode,
+			ModelName:    modelName,
+			Mode:         mode,
+			FinetuneFile: finetuneFile,
 		},
 	}, nil
 }

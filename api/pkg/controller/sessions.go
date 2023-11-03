@@ -27,6 +27,9 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		if filter.ModelName != "" && session.ModelName != filter.ModelName {
 			continue
 		}
+		if filter.FinetuneFile != "" && session.FinetuneFile != filter.FinetuneFile {
+			continue
+		}
 
 		// we are asking for sessions that will fit in an amount of RAM
 		// so we need to ask the associated model instance what the memory
