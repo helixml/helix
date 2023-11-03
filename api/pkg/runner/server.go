@@ -118,7 +118,7 @@ func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, 
 	session := &types.Session{}
 	err := json.NewDecoder(req.Body).Decode(session)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error decoding session as post body: %s", err)
 	}
 
 	// just start it instantly for now...
