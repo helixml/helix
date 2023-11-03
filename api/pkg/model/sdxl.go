@@ -26,34 +26,7 @@ func (l *SDXL) GetType() types.SessionType {
 }
 
 func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
-	if len(session.Interactions) == 0 {
-		return nil, fmt.Errorf("session has no messages")
-	}
-	lastInteraction, err := GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-	if lastInteraction == nil {
-		return nil, fmt.Errorf("session has no user messages")
-	}
-	if session.Mode == types.SessionModeInference {
-		return &types.WorkerTask{
-			Prompt: lastInteraction.Message,
-		}, nil
-	} else if session.Mode == types.SessionModeFinetune {
-		if len(lastInteraction.Files) == 0 {
-			return nil, fmt.Errorf("session has no files")
-		}
-		// we expect all of the files to have been downloaded
-		// by the controller and put into a shared folder
-		// so - we extract the folder path from the first file
-		// and pass it into the python job as the input dir
-		return &types.WorkerTask{
-			FinetuneInputDir: path.Dir(lastInteraction.Files[0]),
-		}, nil
-	} else {
-		return nil, fmt.Errorf("invalid session mode")
-	}
+	return getGenericTask(session)
 }
 
 func (l *SDXL) GetTextStream(mode types.SessionMode) (*TextStream, error) {

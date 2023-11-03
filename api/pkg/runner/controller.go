@@ -188,6 +188,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		r.Ctx,
 		session.ModelName,
 		session.Mode,
+		session.FinetuneFile,
 		r.Options.TaskURL,
 		r.Options.ResponseURL,
 
