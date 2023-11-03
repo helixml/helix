@@ -26,53 +26,31 @@ func (l *SDXL) GetType() types.SessionType {
 }
 
 func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
-	if len(session.Interactions) == 0 {
-		return nil, fmt.Errorf("session has no messages")
-	}
-	lastInteraction, err := GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-	if lastInteraction == nil {
-		return nil, fmt.Errorf("session has no user messages")
-	}
-	if session.Mode == types.SessionModeInference {
-		return &types.WorkerTask{
-			Prompt: lastInteraction.Message,
-		}, nil
-	} else if session.Mode == types.SessionModeFinetune {
-		if len(lastInteraction.Files) == 0 {
-			return nil, fmt.Errorf("session has no files")
-		}
-		// we expect all of the files to have been downloaded
-		// by the controller and put into a shared folder
-		// so - we extract the folder path from the first file
-		// and pass it into the python job as the input dir
-		return &types.WorkerTask{
-			FinetuneInputDir: path.Dir(lastInteraction.Files[0]),
-		}, nil
-	} else {
-		return nil, fmt.Errorf("invalid session mode")
-	}
+	return getGenericTask(session)
 }
 
 func (l *SDXL) GetTextStream(mode types.SessionMode) (*TextStream, error) {
 	return nil, nil
 }
 
-func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
-	if mode == types.SessionModeInference {
-		cmd = exec.CommandContext(
-			ctx,
-			"bash", "runner/venv_command.sh",
+	if sessionFilter.Mode == types.SessionModeInference {
+		args := []string{
+			"runner/venv_command.sh",
 			"accelerate", "launch",
 			"--num_cpu_threads_per_process", "1",
 			"sdxl_minimal_inference.py",
 			"--ckpt_path=sdxl/sd_xl_base_1.0.safetensors",
 			"--output_dir=./output_images",
+		}
+
+		cmd = exec.CommandContext(
+			ctx,
+			"bash",
+			args...,
 		)
-	} else if mode == types.SessionModeFinetune {
+	} else if sessionFilter.Mode == types.SessionModeFinetune {
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
@@ -94,10 +72,8 @@ func (l *SDXL) GetCommand(ctx context.Context, mode types.SessionMode, config ty
 			"--save_every_n_epochs=1",
 			"--network_module=networks.lora",
 		)
-	}
-
-	if cmd == nil {
-		return nil, fmt.Errorf("not implemented")
+	} else {
+		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
 	}
 
 	wd, err := os.Getwd()

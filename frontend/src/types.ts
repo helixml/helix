@@ -79,6 +79,7 @@ export interface IInteraction {
   message: string,
   progress: number,
   files: string[],
+  finetune_file: string,
   finished: boolean,
   metadata: Record<string, string>,
   error: string,

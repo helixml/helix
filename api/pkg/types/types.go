@@ -39,6 +39,8 @@ type Interaction struct {
 	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
 	Error    string            `json:"error"`
+	// we hoist this from files so a single interaction knows that it "Created a finetune file"
+	FinetuneFile string `json:"finetune_file"`
 }
 
 type Session struct {
@@ -133,17 +135,18 @@ type RunnerProcessConfig struct {
 // and add a response to it in the form of a system interaction
 // the api controller will have already appended the system interaction
 // to the very end of the Session.Interactions list
-// our job is to fill in the Message and Files field of that interaction
+// our job is to fill in the Message and/or Files field of that interaction
 type WorkerTask struct {
 	SessionID string `json:"session_id"`
 	// the string that we are calling the prompt that we will feed into the model
 	Prompt string `json:"prompt"`
-	// the path to the local files we will use for fine tuning
-	// the runner will have downloaded these from the filestore
-	// before giving this task to the python code
+
+	// this is the Lora type file that a fine tune session produced
+	// it is used for inference against a fine tuned model
 	FinetuneFile string `json:"finetune_file"`
 
-	// the directory that contains all of the files attached to a session
+	// this is the directory that contains the files used for fine tuning
+	// i.e. it's the user files that will be the input to a finetune session
 	FinetuneInputDir string `json:"finetune_input_dir"`
 }
 
