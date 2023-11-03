@@ -40,35 +40,37 @@ func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream
 	return nil, nil
 }
 
-func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, mode types.SessionMode, config types.RunnerProcessConfig) (*exec.Cmd, error) {
-	if mode == types.SessionModeInference {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
+func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
+	if sessionFilter.Mode == types.SessionModeInference {
 
 		// this bash script will be in the dockerfile that we use to
 		// manage runners
 		// TODO: should this be included in the gofs and written to the FS dynamically
 		// so we can distribute a go binary if needed?
-		cmd := exec.CommandContext(
+		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
 			"python", "-u", "-m",
 			"axolotl.cli.inference",
 			"examples/mistral/qlora-instruct.yml",
 		)
-
-		cmd.Env = []string{
-			fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
-			fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
-			fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
-		}
-
-		return cmd, nil
+	} else {
+		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
 	}
 
-	return nil, fmt.Errorf("not implemented")
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
+		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+	}
+
+	return cmd, nil
 }
 
 // Compile-time interface check:

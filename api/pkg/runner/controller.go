@@ -9,9 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	urllib "net/url"
 	"os"
-	"path"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -174,6 +172,38 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	return nil
 }
 
+// ask the master API if they have the next session for us
+// we check with the various models and filter based on the currently free memory
+// we pass that free memory back to the master API - it will filter out any tasks
+// for models that would require more memory than we have available
+func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
+	freeMemory := r.getFreeMemory()
+
+	if freeMemory < r.lowestMemoryRequirement {
+		// we don't have enough memory to run anything
+		// so we just wait for more memory to become available
+		return nil, nil
+	}
+
+	queryParams := url.Values{}
+
+	// this means "only give me sessions that will fit in this much RAM"
+	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
+
+	// now let's loop over our running model instances and de-prioritise them
+	// we might still get sessions of this type but only if there isn't another
+	// type in the queue - this is to avoid running only one type of model
+	// because of the random order the requests arrived in
+	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
+	// before trying to run another type of model
+
+	for _, modelInstance := range r.activeModelInstances {
+		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+	}
+
+	return r.getNextSession(ctx, queryParams)
+}
+
 // we have popped the next session from the master API
 // let's create a model for it
 // this means instantiating the model instance and then starting it
@@ -184,11 +214,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
-	model, err := NewModelInstance(
+	modelInstance, err := NewModelInstance(
 		r.Ctx,
-		session.ModelName,
-		session.Mode,
-		session.FinetuneFile,
+		session,
 		r.Options.TaskURL,
 		r.Options.ResponseURL,
 
@@ -200,80 +228,130 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		func(res *types.WorkerTaskResponse) error {
 			return r.uploadWorkerResponse(res, session)
 		},
+		r.Options,
 	)
 	if err != nil {
 		return err
 	}
 	log.Debug().
-		Msgf("🔵 runner started model instance: %s", model.id)
-	r.queueSession(model, session)
-	err = model.startProcess()
+		Msgf("🔵 runner started model instance: %s", modelInstance.id)
+
+	// every session is queued - it gives the session a chance to download files
+	// and do any other prep it needs to do before being passed into the Python process
+	// over http - this is run for EVERY session not just the first one (look in getNextTask)
+	// this will run in a go-routine internally
+	go modelInstance.queueSession(session)
+
+	// now we block on starting the process
+	// for inference on a lora type file, this will need to download the lora file
+	// BEFORE we start the process -these files are part of the weights loaded into memory
+	err = modelInstance.startProcess(session)
 	if err != nil {
 		return err
 	}
-	r.activeModelInstances[model.id] = model
+	r.activeModelInstances[modelInstance.id] = modelInstance
 	go func() {
-		<-model.finishChan
+		<-modelInstance.finishChan
 		r.modelMutex.Lock()
 		defer r.modelMutex.Unlock()
 		log.Debug().
-			Msgf("🔵 runner stop model instance: %s", model.id)
-		delete(r.activeModelInstances, model.id)
+			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
+		delete(r.activeModelInstances, modelInstance.id)
 	}()
 	return nil
 }
 
-func (r *Runner) queueSession(modelInstance *ModelInstance, session *types.Session) {
-	modelInstance.queuedSession = session
-	modelInstance.nextSession = nil
+// given a running model instance id
+// get the next session that it should run
+// this is either the nextSession property on the instance
+// or it's what is returned by the master API server (if anything)
+// this function being called means "I am ready for more work"
+// because the child processes are blocking - the child will not be
+// asking for more work until it's ready to accept and run it
+func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	modelInstance, ok := r.activeModelInstances[instanceID]
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
 
-	go func() {
-		r.modelMutex.Lock()
-		defer r.modelMutex.Unlock()
+	var session *types.Session
 
-		log.Debug().
-			Msgf("🔵 runner prepare session: %s", session.ID)
+	if modelInstance.nextSession != nil {
+		// if there is a session in the nextSession cache then we return it immediately
+		session = modelInstance.nextSession
+		modelInstance.nextSession = nil
+	} else if modelInstance.queuedSession != nil {
+		// if there is a session in the queuedSession cache then we are waiting for
+		// a task to complete before we want to actually run the session
+	} else {
+		// ask the upstream api server if there is another task
+		// if there is - then assign it to the queuedSession
+		// and call "pre"
+		queryParams := url.Values{}
 
-		preparedSession, err := r.prepareSession(session)
+		queryParams.Add("model_name", string(modelInstance.filter.ModelName))
+		queryParams.Add("mode", string(modelInstance.filter.Mode))
+		queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
 
+		apiSession, err := r.getNextSession(ctx, queryParams)
 		if err != nil {
-			defer func() {
-				modelInstance.queuedSession = nil
-				modelInstance.nextSession = nil
-			}()
-			log.Error().Msgf("error preparing session: %s", err.Error())
-			interactionID, getInteractionErr := getLastInteractionID(session)
-			if getInteractionErr != nil {
-				log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
-				return
-			}
-
-			apiUpdateErr := r.uploadWorkerResponse(&types.WorkerTaskResponse{
-				Type:          types.WorkerTaskResponseTypeResult,
-				SessionID:     session.ID,
-				InteractionID: interactionID,
-				Error:         err.Error(),
-			}, session)
-
-			if apiUpdateErr != nil {
-				log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
-			}
-			return
+			return nil, err
 		}
 
-		log.Debug().
-			Msgf("🔵 runner assign next session: %s", preparedSession.ID)
-
-		_, ok := r.activeModelInstances[modelInstance.id]
-
-		if ok {
-			modelInstance.queuedSession = nil
-			modelInstance.nextSession = preparedSession
-		} else {
-			modelInstance.queuedSession = nil
-			modelInstance.nextSession = nil
+		if apiSession != nil {
+			go modelInstance.queueSession(apiSession)
 		}
-	}()
+	}
+
+	// we don't have any work for this model instance
+	if session == nil {
+		return nil, fmt.Errorf("no session found")
+	}
+
+	task, err := modelInstance.assignSessionTask(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}
+
+func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	if taskResponse == nil {
+		return nil, fmt.Errorf("task response is required")
+	}
+	modelInstance, ok := r.activeModelInstances[instanceID]
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+	switch {
+	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
+		err := modelInstance.handleStream(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling stream: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
+		err := modelInstance.handleProgress(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling progress: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
+		err := modelInstance.handleResult(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling job result: %s", err.Error())
+			return nil, err
+		}
+	}
+
+	return taskResponse, nil
 }
 
 func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
@@ -316,38 +394,6 @@ func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*t
 	return session, nil
 }
 
-// ask the master API if they have the next session for us
-// we check with the various models and filter based on the currently free memory
-// we pass that free memory back to the master API - it will filter out any tasks
-// for models that would require more memory than we have available
-func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	freeMemory := r.getFreeMemory()
-
-	if freeMemory < r.lowestMemoryRequirement {
-		// we don't have enough memory to run anything
-		// so we just wait for more memory to become available
-		return nil, nil
-	}
-
-	queryParams := url.Values{}
-
-	// this means "only give me sessions that will fit in this much RAM"
-	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
-
-	// now let's loop over our running model instances and de-prioritise them
-	// we might still get sessions of this type but only if there isn't another
-	// type in the queue - this is to avoid running only one type of model
-	// because of the random order the requests arrived in
-	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
-	// before trying to run another type of model
-
-	for _, modelInstance := range r.activeModelInstances {
-		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
-	}
-
-	return r.getNextSession(ctx, queryParams)
-}
-
 func (r *Runner) getUsedMemory() uint64 {
 	r.modelMutex.RLock()
 	defer r.modelMutex.RUnlock()
@@ -360,98 +406,6 @@ func (r *Runner) getUsedMemory() uint64 {
 
 func (r *Runner) getFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemory()
-}
-
-// given a running model instance id
-// get the next session that it should run
-// this is either the nextSession property on the instance
-// or it's what is returned by the master API server (if anything)
-// this function being called means "I am ready for more work"
-// because the child processes are blocking - the child will not be
-// asking for more work until it's ready to accept and run it
-func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
-	if instanceID == "" {
-		return nil, fmt.Errorf("instanceid is required")
-	}
-	modelInstance, ok := r.activeModelInstances[instanceID]
-	if !ok {
-		return nil, fmt.Errorf("instance not found: %s", instanceID)
-	}
-
-	var session *types.Session
-
-	if modelInstance.nextSession != nil {
-		// if there is a session in the nextSession cache then we return it immediately
-		session = modelInstance.nextSession
-		modelInstance.nextSession = nil
-	} else if modelInstance.queuedSession != nil {
-		// if there is a session in the queuedSession cache then we are waiting for
-		// a task to complete before we want to actually run the session
-	} else {
-		// ask the upstream api server if there is another task
-		// if there is - then assign it to the queuedSession
-		// and call "pre"
-		queryParams := url.Values{}
-
-		queryParams.Add("model_name", string(modelInstance.filter.ModelName))
-		queryParams.Add("mode", string(modelInstance.filter.Mode))
-
-		apiSession, err := r.getNextSession(ctx, queryParams)
-		if err != nil {
-			return nil, err
-		}
-
-		if apiSession != nil {
-			r.queueSession(modelInstance, apiSession)
-		}
-	}
-
-	// we don't have any work for this model instance
-	if session == nil {
-		return nil, fmt.Errorf("no session found")
-	}
-
-	task, err := modelInstance.assignCurrentSession(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	return task, nil
-}
-
-func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	if instanceID == "" {
-		return nil, fmt.Errorf("instanceid is required")
-	}
-	if taskResponse == nil {
-		return nil, fmt.Errorf("task response is required")
-	}
-	modelInstance, ok := r.activeModelInstances[instanceID]
-	if !ok {
-		return nil, fmt.Errorf("instance not found: %s", instanceID)
-	}
-	switch {
-	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
-		err := modelInstance.handleStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
-		err := modelInstance.handleProgress(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling progress: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
-		err := modelInstance.handleResult(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling job result: %s", err.Error())
-			return nil, err
-		}
-	}
-
-	return taskResponse, nil
 }
 
 func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
@@ -552,86 +506,4 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 		return err
 	}
 	return nil
-}
-
-func (r *Runner) prepareSession(session *types.Session) (*types.Session, error) {
-	session, err := r.downloadInteractionFiles(session)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
-}
-
-func (r *Runner) downloadInteractionFiles(session *types.Session) (*types.Session, error) {
-	interaction, err := model.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, interaction.ID)
-	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
-		return nil, fmt.Errorf("failed to create folder: %w", err)
-	}
-
-	remappedFilepaths := []string{}
-
-	for _, filepath := range interaction.Files {
-		filename := path.Base(filepath)
-		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download", r.Options.ID, session.ID))
-		urlValues := urllib.Values{}
-		urlValues.Add("path", filepath)
-
-		fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
-
-		log.Debug().
-			Msgf("🔵 runner downloading interaction file: %s", fullURL)
-
-		req, err := http.NewRequest("GET", fullURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		server.AddHeadersVanilla(req, r.httpClientOptions.Token)
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
-		}
-
-		file, err := os.Create(path.Join(downloadFolder, filename))
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-
-		_, err = io.Copy(file, resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		remappedFilepaths = append(remappedFilepaths, path.Join(downloadFolder, filename))
-
-		log.Debug().
-			Msgf("🔵 runner downloaded interaction file: %s -> %s", fullURL, filename)
-	}
-
-	interaction.Files = remappedFilepaths
-
-	newInteractions := []types.Interaction{}
-
-	for _, existingInteraction := range session.Interactions {
-		if existingInteraction.ID == interaction.ID {
-			newInteractions = append(newInteractions, *interaction)
-		} else {
-			newInteractions = append(newInteractions, existingInteraction)
-		}
-	}
-
-	session.Interactions = newInteractions
-
-	return session, nil
 }

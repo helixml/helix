@@ -5,13 +5,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	urllib "net/url"
 	"os"
 	"os/exec"
+	"path"
 	"syscall"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/model"
+	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -30,6 +34,9 @@ type ModelInstance struct {
 
 	finishChan chan bool
 
+	runnerOptions     RunnerOptions
+	httpClientOptions server.ClientOptions
+
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	taskURL string
@@ -45,6 +52,11 @@ type ModelInstance struct {
 
 	// the command we are currently executing
 	currentCommand *exec.Cmd
+
+	// the session that meant this model booted in the first place
+	// used to know which lora type file we should download before
+	// trying to start this model's python process
+	initialSession *types.Session
 
 	// the session currently running on this model
 	currentSession *types.Session
@@ -72,10 +84,9 @@ type ModelInstance struct {
 
 func NewModelInstance(
 	ctx context.Context,
-	// this is the main runner CLI context
-	modelName types.ModelName,
-	mode types.SessionMode,
-	finetuneFile string,
+
+	// the session that meant this model instance is instantiated
+	session *types.Session,
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
@@ -85,8 +96,10 @@ func NewModelInstance(
 	responseURL string,
 
 	responseHandler func(res *types.WorkerTaskResponse) error,
+
+	runnerOptions RunnerOptions,
 ) (*ModelInstance, error) {
-	modelInstance, err := model.GetModel(modelName)
+	modelInstance, err := model.GetModel(session.ModelName)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +108,7 @@ func NewModelInstance(
 	// if this is empty string then we need to hoist it to be types.FINETUNE_FILE_NONE
 	// because then we are always specifically asking for a session that has no finetune file
 	// if we left this blank we are saying "we don't care if it has one or not"
-	useFinetuneFile := finetuneFile
+	useFinetuneFile := session.FinetuneFile
 
 	if useFinetuneFile == "" {
 		useFinetuneFile = types.FINETUNE_FILE_NONE
@@ -109,30 +122,24 @@ func NewModelInstance(
 		responseHandler: responseHandler,
 		taskURL:         fmt.Sprintf("%s/%s", taskURL, id),
 		responseURL:     fmt.Sprintf("%s/%s", responseURL, id),
+		initialSession:  session,
 		filter: types.SessionFilter{
-			ModelName:    modelName,
-			Mode:         mode,
+			ModelName:    session.ModelName,
+			Mode:         session.Mode,
 			FinetuneFile: useFinetuneFile,
 		},
+		httpClientOptions: server.ClientOptions{
+			Host:  runnerOptions.ApiHost,
+			Token: runnerOptions.ApiToken,
+		},
 	}, nil
-}
-
-func getLastInteractionID(session *types.Session) (string, error) {
-	if len(session.Interactions) == 0 {
-		return "", fmt.Errorf("session has no messages")
-	}
-	interaction := session.Interactions[len(session.Interactions)-1]
-	if interaction.Creator != types.CreatorTypeSystem {
-		return "", fmt.Errorf("session does not have a system interaction as last message")
-	}
-	return interaction.ID, nil
 }
 
 // this is the loading of a session onto a running model instance
 // it gets the text stream setup if the model returns one
 // and generally initializes a new task to be run on the model
 // it also returns the task that will be fed down into the python code to execute
-func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
+func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
 	if instance.currentTextStream != nil {
 		instance.currentTextStream.Close(ctx)
 		instance.currentTextStream = nil
@@ -182,6 +189,148 @@ func (instance *ModelInstance) assignCurrentSession(ctx context.Context, session
 	}
 	task.SessionID = session.ID
 	return task, nil
+}
+
+// to queue a session means to put it into a buffer and wait for the Python process to boot up and then "pull" it
+func (instance *ModelInstance) queueSession(session *types.Session) {
+	instance.queuedSession = session
+	instance.nextSession = nil
+
+	log.Debug().
+		Msgf("🔵 runner prepare session: %s", session.ID)
+
+	preparedSession, err := instance.downloadInteractionFiles(session)
+
+	if err != nil {
+		log.Error().Msgf("error preparing session: %s", err.Error())
+		instance.queuedSession = nil
+		instance.nextSession = nil
+		instance.errorSession(session, err)
+		return
+	}
+
+	log.Debug().
+		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
+
+	instance.queuedSession = nil
+	instance.nextSession = preparedSession
+
+}
+
+func (instance *ModelInstance) downloadFinetuneFile(session *types.Session) (*types.Session, error) {
+	if session.FinetuneFile == "" {
+		return session, nil
+	}
+	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, "finetune_file")
+	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create folder: %w", err)
+	}
+
+	// filename := path.Base(session.FinetuneFile)
+	// url := server.URL(instance.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download", instance.runnerOptions.ID, session.ID))
+
+	// urlValues := urllib.Values{}
+	// urlValues.Add("path", session.FinetuneFile)
+
+	// fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
+
+	// log.Debug().
+	// 	Msgf("🔵 runner downloading interaction file: %s", fullURL)
+
+	return session, nil
+}
+
+func (instance *ModelInstance) downloadInteractionFiles(session *types.Session) (*types.Session, error) {
+	interaction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+
+	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", session.ID, interaction.ID)
+	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create folder: %w", err)
+	}
+
+	remappedFilepaths := []string{}
+
+	for _, filepath := range interaction.Files {
+		filename := path.Base(filepath)
+		url := server.URL(instance.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download", instance.runnerOptions.ID, session.ID))
+		urlValues := urllib.Values{}
+		urlValues.Add("path", filepath)
+
+		fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
+
+		log.Debug().
+			Msgf("🔵 runner downloading interaction file: %s", fullURL)
+
+		req, err := http.NewRequest("GET", fullURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		server.AddHeadersVanilla(req, instance.httpClientOptions.Token)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
+		}
+
+		file, err := os.Create(path.Join(downloadFolder, filename))
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(file, resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		remappedFilepaths = append(remappedFilepaths, path.Join(downloadFolder, filename))
+
+		log.Debug().
+			Msgf("🔵 runner downloaded interaction file: %s -> %s", fullURL, filename)
+	}
+
+	interaction.Files = remappedFilepaths
+
+	newInteractions := []types.Interaction{}
+
+	for _, existingInteraction := range session.Interactions {
+		if existingInteraction.ID == interaction.ID {
+			newInteractions = append(newInteractions, *interaction)
+		} else {
+			newInteractions = append(newInteractions, existingInteraction)
+		}
+	}
+
+	session.Interactions = newInteractions
+
+	return session, nil
+}
+
+func (instance *ModelInstance) errorSession(session *types.Session, err error) {
+	interactionID, getInteractionErr := getLastInteractionID(session)
+	if getInteractionErr != nil {
+		log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
+		return
+	}
+
+	apiUpdateErr := instance.responseHandler(&types.WorkerTaskResponse{
+		Type:          types.WorkerTaskResponseTypeResult,
+		SessionID:     session.ID,
+		InteractionID: interactionID,
+		Error:         err.Error(),
+	})
+
+	if apiUpdateErr != nil {
+		log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
+	}
 }
 
 func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
@@ -273,8 +422,10 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
-func (instance *ModelInstance) startProcess() error {
-	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter.Mode, types.RunnerProcessConfig{
+func (instance *ModelInstance) startProcess(session *types.Session) error {
+	// download lora file
+
+	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter, types.RunnerProcessConfig{
 		InstanceID:  instance.id,
 		TaskURL:     instance.taskURL,
 		ResponseURL: instance.responseURL,
