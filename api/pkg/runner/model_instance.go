@@ -91,6 +91,16 @@ func NewModelInstance(
 		return nil, err
 	}
 	id := system.GenerateUUID()
+
+	// if this is empty string then we need to hoist it to be types.FINETUNE_FILE_NONE
+	// because then we are always specifically asking for a session that has no finetune file
+	// if we left this blank we are saying "we don't care if it has one or not"
+	useFinetuneFile := finetuneFile
+
+	if useFinetuneFile == "" {
+		useFinetuneFile = types.FINETUNE_FILE_NONE
+	}
+
 	return &ModelInstance{
 		id:              id,
 		ctx:             ctx,
@@ -102,7 +112,7 @@ func NewModelInstance(
 		filter: types.SessionFilter{
 			ModelName:    modelName,
 			Mode:         mode,
-			FinetuneFile: finetuneFile,
+			FinetuneFile: useFinetuneFile,
 		},
 	}, nil
 }
