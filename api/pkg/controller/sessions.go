@@ -55,15 +55,7 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		// look to see if we have any rejection matches that we should not include
 		for _, rejectEntry := range filter.Reject {
 			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
-				// the runner has included a rejection that involved a finetune file
-				// so we need to check if the session has a finetune file or not
-				if rejectEntry.FinetuneFile != "" && session.FinetuneFile == rejectEntry.FinetuneFile {
-					continue
-				} else {
-					// in this case - the reject is not a finetune
-					continue
-				}
-
+				continue
 			}
 		}
 

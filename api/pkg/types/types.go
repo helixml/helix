@@ -71,9 +71,8 @@ type Session struct {
 }
 
 type SessionFilterModel struct {
-	Mode         SessionMode `json:"mode"`
-	ModelName    ModelName   `json:"model_name"`
-	FinetuneFile string      `json:"finetune_file"`
+	Mode      SessionMode `json:"mode"`
+	ModelName ModelName   `json:"model_name"`
 }
 
 type SessionFilter struct {
