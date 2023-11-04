@@ -131,7 +131,11 @@ func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, 
 	// how to make 'helix run' reuse an existing session (which i'm pretty sure
 	// this won't do) - also figure out how to write out results to disk, etc
 
-	runnerServer.Controller.createModelInstance(req.Context(), session)
+	err = runnerServer.Controller.AddToLocalQueue(req.Context(), session)
+	// err = runnerServer.Controller.createModelInstance(req.Context(), session)
+	if err != nil {
+		return nil, err
+	}
 
 	// TODO: Implement the logic to set the next global session
 

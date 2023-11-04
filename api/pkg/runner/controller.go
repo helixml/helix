@@ -64,6 +64,8 @@ type Runner struct {
 	// no point asking for more top level tasks
 	// we get this on boot by asking the model package
 	lowestMemoryRequirement uint64
+
+	localQueue []*types.Session
 }
 
 func NewRunner(
@@ -105,6 +107,44 @@ func NewRunner(
 		activeModelInstances: map[string]*ModelInstance{},
 	}
 	return runner, nil
+}
+
+func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
+	return modelInstance.filter.Mode == session.Mode &&
+		modelInstance.filter.Type == session.Type &&
+		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||
+			(modelInstance.filter.FinetuneFile == "none" && session.FinetuneFile == ""))
+}
+
+func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
+	// iterate over model instances to see if one exists and if it doesn't, create it.
+	// then add session to localQueue
+
+	// Check if a model instance exists for the session's model ID
+	found := false
+
+	// loop over r.activeModelInstances, checking whether the filters on the
+	// model instance match the session mode, type and finetune
+	for _, modelInstance := range r.activeModelInstances {
+		if modelInstanceMatchesSession(modelInstance, session) {
+			// no need to create another one, because there's already one which will match the session
+			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Create a new model instance because it doesn't exist
+		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
+		err := r.createModelInstance(ctx, session)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Add the session to the local queue
+	r.localQueue = append(r.localQueue, session)
+	return nil
 }
 
 // this should be run in a go-routine
@@ -222,6 +262,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
 	r.modelMutex.Lock()
 	defer r.modelMutex.Unlock()
+
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
 		session,
@@ -241,6 +282,15 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	if err != nil {
 		return err
 	}
+
+	// belt and braces in remote case and reject jobs that won't fit in local case
+	modelMem := modelInstance.model.GetMemoryRequirements(session.Mode)
+	freeMem := r.getFreeMemory()
+	if modelMem > freeMem {
+		// refuse to start or record the model instance, it will just get GC'd at this point
+		return fmt.Errorf("cannot fit model requiring gpu memory %d into available gpu memory %d", modelMem, freeMem)
+	}
+
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.id)
 
@@ -287,7 +337,27 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 
 	var session *types.Session
 
-	if modelInstance.nextSession != nil {
+	foundLocalQueuedSession := false
+	for i, sess := range r.localQueue {
+		if modelInstanceMatchesSession(modelInstance, sess) {
+			foundLocalQueuedSession = true
+			// remove it from the local queue
+			r.localQueue = append(r.localQueue[:i], r.localQueue[i+1:]...)
+			session = sess
+			break
+		}
+
+	}
+	// as the first check, we need to ask if there's a session in localQueue
+	// that matches this model instance. if there is, we've got a local
+	// session and it takes precedence over remote work
+
+	// if there is, call modelInstance.queueSession on it
+
+	if foundLocalQueuedSession {
+		// queue it, and fall thru below to assign
+		go modelInstance.queueSession(session)
+	} else if modelInstance.nextSession != nil {
 		// if there is a session in the nextSession cache then we return it immediately
 		session = modelInstance.nextSession
 		modelInstance.nextSession = nil
@@ -298,19 +368,21 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 		// ask the upstream api server if there is another task
 		// if there is - then assign it to the queuedSession
 		// and call "pre"
-		queryParams := url.Values{}
+		if r.httpClientOptions.Host != "" {
+			queryParams := url.Values{}
 
-		queryParams.Add("model_name", string(modelInstance.filter.ModelName))
-		queryParams.Add("mode", string(modelInstance.filter.Mode))
-		queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
+			queryParams.Add("model_name", string(modelInstance.filter.ModelName))
+			queryParams.Add("mode", string(modelInstance.filter.Mode))
+			queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
 
-		apiSession, err := r.getNextSession(ctx, queryParams)
-		if err != nil {
-			return nil, err
-		}
+			apiSession, err := r.getNextSession(ctx, queryParams)
+			if err != nil {
+				return nil, err
+			}
 
-		if apiSession != nil {
-			go modelInstance.queueSession(apiSession)
+			if apiSession != nil {
+				go modelInstance.queueSession(apiSession)
+			}
 		}
 	}
 
