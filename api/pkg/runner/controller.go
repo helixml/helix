@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"runtime/debug"
-	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -20,6 +19,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -54,10 +54,9 @@ type Runner struct {
 
 	httpClientOptions server.ClientOptions
 
-	modelMutex sync.RWMutex
 	// the map of model instances that we have loaded
 	// and are currently running
-	activeModelInstances map[string]*ModelInstance
+	activeModelInstances *xsync.MapOf[string, *ModelInstance]
 
 	// the lowest amount of memory that something can run with
 	// if we have less than this amount of memory then there is
@@ -65,7 +64,8 @@ type Runner struct {
 	// we get this on boot by asking the model package
 	lowestMemoryRequirement uint64
 
-	localQueue []*types.Session
+	// local sessions, which will be executed in no particular order
+	localSessions *xsync.MapOf[string, *types.Session]
 }
 
 func NewRunner(
@@ -104,7 +104,7 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances: map[string]*ModelInstance{},
+		activeModelInstances: xsync.NewMapOf[string, *ModelInstance](),
 	}
 	return runner, nil
 }
@@ -125,14 +125,15 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 
 	// loop over r.activeModelInstances, checking whether the filters on the
 	// model instance match the session mode, type and finetune
-	for _, modelInstance := range r.activeModelInstances {
+	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
 		if modelInstanceMatchesSession(modelInstance, session) {
 			// no need to create another one, because there's already one which will match the session
 			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
 			found = true
-			break
+			return false
 		}
-	}
+		return true
+	})
 	if !found {
 		// Create a new model instance because it doesn't exist
 		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
@@ -143,7 +144,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	}
 
 	// Add the session to the local queue
-	r.localQueue = append(r.localQueue, session)
+	r.localSessions.Store(session.ID, session)
 	return nil
 }
 
@@ -194,22 +195,21 @@ func (r *Runner) loop(ctx context.Context) error {
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
 func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration) error {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
-	for _, activeModelInstance := range r.activeModelInstances {
+	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
 		// this means we are booting so let's leave it alone to boot
 		if activeModelInstance.lastActivityTimestamp == 0 {
-			continue
+			return true
 		}
 		if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
 			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
 			err := activeModelInstance.stopProcess()
 			if err != nil {
 				log.Error().Msgf("error stopping model instance %s: %s", activeModelInstance.id, err.Error())
-				continue
+				return true
 			}
 		}
-	}
+		return true
+	})
 	return nil
 }
 
@@ -245,9 +245,10 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
 	// before trying to run another type of model
 
-	for _, modelInstance := range r.activeModelInstances {
+	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
 		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
-	}
+		return true
+	})
 
 	return r.getNextSession(ctx, queryParams)
 }
@@ -260,9 +261,6 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
 func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
-	r.modelMutex.Lock()
-	defer r.modelMutex.Unlock()
-
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
 		session,
@@ -284,12 +282,13 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := modelInstance.model.GetMemoryRequirements(session.Mode)
-	freeMem := r.getFreeMemory()
+	modelMem := float32(modelInstance.model.GetMemoryRequirements(session.Mode)) / 1024 / 1024 / 1024
+	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
 	if modelMem > freeMem {
 		// refuse to start or record the model instance, it will just get GC'd at this point
-		return fmt.Errorf("cannot fit model requiring gpu memory %d into available gpu memory %d", modelMem, freeMem)
+		return fmt.Errorf("cannot fit model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	}
+	log.Printf("🟠 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.id)
@@ -307,14 +306,13 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	if err != nil {
 		return err
 	}
-	r.activeModelInstances[modelInstance.id] = modelInstance
+
+	r.activeModelInstances.Store(modelInstance.id, modelInstance)
 	go func() {
 		<-modelInstance.finishChan
-		r.modelMutex.Lock()
-		defer r.modelMutex.Unlock()
 		log.Debug().
 			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
-		delete(r.activeModelInstances, modelInstance.id)
+		r.activeModelInstances.Delete(modelInstance.id)
 	}()
 	return nil
 }
@@ -330,7 +328,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	modelInstance, ok := r.activeModelInstances[instanceID]
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
@@ -338,16 +336,16 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 	var session *types.Session
 
 	foundLocalQueuedSession := false
-	for i, sess := range r.localQueue {
+	r.localSessions.Range(func(i string, sess *types.Session) bool {
 		if modelInstanceMatchesSession(modelInstance, sess) {
 			foundLocalQueuedSession = true
 			// remove it from the local queue
-			r.localQueue = append(r.localQueue[:i], r.localQueue[i+1:]...)
+			r.localSessions.Delete(i)
 			session = sess
-			break
+			return false
 		}
-
-	}
+		return true
+	})
 	// as the first check, we need to ask if there's a session in localQueue
 	// that matches this model instance. if there is, we've got a local
 	// session and it takes precedence over remote work
@@ -406,7 +404,7 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 	if taskResponse == nil {
 		return nil, fmt.Errorf("task response is required")
 	}
-	modelInstance, ok := r.activeModelInstances[instanceID]
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
@@ -475,12 +473,11 @@ func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*t
 }
 
 func (r *Runner) getUsedMemory() uint64 {
-	r.modelMutex.RLock()
-	defer r.modelMutex.RUnlock()
 	memoryUsed := uint64(0)
-	for _, modelInstance := range r.activeModelInstances {
+	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
 		memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
-	}
+		return true
+	})
 	return memoryUsed
 }
 
