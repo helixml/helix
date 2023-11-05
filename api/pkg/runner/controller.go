@@ -65,6 +65,7 @@ type Runner struct {
 	lowestMemoryRequirement uint64
 
 	// local sessions, which will be executed in no particular order
+	// TODO: maybe preserve insertion order
 	localSessions *xsync.MapOf[string, *types.Session]
 }
 
@@ -105,6 +106,7 @@ func NewRunner(
 			Token: options.ApiToken,
 		},
 		activeModelInstances: xsync.NewMapOf[string, *ModelInstance](),
+		localSessions:        xsync.NewMapOf[string, *types.Session](),
 	}
 	return runner, nil
 }
