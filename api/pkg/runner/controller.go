@@ -209,6 +209,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 				log.Error().Msgf("error stopping model instance %s: %s", activeModelInstance.id, err.Error())
 				return true
 			}
+			r.activeModelInstances.Delete(activeModelInstance.id)
 		}
 		return true
 	})
