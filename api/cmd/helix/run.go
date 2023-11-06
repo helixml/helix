@@ -16,11 +16,15 @@ import (
 
 type RunOptions struct {
 	RunnerUrl string
+	Type      string
+	Prompt    string
 }
 
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
 		RunnerUrl: getDefaultServeOptionString("RUNNER_URL", "http://localhost:8080"),
+		Type:      "image",
+		Prompt:    "a question mark floating in space",
 	}
 }
 
@@ -42,6 +46,11 @@ func newRunCmd() *cobra.Command {
 		`The base URL of the runner`,
 	)
 
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Type, "type", allOptions.Type,
+		`Type of generative AI: image, text`,
+	)
+
 	return runnerCmd
 }
 
@@ -58,16 +67,24 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	defer cancel()
 
 	interaction := types.Interaction{
-		ID:       "cli-intx",
+		ID:       "cli-user",
 		Created:  time.Now(),
 		Creator:  "user",
-		Runner:   "",
-		Message:  "a unicorn riding a horse",
-		Progress: 0,
-		Files:    []string{},
+		Message:  options.Prompt,
 		Finished: true,
-		Metadata: map[string]string{},
-		Error:    "",
+	}
+	interactionSystem := types.Interaction{
+		ID:       "cli-system",
+		Created:  time.Now(),
+		Creator:  "system",
+		Finished: false,
+	}
+
+	var modelName types.ModelName
+	if options.Type == "image" {
+		modelName = types.Model_SDXL
+	} else if options.Type == "text" {
+		modelName = types.Model_Mistral7b
 	}
 
 	id := system.GenerateUUID()
@@ -77,10 +94,10 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		Created:      time.Now(),
 		Updated:      time.Now(),
 		Mode:         "inference",
-		Type:         "image",
-		ModelName:    "stabilityai/stable-diffusion-xl-base-1.0",
+		Type:         types.SessionType(options.Type),
+		ModelName:    modelName,
 		FinetuneFile: "",
-		Interactions: []types.Interaction{interaction},
+		Interactions: []types.Interaction{interaction, interactionSystem},
 		Owner:        "cli-user",
 		OwnerType:    "user",
 	}

@@ -152,6 +152,7 @@ func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *t
 
 	interactionID, err := getLastInteractionID(session)
 	if err != nil {
+		log.Print("🟤 Error getting last interaction ID: ", err.Error())
 		return nil, err
 	}
 
