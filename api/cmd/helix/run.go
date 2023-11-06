@@ -125,13 +125,6 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	}
 	defer resp.Body.Close()
 
-	rs, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	// log.Printf("Response: %+v", string(rs))
-
 	for {
 		resp, err := http.Get(options.RunnerUrl + "/api/v1/worker/state")
 		if err != nil {
