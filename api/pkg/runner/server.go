@@ -145,6 +145,9 @@ func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, 
 	if err != nil {
 		return nil, err
 	}
+	response := &types.WorkerTask{
+		SessionID: session.ID,
+	}
 
-	return nil, nil
+	return response, nil
 }
