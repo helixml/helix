@@ -51,6 +51,11 @@ func newRunCmd() *cobra.Command {
 		`Type of generative AI: image, text`,
 	)
 
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Prompt, "prompt", allOptions.Prompt,
+		`Prompt for the model`,
+	)
+
 	return runnerCmd
 }
 
