@@ -1,0 +1,33 @@
+FROM nvidia/cuda:12.2.2-base-ubuntu22.04
+
+RUN mkdir /app
+WORKDIR /app
+
+# TODO: integrate chatbot in here as well
+
+RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
+    git clone https://github.com/lukemarsden/sd-scripts && \
+    cd sd-scripts && \
+    git checkout long-running && \
+    virtualenv venv && \
+    . venv/bin/activate && \
+    pip install -r requirements.txt && \
+    pip install bitsandbytes==0.41.1 && \
+    pip install xformers==0.0.22.post4 && \
+    mkdir sdxl && ( \
+        cd sdxl; wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
+    )
+
+RUN apt-get install -y libgl1-mesa-glx ffmpeg libsm6 libxext6
+
+RUN apt-get install -y software-properties-common && add-apt-repository -y ppa:longsleep/golang-backports && apt update -y && apt install -y golang-1.21 golang-go
+
+RUN mkdir -p /app/sd-scripts/output-images
+
+RUN mkdir -p /app/helix
+ADD . /app/helix/
+WORKDIR /app/helix
+RUN go build -o helix
+
+# TODO: autodetect available GPU memory
+ENTRYPOINT ["/app/helix/helix", "runner", "--timeout-seconds", "600", "--memory", "24GB"]
