@@ -23,25 +23,14 @@ export interface IBalanceTransfer {
   data: IBalanceTransferData,
 }
 
-export interface ISession {
-  id: string;
-  name: string;
-  created: Date;
-  updated: Date;
-  mode: string;
-  type: string;
-  model_name: string;
-  finetune_file: string;
-  interactions: IInteractions;
-  owner: string;
-  owner_type: IOwnerType;
-}
-
-export interface IInteractions {
-  [key: string]: any;
-}
-
 export type IOwnerType = 'user' | 'system' | 'org';
+
+export interface IApiKey {
+  owner: string;
+  owner_type: string;
+  key: string;
+  name: string;
+}
 
 export interface IFileStoreBreadcrumb {
   path: string,
@@ -65,4 +54,51 @@ export interface IFileStoreFolder {
 export interface IFileStoreConfig {
   user_prefix: string,
   folders: IFileStoreFolder[],
+}
+
+export type ISessionCreator = 'system' | 'user'
+
+export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
+export const SESSION_CREATOR_USER: ISessionCreator = 'user'
+
+export type ISessionMode = 'inference' | 'finetune'
+
+export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
+export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
+
+export type ISessionType = 'text' | 'image'
+
+export const SESSION_TYPE_TEXT: ISessionType = 'text'
+export const SESSION_TYPE_IMAGE: ISessionType = 'image'
+
+export interface IInteraction {
+  id: string,
+  created: number,
+  creator: ISessionCreator,
+  runner: string,
+  message: string,
+  progress: number,
+  files: string[],
+  finetune_file: string,
+  finished: boolean,
+  metadata: Record<string, string>,
+  error: string,
+}
+
+export interface ISession {
+  id: string,
+  name: string,
+  created: number,
+  updated: number,
+  mode: ISessionMode,
+  type: ISessionType,
+  model_name: string,
+  finetune_file: string,
+  interactions: IInteraction[],
+  owner: string,
+  owner_type: IOwnerType,
+}
+
+export interface IServerConfig {
+  filestore_prefix: string,
 }

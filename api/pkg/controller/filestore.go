@@ -40,6 +40,18 @@ func GetFolders() ([]filestore.FilestoreFolder, error) {
 	return folders, nil
 }
 
+func GetSessionFolder(sessionID string) string {
+	return filepath.Join("sessions", sessionID)
+}
+
+func GetSessionInputsFolder(sessionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "inputs")
+}
+
+func GetSessionResultsFolder(sessionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "results")
+}
+
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
 func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, error) {
@@ -58,7 +70,7 @@ func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, e
 	return buf.String(), nil
 }
 
-func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+func (c *Controller) GetFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
 	userPrefix, err := c.getFilestoreUserPrefix(ctx)
 	if err != nil {
 		return "", err
@@ -70,7 +82,7 @@ func (c *Controller) getFilestoreUserPath(ctx types.RequestContext, path string)
 // so, we must ensure that the users base path is created and then create each
 // special folder as listed above
 func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
-	userPath, err := c.getFilestoreUserPath(ctx, "")
+	userPath, err := c.GetFilestoreUserPath(ctx, "")
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +102,7 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path stri
 			return "", err
 		}
 	}
-	retPath, err := c.getFilestoreUserPath(ctx, path)
+	retPath, err := c.GetFilestoreUserPath(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -134,6 +146,14 @@ func (c *Controller) FilestoreCreateFolder(ctx types.RequestContext, path string
 		return filestore.FileStoreItem{}, err
 	}
 	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
+}
+
+func (c *Controller) FilestoreDownload(ctx types.RequestContext, path string) (io.Reader, error) {
+	filePath, err := c.ensureFilestoreUserPath(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return c.Options.Filestore.Download(c.Ctx, filePath)
 }
 
 func (c *Controller) FilestoreUpload(ctx types.RequestContext, path string, r io.Reader) (filestore.FileStoreItem, error) {

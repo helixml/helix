@@ -20,6 +20,8 @@ func NewRootCmd() *cobra.Command {
 		Long:  `Helix`,
 	}
 	RootCmd.AddCommand(newServeCmd())
+	RootCmd.AddCommand(newRunnerCmd())
+	RootCmd.AddCommand(newRunCmd())
 	return RootCmd
 }
 

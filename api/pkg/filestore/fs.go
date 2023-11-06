@@ -84,6 +84,17 @@ func (s *FileSystemStorage) Upload(ctx context.Context, path string, r io.Reader
 	return s.Get(ctx, path)
 }
 
+func (s *FileSystemStorage) Download(ctx context.Context, path string) (io.Reader, error) {
+	fullPath := filepath.Join(s.basePath, path)
+
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("error opening file: %w", err)
+	}
+
+	return file, nil
+}
+
 func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {
 	src := filepath.Join(s.basePath, path)
 	dst := filepath.Join(s.basePath, newPath)

@@ -26,6 +26,8 @@ type ControllerOptions struct {
 	// write me an example FilePrefixUser as a go template
 	// e.g. "users/{{.Owner}}"
 	FilePrefixUser string
+
+	FilePrefixSessions string
 	// a static path used to denote what sub-folder job results live in
 	FilePrefixResults string
 }
@@ -37,15 +39,10 @@ type Controller struct {
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
 	sessionQueueMtx sync.Mutex
-	// the map of active sessions that are currently running on a GPU
-	activeSessions   map[string]*types.Session
-	activeSessionMtx sync.Mutex
 
-	// the map of text streams attached to a session
-	// not all sessions will have an active text stream
-	// it depends what type the session is
-	activeTextStreams    map[string]*model.TextStream
-	activeTextStreamsMtx sync.Mutex
+	// keep a map of instantiated models so we can ask it about memory
+	// the models package looks after instantiating this for us
+	models map[types.ModelName]model.Model
 }
 
 func NewController(
@@ -58,67 +55,44 @@ func NewController(
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")
 	}
+	models, err := model.GetModels()
+	if err != nil {
+		return nil, err
+	}
 	controller := &Controller{
 		Ctx:                ctx,
 		Options:            options,
 		SessionUpdatesChan: make(chan *types.Session),
-		activeSessions:     map[string]*types.Session{},
-		activeTextStreams:  map[string]*model.TextStream{},
 		sessionQueue:       []*types.Session{},
+		models:             models,
 	}
 	return controller, nil
 }
 
-func (c *Controller) Start() error {
+func (c *Controller) Initialize() error {
 	err := c.loadSessionQueues(c.Ctx)
 	if err != nil {
 		return err
 	}
-	go func() {
-		for {
-			select {
-			case <-c.Ctx.Done():
-				return
-			default:
-				time.Sleep(10 * time.Second)
-				err := c.loop(c.Ctx)
-				if err != nil {
-					log.Error().Msgf("Helix error in controller loop: %s", err.Error())
-					debug.PrintStack()
-				}
-			}
-		}
-	}()
 	return nil
 }
 
+// this should be run in a go-routine
+func (c *Controller) StartLooping() {
+	for {
+		select {
+		case <-c.Ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+			err := c.loop(c.Ctx)
+			if err != nil {
+				log.Error().Msgf("error in controller loop: %s", err.Error())
+				debug.PrintStack()
+			}
+		}
+	}
+}
+
 func (c *Controller) loop(ctx context.Context) error {
-	// var wg sync.WaitGroup
-	// errChan := make(chan error, 1)
-
-	// // Wrap the function in a closure and handle the WaitGroup and error channel
-	// runFunc := func(f func(context.Context) error) {
-	// 	defer wg.Done()
-	// 	if err := f(ctx); err != nil {
-	// 		select {
-	// 		case errChan <- err:
-	// 		default:
-	// 		}
-	// 	}
-	// }
-
-	// wg.Add(1)
-
-	// // an example of a function that is called in the loop
-	// go runFunc(c.reloadSessionQueues)
-
-	// go func() {
-	// 	wg.Wait()
-	// 	close(errChan)
-	// }()
-
-	// if err := <-errChan; err != nil {
-	// 	return err
-	// }
 	return nil
 }

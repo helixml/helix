@@ -1,5 +1,5 @@
-import React, { FC, useState, useCallback } from 'react'
-import axios from 'axios'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -7,13 +7,11 @@ import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
-import MenuItem from '@mui/material/MenuItem'
-import Select from '@mui/material/Select'
-import InputLabel from '@mui/material/InputLabel'
-import FormControl from '@mui/material/FormControl'
+import Link from '@mui/material/Link'
+import Interaction from '../components/session/Interaction'
 import useFilestore from '../hooks/useFilestore'
-import FileUpload from '../components/widgets/FileUpload'
-import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import Disclaimer from '../components/widgets/Disclaimer'
+import Progress from '../components/widgets/Progress'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -26,9 +24,9 @@ const Session: FC = () => {
   const {navigate, params} = useRouter()
   const account = useAccount()
 
-  const [loading, setLoading] = useState(false)
+  const divRef = useRef<HTMLDivElement>()
+
   const [inputValue, setInputValue] = useState('')
-  const [chatHistory, setChatHistory] = useState<Array<{user: string, message: string}>>([])
   const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,41 +34,30 @@ const Session: FC = () => {
   }
   const session = account.sessions?.find(session => session.id === params["session_id"])
 
+  const loading = useMemo(() => {
+    if(!session || !session?.interactions || session?.interactions.length === 0) return false
+    const interaction = session?.interactions[session?.interactions.length - 1]
+    return interaction.finished ? false : true
+  }, [
+    session,
+  ])
+
   const onSend = async () => {
+    if(!session) return
+    
+    const formData = new FormData()
+    files.forEach((file) => {
+      formData.append("files", file)
+    })
 
-      if(!session) return
-      // const statusResult = await axios.post('/api/v1/sessions', {
-      //   files: files,
-      // })
-      /// XXXXXXXXXXXXXXXXX NOT CREATE NEW ONE, NEED TO UPDATE (or even better,
-      /// POST to a new endpoint to add to the chat reliably)
-      try {
-        const newSession = JSON.parse(JSON.stringify(session))
+    formData.set('input', inputValue)
 
-        newSession.interactions.messages.push({
-          User:     "user",
-          Message:  inputValue,
-          Uploads:  [],
-          Finished: true,
-        })
+    const newSession = await api.put(`/api/v1/sessions/${session.id}`, formData)
+    if(!newSession) return
+    account.loadSessions()
 
-        await api.put(`/api/v1/sessions/${session.id}`, newSession)
-        setInputValue('')
-        account.loadSessions()
-        // result = true
-      } catch(e) {
-        console.log(e)
-      }
-      // setUploadProgress(undefined)
-      // return result
-
-    // TODO: put this in state, when user clicks send, POST all three things
-    // (files, text, type) to a new endpoint which accepts files
-
-    // const result = await filestore.upload("lhwoo", files)
-    // if(!result) return
-    // await filestore.loadFiles(filestore.path)
-    // snackbar.success('Files Uploaded')
+    setFiles([])
+    setInputValue("")
   }
 
   const onUpload = useCallback(async (files: File[]) => {
@@ -87,79 +74,91 @@ const Session: FC = () => {
     }
   }
 
-  return (
-    <Container sx={{ mt: 4, mb: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', overflowX: 'hidden' }}>
-      <Grid container spacing={3} direction="row" justifyContent="flex-start">
-        <Grid item xs={12} md={12}>
-          <Typography sx={{fontSize: "small", color: "gray"}}>Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name}...</Typography>
+  useEffect(() => {
+    if(!session) return
+    const divElement = divRef.current
+    if(!divElement) return
+    divElement.scrollTo({
+      top: divElement.scrollHeight - divElement.clientHeight,
+      behavior: "smooth"
+    })
+  }, [
+    session,
+  ])
+
+  return (    
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Box
+        ref={ divRef }
+        sx={{
+          width: '100%',
+          flexGrow: 1,
+          overflowY: 'auto',
+          p: 2,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Typography
+            sx={{
+              fontSize: "small",
+              color: "gray"
+            }}
+          >
+            Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
+            { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
+          </Typography>
           <br />
-          {session?.interactions.messages.map((chat: any, index: any) => (
-            <Typography key={index} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
-              <Avatar sx={{ width: 24, height: 24 }}>{chat.user.charAt(0)}</Avatar>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{chat.user.charAt(0).toUpperCase() + chat.user.slice(1)}</Typography>
-                <Typography dangerouslySetInnerHTML={{__html: chat.message.replace(/\n/g, '<br/>')}}></Typography>
-              </Box>
-            </Typography>
-          ))}
-        </Grid>
-      </Grid>
-      <Grid container item xs={12} md={8} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', position: 'absolute', bottom: '5em', maxWidth: '800px' }}>
-        <Grid item xs={12} md={11}>
-          {session?.mode === 'Finetune' && session?.type === 'Image' && (
-            <FileUpload
-              sx={{
-                width: '100%',
-                mt: 2,
-              }}
-              onUpload={ onUpload }
-            >
-              <Button
-                sx={{
-                  width: '100%',
-                }}
-                variant="contained"
-                color="secondary"
-                endIcon={<CloudUploadIcon />}
-              >
-                Upload Files
-              </Button>
-              <Box
-                sx={{
-                  border: '1px dashed #ccc',
-                  p: 2,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '100px',
-                  cursor: 'pointer',
-                  mb: 2,
-                }}
-              >
-                <Typography
-                  sx={{
-                    color: '#999'
-                  }}
-                  variant="caption"
-                >
-                  drop files here to upload them ...
-                  {
-                    files.length > 0 && files.map((file) => (
-                      <Typography key={file.name}>
-                        {file.name} ({file.size} bytes) - {file.type}
-                      </Typography>
-                    ))
-                  }
-                </Typography>
-              </Box>
-            </FileUpload> )}
-        </Grid>
-        <Grid item xs={12} md={11}>
+            {
+              session?.interactions.map((interaction: any, i: number) => {
+                return (
+                  <Interaction
+                    key={ interaction.id }
+                    type={ session.type }
+                    mode={ session.mode }
+                    interaction={ interaction }
+                    serverConfig={ account.serverConfig }
+                    isLast={ i === session.interactions.length - 1 }
+                  />
+                )   
+              })
+            }
+        </Container>
+      </Box>
+      <Box
+        sx={{
+          width: '100%',
+          flexGrow: 0,
+          p: 2,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Container maxWidth="lg">
+          <Box
+            sx={{
+              width: '100%',
+              flexGrow: 0,
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
             <TextField
               fullWidth
               label={(
-                session?.mode === 'Create' && session?.type === 'Text' ? 'Chat with base Mistral-7B-Instruct model' : session?.mode === 'Create' && session?.type === 'Image' ? 'Describe an image to create it with a base SDXL model' : session?.mode === 'Finetune' && session?.type === 'Text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}
@@ -169,19 +168,28 @@ const Session: FC = () => {
               multiline={true}
               onKeyDown={handleKeyDown}
             />
-          </Grid>
-        <Grid item xs={12} md={1}>
-          <Button
-            variant='contained'
-            disabled={loading}
-            onClick={ onSend }
-            sx={{ ml: 2 }}
+            <Button
+              variant='contained'
+              disabled={loading}
+              onClick={ onSend }
+              sx={{ ml: 2 }}
+            >
+              Send
+            </Button>
+          </Box>
+          <Box
+            sx={{
+              mt: 2,
+            }}
           >
-            Send
-          </Button>
-        </Grid>
-      </Grid>
-    </Container>
+            <Disclaimer />
+          </Box>
+          
+        </Container>
+        
+      </Box>
+
+    </Box>
   )
 }
 

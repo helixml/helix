@@ -13,20 +13,19 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-type AllOptions struct {
+type ServeOptions struct {
 	ControllerOptions controller.ControllerOptions
 	FilestoreOptions  filestore.FileStoreOptions
 	StoreOptions      store.StoreOptions
 	ServerOptions     server.ServerOptions
 }
 
-func NewAllOptions() *AllOptions {
-	return &AllOptions{
+func NewServeOptions() *ServeOptions {
+	return &ServeOptions{
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
@@ -58,7 +57,7 @@ func NewAllOptions() *AllOptions {
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions := NewAllOptions()
+	allOptions := NewServeOptions()
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
@@ -163,7 +162,7 @@ func newServeCmd() *cobra.Command {
 	return serveCmd
 }
 
-func getFilestore(ctx context.Context, options *AllOptions) (filestore.FileStore, error) {
+func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileStore, error) {
 	var store filestore.FileStore
 	if options.ServerOptions.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -225,10 +224,8 @@ func getFilestore(ctx context.Context, options *AllOptions) (filestore.FileStore
 	return store, nil
 }
 
-func serve(cmd *cobra.Command, options *AllOptions) error {
-
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+func serve(cmd *cobra.Command, options *ServeOptions) error {
+	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
@@ -261,10 +258,12 @@ func serve(cmd *cobra.Command, options *AllOptions) error {
 		return err
 	}
 
-	err = controller.Start()
+	err = controller.Initialize()
 	if err != nil {
 		return err
 	}
+
+	go controller.StartLooping()
 
 	server, err := server.NewServer(options.ServerOptions, store, controller)
 	if err != nil {
