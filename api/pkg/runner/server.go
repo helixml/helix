@@ -39,6 +39,7 @@ func NewRunnerServer(
 	return &RunnerServer{
 		Options:    options,
 		Controller: controller,
+		State:      map[string]types.WorkerTaskResponse{},
 	}, nil
 }
 
