@@ -112,6 +112,7 @@ func NewRunner(
 }
 
 func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
+	log.Printf("🟠 comparing modelInstance type=%s, mode=%s, finetuneFile=%s to session type=%s, mode=%s, finetuneFile=%s", modelInstance.filter.Type, modelInstance.filter.Mode, modelInstance.filter.FinetuneFile, session.Type, session.Mode, session.FinetuneFile)
 	return modelInstance.filter.Mode == session.Mode &&
 		modelInstance.filter.Type == session.Type &&
 		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||

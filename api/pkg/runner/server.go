@@ -121,23 +121,10 @@ func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, 
 		return nil, fmt.Errorf("error decoding session as post body: %s", err)
 	}
 
-	// just start it instantly for now...
-	// TODO: what's the distinction between session and task?
-	//
-	// why does getNextGlobalSession always immediately start a new model
-	// instance? shouldn't it assign it to an existing one potentially?
-
-	// what to do next: try running this code, get it working, then figure out
-	// how to make 'helix run' reuse an existing session (which i'm pretty sure
-	// this won't do) - also figure out how to write out results to disk, etc
-
 	err = runnerServer.Controller.AddToLocalQueue(req.Context(), session)
-	// err = runnerServer.Controller.createModelInstance(req.Context(), session)
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO: Implement the logic to set the next global session
 
 	return nil, nil
 }

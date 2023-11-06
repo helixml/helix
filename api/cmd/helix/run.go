@@ -70,8 +70,9 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		Error:    "",
 	}
 
+	id := system.GenerateUUID()
 	session := types.Session{
-		ID:           "cli",
+		ID:           "cli-" + id,
 		Name:         "cli",
 		Created:      time.Now(),
 		Updated:      time.Now(),
