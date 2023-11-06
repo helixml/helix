@@ -102,7 +102,7 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 	defer runnerServer.StateMtx.Unlock()
 
 	// record in-memory for any local clients who want to query us
-	runnerServer.State[vars["instanceid"]] = *taskResponse
+	runnerServer.State[taskResponse.SessionID] = *taskResponse
 
 	stateYAML, err := yaml.Marshal(runnerServer.State)
 	if err != nil {
