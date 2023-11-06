@@ -1,4 +1,4 @@
-module github.com/lukemarsden/helix
+module github.com/helixml/helix
 
 go 1.20
 
