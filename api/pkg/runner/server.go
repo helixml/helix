@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -86,13 +87,18 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
+		log.Println("foop", err)
 		return nil, err
 	}
 
 	taskResponse, err = runnerServer.Controller.handleTaskResponse(req.Context(), vars["instanceid"], taskResponse)
 	if err != nil {
+		log.Println("foop2", err)
 		return nil, err
 	}
+
+	runnerServer.StateMtx.Lock()
+	defer runnerServer.StateMtx.Unlock()
 
 	// record in-memory for any local clients who want to query us
 	runnerServer.State[vars["instanceid"]] = *taskResponse
@@ -111,6 +117,19 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 }
 
 func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.WorkerTaskResponse, error) {
+	runnerServer.StateMtx.Lock()
+	defer runnerServer.StateMtx.Unlock()
+
+	stateYAML, err := yaml.Marshal(runnerServer.State)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("==========================================")
+	fmt.Println("             LOCAL STATE")
+	fmt.Println("==========================================")
+	fmt.Println(string(stateYAML))
+	fmt.Println("==========================================")
+
 	return runnerServer.State, nil
 }
 

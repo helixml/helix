@@ -17,7 +17,7 @@ func (l *SDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
 		return GB * 24
 	} else {
-		return GB * 15
+		return MB * 7500
 	}
 }
 
@@ -85,6 +85,7 @@ func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
 		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+		"PYTHONUNBUFFERED=1",
 	}
 
 	return cmd, nil
