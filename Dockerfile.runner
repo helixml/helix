@@ -22,7 +22,7 @@ RUN apt-get install -y libgl1-mesa-glx ffmpeg libsm6 libxext6
 
 RUN apt-get install -y software-properties-common && add-apt-repository -y ppa:longsleep/golang-backports && apt update -y && apt install -y golang-1.21 golang-go
 
-RUN mkdir -p /app/sd-scripts/output-images
+RUN mkdir -p /app/sd-scripts/output_images
 
 RUN mkdir -p /app/helix
 ADD . /app/helix/
