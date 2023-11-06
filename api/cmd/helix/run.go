@@ -3,6 +3,7 @@ package helix
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -124,7 +125,12 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Response: %+v", resp)
+	rs, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Response: %+v", string(rs))
 
 	// TODO: poll /worker/state, updating the CLI with the result
 
