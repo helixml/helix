@@ -39,7 +39,7 @@ func newRunCmd() *cobra.Command {
 
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.RunnerUrl, "api-host", allOptions.RunnerUrl,
-		`The base URL of the runner - e.g. http://localhost:8080`,
+		`The base URL of the runner`,
 	)
 
 	return runnerCmd
