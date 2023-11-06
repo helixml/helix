@@ -130,9 +130,30 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		return err
 	}
 
-	log.Printf("Response: %+v", string(rs))
+	// log.Printf("Response: %+v", string(rs))
 
-	// TODO: poll /worker/state, updating the CLI with the result
-
-	return nil
+	for {
+		resp, err := http.Get(options.RunnerUrl + "/api/v1/worker/state")
+		if err != nil {
+			return err
+		}
+		bd, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		rr := make(map[string]types.WorkerTaskResponse)
+		err = json.Unmarshal(bd, &rr)
+		if err != nil {
+			return err
+		}
+		wtr, ok := rr["cli-"+id]
+		if ok {
+			log.Printf("Progress: %+v%%", wtr.Progress)
+			if len(wtr.Files) > 0 {
+				log.Printf("File has been written: %s", wtr.Files[0][len("/app/sd-scripts/./output_images/"):])
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
