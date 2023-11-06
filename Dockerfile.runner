@@ -20,7 +20,7 @@ RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget p
 
 RUN apt-get install -y libgl1-mesa-glx ffmpeg libsm6 libxext6
 
-RUN add-apt-repository -y ppa:longsleep/golang-backports && apt update -y && apt install -y golang-1.21
+RUN apt-get install -y software-properties-common && add-apt-repository -y ppa:longsleep/golang-backports && apt update -y && apt install -y golang-1.21 golang-go
 
 RUN mkdir -p /app/helix
 ADD . /app/helix/
@@ -28,4 +28,4 @@ WORKDIR /app/helix
 RUN go build -o helix
 
 # TODO: autodetect available GPU memory
-ENTRYPOINT ["/app/helix/helix", "runner", "--timeout-secs", "600", "--memory", "24GB"]
+ENTRYPOINT ["/app/helix/helix", "runner", "--timeout-seconds", "600", "--memory", "24GB"]
