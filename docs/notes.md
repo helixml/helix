@@ -7,7 +7,6 @@ First install [nvidia drivers](https://docs.nvidia.com/datacenter/tesla/tesla-in
 ```bash
 sudo apt-get update
 sudo apt-get -y install cuda-drivers
-sudo apt-get -y install nvidia-cuda-toolkit
 sudo apt-get -y install cuda
 ```
 then reboot
@@ -193,4 +192,5 @@ pip install xformers==0.0.22.post4
 mkdir sdxl && ( \
   cd sdxl; wget https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
 )
+mkdir output_images
 ```

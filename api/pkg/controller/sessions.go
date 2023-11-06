@@ -5,27 +5,18 @@ package controller
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-// the core function - decide which task to give to a worker
-// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
-// try to send similar tasks to the same worker
-func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter) (*types.Session, error) {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
-
-	// right now this is very dumb - it literally just returns the next thing and doesn't even care what type it is
-	// TODO: get the worker auth system plugged in so we know who is asking for the task
-	// and then we can keep track of the last thing they ran and pick better
+// this function expects the sessionQueueMtx to be locked when it is run
+func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
@@ -36,53 +27,117 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		if filter.ModelName != "" && session.ModelName != filter.ModelName {
 			continue
 		}
-		c.sessionQueue = append(c.sessionQueue[:i], c.sessionQueue[i+1:]...)
+
+		if filter.FinetuneFile != "" && session.FinetuneFile != filter.FinetuneFile {
+			// in this case - the filter is asking for a session with a finetune file
+			// and so we can only reply with a session that has that exact finetune file
+			continue
+		} else if filter.FinetuneFile == types.FINETUNE_FILE_NONE && session.FinetuneFile != "" {
+			// in this case - the runner is asking specifically for a session
+			// that does not have a finetune file
+			// this cannot be empty string because that means "I don't care"
+			continue
+		}
+
+		// we are asking for sessions that will fit in an amount of RAM
+		// so we need to ask the associated model instance what the memory
+		// requirements are for this session
+		if filter.Memory > 0 {
+			model, ok := c.models[session.ModelName]
+			if !ok {
+				continue
+			}
+			if model.GetMemoryRequirements(session.Mode) > filter.Memory {
+				continue
+			}
+		}
+
+		// look to see if we have any rejection matches that we should not include
+		for _, rejectEntry := range filter.Reject {
+			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
+				continue
+			}
+		}
+
+		// if we've made it this far we've got a session!
+		return i
+	}
+
+	return -1
+}
+
+// load the session queues from the database in case of restart
+func (c *Controller) loadSessionQueues(ctx context.Context) error {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+
+	sessionQueue := []*types.Session{}
+
+	st := c.Options.Store
+
+	// fetch all sessions - this is in DESC order so we need to reverse the array
+	sessions, err := st.GetSessions(ctx, store.GetSessionsQuery{})
+	if err != nil {
+		return err
+	}
+
+	for i := len(sessions) - 1; i >= 0; i-- {
+		session := sessions[i]
+
+		interactions := session.Interactions
+		if interactions == nil || len(interactions) == 0 {
+			// should never happen, sessions are always initiated by the user
+			// creating an initial message
+			continue
+		}
+
+		latest := interactions[len(interactions)-1]
+		if latest.Creator == types.CreatorTypeSystem {
+			// we've already given a response, don't need to do anything
+			continue
+		}
+
+		if latest.Runner != "" {
+			// this session is already being worked on
+			continue
+		}
+
+		sessionQueue = append(sessionQueue, session)
+	}
+
+	// now we have the queue in oldest first order
+	c.sessionQueue = sessionQueue
+	return nil
+}
+
+// the core function - decide which task to give to a worker
+// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
+// try to send similar tasks to the same worker
+func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+
+	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter)
+
+	if sessionIndex >= 0 {
+		session := c.sessionQueue[sessionIndex]
+
+		log.Debug().
+			Msgf("🔵 scheduler hit query")
+		spew.Dump(filter)
+		log.Debug().
+			Msgf("🔵 scheduler hit session")
+		spew.Dump(session)
+
+		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+
+		if len(session.Interactions) == 0 {
+			return nil, fmt.Errorf("no interactions found")
+		}
+
 		return session, nil
 	}
 
-	return nil, nil
-}
-
-func (c *Controller) ConvertSessionToTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
-	if session == nil {
-		return nil, nil
-	}
-
-	task := &types.WorkerTask{
-		SessionID: session.ID,
-		Mode:      session.Mode,
-		Type:      session.Type,
-		ModelName: session.ModelName,
-	}
-
-	switch {
-	case session.Mode == "Create" && session.Type == "Text":
-		model, err := model.GetLanguageModel(session.ModelName)
-		if err != nil {
-			return nil, err
-		}
-		prompt, err := model.GetPrompt(ctx, session)
-		if err != nil {
-			return nil, err
-		}
-		task.Prompt = prompt
-		return task, nil
-	case session.Mode == "Create" && session.Type == "Image":
-		model, err := model.GetImageModel(session.ModelName)
-		if err != nil {
-			return nil, err
-		}
-		prompt, err := model.GetPrompt(ctx, session)
-		if err != nil {
-			return nil, err
-		}
-		task.Prompt = prompt
-		return task, nil
-	case session.Mode == "Finetune" && session.Type == "Text":
-		return nil, nil
-	case session.Mode == "Finetune" && session.Type == "Image":
-		return nil, nil
-	}
 	return nil, nil
 }
 
@@ -111,206 +166,93 @@ func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Sessio
 	return nil
 }
 
-func (c *Controller) AddActiveSession(ctx context.Context, session *types.Session) error {
-	c.activeSessionMtx.Lock()
-	defer c.activeSessionMtx.Unlock()
-
-	c.activeSessions[session.ID] = session
-
-	// spawn a new text stream to listen in for responses
-	if session.Type == "Text" && session.Mode == "Create" {
-		sessionModel, err := model.GetLanguageModel(session.ModelName)
-		if err != nil {
-			return err
-		}
-
-		// this knows how to parse the output of the model
-		textStream, err := sessionModel.GetTextStream(ctx)
-		if err != nil {
-			return err
-		}
-
-		c.activeTextStreamsMtx.Lock()
-		defer c.activeTextStreamsMtx.Unlock()
-		c.activeTextStreams[session.ID] = textStream
-
-		go textStream.Start(ctx)
-
-		// this is what will listen to the text stream and send messages to the
-		// database and the websockets
-		go func() {
-			for {
-				select {
-				case msg := <-textStream.Output:
-					func() {
-						c.activeSessionMtx.Lock()
-						defer c.activeSessionMtx.Unlock()
-
-						msgs := session.Interactions.Messages
-						latest := msgs[len(msgs)-1]
-						latest.Message += msg
-						msgs[len(msgs)-1] = latest
-						session.Interactions.Messages = msgs
-
-						_, err := c.Options.Store.UpdateSession(ctx, *session)
-						if err != nil {
-							log.Printf("Error adding message: %s", err)
-						}
-
-						c.SessionUpdatesChan <- session
-					}()
-					fmt.Print("Got message from text stream: ", msg)
-				}
-			}
-		}()
-	}
-	return nil
-}
-
-func (c *Controller) GetActiveSession(ctx context.Context, id string) (*types.Session, error) {
-	c.activeSessionMtx.Lock()
-	defer c.activeSessionMtx.Unlock()
-	session, ok := c.activeSessions[id]
-	if !ok {
-		return nil, fmt.Errorf("session not found")
-	}
-	return session, nil
-}
-
-func (c *Controller) GetActiveTextStream(ctx context.Context, id string) (*model.TextStream, error) {
-	c.activeTextStreamsMtx.Lock()
-	defer c.activeTextStreamsMtx.Unlock()
-	textStream, ok := c.activeTextStreams[id]
-	if !ok {
-		return nil, fmt.Errorf("text stream not found")
-	}
-	return textStream, nil
-}
-
-func (c *Controller) RemoveActiveSession(ctx context.Context, id string) error {
-	c.activeSessionMtx.Lock()
-	defer c.activeSessionMtx.Unlock()
-	if _, ok := c.activeSessions[id]; !ok {
-		return fmt.Errorf("session not found")
-	}
-	delete(c.activeSessions, id)
-	return nil
-}
-
-func (c *Controller) RemoveActiveTextStream(ctx context.Context, id string) error {
-	c.activeTextStreamsMtx.Lock()
-	defer c.activeTextStreamsMtx.Unlock()
-	if _, ok := c.activeTextStreams[id]; !ok {
-		return fmt.Errorf("text stream not found")
-	}
-	delete(c.activeTextStreams, id)
-	return nil
-}
-
 // if the action is "begin" - then we need to ceate a new textstream that is hooked up correctly
 // then we stash that in a map
 // if the action is "continue" - load the textstream and write to it
 // if the action is "end" - unload the text stream
 func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	session, err := c.GetActiveSession(ctx, taskResponse.SessionID)
+	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	switch {
-	case session.Mode == "Create" && session.Type == "Text":
-		return c.handleWorkerResponseLanguageInference(ctx, taskResponse, session)
-	case session.Mode == "Create" && session.Type == "Image":
-		return c.handleWorkerResponseImageInference(ctx, taskResponse, session)
-	case session.Mode == "Finetune" && session.Type == "Text":
-		return nil, nil
-	case session.Mode == "Finetune" && session.Type == "Image":
-		return nil, nil
+	if session == nil {
+		return nil, fmt.Errorf("session not found: %s", taskResponse.SessionID)
 	}
-	return nil, nil
-}
 
-func (c *Controller) handleWorkerResponseLanguageInference(ctx context.Context, taskResponse *types.WorkerTaskResponse, session *types.Session) (*types.WorkerTaskResponse, error) {
-	if taskResponse.Action == types.WorkerTaskResponseAction_Begin {
-		session.Interactions.Messages = append(session.Interactions.Messages, types.UserMessage{
-			User:     "system",
-			Message:  taskResponse.Message,
-			Uploads:  []string{}, // cool, computer can create images here
-			Finished: false,
-		})
-		_, err := c.Options.Store.UpdateSession(ctx, *session)
-		if err != nil {
-			return nil, err
+	// let's see if we are updating an existing interaction
+	// or appending a new one
+	var targetInteraction *types.Interaction
+	for _, interaction := range session.Interactions {
+		if interaction.ID == taskResponse.InteractionID {
+			targetInteraction = &interaction
+			break
 		}
-		c.SessionUpdatesChan <- session
-		return taskResponse, nil
-	} else if taskResponse.Action == types.WorkerTaskResponseAction_Continue {
-		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		textStream.Write([]byte(taskResponse.Message))
-		return taskResponse, nil
-	} else if taskResponse.Action == types.WorkerTaskResponseAction_End {
-		textStream, err := c.GetActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		err = textStream.Close(ctx)
-		if err != nil {
-			return nil, err
-		}
-		err = c.RemoveActiveTextStream(ctx, taskResponse.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		return taskResponse, nil
-	} else {
-		return nil, nil
 	}
-}
 
-func (c *Controller) handleWorkerResponseImageInference(ctx context.Context, taskResponse *types.WorkerTaskResponse, session *types.Session) (*types.WorkerTaskResponse, error) {
-	fmt.Printf(" --------------------------------------\n")
-	spew.Dump(taskResponse)
-	return taskResponse, nil
-}
+	if targetInteraction == nil {
+		return nil, fmt.Errorf("interaction not found: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
+	}
 
-// load the session queues from the database in case of restart
-func (c *Controller) loadSessionQueues(ctx context.Context) error {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
+	if targetInteraction.Creator == types.CreatorTypeUser {
+		return nil, fmt.Errorf("interaction is not a system interaction cannot update: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
+	}
 
-	sessionQueue := []*types.Session{}
+	// mark the interaction as complete if we are a fully finished response
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+		targetInteraction.Finished = true
+	}
 
-	st := c.Options.Store
+	// update the message if we've been given one
+	if taskResponse.Message != "" {
+		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+			targetInteraction.Message = taskResponse.Message
+		} else if taskResponse.Type == types.WorkerTaskResponseTypeStream {
+			targetInteraction.Message += taskResponse.Message
+		}
+	}
 
-	// fetch all sessions - this is in DESC order so we need to reverse the array
-	sessions, err := st.GetSessions(ctx, store.GetSessionsQuery{})
+	if taskResponse.Progress != 0 {
+		targetInteraction.Progress = taskResponse.Progress
+	}
+
+	// update the files if there are some
+	if taskResponse.Files != nil {
+		targetInteraction.Files = taskResponse.Files
+	}
+
+	if taskResponse.Error != "" {
+		targetInteraction.Error = taskResponse.Error
+	}
+
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
+		// we got some files back from a finetune
+		// so let's hoist the session into inference mode but with the finetune file attached
+		session.Mode = types.SessionModeInference
+		session.FinetuneFile = taskResponse.Files[0]
+		targetInteraction.FinetuneFile = taskResponse.Files[0]
+	}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == targetInteraction.ID {
+			newInteractions = append(newInteractions, *targetInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	session.Interactions = newInteractions
+
+	fmt.Printf("update session --------------------------------------\n")
+	spew.Dump(session)
+
+	_, err = c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
-		return err
+		log.Printf("Error adding message: %s", err)
 	}
 
-	for i := len(sessions) - 1; i >= 0; i-- {
-		session := sessions[i]
+	c.SessionUpdatesChan <- session
 
-		msgs := session.Interactions.Messages
-		if len(msgs) == 0 {
-			// should never happen, sessions are always initiated by the user
-			// creating an initial message
-			continue
-		}
-
-		latest := msgs[len(msgs)-1]
-		if latest.User == "system" {
-			// we've already given a response, don't need to do anything
-			continue
-		}
-
-		sessionQueue = append(sessionQueue, session)
-	}
-
-	// now we have the queue in oldest first order
-	c.sessionQueue = sessionQueue
-	return nil
+	return taskResponse, nil
 }

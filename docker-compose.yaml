@@ -22,6 +22,10 @@ services:
       - NOXY_KEYCLOAK_FRONT=/auth
       - NOXY_KEYCLOAK_HOST=keycloak
       - NOXY_KEYCLOAK_PORT=8080
+      - NOXY_GRADIO_FRONT=/gradio
+      - NOXY_GRADIO_HOST=gradio
+      - NOXY_GRADIO_PORT=7860
+      - NOXY_GRADIO_WS=1
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -59,6 +63,7 @@ services:
       dockerfile: Dockerfile.api
     restart: always
     environment:
+      - LOG_LEVEL=debug
       - APP_URL=http://localhost
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
@@ -73,6 +78,25 @@ services:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
+  gradio:
+    ports:
+      - 7860:7860
+    build:
+      context: gradio
+      dockerfile: Dockerfile
+    restart: always
+    # TODO: in production, maybre remove --reload?
+    entrypoint: uvicorn main:app --reload --host 0.0.0.0 --port 7860
+    # uvicorn will auto-reload, or you can docker-compose restart gradio when
+    # changing the code
+    # (you'll still need to docker-compose build gradio when changing the
+    # requirements, or do things with exec/pip)
+    volumes:
+      - ./gradio:/app
+
+    # TODO: mount the same data directory api server is using for filestore to
+    # gradio so it can just read files from there, including lilypad results...
+
   frontend:
     ports:
       - 8081:8081

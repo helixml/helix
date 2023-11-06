@@ -5,7 +5,12 @@ import Typography from '@mui/material/Typography'
 
 import { LoadingContext } from '../../contexts/loading'
 
-const GlobalLoading: React.FC = () => {
+const GlobalLoading: React.FC<React.PropsWithChildren<{
+  title?: string,
+}>> = ({
+  title = 'loading...',
+  children,
+}) => {
   const loadingContext = React.useContext(LoadingContext)
 
   if(!loadingContext.loading) return null
@@ -58,10 +63,11 @@ const GlobalLoading: React.FC = () => {
             >
               <CircularProgress />
               <Typography variant='subtitle1'>
-                loading...
+                { title }
               </Typography>
             </Box>
           </Box>
+          { children }
         </Box>
       </Box>
     </Box>

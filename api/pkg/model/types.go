@@ -2,24 +2,35 @@ package model
 
 import (
 	"context"
+	"os/exec"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
-// allows you to write into a processing function that emit chunks
-// this is how we parse the output of language models
-type TextStreamProcessor struct {
-	Output chan string
-}
+type Model interface {
+	// return the number of bytes of memory this model will require
+	// this enables the runner to multiplex models onto one GPU
+	GetMemoryRequirements(mode types.SessionMode) uint64
 
-type LanguageModel interface {
-	// return the prompt we send into a model given the current session
-	GetPrompt(ctx context.Context, session *types.Session) (string, error)
+	// tells you if this model is text or image based
+	GetType() types.SessionType
+
+	// convert a session (which has an active mode i.e. inference or finetune) into a task
+	// this primarily means constructing the prompt
+	// and downloading files from the filestore
+	// we don't need to fill in the SessionID and Session fields
+	// the runner controller will do that for us
+	GetTask(session *types.Session) (*types.WorkerTask, error)
+
 	// return a text stream that knows how to parse the output of the model
-	GetTextStream(ctx context.Context) (*TextStream, error)
-}
+	// only language models doing inference on text will implement this
+	// returning nil is normal behavior meaning "this model does not stream text"
+	GetTextStream(mode types.SessionMode) (*TextStream, error)
 
-type ImageModel interface {
-	// return the prompt we send into a model given the current session
-	GetPrompt(ctx context.Context, session *types.Session) (string, error)
+	// the function we call to get the python process booted and
+	// asking us for work
+	// this relies on the axotl and sd-script repos existing
+	// at the same level as the helix - and the weights downloaded
+	// we are either booting for inference or fine-tuning
+	GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error)
 }

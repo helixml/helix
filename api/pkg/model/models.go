@@ -1,32 +1,55 @@
 package model
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
-// given a model name - reutrn the correct language model
-func GetLanguageModel(model types.ModelName) (LanguageModel, error) {
-	if model == types.Model_Mistral7b {
+func GetModel(modelName types.ModelName) (Model, error) {
+	if modelName == types.Model_Mistral7b {
 		return &Mistral7bInstruct01{}, nil
-	}
-	return nil, fmt.Errorf("no model for model name %s", model)
-}
-
-func GetImageModel(model types.ModelName) (ImageModel, error) {
-	if model == types.Model_SDXL {
+	} else if modelName == types.Model_SDXL {
 		return &SDXL{}, nil
+	} else {
+		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
-	return nil, fmt.Errorf("no model for model name %s", model)
 }
 
-func GetModelNameForSession(ctx context.Context, session *types.Session) (types.ModelName, error) {
-	if session.Type == "Image" {
+// rather then keep processing model names from sessions into instances of the model struct
+// (just so we can ask it GetMemoryRequirements())
+// this gives us an in memory cache of model instances we can quickly lookup from
+func GetModels() (map[types.ModelName]Model, error) {
+	models := map[types.ModelName]Model{}
+	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
+	models[types.Model_SDXL] = &SDXL{}
+	return models, nil
+}
+
+func GetModelNameForSession(sessionType types.SessionType) (types.ModelName, error) {
+	if sessionType == types.SessionTypeImage {
 		return types.Model_SDXL, nil
-	} else if session.Type == "Text" {
+	} else if sessionType == types.SessionTypeText {
 		return types.Model_Mistral7b, nil
 	}
-	return types.Model_None, fmt.Errorf("no model for session type %s", session.Type)
+	return types.Model_None, fmt.Errorf("no model for session type %s", sessionType)
+}
+
+func GetLowestMemoryRequirement() (uint64, error) {
+	models, err := GetModels()
+	if err != nil {
+		return 0, err
+	}
+	lowestMemoryRequirement := uint64(0)
+	for _, model := range models {
+		finetune := model.GetMemoryRequirements(types.SessionModeFinetune)
+		if finetune > 0 && (lowestMemoryRequirement == 0 || finetune < lowestMemoryRequirement) {
+			lowestMemoryRequirement = finetune
+		}
+		inference := model.GetMemoryRequirements(types.SessionModeInference)
+		if inference > 0 && (lowestMemoryRequirement == 0 || inference < lowestMemoryRequirement) {
+			lowestMemoryRequirement = inference
+		}
+	}
+	return lowestMemoryRequirement, err
 }

@@ -111,7 +111,7 @@ func StartWebSocketServer(
 		addConnection(conn, userID)
 
 		log.Debug().
-			Str("action", "⚪⚪⚪⚪⚪⚪⚪⚪⚪⚪ ws CONNECT").
+			Str("action", "⚪ ws CONNECT").
 			Msgf("connected user websocket: %s\n", userID)
 
 		for {

@@ -1,6 +1,8 @@
 import { FC } from 'react'
 import Button from '@mui/material/Button'
-import { styled } from '@mui/system';
+import { styled } from '@mui/system'
+
+import Disclaimer from '../components/widgets/Disclaimer'
 
 const XContainer = styled('div')({
     maxWidth: '1200px',
@@ -200,8 +202,11 @@ const Dashboard: FC = () => {
           <LanguageModelsBlock />
           <DeploymentBlock />
           <Footer />
+          <Disclaimer />
       </XContainer>
   );
 }
+// TODO: replace iframe above with a gradio-embed javascript lib, otherwise it's
+// iframe-in-iframe, and scroll bars are undisablable
 
 export default Dashboard

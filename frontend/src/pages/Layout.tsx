@@ -46,15 +46,18 @@ import GlobalLoading from '../components/system/GlobalLoading'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { SensorsOutlined } from '@mui/icons-material'
 
+import {
+  SESSION_MODE_FINETUNE,
+  SESSION_MODE_INFERENCE,
+  SESSION_TYPE_IMAGE,
+  SESSION_TYPE_TEXT,
+} from '../types'
+
 const drawerWidth: number = 280
 
 interface AppBarProps extends MuiAppBarProps {
   open?: boolean
 }
-
-const Logo = styled('img')({
-  height: '50px',
-})
 
 const AppBar = styled(MuiAppBar, {
   shouldForwardProp: (prop) => prop !== 'open',
@@ -77,6 +80,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
+      backgroundColor: "#f8f8f8",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -149,221 +153,244 @@ const Layout: FC = ({
     }
   }
 
-  const sessions = account.sessions && account.sessions.map(
-    (session, i) => (
-      <ListItem
-        disablePadding
-        key={ session.id }
-        onClick={ () => {
-          navigate("session", {session_id: session.id})
-          setMobileOpen(false)
-        }}
-      >
-        <ListItemButton
-          selected={ session.id == params["session_id"] }
-        >
-          <ListItemIcon>
-            { session.mode == "Create" &&  session.type == "Image" && <ImageIcon color="primary" /> }
-            { session.mode == "Create" && session.type == "Text" && <DescriptionIcon color="primary" /> }
-            { session.mode == "Finetune" &&  session.type == "Image" && <PermMediaIcon color="primary" /> }
-            { session.mode == "Finetune" && session.type == "Text" && <ModelTrainingIcon color="primary" /> }
-          </ListItemIcon>
-          <ListItemText
-            sx={{marginLeft: "-15px"}}
-            primaryTypographyProps={{ fontSize: 'small' }}
-            primary={ session.name }
-            id={ session.id }
-          />
-        </ListItemButton>
-        <ListItemSecondaryAction>
-          <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteSession(session.id)}>
-            <DeleteIcon />
-          </IconButton>
-        </ListItemSecondaryAction>
-      </ListItem>
-    )
-  )
-
   const drawer = (
-    <div>
-      <Toolbar
+    <Box
+      sx={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}
+    >
+      <Box
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          px: [1],
+          flexGrow: 0,
+          width: '100%'
         }}
       >
-        { themeConfig.logo() }
-      </Toolbar>
-      <Divider />
-      <List>
+        <Toolbar
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            px: [1],
+          }}
+        >
+          { themeConfig.logo() }
+        </Toolbar>
+        <Divider />
+        <List
+          disablePadding
+        >
+          <ListItem
+            disablePadding
+            onClick={ () => {
+              navigate('home')
+              setMobileOpen(false)
+            }}
+          >
+            <ListItemButton>
+              <ListItemIcon>
+                <HomeIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText primary="Home" />
+            </ListItemButton>
+          </ListItem>
+          <ListItem
+            disablePadding
+            onClick={ () => {
+              navigate('new')
+              setMobileOpen(false)
+            }}
+          >
+            <ListItemButton>
+              <ListItemIcon>
+                <AddIcon color="primary" />
+              </ListItemIcon>
+              <ListItemText primary="New Session" />
+            </ListItemButton>
+          </ListItem>
+          <Divider />
+        </List>
+      </Box>
+      <Box
+        sx={{
+          flexGrow: 1,
+          width: '100%',
+          overflowY: 'auto',
+        }}
+      >
+        <List disablePadding>
+          {
+            account.sessions.map((session, i) => {
+              return (
+                <ListItem
+                  disablePadding
+                  key={ session.id }
+                  onClick={ () => {
+                    navigate("session", {session_id: session.id})
+                    setMobileOpen(false)
+                  }}
+                >
+                  <ListItemButton
+                    selected={ session.id == params["session_id"] }
+                  >
+                    <ListItemIcon>
+                      { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
+                      { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DescriptionIcon color="primary" /> }
+                      { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
+                      { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
+                    </ListItemIcon>
+                    <ListItemText
+                      sx={{marginLeft: "-15px"}}
+                      primaryTypographyProps={{ fontSize: 'small', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      primary={ session.name }
+                      id={ session.id }
+                    />
+                  </ListItemButton>
+                  <ListItemSecondaryAction>
+                    <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteSession(session.id)}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </ListItemSecondaryAction>
+                </ListItem>
+              )
+            })
+          }
+        </List>
+      </Box>
+      <Box
+        sx={{
+          flexGrow: 0,
+          width: '100%',
+          borderTop: "1px solid #ddd",
+          backgroundColor: "white",
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          p: 1,
+        }}
+      >
         {
-          (
+          account.user ? (
+            <>
+              <Typography variant="caption">
+                Signed in as<br /> {account.user.email} { /* <br />({account.credits} credits) */ }
+              </Typography>
+              <IconButton
+                size="large"
+                aria-label="account of current user"
+                aria-controls="menu-appbar"
+                aria-haspopup="true"
+                onClick={handleAccountMenu}
+                color="inherit"
+                sx={{marginLeft: "auto"}}
+              >
+                <AccountCircle />
+              </IconButton>
+              <Menu
+                id="menu-appbar"
+                anchorEl={accountMenuAnchorEl}
+                anchorOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+                keepMounted
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+                open={Boolean(accountMenuAnchorEl)}
+                onClose={handleCloseAccountMenu}
+              >
 
-          <div>
-            <ListItem disablePadding
-                  onClick={ () => {
-                    navigate('home')
-                    setMobileOpen(false)
-                  }}
-                  sx={{mb:1}}
-            >
-                <ListItemButton>
+                <MenuItem onClick={ () => {
+                  handleCloseAccountMenu()
+                  navigate('')
+                }}>
                   <ListItemIcon>
-                    <HomeIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText primary="Home" />
-                </ListItemButton>
-              </ListItem>
-            <ListItem disablePadding
-                  onClick={ () => {
-                    navigate('new')
-                    setMobileOpen(false)
-                  }}
-                  sx={{mb:1}}
-            >
-                <ListItemButton>
+                    <DashboardIcon fontSize="small" />
+                  </ListItemIcon> 
+                  Home
+                </MenuItem>
+
+                <MenuItem onClick={ () => {
+                  handleCloseAccountMenu()
+                  navigate('files')
+                }}>
                   <ListItemIcon>
-                    <AddIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText primary="New Session" />
-                </ListItemButton>
-              </ListItem>
+                    <CloudUploadIcon fontSize="small" />
+                  </ListItemIcon> 
+                  Files
+                </MenuItem>
 
-              <Divider />
-              <div>{sessions}</div>
-            </div>
+                <MenuItem onClick={ () => {
+                  handleCloseAccountMenu()
+                  navigate('account')
+                }}>
+                  <ListItemIcon>
+                    <AccountBoxIcon fontSize="small" />
+                  </ListItemIcon> 
+                  My account
+                </MenuItem>
 
+                <MenuItem onClick={ () => {
+                  handleCloseAccountMenu()
+                  account.onLogout()
+                }}>
+                  <ListItemIcon>
+                    <LogoutIcon fontSize="small" />
+                  </ListItemIcon> 
+                  Logout
+                </MenuItem>
+              </Menu>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outlined"
+                endIcon={<LoginIcon />}
+                onClick={ () => {
+                  account.onLogin()
+                }}
+              >
+                Login
+              </Button>
+            </>
           )
         }
-      </List>
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            ml: 2,
-            mb: 2,
-            position: "absolute",
-            bottom: 2,
-            pt: 2,
-            borderTop: "1px solid #ddd",
-            width: "calc(100% - 2em)",
-            backgroundColor: "white"
-          }}>
-          {
-            account.user ? (
-              <>
-                <Typography variant="caption">
-                  Signed in as<br /> {account.user.email} { /* <br />({account.credits} credits) */ }
-                </Typography>
-                <IconButton
-                  size="large"
-                  aria-label="account of current user"
-                  aria-controls="menu-appbar"
-                  aria-haspopup="true"
-                  onClick={handleAccountMenu}
-                  color="inherit"
-                  sx={{marginLeft: "auto"}}
-                >
-                  <AccountCircle />
-                </IconButton>
-                <Menu
-                  id="menu-appbar"
-                  anchorEl={accountMenuAnchorEl}
-                  anchorOrigin={{
-                    vertical: 'top',
-                    horizontal: 'right',
-                  }}
-                  keepMounted
-                  transformOrigin={{
-                    vertical: 'top',
-                    horizontal: 'right',
-                  }}
-                  open={Boolean(accountMenuAnchorEl)}
-                  onClose={handleCloseAccountMenu}
-                >
-
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    navigate('')
-                  }}>
-                    <ListItemIcon>
-                      <DashboardIcon fontSize="small" />
-                    </ListItemIcon> 
-                    Home
-                  </MenuItem>
-
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    navigate('files')
-                  }}>
-                    <ListItemIcon>
-                      <CloudUploadIcon fontSize="small" />
-                    </ListItemIcon> 
-                    Files
-                  </MenuItem>
-
-
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    navigate('account')
-                  }}>
-                    <ListItemIcon>
-                      <AccountBoxIcon fontSize="small" />
-                    </ListItemIcon> 
-                    My account
-                  </MenuItem>
-
-
-
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    account.onLogout()
-                  }}>
-                    <ListItemIcon>
-                      <LogoutIcon fontSize="small" />
-                    </ListItemIcon> 
-                    Logout
-                  </MenuItem>
-
-
-
-                </Menu>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outlined"
-                  endIcon={<LoginIcon />}
-                  onClick={ () => {
-                    account.onLogin()
-                  }}
-                >
-                  Login
-                </Button>
-              </>
-            )
-          }
-          </Box>
-    </div>
+      </Box>
+    </Box>
   )
 
   const container = window !== undefined ? () => document.body : undefined
 
   return (
-    <Box sx={{ display: 'flex' }} component="div">
+    <Box
+      id="root-container"
+      sx={{
+        height: '100%',
+        display: 'flex'
+      }}
+      component="div"
+    >
       <CssBaseline />
-      <GlobalStyles styles={{ body: { fontFamily: 'Open Sauce Sans' }, h1: {
-          letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
-        },
-        p: {
-          letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-        },
-        li: {
-          letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-        },
-        }} />
+      <GlobalStyles
+        styles={{
+          body: {
+            fontFamily: 'Open Sauce Sans',
+          },
+          h1: {
+            letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
+          },
+          p: {
+            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+          },
+          li: {
+            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+          },
+        }}
+      />
       <AppBar
         elevation={ 0 }
         position="fixed"
@@ -379,6 +406,8 @@ const Layout: FC = ({
           sx={{
             pr: '24px', // keep right padding when drawer closed
             backgroundColor: '#fff',
+            height: '100%',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
           }}
         >
           {
@@ -415,77 +444,6 @@ const Layout: FC = ({
               </>
             )
           }
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}>
-          {
-            account.user ? (
-              <>
-                <Typography variant="caption">
-                  {/* Signed in as {account.user.email} ({account.credits} credits) */}
-                </Typography>
-                <IconButton
-                  size="large"
-                  aria-label="account of current user"
-                  aria-controls="menu-appbar"
-                  aria-haspopup="true"
-                  onClick={handleAccountMenu}
-                  color="inherit"
-                >
-                  {/* <AccountCircle /> */}
-                </IconButton>
-                <Menu
-                  id="menu-appbar"
-                  anchorEl={accountMenuAnchorEl}
-                  anchorOrigin={{
-                    vertical: 'top',
-                    horizontal: 'right',
-                  }}
-                  keepMounted
-                  transformOrigin={{
-                    vertical: 'top',
-                    horizontal: 'right',
-                  }}
-                  open={Boolean(accountMenuAnchorEl)}
-                  onClose={handleCloseAccountMenu}
-                >
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    navigate('account')
-                  }}>
-                    <ListItemIcon>
-                      <AccountBoxIcon fontSize="small" />
-                    </ListItemIcon> 
-                    My account
-                  </MenuItem>
-                  <MenuItem onClick={ () => {
-                    handleCloseAccountMenu()
-                    account.onLogout()
-                  }}>
-                    <ListItemIcon>
-                      <LogoutIcon fontSize="small" />
-                    </ListItemIcon> 
-                    Logout
-                  </MenuItem>
-                </Menu>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="outlined"
-                  endIcon={<LoginIcon />}
-                  onClick={ () => {
-                    account.onLogin()
-                  }}
-                >
-                  Login
-                </Button>
-              </>
-            )
-          }
-          </Box>
         </Toolbar>
       </AppBar>
       <MuiDrawer
@@ -497,8 +455,14 @@ const Layout: FC = ({
           keepMounted: true, // Better open performance on mobile.
         }}
         sx={{
+          height: '100vh',
           display: { sm: 'block', md: 'none' },
-          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            width: drawerWidth,
+            height: '100%',
+            overflowY: 'hidden',
+          },
         }}
       >
         {drawer}
@@ -506,8 +470,14 @@ const Layout: FC = ({
       <Drawer
         variant="permanent"
         sx={{
+          height: '100vh',
           display: { xs: 'none', md: 'block' },
-          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            width: drawerWidth,
+            height: '100%',
+            overflowY: 'hidden',
+          },
         }}
         open
       >
@@ -522,7 +492,6 @@ const Layout: FC = ({
               : theme.palette.grey[900],
           flexGrow: 1,
           height: '100vh',
-          overflow: 'auto',
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -540,30 +509,10 @@ const Layout: FC = ({
           component="div"
           sx={{
             flexGrow: 1,
-            py: 1,
-            px: 2,
+            overflow: 'auto',
           }}
         >
           { children }
-        </Box>
-        <Box
-          className='footer'
-          component="div"
-          sx={{
-            flexGrow: 0,
-            backgroundColor: 'transparent',
-          }}
-        >
-          <Container maxWidth={'xl'} sx={{ height: '5vh' }}>
-            <Typography variant="body2" color="text.secondary" align="center">
-              {'Open source models may produce inaccurate information about people, places, or facts. Created by '}
-              <Link color="inherit" href={ themeConfig.url }>
-                { themeConfig.company }
-              </Link>{' '}
-              {new Date().getFullYear()}
-              {'.'}
-            </Typography>
-          </Container>
         </Box>
       </Box>
       <Snackbar />

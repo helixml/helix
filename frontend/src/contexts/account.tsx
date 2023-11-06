@@ -13,6 +13,8 @@ import {
   IUser,
   IBalanceTransfer,
   ISession,
+  IApiKey,
+  IServerConfig,
 } from '../types'
 
 const REALM = 'helix'
@@ -23,9 +25,11 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   user?: IUser,
+  serverConfig: IServerConfig,
   transactions: IBalanceTransfer[],
   sessions: ISession[],
   loadSessions: () => void,
+  apiKeys: IApiKey[],
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -33,9 +37,13 @@ export interface IAccountContext {
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
+  serverConfig: {
+    filestore_prefix: '',
+  },
   sessions: [],
   transactions: [],
   loadSessions: () => {},
+  apiKeys: [],
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -48,8 +56,12 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
+    filestore_prefix: '',
+  })
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ sessions, setSessions ] = useState<ISession[]>([])
+  const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -77,15 +89,33 @@ export const useAccountContext = (): IAccountContext => {
     setCredits(statusResult.credits)
   }, [])
 
+  const loadConfig = useCallback(async () => {
+    const configResult = await api.get('/api/v1/config')
+    if(!configResult) return
+    setServerConfig(configResult)
+  }, [])
+  
+  const loadApiKeys = useCallback(async () => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys')
+    if(!result) return
+    setApiKeys(result)
+  }, [])
+
+
   const loadAll = useCallback(async () => {
     await bluebird.all([
       loadSessions(),
       loadTransactions(),
       loadStatus(),
+      loadConfig(),
+      loadApiKeys(),
     ])
   }, [
+    loadSessions,
     loadTransactions,
     loadStatus,
+    loadConfig,
+    loadApiKeys,
   ])
 
   const onLogin = useCallback(() => {
@@ -160,7 +190,7 @@ export const useAccountContext = (): IAccountContext => {
     const rws = new ReconnectingWebSocket(url)
     rws.addEventListener('message', (event) => {
       const parsedData = JSON.parse(event.data)
-      console.dir(parsedData)
+      // console.dir(parsedData)
 
       // we have a session update message
       if(parsedData.type === 'session' && parsedData.session) {
@@ -180,19 +210,23 @@ export const useAccountContext = (): IAccountContext => {
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
+    serverConfig,
     credits,
     sessions,
     transactions,
     loadSessions,
+    apiKeys,
     onLogin,
     onLogout,
   }), [
     initialized,
     user,
+    serverConfig,
     credits,
     sessions,
     transactions,
     loadSessions,
+    apiKeys,
     onLogin,
     onLogout,
   ])
