@@ -5,10 +5,12 @@ WORKDIR /app
 
 # TODO: integrate chatbot in here as well
 
-RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget && \
+RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
     git clone https://github.com/lukemarsden/sd-scripts && \
     cd sd-scripts && \
     git checkout long-running && \
+    virtualenv venv && \
+    . venv/bin/activate && \
     pip install -r requirements.txt && \
     pip install bitsandbytes==0.41.1 && \
     pip install xformers==0.0.22.post4 && \
