@@ -98,6 +98,9 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 	filePath := req.URL.Query().Get("path")
 	filename := filepath.Base(filePath)
 
+	log.Debug().
+		Msgf("🔵 download file: %s", filePath)
+
 	err := func() error {
 
 		session, err := apiServer.Store.GetSession(req.Context(), sessionid)
