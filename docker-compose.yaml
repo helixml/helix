@@ -97,6 +97,12 @@ services:
     # TODO: mount the same data directory api server is using for filestore to
     # gradio so it can just read files from there, including results...
 
+  worker:
+    build:
+      context: worker
+      dockerfile: Dockerfile
+    restart: always
+ 
   frontend:
     ports:
       - 8081:8081
