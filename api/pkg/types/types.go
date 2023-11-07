@@ -125,7 +125,11 @@ type RunnerProcessConfig struct {
 	// the id of the model instance
 	InstanceID string `json:"instance_id"`
 	// the URL to ask for more tasks
+	// this will pop the task from the queue
 	TaskURL string `json:"task_url"`
+	// the URL to ask for what the session is (e.g. to know what finetune_file to load)
+	// this is readonly and will not pop the session(task) from the queue
+	SessionURL string `json:"session_url"`
 	// the URL to send responses to
 	ResponseURL string `json:"response_url"`
 }

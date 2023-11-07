@@ -95,7 +95,7 @@ services:
       - ./gradio:/app
 
     # TODO: mount the same data directory api server is using for filestore to
-    # gradio so it can just read files from there, including lilypad results...
+    # gradio so it can just read files from there, including results...
 
   frontend:
     ports:

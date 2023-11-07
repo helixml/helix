@@ -20,6 +20,14 @@ func getDefaultServeOptionString(envName string, defaultValue string) string {
 	return defaultValue
 }
 
+func getDefaultServeOptionBool(envName string, defaultValue bool) bool {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		return true
+	}
+	return defaultValue
+}
+
 func getDefaultServeOptionInt(envName string, defaultValue int) int {
 	envValue := os.Getenv(envName)
 	if envValue != "" {
