@@ -84,6 +84,7 @@ func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter
 	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+		fmt.Sprintf("HELIX_GET_SESSION_URL=%s", config.SessionURL),
 		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 	}
 

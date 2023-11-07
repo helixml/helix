@@ -16,13 +16,16 @@ import (
 )
 
 type RunnerServerOptions struct {
-	Host string
-	Port int
+	Host      string
+	Port      int
+	LocalMode bool
 }
 
 type RunnerServer struct {
 	Options    RunnerServerOptions
 	Controller *Runner
+	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
+	// then we keep state in memory
 	// in-memory state to record status that would normally be posted up as a result
 	State    map[string]types.WorkerTaskResponse
 	StateMtx sync.Mutex
@@ -38,6 +41,8 @@ func NewRunnerServer(
 	return &RunnerServer{
 		Options:    options,
 		Controller: controller,
+		// we only populate this if we are in local mode
+		State: map[string]types.WorkerTaskResponse{},
 	}, nil
 }
 
@@ -46,20 +51,26 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 
 	subrouter := router.PathPrefix(server.API_SUB_PATH).Subrouter()
 
-	// TODO: record worker response state locally, _in memory_ if we are in "local only mode"
-	// an endpoint to add our next session
-	subrouter.HandleFunc("/worker/session", server.Wrapper(runnerServer.setNextGlobalSession)).Methods("POST")
-
-	// an endpoint to query the local state
-	subrouter.HandleFunc("/worker/state", server.Wrapper(runnerServer.state)).Methods("GET")
-
 	// pull the next task for an already running wrapper
 	subrouter.HandleFunc("/worker/task/{instanceid}", server.WrapperWithConfig(runnerServer.getWorkerTask, server.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
+	subrouter.HandleFunc("/worker/session/{instanceid}", server.WrapperWithConfig(runnerServer.readWorkerSession, server.WrapperConfig{
+		SilenceErrors: true,
+	})).Methods("GET")
+
 	// post a response for an already running wrapper
 	subrouter.HandleFunc("/worker/response/{instanceid}", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
+
+	if runnerServer.Options.LocalMode {
+		// TODO: record worker response state locally, _in memory_ if we are in "local only mode"
+		// an endpoint to add our next session
+		subrouter.HandleFunc("/worker/session", server.Wrapper(runnerServer.setNextLocalSession)).Methods("POST")
+
+		// an endpoint to query the local state
+		subrouter.HandleFunc("/worker/state", server.Wrapper(runnerServer.state)).Methods("GET")
+	}
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", runnerServer.Options.Host, runnerServer.Options.Port),
@@ -78,7 +89,18 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 // if it does not - then we need to reach out to the master API to get one
 func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 	vars := mux.Vars(req)
-	return runnerServer.Controller.getNextTask(req.Context(), vars["instanceid"])
+	if vars["instanceid"] == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	return runnerServer.Controller.popNextTask(req.Context(), vars["instanceid"])
+}
+
+func (runnerServer *RunnerServer) readWorkerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	if vars["instanceid"] == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	return runnerServer.Controller.readNextSession(req.Context(), vars["instanceid"])
 }
 
 func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
@@ -94,18 +116,20 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 		return nil, err
 	}
 
-	// record in-memory for any local clients who want to query us
-	runnerServer.State[vars["instanceid"]] = *taskResponse
+	if runnerServer.Options.LocalMode {
+		// record in-memory for any local clients who want to query us
+		runnerServer.State[vars["instanceid"]] = *taskResponse
 
-	stateYAML, err := yaml.Marshal(runnerServer.State)
-	if err != nil {
-		return nil, err
+		stateYAML, err := yaml.Marshal(runnerServer.State)
+		if err != nil {
+			return nil, err
+		}
+		fmt.Println("==========================================")
+		fmt.Println("             LOCAL STATE")
+		fmt.Println("==========================================")
+		fmt.Println(string(stateYAML))
+		fmt.Println("==========================================")
 	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
 
 	return taskResponse, nil
 }
@@ -114,7 +138,7 @@ func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Reque
 	return runnerServer.State, nil
 }
 
-func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 	session := &types.Session{}
 	err := json.NewDecoder(req.Body).Decode(session)
 	if err != nil {
