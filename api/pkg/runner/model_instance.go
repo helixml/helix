@@ -128,6 +128,7 @@ func NewModelInstance(
 			Mode:         session.Mode,
 			FinetuneFile: useFinetuneFile,
 		},
+		runnerOptions: runnerOptions,
 		httpClientOptions: server.ClientOptions{
 			Host:  runnerOptions.ApiHost,
 			Token: runnerOptions.ApiToken,
