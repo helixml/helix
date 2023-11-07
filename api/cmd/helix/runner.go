@@ -29,8 +29,9 @@ func NewRunnerOptions() *RunnerOptions {
 			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 		},
 		Server: runner.RunnerServerOptions{
-			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
+			Host:      getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port:      getDefaultServeOptionInt("SERVER_PORT", 8080),
+			LocalMode: getDefaultServeOptionBool("LOCAL_MODE", false),
 		},
 	}
 }
@@ -85,6 +86,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
 		`The port to bind the runner server to.`,
+	)
+
+	runnerCmd.PersistentFlags().BoolVar(
+		&allOptions.Server.LocalMode, "local-mode", allOptions.Server.LocalMode,
+		`Are we running in local mode?`,
 	)
 
 	return runnerCmd
