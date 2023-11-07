@@ -56,13 +56,17 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 		SilenceErrors: true,
 	})).Methods("GET")
 
+	subrouter.HandleFunc("/worker/session/{instanceid}", server.WrapperWithConfig(runnerServer.readWorkerSession, server.WrapperConfig{
+		SilenceErrors: true,
+	})).Methods("GET")
+
 	// post a response for an already running wrapper
 	subrouter.HandleFunc("/worker/response/{instanceid}", server.Wrapper(runnerServer.respondWorkerTask)).Methods("POST")
 
 	if runnerServer.Options.LocalMode {
 		// TODO: record worker response state locally, _in memory_ if we are in "local only mode"
 		// an endpoint to add our next session
-		subrouter.HandleFunc("/worker/session", server.Wrapper(runnerServer.setNextGlobalSession)).Methods("POST")
+		subrouter.HandleFunc("/worker/session", server.Wrapper(runnerServer.setNextLocalSession)).Methods("POST")
 
 		// an endpoint to query the local state
 		subrouter.HandleFunc("/worker/state", server.Wrapper(runnerServer.state)).Methods("GET")
@@ -88,7 +92,15 @@ func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *ht
 	if vars["instanceid"] == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	return runnerServer.Controller.getNextTask(req.Context(), vars["instanceid"])
+	return runnerServer.Controller.popNextTask(req.Context(), vars["instanceid"])
+}
+
+func (runnerServer *RunnerServer) readWorkerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	if vars["instanceid"] == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	return runnerServer.Controller.readNextSession(req.Context(), vars["instanceid"])
 }
 
 func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
@@ -126,7 +138,7 @@ func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Reque
 	return runnerServer.State, nil
 }
 
-func (runnerServer *RunnerServer) setNextGlobalSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
 	session := &types.Session{}
 	err := json.NewDecoder(req.Body).Decode(session)
 	if err != nil {

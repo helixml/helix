@@ -32,6 +32,10 @@ type RunnerOptions struct {
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
 	TaskURL string
+	// these URLs will have the instance ID appended by the model instance
+	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/session
+	SessionURL string
 	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/response
 	ResponseURL string
@@ -109,13 +113,6 @@ func NewRunner(
 		localSessions:        xsync.NewMapOf[string, *types.Session](),
 	}
 	return runner, nil
-}
-
-func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
-	return modelInstance.filter.Mode == session.Mode &&
-		modelInstance.filter.Type == session.Type &&
-		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||
-			(modelInstance.filter.FinetuneFile == "none" && session.FinetuneFile == ""))
 }
 
 func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
@@ -253,7 +250,25 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return true
 	})
 
-	return r.getNextSession(ctx, queryParams)
+	return r.getNextApiSession(ctx, queryParams)
+}
+
+// used by the Python code to know that a session has finished preparing and is ready to pull from the
+// queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
+// but it gives the python code a chance to wait for Lora weights to download before loading them
+// into GPU memory - at which point it would start pulling from the queue as normal
+func (r *Runner) readNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+	if modelInstance.nextSession == nil {
+		return nil, fmt.Errorf("no session found")
+	}
+	return modelInstance.nextSession, nil
 }
 
 // we have popped the next session from the master API
@@ -268,6 +283,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		r.Ctx,
 		session,
 		r.Options.TaskURL,
+		r.Options.SessionURL,
 		r.Options.ResponseURL,
 
 		// this function will convert any files it sees locally into an upload
@@ -327,7 +343,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -376,7 +392,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 			queryParams.Add("mode", string(modelInstance.filter.Mode))
 			queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
 
-			apiSession, err := r.getNextSession(ctx, queryParams)
+			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
 				return nil, err
 			}
@@ -435,7 +451,7 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 	return taskResponse, nil
 }
 
-func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
+func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
 	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
 	if err != nil {
 		return nil, err
