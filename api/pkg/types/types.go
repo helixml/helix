@@ -60,6 +60,7 @@ type Session struct {
 	// if we need to prepare the session before it is plucked from the queue
 	// we mark it as waiting here
 	State SessionState `json:"state"`
+	Error string       `json:"error"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated
