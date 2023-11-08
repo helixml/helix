@@ -35,7 +35,6 @@ const Session: FC = () => {
 
   const session = account.sessions?.find(session => session.id === params["session_id"])
 
-  console.dir(account.sessions)
   const loading = useMemo(() => {
     return false
     // if(!session || !session?.interactions || session?.interactions.length === 0) return false
@@ -110,15 +109,39 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Typography
+          <Box
             sx={{
-              fontSize: "small",
-              color: "gray"
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
             }}
           >
-            Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
-            { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
-          </Typography>
+            <Typography
+              sx={{
+                fontSize: "small",
+                color: "gray",
+                flexGrow: 1,
+              }}
+            >
+              Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
+              { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "small",
+                color: "gray",
+                flexGrow: 0,
+              }}
+            >
+              <Link href="/files?path=%2Fsessions" onClick={(e) => {
+                e.preventDefault()
+                navigate('files', {
+                  path: `/sessions/${session?.id}`
+                })
+              }}>View Files</Link>
+            </Typography>
+          </Box>
           <br />
             {
               session?.interactions.map((interaction: any, i: number) => {

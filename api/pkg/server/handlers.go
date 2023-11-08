@@ -376,7 +376,13 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			apiServer.Controller.ErrorSession(sessionData, err)
 			return
 		}
-		apiServer.Controller.AddSessionToQueue(preparedSession)
+		// it's ok if we did not get a session back here
+		// it means there will be a later action that will add the session to the queue
+		// in the case the user needs to edit some data before it can be run for example
+		if preparedSession != nil {
+			apiServer.Controller.AddSessionToQueue(preparedSession)
+		}
+
 	}()
 
 	return sessionData, nil
@@ -446,7 +452,9 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 			apiServer.Controller.ErrorSession(sessionData, err)
 			return
 		}
-		apiServer.Controller.AddSessionToQueue(preparedSession)
+		if preparedSession != nil {
+			apiServer.Controller.AddSessionToQueue(preparedSession)
+		}
 	}()
 
 	return sessionData, nil

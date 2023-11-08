@@ -470,10 +470,7 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 		return nil, err
 	}
 
-	newFiles := []string{}
 	for _, file := range userInteraction.Files {
-		newFiles = append(newFiles, file)
-
 		// if file is not a text file
 		// then we need to convert it
 		if !strings.HasSuffix(file, ".txt") {
@@ -500,43 +497,106 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 		}
 	}
 
+	finetuneDataSet := path.Join(path.Dir(userInteraction.Files[0]), "finetune_dataset.jsonl")
+
 	chunks, err := dataprep.GetChunks()
 	if err != nil {
 		return nil, err
 	}
 
 	allConversations := []text.DataPrepTextConversation{}
+
+	systemInteraction.Progress = 1
+	systemInteraction.Status = fmt.Sprintf("converted 0 of %d chunks into training data", len(chunks))
+	c.WriteInteraction(session, systemInteraction)
+
 	for index, chunk := range chunks {
-		systemInteraction.Status = fmt.Sprintf("converting chunk %d of %d into trainig data", index, len(chunks))
-		systemInteraction.Progress = int(float64(index) / float64(len(chunks)))
-		c.WriteInteraction(session, systemInteraction)
 		conversations, err := dataprep.ConvertChunk(chunk)
 		if err != nil {
 			return nil, err
 		}
 		allConversations = append(allConversations, conversations...)
+		systemInteraction.Progress = int(float64(index+1) / float64(len(chunks)) * 100)
+		systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", index+1, len(chunks))
+		c.WriteInteraction(session, systemInteraction)
 	}
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	fmt.Printf(" --------------------------------------\n")
-	spew.Dump(allConversations)
 
-	// now we need to turn this into a jsonl file
+	// now we have allConversations we convert into jsonL data
+
+	jsonLines := []string{}
+
+	for _, conversationEntry := range allConversations {
+		jsonLine, err := json.Marshal(text.ConvertConversation(conversationEntry))
+		if err != nil {
+			return nil, err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+
+	_, err = c.Options.Filestore.Upload(c.Ctx, finetuneDataSet, strings.NewReader(strings.Join(jsonLines, "\n")))
+	if err != nil {
+		return nil, err
+	}
 
 	// by this stage we need to have generated a jsonl file of the text
-	userInteraction.Files = newFiles
-
-	// now we have added some text files let's update the user interaction
-	session = c.WriteInteraction(session, userInteraction)
-
+	systemInteraction.Files = []string{finetuneDataSet}
 	systemInteraction.Status = fmt.Sprintf("all files converted to txt")
+	systemInteraction.Progress = 100
+	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
 
-	spew.Dump(userInteraction.Files)
+	spew.Dump(systemInteraction)
 
-	return session, nil
+	// we return nil here because we want the user to edit the JSONL
+	// file and we will handle adding the session to the queue ourselves
+	return nil, nil
+}
+
+// return the JSON of some fine tune conversation data
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPTConversation, error) {
+	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var conversations []text.ShareGPTConversation
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var conversation text.ShareGPTConversation
+		err := json.Unmarshal([]byte(line), &conversation)
+		if err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, conversation)
+	}
+
+	return conversations, nil
+}
+
+func (c *Controller) SaveTextFineTuneQuestions(filepath string, data []text.ShareGPTConversation) error {
+	jsonLines := []string{}
+
+	for _, conversationEntry := range data {
+		jsonLine, err := json.Marshal(conversationEntry)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+
+	_, err := c.Options.Filestore.Upload(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

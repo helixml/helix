@@ -74,3 +74,19 @@ func chunkWithOverflow(strs []string, maxChunkSize, overflowSize int) ([]string,
 func (docs *dataPrepDocuments) GetChunks(maxChunkSize int, overflowSize int) ([]string, error) {
 	return chunkWithOverflow(docs.rawData, maxChunkSize, overflowSize)
 }
+
+func ConvertConversation(data DataPrepTextConversation) ShareGPTConversations {
+	res := ShareGPTConversations{
+		Conversations: []ShareGPTConversation{
+			{
+				From:  "human",
+				Value: data.Question,
+			},
+			{
+				From:  "gpt",
+				Value: data.Answer,
+			},
+		},
+	}
+	return res
+}

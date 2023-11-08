@@ -60,7 +60,11 @@ export const Interaction: FC<{
   if(type == SESSION_TYPE_TEXT) {
     displayMessage = interaction.message
     if(!displayMessage && isLoading) {
-      displayMessage = '🤔'
+      if(interaction.progress > 0) {
+        progress = interaction.progress
+      } else {
+        displayMessage = '🤔'
+      }
     }
   } else if(type == SESSION_TYPE_IMAGE) {
     if(interaction.creator == SESSION_CREATOR_USER) {
