@@ -32,7 +32,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - helix-postgres-db:/var/lib/postgresql/data
+      - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
