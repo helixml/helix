@@ -127,28 +127,28 @@ func (d *PostgresStore) GetSessions(
 	/// XXX SECURITY not sure this is what we want - audit who can set these values?
 	if query.Owner != "" && query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1 AND owner_type = $2
 			ORDER BY created DESC
 		`, query.Owner, query.OwnerType)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1
 			ORDER BY created DESC
 		`, query.Owner)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			WHERE owner_type = $1
 			ORDER BY created DESC
 		`, query.OwnerType)
 	} else {
 		rows, err = d.db.Query(`
-			SELECT id, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
 			ORDER BY created DESC
 		`)
@@ -164,7 +164,7 @@ func (d *PostgresStore) GetSessions(
 		session := &types.Session{}
 
 		var interactions []byte
-		err := rows.Scan(&session.ID, &session.Name, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
+		err := rows.Scan(&session.ID, &session.Created, &session.Updated, &session.Name, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
 		if err != nil {
 			return nil, err
 		}

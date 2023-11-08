@@ -71,6 +71,12 @@ export type ISessionType = 'text' | 'image'
 export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
+export type ISessionState = 'preparing' | 'ready' | 'error'
+
+export const SESSION_STATE_PREPARING: ISessionState = 'preparing'
+export const SESSION_STATE_READY: ISessionState = 'ready'
+export const SESSION_STATE_ERROR: ISessionState = 'error'
+
 export interface IInteraction {
   id: string,
   created: number,
@@ -93,6 +99,8 @@ export interface ISession {
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
+  state: ISessionState,
+  error: string,
   finetune_file: string,
   interactions: IInteraction[],
   owner: string,

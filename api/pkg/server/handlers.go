@@ -289,7 +289,8 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		Creator:  types.CreatorTypeUser,
 		Message:  message,
 		Files:    filePaths,
-		Finished: true,
+		State:    types.InteractionStateWaiting,
+		Finished: false,
 		Metadata: metadata,
 	}, nil
 }
@@ -336,6 +337,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Creator:  types.CreatorTypeSystem,
 		Message:  "",
 		Files:    []string{},
+		State:    types.InteractionStateWaiting,
 		Finished: false,
 		Metadata: map[string]string{},
 	}
@@ -346,7 +348,6 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		ModelName: modelName,
 		Type:      sessionType,
 		Mode:      sessionMode,
-		State:     types.SessionStatePreparing,
 		Owner:     reqContext.Owner,
 		OwnerType: reqContext.OwnerType,
 		Created:   time.Now(),
@@ -367,11 +368,15 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	// add the session to the controller queue
-	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
-	if err != nil {
-		return nil, err
-	}
+	go func() {
+		preparedSession, err := apiServer.Controller.PrepareSession(sessionData)
+		if err != nil {
+			log.Error().Msgf("error preparing session: %s", err.Error())
+			apiServer.Controller.ErrorSession(sessionData, err)
+			return
+		}
+		apiServer.Controller.AddSessionToQueue(preparedSession)
+	}()
 
 	return sessionData, nil
 }
@@ -418,11 +423,11 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		Creator:  types.CreatorTypeSystem,
 		Message:  "",
 		Files:    []string{},
+		State:    types.InteractionStateWaiting,
 		Finished: false,
 	}
 	sessionCopy.Updated = time.Now()
 	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
-	sessionCopy.State = types.SessionStatePreparing
 
 	log.Debug().
 		Msgf("🟢 update session")
@@ -433,11 +438,15 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	// add the session to the controller queue
-	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, &sessionCopy)
-	if err != nil {
-		return nil, err
-	}
+	go func() {
+		preparedSession, err := apiServer.Controller.PrepareSession(sessionData)
+		if err != nil {
+			log.Error().Msgf("error preparing session: %s", err.Error())
+			apiServer.Controller.ErrorSession(sessionData, err)
+			return
+		}
+		apiServer.Controller.AddSessionToQueue(preparedSession)
+	}()
 
 	return sessionData, nil
 }

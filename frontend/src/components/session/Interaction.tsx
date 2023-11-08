@@ -25,25 +25,26 @@ import {
   IServerConfig,
 } from '../../types'
 
-const GeneratedImage = styled('img')({})
+import {
+  getFileExtension,
+  isImage,
+} from '../../utils/filestore'
 
-function isImage(filename: string): boolean {
-  const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg'];
-  const extension = filename.split('.').pop()?.toLowerCase();
-  return extension ? imageExtensions.includes(extension) : false;
-}
+const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
   type: ISessionType,
   mode: ISessionMode,
   interaction: IInteraction,
   serverConfig: IServerConfig,
+  error?: string,
   isLast?: boolean,
 }> = ({
   type,
   mode,
   interaction,
   serverConfig,
+  error = '',
   isLast = false,
 }) => {
 
@@ -53,6 +54,8 @@ export const Interaction: FC<{
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
+  const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
+  const useErrorText = interaction.error || (isLast ? error : '')
 
   if(type == SESSION_TYPE_TEXT) {
     displayMessage = interaction.message
@@ -80,8 +83,9 @@ export const Interaction: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
-  console.dir(interaction)
-
+  console.log('--------------------------------------------')
+  console.log(isTextFinetune)
+  console.dir(interaction.files)
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
@@ -139,6 +143,45 @@ export const Interaction: FC<{
           )
         }
         {
+          isTextFinetune && interaction.files && interaction.files.length > 0 && (
+            <Box
+              sx={{
+                maxHeight: '400px',
+                overflowY: 'auto'
+              }}
+            >
+              <Grid container spacing={3} direction="row" justifyContent="flex-start">
+                {
+                  interaction.files.length > 0 && interaction.files
+                    .map((file) => {
+                      const useURL = `${serverConfig.filestore_prefix}/${file}`
+                      const filenameParts = file.split('/')
+                      const filename = filenameParts[filenameParts.length - 1] || ''
+
+                      return (
+                        <Grid item xs={3} md={3} key={file}>
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#999'
+                            }}
+                          >
+                            <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(filename)}`}></span>
+                            <Typography variant="caption">{filename}</Typography>
+                          </Box>
+                        </Grid>
+                      )
+                    })
+                    
+                }
+              </Grid>
+            </Box>
+          )
+        }
+        {
           displayMessage && (
             <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
           )
@@ -181,7 +224,7 @@ export const Interaction: FC<{
           })
         }
         {
-          interaction.error && (
+          useErrorText && (
             <Alert severity="error">The system has encountered an error - <ClickLink onClick={ () => {
               setViewingError(true)
             }}>click here</ClickLink> to view the details.</Alert>
@@ -192,7 +235,7 @@ export const Interaction: FC<{
             <TerminalWindow
               open
               title="Error"
-              data={ interaction.error }
+              data={ useErrorText }
               onClose={ () => {
                 setViewingError(false)
               }}

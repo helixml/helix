@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -18,15 +19,6 @@ const DEBUG = true
 // this function expects the sessionQueueMtx to be locked when it is run
 func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
-		// if a session is preparing then keep it in the queue
-		if session.State == types.SessionStatePreparing {
-			continue
-		}
-
-		if session.State == types.SessionStateError {
-			continue
-		}
-
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
 		}
@@ -168,27 +160,61 @@ func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) erro
 	return nil
 }
 
+// generic "update this session handler"
+func (c *Controller) WriteSession(session *types.Session) {
+	log.Debug().
+		Msgf("🔵 update session: %s", session.ID)
+	spew.Dump(session)
+
+	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
+	if err != nil {
+		log.Printf("Error adding message: %s", err)
+	}
+
+	c.SessionUpdatesChan <- session
+}
+
+func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
+	userInteraction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return
+	}
+
+	userInteraction.Finished = true
+	userInteraction.State = types.InteractionStateReady
+
+	errorInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return
+	}
+	errorInteraction.State = types.InteractionStateError
+	errorInteraction.Error = sessionErr.Error()
+	errorInteraction.Finished = true
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == errorInteraction.ID {
+			newInteractions = append(newInteractions, *errorInteraction)
+		} else if interaction.ID == userInteraction.ID {
+			newInteractions = append(newInteractions, *userInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	session.Interactions = newInteractions
+
+	c.WriteSession(session)
+}
+
 // add the given session onto the end of the queue
 // unless it's already waiting and present in the queue
 // in which case let's replace it at it's current position
 // we mark the session as "preparing" here to give text fine tuning
 // a chance to sort itself out in the background
-func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Session) error {
+func (c *Controller) AddSessionToQueue(session *types.Session) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
-
-	session.State = types.SessionStatePreparing
-
-	go func() {
-		err := c.prepareSession(session)
-		if err != nil {
-			c.RemoveSessionFromQueue(context.Background(), session.ID)
-			session.State = types.SessionStateError
-			session.Error = err.Error()
-		} else {
-			session.State = types.SessionStateReady
-		}
-	}()
 
 	existing := false
 	newQueue := []*types.Session{}
@@ -205,7 +231,6 @@ func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Sessio
 	}
 
 	c.sessionQueue = newQueue
-	return nil
 }
 
 // if the action is "begin" - then we need to ceate a new textstream that is hooked up correctly
@@ -243,6 +268,7 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 	// mark the interaction as complete if we are a fully finished response
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
 		targetInteraction.Finished = true
+		targetInteraction.State = types.InteractionStateReady
 	}
 
 	// update the message if we've been given one
@@ -265,8 +291,6 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	if taskResponse.Error != "" {
 		targetInteraction.Error = taskResponse.Error
-		session.State = types.SessionStateError
-		session.Error = taskResponse.Error
 	}
 
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
@@ -288,36 +312,29 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	session.Interactions = newInteractions
 
-	fmt.Printf("update session --------------------------------------\n")
-	spew.Dump(session)
-
-	_, err = c.Options.Store.UpdateSession(ctx, *session)
-	if err != nil {
-		log.Printf("Error adding message: %s", err)
-	}
-
-	c.SessionUpdatesChan <- session
+	c.WriteSession(session)
 
 	return taskResponse, nil
 }
 
-// this is run in a go-routine for each session so can block
-func (c *Controller) prepareSession(session *types.Session) error {
+// this is called in a go routine from the main api handler
+// it needs to first prepare the session
+// and then it can add it to the queue for backend processing
+func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
 		err := c.convertDocumentsToText(session)
 		if err != nil {
-			return err
+			return session, err
 		}
 	}
-
-	return nil
+	return session, nil
 }
 
 // in the case of a text fine tune - we need to convert all the documents first
 func (c *Controller) convertDocumentsToText(session *types.Session) error {
 	fmt.Printf("CONVERT DOCS TO TEXT --------------------------------------\n")
 	spew.Dump(session)
-	return nil
+	return fmt.Errorf("convert test error")
 }

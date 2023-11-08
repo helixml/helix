@@ -56,7 +56,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"examples/mistral/qlora-instruct.yml",
 		)
 	} else {
-		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
+		return nil, fmt.Errorf("invalid Mistral7bInstruct01 session mode: %s", sessionFilter.Mode)
 	}
 
 	wd, err := os.Getwd()

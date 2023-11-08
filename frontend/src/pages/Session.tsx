@@ -32,8 +32,10 @@ const Session: FC = () => {
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
+
   const session = account.sessions?.find(session => session.id === params["session_id"])
 
+  console.dir(account.sessions)
   const loading = useMemo(() => {
     return false
     // if(!session || !session?.interactions || session?.interactions.length === 0) return false
@@ -122,10 +124,11 @@ const Session: FC = () => {
               session?.interactions.map((interaction: any, i: number) => {
                 return (
                   <Interaction
-                    key={ interaction.id }
+                    key={ i }
                     type={ session.type }
                     mode={ session.mode }
                     interaction={ interaction }
+                    error={ session.error }
                     serverConfig={ account.serverConfig }
                     isLast={ i === session.interactions.length - 1 }
                   />
