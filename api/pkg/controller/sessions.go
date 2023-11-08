@@ -3,6 +3,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -178,6 +180,20 @@ func (c *Controller) WriteSession(session *types.Session) {
 	c.SessionUpdatesChan <- session
 }
 
+func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == newInteraction.ID {
+			newInteractions = append(newInteractions, *newInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+	session.Interactions = newInteractions
+	c.WriteSession(session)
+	return session
+}
+
 func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	userInteraction, err := model.GetUserInteraction(session)
 	if err != nil {
@@ -288,6 +304,10 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 		targetInteraction.Progress = taskResponse.Progress
 	}
 
+	if taskResponse.Status != "" {
+		targetInteraction.Status = taskResponse.Status
+	}
+
 	// update the files if there are some
 	if taskResponse.Files != nil {
 		targetInteraction.Files = taskResponse.Files
@@ -328,73 +348,195 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		err := c.convertDocumentsToText(session)
+		session, err := c.convertDocumentsToText(session)
 		if err != nil {
-			return session, err
+			return nil, err
+		}
+		session, err = c.convertDocumentsToQuestions(session)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return session, nil
 }
 
 type convertTextItem struct {
-	name    string `json:"name"`
-	content string `json:"content"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 // in the case of a text fine tune - we need to convert all the documents first
-func (c *Controller) convertDocumentsToText(session *types.Session) error {
+// TODO: there is no rate limiting on this path
+func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Session, error) {
 	userInteraction, err := model.GetUserInteraction(session)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if userInteraction.State == types.InteractionStateWaiting {
-		for _, file := range userInteraction.Files {
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
 
-			// if file is not a text file
-			// then we need to convert it
-			if !strings.HasSuffix(file, ".txt") {
-				log.Debug().
-					Msgf("🔵 converting file: %s", file)
-				reader, err := c.Options.Filestore.Download(c.Ctx, file)
-				if err != nil {
-					return err
-				}
+	if userInteraction.State != types.InteractionStateWaiting {
+		return session, nil
+	}
 
-				client := newRetryClient()
+	newFiles := []string{}
+	for _, file := range userInteraction.Files {
 
-				req, err := createMultipartRequest(c.Options.TextExtractionURL, "documents", path.Base(file), reader)
-				if err != nil {
-					return fmt.Errorf("Error creating request: %v\n", err)
-				}
+		newFiles = append(newFiles, file)
 
-				resp, err := client.Do(req)
-				if err != nil {
-					return err
-				}
-				defer resp.Body.Close()
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return err
-				}
+		// if file is not a text file
+		// then we need to convert it
+		if !strings.HasSuffix(file, ".txt") {
+			systemInteraction.Status = fmt.Sprintf("converting file: %s", path.Base(file))
+			c.WriteInteraction(session, systemInteraction)
 
-				var result []convertTextItem
-
-				err = json.Unmarshal(body, &result)
-				if err != nil {
-					return err
-				}
-
-				if len(result) == 0 {
-					return fmt.Errorf("no results found")
-				}
-
-				resultItem := result[0]
-
-				newFilepath := path.Join(path.Dir(file), resultItem.name)
+			log.Debug().
+				Msgf("🔵 converting file: %s", file)
+			reader, err := c.Options.Filestore.Download(c.Ctx, file)
+			if err != nil {
+				return nil, err
 			}
+
+			client := newRetryClient()
+
+			req, err := createMultipartRequest(c.Options.TextExtractionURL, "documents", path.Base(file), reader)
+			if err != nil {
+				return nil, fmt.Errorf("Error creating request: %v\n", err)
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+
+			var results []convertTextItem
+
+			err = json.Unmarshal(body, &results)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(results) == 0 {
+				return nil, fmt.Errorf("no results found")
+			}
+
+			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
+
+			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(results[0].Content))
+			if err != nil {
+				return nil, err
+			}
+
+			newFiles = append(newFiles, newFilepath)
+		}
+
+		userInteraction.Files = newFiles
+
+		// now we have added some text files let's update the user interaction
+		session = c.WriteInteraction(session, userInteraction)
+
+		systemInteraction.Status = fmt.Sprintf("all files converted to txt")
+		session = c.WriteInteraction(session, systemInteraction)
+	}
+
+	return session, nil
+}
+
+func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types.Session, error) {
+	userInteraction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+
+	if userInteraction.State != types.InteractionStateWaiting {
+		return session, nil
+	}
+
+	dataprep, err := c.Options.DataPrepTextFactory()
+	if err != nil {
+		return nil, err
+	}
+
+	newFiles := []string{}
+	for _, file := range userInteraction.Files {
+		newFiles = append(newFiles, file)
+
+		// if file is not a text file
+		// then we need to convert it
+		if !strings.HasSuffix(file, ".txt") {
+			continue
+		}
+
+		systemInteraction.Status = fmt.Sprintf("adding document to training data: %s", path.Base(file))
+		c.WriteInteraction(session, systemInteraction)
+
+		reader, err := c.Options.Filestore.Download(c.Ctx, file)
+		if err != nil {
+			return nil, err
+		}
+
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, reader)
+		if err != nil {
+			return nil, err
+		}
+
+		err = dataprep.AddDocument(buf.String())
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return fmt.Errorf("convert test error")
+	chunks, err := dataprep.GetChunks()
+	if err != nil {
+		return nil, err
+	}
+
+	allConversations := []text.DataPrepTextConversation{}
+	for index, chunk := range chunks {
+		systemInteraction.Status = fmt.Sprintf("converting chunk %d of %d into trainig data", index, len(chunks))
+		systemInteraction.Progress = int(float64(index) / float64(len(chunks)))
+		c.WriteInteraction(session, systemInteraction)
+		conversations, err := dataprep.ConvertChunk(chunk)
+		if err != nil {
+			return nil, err
+		}
+		allConversations = append(allConversations, conversations...)
+	}
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	fmt.Printf(" --------------------------------------\n")
+	spew.Dump(allConversations)
+
+	// now we need to turn this into a jsonl file
+
+	// by this stage we need to have generated a jsonl file of the text
+	userInteraction.Files = newFiles
+
+	// now we have added some text files let's update the user interaction
+	session = c.WriteInteraction(session, userInteraction)
+
+	systemInteraction.Status = fmt.Sprintf("all files converted to txt")
+	session = c.WriteInteraction(session, systemInteraction)
+
+	spew.Dump(userInteraction.Files)
+
+	return session, nil
 }

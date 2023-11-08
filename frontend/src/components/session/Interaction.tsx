@@ -83,9 +83,6 @@ export const Interaction: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
-  console.log('--------------------------------------------')
-  console.log(isTextFinetune)
-  console.dir(interaction.files)
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
@@ -184,6 +181,11 @@ export const Interaction: FC<{
         {
           displayMessage && (
             <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
+          )
+        }
+        {
+          interaction.status && !useErrorText && (
+            <Typography variant="caption" dangerouslySetInnerHTML={{__html: interaction.status.replace(/\n/g, '<br/>')}}></Typography>
           )
         }
         {
