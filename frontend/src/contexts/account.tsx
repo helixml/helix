@@ -190,12 +190,11 @@ export const useAccountContext = (): IAccountContext => {
     const rws = new ReconnectingWebSocket(url)
     rws.addEventListener('message', (event) => {
       const parsedData = JSON.parse(event.data)
-      // console.dir(parsedData)
-
       // we have a session update message
       if(parsedData.type === 'session' && parsedData.session) {
         console.log("got new session from backend over websocket!")
         const newSession: ISession = parsedData.session
+        console.log(JSON.stringify(newSession, null, 4))
         setSessions(sessions => sessions.map(existingSession => {
           if(existingSession.id === newSession.id) return newSession
           return existingSession

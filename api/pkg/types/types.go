@@ -38,6 +38,7 @@ type Interaction struct {
 	Files    []string          `json:"files"`    // list of filepath paths
 	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
 	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State    InteractionState  `json:"state"`
 	Error    string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
 	FinetuneFile string `json:"finetune_file"`
@@ -57,10 +58,6 @@ type Session struct {
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
 	ModelName ModelName `json:"model_name"`
-	// if we need to prepare the session before it is plucked from the queue
-	// we mark it as waiting here
-	State SessionState `json:"state"`
-	Error string       `json:"error"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated

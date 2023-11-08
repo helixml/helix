@@ -24,6 +24,7 @@ func splitOnSpace(data []byte, atEOF bool) (advance int, token []byte, err error
 	return 0, nil, nil
 }
 
+// get the most recent user interaction
 func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
 	for i := len(session.Interactions) - 1; i >= 0; i-- {
 		interaction := session.Interactions[i]
@@ -31,7 +32,17 @@ func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
 			return &interaction, nil
 		}
 	}
-	return nil, nil
+	return nil, fmt.Errorf("no user interaction found")
+}
+
+func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
+	for i := len(session.Interactions) - 1; i >= 0; i-- {
+		interaction := session.Interactions[i]
+		if interaction.Creator == types.CreatorTypeSystem {
+			return &interaction, nil
+		}
+	}
+	return nil, fmt.Errorf("no system interaction found")
 }
 
 // each model get's to decide what it's task looks like
