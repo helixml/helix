@@ -346,6 +346,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		ModelName: modelName,
 		Type:      sessionType,
 		Mode:      sessionMode,
+		State:     types.SessionStatePreparing,
 		Owner:     reqContext.Owner,
 		OwnerType: reqContext.OwnerType,
 		Created:   time.Now(),
@@ -421,6 +422,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	}
 	sessionCopy.Updated = time.Now()
 	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
+	sessionCopy.State = types.SessionStatePreparing
 
 	log.Debug().
 		Msgf("🟢 update session")

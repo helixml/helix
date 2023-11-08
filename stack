@@ -41,7 +41,8 @@ function start() {
   tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
-  tmux send-keys -t 2 './stack psql'
+  tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
+  tmux send-keys -t 2 'python3 src/main.py'
 
   tmux -2 attach-session -t $TMUX_SESSION
 }
