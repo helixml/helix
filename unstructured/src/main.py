@@ -1,24 +1,28 @@
 from flask import Flask, request, jsonify
 import os
 from unstructured.partition.auto import partition
+from unstructured.documents.elements import NarrativeText
+from unstructured.partition.text_type import sentence_count
 import tempfile
 
 app = Flask(__name__)
 
-# User-defined function
 def parse_document(filename):
   elements = partition(filename=filename)
-  print("\n\n".join([str(el) for el in elements]))
-  # Implement the parsing logic here
-  # This is just a placeholder function for demonstration purposes
-  print(f"Parsing document: {filename}")
+  text = ""
+  for element in elements:
+    if isinstance(element, NarrativeText):
+        text += element.text + "\n"
+        print(element.text)
+        print("\n")
+  return text
 
 @app.route('/api/v1/extract', methods=['POST'])
-def upload_files():
+def extract_file():
   # Create a temporary directory
   temp_dir = tempfile.mkdtemp()
 
-  file_paths = []
+  results = []
 
   # Check if the post request has the file part
   if 'documents' not in request.files:
@@ -34,10 +38,13 @@ def upload_files():
     if file:
       file_path = os.path.join(temp_dir, file.filename)
       file.save(file_path)
-      file_paths.append(file_path)
-      parse_document(file_path)
+      file_content = parse_document(file_path)
+      results.append({
+        "name": file.filename,
+        "content": file_content,
+      })
 
-  return jsonify({"message": "Files successfully uploaded and parsed", "file_paths": file_paths}), 200
+  return jsonify(results), 200
 
 if __name__ == '__main__':
   app.run(debug=True, port=5000, host='0.0.0.0')

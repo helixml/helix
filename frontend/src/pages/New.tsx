@@ -149,7 +149,10 @@ const New: FC = () => {
           })
         }
       })
-      if(!session) return
+      if(!session) {
+        setUploadProgress(undefined)
+        return
+      }
       account.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
@@ -199,7 +202,10 @@ const New: FC = () => {
           })
         }
       })
-      if(!session) return
+      if(!session) {
+        setUploadProgress(undefined)
+        return
+      }
       account.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
