@@ -70,6 +70,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - SERVER_URL=${SERVER_URL:-http://localhost}
       - KEYCLOAK_URL=http://keycloak:8080/auth
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract

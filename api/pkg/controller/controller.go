@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -15,8 +16,9 @@ import (
 )
 
 type ControllerOptions struct {
-	Store     store.Store
-	Filestore filestore.FileStore
+	Store               store.Store
+	Filestore           filestore.FileStore
+	DataPrepTextFactory func() (text.DataPrepText, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
@@ -54,6 +56,9 @@ func NewController(
 ) (*Controller, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("store is required")
+	}
+	if options.DataPrepTextFactory == nil {
+		return nil, fmt.Errorf("data prep text factory is required")
 	}
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")

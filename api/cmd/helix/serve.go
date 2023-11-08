@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -18,14 +19,20 @@ import (
 )
 
 type ServeOptions struct {
-	ControllerOptions controller.ControllerOptions
-	FilestoreOptions  filestore.FileStoreOptions
-	StoreOptions      store.StoreOptions
-	ServerOptions     server.ServerOptions
+	DataPrepTextOptions text.DataPrepTextOptions
+	ControllerOptions   controller.ControllerOptions
+	FilestoreOptions    filestore.FileStoreOptions
+	StoreOptions        store.StoreOptions
+	ServerOptions       server.ServerOptions
 }
 
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
+		DataPrepTextOptions: text.DataPrepTextOptions{
+			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
+			ChunkSize:    getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
+			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
+		},
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
@@ -69,6 +76,21 @@ func newServeCmd() *cobra.Command {
 			return serve(cmd, allOptions)
 		},
 	}
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.DataPrepTextOptions.APIKey, "openai-key", allOptions.DataPrepTextOptions.APIKey,
+		`The API Key for OpenAI`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.ChunkSize, "dataprep-chunk-size", allOptions.DataPrepTextOptions.ChunkSize,
+		`The chunk size for the text data prep`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
+		`The overflow size for the text data prep`,
+	)
 
 	// ControllerOptions
 	serveCmd.PersistentFlags().StringVar(
@@ -225,6 +247,10 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 	return store, nil
 }
 
+func getTextDataPrep(ctx context.Context, options *ServeOptions) (text.DataPrepText, error) {
+	return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+}
+
 func serve(cmd *cobra.Command, options *ServeOptions) error {
 	system.SetupLogging()
 
@@ -247,8 +273,15 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
+	if options.DataPrepTextOptions.APIKey == "" {
+		return fmt.Errorf("openai api key is required")
+	}
+
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
+	options.ControllerOptions.DataPrepTextFactory = func() (text.DataPrepText, error) {
+		return getTextDataPrep(ctx, options)
+	}
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath

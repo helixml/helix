@@ -21,6 +21,8 @@ require (
 	google.golang.org/api v0.147.0
 )
 
+require github.com/sashabaranov/go-openai v1.17.3 // indirect
+
 require (
 	cloud.google.com/go v0.110.8 // indirect
 	cloud.google.com/go/compute v1.23.0 // indirect
