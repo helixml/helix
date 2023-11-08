@@ -4,7 +4,11 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"path"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/model"
@@ -332,9 +336,65 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 	return session, nil
 }
 
+type convertTextItem struct {
+	name    string `json:"name"`
+	content string `json:"content"`
+}
+
 // in the case of a text fine tune - we need to convert all the documents first
 func (c *Controller) convertDocumentsToText(session *types.Session) error {
-	fmt.Printf("CONVERT DOCS TO TEXT --------------------------------------\n")
-	spew.Dump(session)
+	userInteraction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return err
+	}
+
+	if userInteraction.State == types.InteractionStateWaiting {
+		for _, file := range userInteraction.Files {
+
+			// if file is not a text file
+			// then we need to convert it
+			if !strings.HasSuffix(file, ".txt") {
+				log.Debug().
+					Msgf("🔵 converting file: %s", file)
+				reader, err := c.Options.Filestore.Download(c.Ctx, file)
+				if err != nil {
+					return err
+				}
+
+				client := newRetryClient()
+
+				req, err := createMultipartRequest(c.Options.TextExtractionURL, "documents", path.Base(file), reader)
+				if err != nil {
+					return fmt.Errorf("Error creating request: %v\n", err)
+				}
+
+				resp, err := client.Do(req)
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return err
+				}
+
+				var result []convertTextItem
+
+				err = json.Unmarshal(body, &result)
+				if err != nil {
+					return err
+				}
+
+				if len(result) == 0 {
+					return fmt.Errorf("no results found")
+				}
+
+				resultItem := result[0]
+
+				newFilepath := path.Join(path.Dir(file), resultItem.name)
+			}
+		}
+	}
+
 	return fmt.Errorf("convert test error")
 }
