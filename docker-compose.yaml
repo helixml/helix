@@ -36,13 +36,13 @@ services:
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD-postgres}
   keycloak:
     image: quay.io/modeldynamics/keycloak:15.0.2-helix
     restart: always
     environment:
       - KEYCLOAK_USER=admin
-      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD:-oh-hallo-insecure-password}
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       - KC_PROXY=edge
       - DB_VENDOR=h2
       - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
@@ -67,7 +67,7 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD-postgres}
       - SERVER_URL=${SERVER_URL:-http://localhost}
       - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
