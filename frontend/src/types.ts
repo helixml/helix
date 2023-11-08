@@ -85,6 +85,7 @@ export interface IInteraction {
   message: string,
   progress: number,
   status: string,
+  state: string,
   files: string[],
   finetune_file: string,
   finished: boolean,

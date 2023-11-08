@@ -540,8 +540,8 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 
 	// by this stage we need to have generated a jsonl file of the text
 	systemInteraction.Files = []string{finetuneDataSet}
-	systemInteraction.Status = fmt.Sprintf("all files converted to txt")
-	systemInteraction.Progress = 100
+	systemInteraction.Status = fmt.Sprintf("all files converted to txt - please edit and save the file to start training")
+	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
 

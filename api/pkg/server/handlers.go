@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -213,6 +214,36 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
 	return apiServer.Store.GetSessions(reqContext.Ctx, query)
+}
+
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversation, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if len(systemInteraction.Files) == 0 {
+		return nil, fmt.Errorf("no files found")
+	}
+	filepath := systemInteraction.Files[0]
+	if !strings.HasSuffix(filepath, ".jsonl") {
+		return nil, fmt.Errorf("file is not a jsonl file")
+	}
+	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
 }
 
 // based on a multi-part form that has message and files

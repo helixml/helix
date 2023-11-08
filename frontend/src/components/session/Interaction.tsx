@@ -55,6 +55,8 @@ export const Interaction: FC<{
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
+
+  const isEditingConversations = interaction.state == 'editing' && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
 
   if(type == SESSION_TYPE_TEXT) {
@@ -86,6 +88,9 @@ export const Interaction: FC<{
   }
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
+
+  console.log('--------------------------------------------')
+  console.log(isEditingConversations)
 
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
