@@ -13,7 +13,7 @@ services:
       - frontend
     environment:
       - NOXY_DEFAULT_HOST=frontend
-      - NOXY_DEFAULT_PORT=8081
+      - NOXY_DEFAULT_PORT=${FRONTEND_INTERNAL_PORT:-8081}
       - NOXY_DEFAULT_WS=1
       - NOXY_API_FRONT=/api/v1
       - NOXY_API_HOST=api
@@ -98,7 +98,7 @@ services:
 
   frontend:
     ports:
-      - 8081:8081
+      - 8081:${FRONTEND_INTERNAL_PORT:-8081}
     build:
       context: frontend
       dockerfile: Dockerfile
