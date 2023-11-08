@@ -57,6 +57,9 @@ type Session struct {
 	// huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
 	// stabilityai/stable-diffusion-xl-base-1.0
 	ModelName ModelName `json:"model_name"`
+	// if we need to prepare the session before it is plucked from the queue
+	// we mark it as waiting here
+	State SessionState `json:"state"`
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated

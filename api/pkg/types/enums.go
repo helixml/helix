@@ -73,6 +73,14 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type SessionState string
+
+const (
+	SessionStateNone      SessionState = ""
+	SessionStatePreparing SessionState = "preparing"
+	SessionStateReady     SessionState = "ready"
+)
+
 type OwnerType string
 
 const (

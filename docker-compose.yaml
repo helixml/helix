@@ -97,11 +97,16 @@ services:
     # TODO: mount the same data directory api server is using for filestore to
     # gradio so it can just read files from there, including results...
 
-  worker:
+  unstructured:
+    ports:
+      - 5000:5000
     build:
-      context: worker
+      context: unstructured
       dockerfile: Dockerfile
+    entrypoint: tail -f /dev/null
     restart: always
+    volumes:
+      - ./unstructured/src:/home/notebook-user/app/src
  
   frontend:
     ports:

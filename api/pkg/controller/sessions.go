@@ -18,6 +18,11 @@ const DEBUG = true
 // this function expects the sessionQueueMtx to be locked when it is run
 func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
+		// if a session is preparing then keep it in the queue
+		if session.State == types.SessionStatePreparing {
+			continue
+		}
+
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
 		}
@@ -144,9 +149,15 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 // add the given session onto the end of the queue
 // unless it's already waiting and present in the queue
 // in which case let's replace it at it's current position
+// we mark the session as "preparing" here to give text fine tuning
+// a chance to sort itself out in the background
 func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Session) error {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
+
+	session.State = types.SessionStatePreparing
+
+	go c.prepareSession(session)
 
 	existing := false
 	newQueue := []*types.Session{}
@@ -255,4 +266,15 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 	c.SessionUpdatesChan <- session
 
 	return taskResponse, nil
+}
+
+// this is run in a go-routine for each session so can block
+func (c *Controller) prepareSession(session *types.Session) {
+	// here we need to turn all of the uploaded files into text files
+	// so we ping our handy python server that will do that for us
+	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
+
+	}
+
+	session.State = types.SessionStateReady
 }
