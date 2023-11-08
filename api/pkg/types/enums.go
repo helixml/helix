@@ -79,6 +79,7 @@ const (
 	SessionStateNone      SessionState = ""
 	SessionStatePreparing SessionState = "preparing"
 	SessionStateReady     SessionState = "ready"
+	SessionStateError     SessionState = "error"
 )
 
 type OwnerType string

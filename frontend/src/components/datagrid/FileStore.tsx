@@ -14,16 +14,10 @@ import {
   IFileStoreConfig,
 } from '../../types'
 
-const getFileExtension = (filename: string) => {
-  const parts = filename.split('.')
-  return parts[parts.length - 1]
-}
-
-const isImage = (filename: string) => {
-  if(!filename) return false
-  if(filename.match(/\.(jpg)|(png)|(jpeg)|(gif)$/i)) return true
-  return false
-}
+import {
+  getFileExtension,
+  isImage,
+} from '../../utils/filestore'
 
 interface FileStoreDataGridProps {
   files: IFileStoreItem[],

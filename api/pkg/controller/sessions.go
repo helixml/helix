@@ -23,6 +23,10 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 			continue
 		}
 
+		if session.State == types.SessionStateError {
+			continue
+		}
+
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
 		}
@@ -146,6 +150,24 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	return nil, nil
 }
 
+func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) error {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+
+	sessionQueue := []*types.Session{}
+
+	for _, session := range c.sessionQueue {
+		if session.ID == id {
+			continue
+		}
+		sessionQueue = append(sessionQueue, session)
+	}
+
+	c.sessionQueue = sessionQueue
+
+	return nil
+}
+
 // add the given session onto the end of the queue
 // unless it's already waiting and present in the queue
 // in which case let's replace it at it's current position
@@ -157,7 +179,16 @@ func (c *Controller) PushSessionQueue(ctx context.Context, session *types.Sessio
 
 	session.State = types.SessionStatePreparing
 
-	go c.prepareSession(session)
+	go func() {
+		err := c.prepareSession(session)
+		if err != nil {
+			c.RemoveSessionFromQueue(context.Background(), session.ID)
+			session.State = types.SessionStateError
+			session.Error = err.Error()
+		} else {
+			session.State = types.SessionStateReady
+		}
+	}()
 
 	existing := false
 	newQueue := []*types.Session{}
@@ -234,6 +265,8 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	if taskResponse.Error != "" {
 		targetInteraction.Error = taskResponse.Error
+		session.State = types.SessionStateError
+		session.Error = taskResponse.Error
 	}
 
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
@@ -269,12 +302,22 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 }
 
 // this is run in a go-routine for each session so can block
-func (c *Controller) prepareSession(session *types.Session) {
+func (c *Controller) prepareSession(session *types.Session) error {
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-
+		err := c.convertDocumentsToText(session)
+		if err != nil {
+			return err
+		}
 	}
 
-	session.State = types.SessionStateReady
+	return nil
+}
+
+// in the case of a text fine tune - we need to convert all the documents first
+func (c *Controller) convertDocumentsToText(session *types.Session) error {
+	fmt.Printf("CONVERT DOCS TO TEXT --------------------------------------\n")
+	spew.Dump(session)
+	return nil
 }

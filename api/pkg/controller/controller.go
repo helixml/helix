@@ -30,6 +30,9 @@ type ControllerOptions struct {
 	FilePrefixSessions string
 	// a static path used to denote what sub-folder job results live in
 	FilePrefixResults string
+
+	// the URL we post documents to so we can get the text back from them
+	TextExtractionURL string
 }
 
 type Controller struct {
@@ -54,6 +57,9 @@ func NewController(
 	}
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")
+	}
+	if options.TextExtractionURL == "" {
+		return nil, fmt.Errorf("text extraction URL is required")
 	}
 	models, err := model.GetModels()
 	if err != nil {

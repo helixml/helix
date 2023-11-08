@@ -30,6 +30,7 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults: getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
+			TextExtractionURL: getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),

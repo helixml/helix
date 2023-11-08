@@ -42,9 +42,5 @@ def upload_files():
 
   return jsonify({"message": "Files successfully uploaded and parsed", "file_paths": file_paths}), 200
 
-@app.route('/api/v1/hello', methods=['GET'])
-def hello():
-  return jsonify({"message": "Hello2"}), 200
-
 if __name__ == '__main__':
   app.run(debug=True, port=5000, host='0.0.0.0')
