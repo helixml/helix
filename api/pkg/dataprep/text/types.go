@@ -8,8 +8,17 @@ type DataPrepTextOptions struct {
 }
 
 type DataPrepTextConversation struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+type ShareGPTConversation struct {
 	From  string `json:"from"`
 	Value string `json:"value"`
+}
+
+type ShareGPTConversations struct {
+	Conversations []ShareGPTConversation `json:"conversations"`
 }
 
 type DataPrepText interface {

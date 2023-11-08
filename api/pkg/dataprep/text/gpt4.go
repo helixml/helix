@@ -2,6 +2,7 @@ package text
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
@@ -35,9 +36,6 @@ func (gpt *DataPrepTextGPT4) GetChunks() ([]string, error) {
 }
 
 func (gpt *DataPrepTextGPT4) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
-	fmt.Printf("CONVERT CHUNK YO --------------------------------------\n")
-	spew.Dump(chunk)
-
 	systemPrompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate %d questions that
@@ -56,40 +54,55 @@ GOOD questions:
 	What were the main findings in the original Transformers paper by Vaswani et al.
 
 The user will provide the context you should summarize into %d questions.
+
+Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 	`, gpt.Options.QuestionsPerChunk, gpt.Options.QuestionsPerChunk)
 
 	userPrompt := fmt.Sprintf(`
 Given the following context - please summarize it into %d question and answer pairs.
 
+Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
+
 %s
 	`, gpt.Options.QuestionsPerChunk, chunk)
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: userPrompt,
+		},
+	}
+
+	fmt.Printf("messages --------------------------------------\n")
+	spew.Dump(messages)
 
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT3Dot5Turbo,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: systemPrompt,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: userPrompt,
-				},
-			},
+			Model:    openai.GPT40613,
+			Messages: messages,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Printf("ANSWER --------------------------------------\n")
-	fmt.Printf("ANSWER --------------------------------------\n")
-	fmt.Printf("ANSWER --------------------------------------\n")
-	fmt.Println(resp.Choices[0].Message.Content)
+	fmt.Printf("resp.Choices[0].Message.Content --------------------------------------\n")
+	spew.Dump(resp.Choices[0].Message.Content)
 
-	return []DataPrepTextConversation{}, nil
+	var res []DataPrepTextConversation
+
+	// parse body as json into result
+	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &res)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // Compile-time interface check:

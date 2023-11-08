@@ -78,6 +78,7 @@ type InteractionState string
 const (
 	InteractionStateNone      InteractionState = ""
 	InteractionStateWaiting   InteractionState = "waiting"
+	InteractionStateEditing   InteractionState = "editing"
 	InteractionStatePreparing InteractionState = "preparing"
 	InteractionStateReady     InteractionState = "ready"
 	InteractionStateError     InteractionState = "error"
