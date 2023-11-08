@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import os
-# from unstructured.partition.auto import partition
+from unstructured.partition.auto import partition
 import tempfile
 
 app = Flask(__name__)
@@ -11,9 +11,9 @@ def parse_document(filename):
   print("\n\n".join([str(el) for el in elements]))
   # Implement the parsing logic here
   # This is just a placeholder function for demonstration purposes
-  print(f"Parsing document: {file_path}")
+  print(f"Parsing document: {filename}")
 
-@app.route('/api/v1/convert', methods=['POST'])
+@app.route('/api/v1/extract', methods=['POST'])
 def upload_files():
   # Create a temporary directory
   temp_dir = tempfile.mkdtemp()
@@ -32,12 +32,9 @@ def upload_files():
       return jsonify({"error": "No selected file"}), 400
 
     if file:
-      filename = secure_filename(file.filename)
-      file_path = os.path.join(temp_dir, filename)
+      file_path = os.path.join(temp_dir, file.filename)
       file.save(file_path)
       file_paths.append(file_path)
-
-      # Call user defined function
       parse_document(file_path)
 
   return jsonify({"message": "Files successfully uploaded and parsed", "file_paths": file_paths}), 200
