@@ -5,7 +5,7 @@ services:
     image: binocarlos/noxy:v6
     restart: always
     ports:
-      - ${NOXY_PORT:-80}:80
+      - ${PORT_NOXY:-80}:80
     depends_on:
       - postgres
       - keycloak
@@ -39,7 +39,6 @@ services:
       - POSTGRES_PASSWORD=postgres
   keycloak:
     image: quay.io/modeldynamics/keycloak:15.0.2-helix
-    user: "1000:0"
     restart: always
     environment:
       - KEYCLOAK_USER=admin
@@ -106,7 +105,8 @@ services:
       # set FRONTEND_TARGET=deploy-frontend in .env to build production assets
       target: ${FRONTEND_TARGET:-build-env}
     restart: always
-    entrypoint: ${FRONTEND_ENTRYPOINT:-yarn run dev}
+    # let it be defined but not empty (no colon below), since an empty entrypoint means use the one from the Dockerfile
+    entrypoint: ${FRONTEND_ENTRYPOINT-yarn run dev}
     volumes:
       - ./frontend/package.json:/app/package.json
       - ./frontend/src:/app/src
