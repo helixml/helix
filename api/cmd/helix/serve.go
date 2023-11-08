@@ -29,9 +29,10 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
-			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
-			ChunkSize:    getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
-			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
+			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
+			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
+			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
+			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 10),
 		},
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
@@ -90,6 +91,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
 		`The overflow size for the text data prep`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.QuestionsPerChunk, "dataprep-questions-per-chunk", allOptions.DataPrepTextOptions.QuestionsPerChunk,
+		`The questions per chunk for the text data prep`,
 	)
 
 	// ControllerOptions

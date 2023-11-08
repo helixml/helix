@@ -1,9 +1,10 @@
 package text
 
 type DataPrepTextOptions struct {
-	APIKey       string
-	ChunkSize    int
-	OverflowSize int
+	APIKey            string
+	ChunkSize         int
+	OverflowSize      int
+	QuestionsPerChunk int
 }
 
 type DataPrepTextConversation struct {
