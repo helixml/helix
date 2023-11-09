@@ -517,7 +517,6 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			})
 		}
 	}
-
 	filter := types.SessionFilter{
 		Mode:         sessionMode,
 		Type:         sessionType,
