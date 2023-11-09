@@ -168,13 +168,30 @@ func (r *Runner) loop(ctx context.Context) error {
 	// and kill them if they are over the timeout
 	// TODO: get the timeout to be configurable from the api and so dynamic
 	// based on load
-	err := r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds))
+
+	// first we check whether there's _any_ session waiting to start which could
+	// fit in ALL our free memory (to decide whether or not to kill stale model
+	// instances)
+
+	/// XXX OH NO - I think getting the next session pops it off the queue - we
+	/// just need a way to peek to see if there are any, but without promising
+	/// we'll handle it!
+	sessionPressure, err := r.getNextGlobalSession(ctx, true)
 	if err != nil {
 		return err
 	}
 
+	// only consider killing stale model instances if there is pressure from
+	// another _different_ type of session to the ones we are already running
+	if sessionPressure != nil {
+		err := r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds))
+		if err != nil {
+			return err
+		}
+	}
+
 	// ask the api server if it currently has any work based on our free memory
-	session, err := r.getNextGlobalSession(ctx)
+	session, err := r.getNextGlobalSession(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -217,7 +234,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 // we check with the various models and filter based on the currently free memory
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
-func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
+func (r *Runner) getNextGlobalSession(ctx context.Context, considerAllMemory bool) (*types.Session, error) {
 	if r.httpClientOptions.Host == "" {
 		// we are in local only mode... the next session will be injected into
 		// us rather than queried from the control server
@@ -225,7 +242,15 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		// smarts for local tasks
 		return nil, nil
 	}
-	freeMemory := r.getFreeMemory()
+
+	var freeMemory uint64
+	if considerAllMemory {
+		// we are just checking whether there's any queue pressure - in which
+		// case we will cull stale model instances
+		freeMemory = r.Options.MemoryBytes
+	} else {
+		freeMemory = r.getFreeMemory()
+	}
 
 	if freeMemory < r.lowestMemoryRequirement {
 		// we don't have enough memory to run anything
@@ -250,7 +275,14 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return true
 	})
 
-	return r.getNextApiSession(ctx, queryParams)
+	session, err := r.getNextApiSession(ctx, queryParams)
+	if err != nil {
+		return nil, err
+	}
+	if session != nil {
+		log.Info().Msgf("🟠 rejecting model instances: %s for session %+v", queryParams.Get("reject"), session)
+	}
+	return session, nil
 }
 
 // used by the Python code to know that a session has finished preparing and is ready to pull from the
@@ -472,6 +504,8 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	}
 	defer resp.Body.Close()
 
+	// XXX this should be an explicit == 404 check probably, return err in other
+	// cases (but need to set the other side to return a 404 as well)
 	if resp.StatusCode != 200 {
 		return nil, nil
 	}

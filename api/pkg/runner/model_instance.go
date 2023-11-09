@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -468,6 +469,13 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 
 	log.Info().
 		Msgf("🟢 run model instance")
+
+	log.Info().
+		Msgf("🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢")
+	debug.PrintStack()
+	log.Info().
+		Msgf("🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢")
+
 	spew.Dump(cmd.Dir)
 	spew.Dump(cmd.Args)
 
