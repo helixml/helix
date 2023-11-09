@@ -53,10 +53,14 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		}
 
 		// look to see if we have any rejection matches that we should not include
+		reject := false
 		for _, rejectEntry := range filter.Reject {
 			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
-				continue
+				reject = true
 			}
+		}
+		if reject {
+			continue
 		}
 
 		// if we've made it this far we've got a session!

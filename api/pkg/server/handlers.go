@@ -517,8 +517,6 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			})
 		}
 	}
-	log.Info().Msgf("REJECTS: %+v", reject)
-
 	filter := types.SessionFilter{
 		Mode:         sessionMode,
 		Type:         sessionType,
