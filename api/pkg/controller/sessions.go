@@ -28,15 +28,18 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 			continue
 		}
 
-		if filter.FinetuneFile != "" && session.FinetuneFile != filter.FinetuneFile {
-			// in this case - the filter is asking for a session with a finetune file
-			// and so we can only reply with a session that has that exact finetune file
-			continue
-		} else if filter.FinetuneFile == types.FINETUNE_FILE_NONE && session.FinetuneFile != "" {
-			// in this case - the runner is asking specifically for a session
-			// that does not have a finetune file
-			// this cannot be empty string because that means "I don't care"
-			continue
+		if filter.FinetuneFile == types.FINETUNE_FILE_NONE {
+			// the filter is NONE - we cannot have a finetune file
+			if session.FinetuneFile != "" {
+				continue
+			}
+		} else if filter.FinetuneFile != "" {
+			// the filter is a SPECIFIC file - we must have that file
+			if session.FinetuneFile != filter.FinetuneFile {
+				continue
+			}
+		} else if filter.FinetuneFile == "" {
+			// the filter is ANY file - so anything goes
 		}
 
 		// we are asking for sessions that will fit in an amount of RAM
@@ -53,10 +56,14 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		}
 
 		// look to see if we have any rejection matches that we should not include
+		reject := false
 		for _, rejectEntry := range filter.Reject {
 			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
-				continue
+				reject = true
 			}
+		}
+		if reject {
+			continue
 		}
 
 		// if we've made it this far we've got a session!
@@ -118,6 +125,13 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	defer c.sessionQueueMtx.Unlock()
 
 	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter)
+
+	if len(c.sessionQueue) > 0 {
+		fmt.Printf("filter --------------------------------------\n")
+		spew.Dump(filter)
+		fmt.Printf("sessionIndex --------------------------------------\n")
+		spew.Dump(sessionIndex)
+	}
 
 	if sessionIndex >= 0 {
 		session := c.sessionQueue[sessionIndex]
