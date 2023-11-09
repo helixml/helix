@@ -17,7 +17,7 @@ func (l *SDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
 		return GB * 24
 	} else {
-		return MB * 7500
+		return GB * 15
 	}
 }
 
