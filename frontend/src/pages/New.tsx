@@ -55,8 +55,8 @@ const New: FC = () => {
   const [inputValue, setInputValue] = useState('')
   
   const [fineTuneStep, setFineTuneStep] = useState(0)
-  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_FINETUNE)
-  const [selectedType, setSelectedType] = useState(SESSION_TYPE_IMAGE)
+  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
+  const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
