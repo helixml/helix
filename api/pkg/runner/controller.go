@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"runtime/debug"
+	"sort"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -164,22 +165,27 @@ func (r *Runner) StartLooping() {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
-	// check for running model instances that have not seen a job in a while
-	// and kill them if they are over the timeout
-	// TODO: get the timeout to be configurable from the api and so dynamic
-	// based on load
-	err := r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds))
-	if err != nil {
-		return err
-	}
 
-	// ask the api server if it currently has any work based on our free memory
+	// ask the api server if it currently has any work based on the amount of
+	// memory we could free if we killed stale sessions
 	session, err := r.getNextGlobalSession(ctx)
 	if err != nil {
 		return err
 	}
 
 	if session != nil {
+		// if we need to kill any stale sessions, do it now
+
+		// check for running model instances that have not seen a job in a while
+		// and kill them if they are over the timeout AND the session requires it
+
+		// TODO: get the timeout to be configurable from the api and so dynamic
+		// based on load
+		err = r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds), session)
+		if err != nil {
+			return err
+		}
+
 		log.Debug().
 			Msgf("🔵 runner start model instance")
 		err = r.createModelInstance(ctx, session)
@@ -193,23 +199,61 @@ func (r *Runner) loop(ctx context.Context) error {
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration) error {
+func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
+	// calculate stale model instances
+	// sort by memory usage
+	// kill as few of them as possible to free up newSession much memory
+
+	stales := []*ModelInstance{}
 	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
-		// this means we are booting so let's leave it alone to boot
+		stale := false
 		if activeModelInstance.lastActivityTimestamp == 0 {
-			return true
+			stale = false
+		} else if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+			stale = true
 		}
-		if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
-			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
-			err := activeModelInstance.stopProcess()
-			if err != nil {
-				log.Error().Msgf("error stopping model instance %s: %s", activeModelInstance.id, err.Error())
-				return true
-			}
-			r.activeModelInstances.Delete(activeModelInstance.id)
+		if stale {
+			stales = append(stales, activeModelInstance)
 		}
 		return true
 	})
+
+	// sort by memory usage ascending
+	sort.Slice(stales, func(i, j int) bool {
+		return stales[i].model.GetMemoryRequirements(stales[i].filter.Mode) < stales[j].model.GetMemoryRequirements(stales[j].filter.Mode)
+	})
+
+	// calculate mem required by new session
+	modelInstance, err := NewModelInstance(
+		r.Ctx,
+		newSession,
+		r.Options.TaskURL,
+		r.Options.SessionURL,
+		r.Options.ResponseURL,
+		func(res *types.WorkerTaskResponse) error {
+			return nil
+		},
+		r.Options,
+	)
+	if err != nil {
+		return err
+	}
+
+	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode)
+
+	for _, m := range stales {
+		if requiredMemoryFreed > 0 {
+			log.Info().Msgf("Killing stale model instance %s", m.id)
+			err := m.stopProcess()
+			if err != nil {
+				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
+			}
+			r.activeModelInstances.Delete(m.id)
+			requiredMemoryFreed -= m.model.GetMemoryRequirements(m.filter.Mode)
+		} else {
+			log.Info().Msgf("cleared up enough model memory, overshot by %d bytes", requiredMemoryFreed)
+		}
+	}
 	return nil
 }
 
@@ -225,7 +269,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		// smarts for local tasks
 		return nil, nil
 	}
-	freeMemory := r.getFreeMemory()
+	freeMemory := r.getHypotheticalFreeMemory()
 
 	if freeMemory < r.lowestMemoryRequirement {
 		// we don't have enough memory to run anything
@@ -500,8 +544,35 @@ func (r *Runner) getUsedMemory() uint64 {
 	return memoryUsed
 }
 
+func (r *Runner) getUsedMemoryByNonStale() uint64 {
+	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
+
+	memoryUsed := uint64(0)
+	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
+		// assume stale
+		stale := true
+		// this means we are booting so let's leave it alone to boot
+		if modelInstance.lastActivityTimestamp == 0 {
+			stale = false
+		}
+		// the model is not stale don't include it
+		if modelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+			stale = false
+		}
+		if stale {
+			memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+		}
+		return true
+	})
+	return memoryUsed
+}
+
 func (r *Runner) getFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemory()
+}
+
+func (r *Runner) getHypotheticalFreeMemory() uint64 {
+	return r.Options.MemoryBytes - r.getUsedMemoryByNonStale()
 }
 
 func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
