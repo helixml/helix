@@ -19,6 +19,9 @@ func splitOnSpace(data []byte, atEOF bool) (advance int, token []byte, err error
 	if i := bytes.IndexByte(data, ' '); i >= 0 {
 		return i + 1, data[0:i], nil
 	}
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, data[0:i], nil
+	}
 	if atEOF {
 		return len(data), data, nil
 	}
