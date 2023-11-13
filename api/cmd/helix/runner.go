@@ -26,7 +26,8 @@ func NewRunnerOptions() *RunnerOptions {
 			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
 			// TODO: this is currently very quick to unload a model
 			// this is so we can test quickly
-			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			ControlLoopDelayMilliseconds: getDefaultServeOptionInt("CONTROL_LOOP_DELAY_MILLISECONDS", 100),
 		},
 		Server: runner.RunnerServerOptions{
 			Host:      getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -77,6 +78,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Runner.ModelInstanceTimeoutSeconds, "timeout-seconds", allOptions.Runner.ModelInstanceTimeoutSeconds,
 		`How many seconds without a task before we shutdown a running model instance`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.ControlLoopDelayMilliseconds, "control-loop-delay-milliseconds", allOptions.Runner.ControlLoopDelayMilliseconds,
+		`How many milliseconds do we wait between running the control loop (which asks for the next global session)`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(

@@ -40,6 +40,10 @@ type RunnerOptions struct {
 	// we just pass http://localhost:8080/api/v1/worker/response
 	ResponseURL string
 
+	// how long to wait between loops for the controller
+	// this will affect how often we ask for a global session
+	ControlLoopDelayMilliseconds int
+
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
 	// how many bytes of memory does our GPU have?
@@ -153,7 +157,7 @@ func (r *Runner) StartLooping() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Millisecond * time.Duration(r.Options.ControlLoopDelayMilliseconds)):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
