@@ -75,7 +75,7 @@ function ImageModelsBlock() {
             <RightContent>
                 <h1>Image models</h1>
                 <p>Train your own SDXL customized to your brand or style</p>
-                <Button
+                {/* <Button
                   variant="contained"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
@@ -91,7 +91,7 @@ function ImageModelsBlock() {
                     // account.onLogin()
                   }}
                   sx={{fontSize: "large"}}
-                >FINE TUNE SDXL</Button>
+                >FINE TUNE SDXL</Button> */}
             </RightContent>
         </Block>
     );
@@ -103,7 +103,7 @@ function LanguageModelsBlock() {
             <LeftContent>
                 <h1>Language models</h1>
                 <p>Small open source LLMs are beating proprietary models</p>
-                <Button
+                {/* <Button
                   variant="contained"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
@@ -119,7 +119,7 @@ function LanguageModelsBlock() {
                     // account.onLogin()
                   }}
                   sx={{fontSize: "large"}}
-                >FINE TUNE MISTRAL-7B</Button>
+                >FINE TUNE MISTRAL-7B</Button> */}
             </LeftContent>
             <RightMedia>
                 <img src="/img/mistral.png" alt="Mistral-8B" style={{width:"500px", float: "right"}} />
@@ -141,7 +141,7 @@ function DeploymentBlock() {
                     <li>Smart runners</li>
                     <li>Autoscaler</li>
                 </ul>
-                <Button
+                {/* <Button
                   variant="contained"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
@@ -157,7 +157,7 @@ function DeploymentBlock() {
                     // account.onLogin()
                   }}
                   sx={{fontSize: "large"}}
-                >DEPLOY ON YOUR INFRA</Button>
+                >DEPLOY ON YOUR INFRA</Button> */}
             </RightContent>
         </Block>
     );
@@ -169,7 +169,7 @@ function Footer() {
             <LeftContent>
                 <h1>Clone us from GitHub</h1>
                 <p>Customize it for your DevOps &ndash; or add models &ndash; to the open stack</p>
-                <Button
+                {/* <Button
                   variant="contained"
                   onClick={ () => {
                     // endIcon={<LoginIcon />}
@@ -183,7 +183,7 @@ function Footer() {
                   onClick={ () => {
                   }}
                   sx={{mt:2, fontSize: "large"}}
-                >GITHUB.COM/HELIX-ML/HELIX</Button>
+                >GITHUB.COM/HELIX-ML/HELIX</Button> */}
                 <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px", marginTop: "4em"}} />
             </LeftContent>
             <RightMedia>

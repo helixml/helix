@@ -26,7 +26,12 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 }
 
 func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask, error) {
-	return getGenericTask(session)
+	task, err := getGenericTask(session)
+	if err != nil {
+		return nil, err
+	}
+	task.Prompt = fmt.Sprintf("[INST]%s[/INST]", task.Prompt)
+	return task, nil
 }
 
 func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream, error) {
