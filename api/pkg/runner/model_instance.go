@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -75,11 +74,6 @@ type ModelInstance struct {
 	// that we need to complete before we want this session to run
 	queuedSession *types.Session
 
-	// the currently active text stream if the model needs it
-	// this is assigned by calling model.GetTextStream(mode) on the model
-	// instance - this means models get to decide if/when they need text stream processing
-	currentTextStream *model.TextStream
-
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
@@ -145,54 +139,24 @@ func NewModelInstance(
 	}, nil
 }
 
+/*
+
+
+
+	QUEUE
+
+
+
+*/
+
 // this is the loading of a session onto a running model instance
 // it gets the text stream setup if the model returns one
 // and generally initializes a new task to be run on the model
 // it also returns the task that will be fed down into the python code to execute
 func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
-	if instance.currentTextStream != nil {
-		instance.currentTextStream.Close(ctx)
-		instance.currentTextStream = nil
-	}
-
 	// mark the instance as active so it doesn't get cleaned up
 	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
-
-	interactionID, err := getLastInteractionID(session)
-	if err != nil {
-		log.Print("🟤 Error getting last interaction ID: ", err.Error())
-		return nil, err
-	}
-
-	textStream, err := instance.model.GetTextStream(instance.filter.Mode)
-	if err != nil {
-		return nil, err
-	}
-
-	if textStream != nil {
-		instance.currentTextStream = textStream
-
-		go textStream.Start(ctx)
-		go func() {
-			for {
-				select {
-				case <-textStream.Closed:
-					return
-				case msg := <-textStream.Output:
-					err := instance.responseHandler(&types.WorkerTaskResponse{
-						Type:          types.WorkerTaskResponseTypeStream,
-						SessionID:     instance.currentSession.ID,
-						InteractionID: interactionID,
-						Message:       msg,
-					})
-					if err != nil {
-						log.Error().Msgf("Error sending WorkerTaskResponse: %s", err.Error())
-					}
-				}
-			}
-		}()
-	}
 
 	task, err := instance.model.GetTask(session)
 	if err != nil {
@@ -241,6 +205,16 @@ func (instance *ModelInstance) prepareSession(session *types.Session) (*types.Se
 
 	return session, nil
 }
+
+/*
+
+
+
+	FILES
+
+
+
+*/
 
 func (instance *ModelInstance) downloadFinetuneFile(session *types.Session) (*types.Session, error) {
 	if session.FinetuneFile == "" {
@@ -344,6 +318,16 @@ func (instance *ModelInstance) downloadSessionFile(sessionID string, folder stri
 	return finalPath, nil
 }
 
+/*
+
+
+
+	EVENT HANDLERS
+
+
+
+*/
+
 func (instance *ModelInstance) errorSession(session *types.Session, err error) {
 	interactionID, getInteractionErr := getLastInteractionID(session)
 	if getInteractionErr != nil {
@@ -373,11 +357,7 @@ func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *t
 	if taskResponse.SessionID != instance.currentSession.ID {
 		return fmt.Errorf("session ID mismatch")
 	}
-	if instance.currentTextStream == nil {
-		return fmt.Errorf("no text stream to continue")
-	}
 	instance.lastActivityTimestamp = time.Now().Unix()
-	instance.currentTextStream.Write([]byte(taskResponse.Message))
 	return nil
 }
 
@@ -416,12 +396,6 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 		return fmt.Errorf("session ID mismatch")
 	}
 
-	// reset the text stream if we have one
-	if instance.currentTextStream != nil {
-		instance.currentTextStream.Close(ctx)
-		instance.currentTextStream = nil
-	}
-
 	// we update the timeout timestamp
 	instance.lastActivityTimestamp = time.Now().Unix()
 
@@ -449,6 +423,44 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	instance.currentSession = nil
 	return nil
 }
+
+func (instance *ModelInstance) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	if taskResponse == nil {
+		return nil, fmt.Errorf("task response is required")
+	}
+	switch {
+	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
+		err := instance.handleStream(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling stream: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
+		err := instance.handleProgress(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling progress: %s", err.Error())
+			return nil, err
+		}
+	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
+		err := instance.handleResult(ctx, taskResponse)
+		if err != nil {
+			log.Error().Msgf("error handling job result: %s", err.Error())
+			return nil, err
+		}
+	}
+
+	return taskResponse, nil
+}
+
+/*
+
+
+
+	PROCESS MANAGEMENT
+
+
+
+*/
 
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
@@ -485,20 +497,40 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		return err
 	}
 
-	// Create buffers to store stdout and stderr
-	var stdoutBuf, stderrBuf bytes.Buffer
+	// create the model textsream
+	// this is responsible for chunking stdout into session outputs
+	// and keeping track of the current session
+	// each model knows how to parse it's own stdout differently
+	// we pass a 'textStreamProcessor' function which will get events:
+	//  * a new session has started
+	//  * some more text has been generated (i.e. streaming output)
+	//  * the result has been generated
+	// in all cases - each model get's to decide what formatting
+	// it's Python needs to use so that these text streams will
+	// parse correctly
 
-	// Start a go routine to copy the contents of the stdout pipe to the buffer
+	textStream, err := instance.model.GetTextStream(session.Mode, func(taskResponse *types.WorkerTaskResponse) {
+		fmt.Printf(" --------------------------------------\n")
+		spew.Dump(taskResponse)
+	})
+	if err != nil {
+		return err
+	}
 	go func() {
-		_, err := io.Copy(io.MultiWriter(os.Stdout, &stdoutBuf), stdoutPipe)
+		_, err := io.Copy(io.MultiWriter(os.Stdout, textStream), stdoutPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stdout: %v", err)
 		}
 	}()
 
-	// Start a go routine to copy the contents of the stderr pipe to the buffer
+	// this buffer is so we can keep the last 10kb of stderr so if
+	// there is an error we can send it to the api
+	stderrBuf := system.NewLimitedBuffer(1024 * 10)
+
+	// stream stderr to os.Stderr (so we can see it in the logs)
+	// and also the error buffer we will use to post the error to the api
 	go func() {
-		_, err := io.Copy(io.MultiWriter(os.Stderr, &stderrBuf), stderrPipe)
+		_, err := io.Copy(io.MultiWriter(os.Stderr, stderrBuf), stderrPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stderr: %v", err)
 		}
@@ -519,20 +551,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			// this normally means that a job caused an error so let's tell the api
 			// that this interaction has it's Error field set
 			if instance.currentSession != nil {
-				interactionID, getInteractionErr := getLastInteractionID(instance.currentSession)
-				if getInteractionErr != nil {
-					log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
-					return
-				}
-				apiUpdateErr := instance.responseHandler(&types.WorkerTaskResponse{
-					Type:          types.WorkerTaskResponseTypeResult,
-					SessionID:     instance.currentSession.ID,
-					InteractionID: interactionID,
-					Error:         stderrBuf.String(),
-				})
-				if apiUpdateErr != nil {
-					log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
-				}
+				instance.errorSession(instance.currentSession, err)
 			}
 		}
 

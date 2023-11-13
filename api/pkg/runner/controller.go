@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -21,12 +22,17 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 type RunnerOptions struct {
 	ID       string
 	ApiHost  string
 	ApiToken string
+
+	// this means a CLI will be posting jobs to us locally and we will
+	// not be polling a remote api
+	LocalMode bool
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
@@ -75,6 +81,12 @@ type Runner struct {
 	// local sessions, which will be executed in no particular order
 	// TODO: maybe preserve insertion order
 	localSessions *xsync.MapOf[string, *types.Session]
+
+	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
+	// then we keep state in memory
+	// in-memory state to record status that would normally be posted up as a result
+	State    map[string]types.WorkerTaskResponse
+	StateMtx sync.Mutex
 }
 
 func NewRunner(
@@ -115,11 +127,15 @@ func NewRunner(
 		},
 		activeModelInstances: xsync.NewMapOf[string, *ModelInstance](),
 		localSessions:        xsync.NewMapOf[string, *types.Session](),
+		State:                map[string]types.WorkerTaskResponse{},
 	}
 	return runner, nil
 }
 
 func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
+	if !r.Options.LocalMode {
+		return fmt.Errorf("cannot add to local queue when not in local mode")
+	}
 	// iterate over model instances to see if one exists and if it doesn't, create it.
 	// then add session to localQueue
 
@@ -261,7 +277,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 // queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
 // but it gives the python code a chance to wait for Lora weights to download before loading them
 // into GPU memory - at which point it would start pulling from the queue as normal
-func (r *Runner) readNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
+func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string) (*types.Session, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -296,6 +312,24 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		// into the filestore
 		// TODO: support the tar feature above
 		func(res *types.WorkerTaskResponse) error {
+			if r.Options.LocalMode {
+				r.StateMtx.Lock()
+				defer r.StateMtx.Unlock()
+
+				// record in-memory for any local clients who want to query us
+				r.State[res.SessionID] = *res
+
+				stateYAML, err := yaml.Marshal(r.State)
+				if err != nil {
+					return err
+				}
+				fmt.Println("==========================================")
+				fmt.Println("             LOCAL STATE")
+				fmt.Println("==========================================")
+				fmt.Println(string(stateYAML))
+				fmt.Println("==========================================")
+			}
+
 			return r.uploadWorkerResponse(res, session)
 		},
 		r.Options,
@@ -357,18 +391,21 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 	}
 
 	var session *types.Session
-
 	foundLocalQueuedSession := false
-	r.localSessions.Range(func(i string, sess *types.Session) bool {
-		if modelInstanceMatchesSession(modelInstance, sess) {
-			foundLocalQueuedSession = true
-			// remove it from the local queue
-			r.localSessions.Delete(i)
-			session = sess
-			return false
-		}
-		return true
-	})
+
+	if r.Options.LocalMode {
+		r.localSessions.Range(func(i string, sess *types.Session) bool {
+			if modelInstanceMatchesSession(modelInstance, sess) {
+				foundLocalQueuedSession = true
+				// remove it from the local queue
+				r.localSessions.Delete(i)
+				session = sess
+				return false
+			}
+			return true
+		})
+	}
+
 	// as the first check, we need to ask if there's a session in localQueue
 	// that matches this model instance. if there is, we've got a local
 	// session and it takes precedence over remote work
@@ -422,41 +459,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 	}
 
 	return task, nil
-}
-
-func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	if instanceID == "" {
-		return nil, fmt.Errorf("instanceid is required")
-	}
-	if taskResponse == nil {
-		return nil, fmt.Errorf("task response is required")
-	}
-	modelInstance, ok := r.activeModelInstances.Load(instanceID)
-	if !ok {
-		return nil, fmt.Errorf("instance not found: %s", instanceID)
-	}
-	switch {
-	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
-		err := modelInstance.handleStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
-		err := modelInstance.handleProgress(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling progress: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
-		err := modelInstance.handleResult(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling job result: %s", err.Error())
-			return nil, err
-		}
-	}
-
-	return taskResponse, nil
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {

@@ -1,8 +1,10 @@
 package model
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -29,7 +31,11 @@ func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
 	return getGenericTask(session)
 }
 
-func (l *SDXL) GetTextStream(mode types.SessionMode) (*TextStream, error) {
+func (l *SDXL) GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (io.Writer, error) {
+	if mode == types.SessionModeInference {
+		var buffer bytes.Buffer
+		return &buffer, nil
+	}
 	return nil, nil
 }
 

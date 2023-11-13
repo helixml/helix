@@ -1,8 +1,10 @@
 package model
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -34,13 +36,10 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask
 	return task, nil
 }
 
-func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream, error) {
+func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (io.Writer, error) {
 	if mode == types.SessionModeInference {
-		return NewTextStream(
-			splitOnSpace,
-			"[/INST]",
-			"</s>",
-		), nil
+		var buffer bytes.Buffer
+		return &buffer, nil
 	}
 	return nil, nil
 }
