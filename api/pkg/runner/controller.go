@@ -153,7 +153,7 @@ func (r *Runner) StartLooping() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(5 * time.Second):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
@@ -373,9 +373,11 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 
 	if foundLocalQueuedSession {
 		// queue it, and fall thru below to assign
+		log.Printf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
 		go modelInstance.queueSession(session)
 	} else if modelInstance.nextSession != nil {
 		// if there is a session in the nextSession cache then we return it immediately
+		log.Printf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
 		session = modelInstance.nextSession
 		modelInstance.nextSession = nil
 	} else if modelInstance.queuedSession != nil {
@@ -405,6 +407,8 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 
 	// we don't have any work for this model instance
 	if session == nil {
+		// TODO: this should be a 404 not a 500?
+		log.Printf("🟠🟠 No session found for model instance %+v", modelInstance)
 		return nil, fmt.Errorf("no session found")
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -41,8 +42,7 @@ func NewRunnerServer(
 	return &RunnerServer{
 		Options:    options,
 		Controller: controller,
-		// we only populate this if we are in local mode
-		State: map[string]types.WorkerTaskResponse{},
+		State:      map[string]types.WorkerTaskResponse{},
 	}, nil
 }
 
@@ -108,17 +108,22 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
+		log.Println("foop", err)
 		return nil, err
 	}
 
 	taskResponse, err = runnerServer.Controller.handleTaskResponse(req.Context(), vars["instanceid"], taskResponse)
 	if err != nil {
+		log.Println("foop2", err)
 		return nil, err
 	}
 
 	if runnerServer.Options.LocalMode {
+		runnerServer.StateMtx.Lock()
+		defer runnerServer.StateMtx.Unlock()
+
 		// record in-memory for any local clients who want to query us
-		runnerServer.State[vars["instanceid"]] = *taskResponse
+		runnerServer.State[taskResponse.SessionID] = *taskResponse
 
 		stateYAML, err := yaml.Marshal(runnerServer.State)
 		if err != nil {
@@ -135,6 +140,19 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 }
 
 func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.WorkerTaskResponse, error) {
+	runnerServer.StateMtx.Lock()
+	defer runnerServer.StateMtx.Unlock()
+
+	stateYAML, err := yaml.Marshal(runnerServer.State)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("==========================================")
+	fmt.Println("             LOCAL STATE")
+	fmt.Println("==========================================")
+	fmt.Println(string(stateYAML))
+	fmt.Println("==========================================")
+
 	return runnerServer.State, nil
 }
 
@@ -145,23 +163,13 @@ func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, r
 		return nil, fmt.Errorf("error decoding session as post body: %s", err)
 	}
 
-	// just start it instantly for now...
-	// TODO: what's the distinction between session and task?
-	//
-	// why does getNextGlobalSession always immediately start a new model
-	// instance? shouldn't it assign it to an existing one potentially?
-
-	// what to do next: try running this code, get it working, then figure out
-	// how to make 'helix run' reuse an existing session (which i'm pretty sure
-	// this won't do) - also figure out how to write out results to disk, etc
-
 	err = runnerServer.Controller.AddToLocalQueue(req.Context(), session)
-	// err = runnerServer.Controller.createModelInstance(req.Context(), session)
 	if err != nil {
 		return nil, err
 	}
+	response := &types.WorkerTask{
+		SessionID: session.ID,
+	}
 
-	// TODO: Implement the logic to set the next global session
-
-	return nil, nil
+	return response, nil
 }
