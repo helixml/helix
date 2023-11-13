@@ -10,6 +10,8 @@ export const getSystemMessage = (message: string): IInteraction => {
     creator: SESSION_CREATOR_SYSTEM,
     runner: '',
     error: '',
+    state: '',
+    status: '',
     finetune_file: '',
     metadata: {},
     message,
