@@ -64,7 +64,7 @@ const New: FC = () => {
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
-  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_FINETUNE)
+  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
   const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
