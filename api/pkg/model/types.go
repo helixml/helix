@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"io"
 	"os/exec"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -36,5 +35,5 @@ type Model interface {
 	// but it's really up to the model to decide how to parse the output
 	// the eventHandler is the function that is wired up to the runner controller
 	// and will update the api with changes to the given session
-	GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (io.Writer, error)
+	GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (*TextStream, error)
 }

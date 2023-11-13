@@ -1,10 +1,8 @@
 package model
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -36,10 +34,13 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask
 	return task, nil
 }
 
-func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (io.Writer, error) {
+func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (*TextStream, error) {
 	if mode == types.SessionModeInference {
-		var buffer bytes.Buffer
-		return &buffer, nil
+		stream := NewTextStream(splitOnSpace, func(chunk string) {
+			fmt.Printf("chunk -> %s\n", chunk)
+		})
+
+		return stream, nil
 	}
 	return nil, nil
 }
