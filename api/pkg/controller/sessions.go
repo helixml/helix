@@ -133,13 +133,6 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 
 	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter)
 
-	if len(c.sessionQueue) > 0 {
-		fmt.Printf("filter --------------------------------------\n")
-		spew.Dump(filter)
-		fmt.Printf("sessionIndex --------------------------------------\n")
-		spew.Dump(sessionIndex)
-	}
-
 	if sessionIndex >= 0 {
 		session := c.sessionQueue[sessionIndex]
 
@@ -181,6 +174,8 @@ func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) erro
 }
 
 // generic "update this session handler"
+// this will emit a UserWebsocketEvent with a type of
+// WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(session *types.Session) {
 	log.Debug().
 		Msgf("🔵 update session: %s", session.ID)
@@ -191,7 +186,13 @@ func (c *Controller) WriteSession(session *types.Session) {
 		log.Printf("Error adding message: %s", err)
 	}
 
-	c.SessionUpdatesChan <- session
+	event := &types.UserWebsocketEvent{
+		Type:      types.WebsocketEventSessionUpdate,
+		SessionID: session.ID,
+		Session:   session,
+	}
+
+	c.UserWebsocketEventChan <- event
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
@@ -267,11 +268,7 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 	c.sessionQueue = newQueue
 }
 
-// if the action is "begin" - then we need to ceate a new textstream that is hooked up correctly
-// then we stash that in a map
-// if the action is "continue" - load the textstream and write to it
-// if the action is "end" - unload the text stream
-func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err
@@ -283,20 +280,17 @@ func (c *Controller) HandleWorkerResponse(ctx context.Context, taskResponse *typ
 
 	// let's see if we are updating an existing interaction
 	// or appending a new one
-	var targetInteraction *types.Interaction
-	for _, interaction := range session.Interactions {
-		if interaction.ID == taskResponse.InteractionID {
-			targetInteraction = &interaction
-			break
-		}
+	targetInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
 	}
 
 	if targetInteraction == nil {
-		return nil, fmt.Errorf("interaction not found: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
+		return nil, fmt.Errorf("interaction not found: %s", taskResponse.SessionID)
 	}
 
 	if targetInteraction.Creator == types.CreatorTypeUser {
-		return nil, fmt.Errorf("interaction is not a system interaction cannot update: %s -> %s", taskResponse.SessionID, taskResponse.InteractionID)
+		return nil, fmt.Errorf("interaction is not a system interaction cannot update: %s -> %s", taskResponse.SessionID, targetInteraction.ID)
 	}
 
 	// mark the interaction as complete if we are a fully finished response

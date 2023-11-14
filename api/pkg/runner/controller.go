@@ -313,23 +313,11 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		// TODO: support the tar feature above
 		func(res *types.WorkerTaskResponse) error {
 			if r.Options.LocalMode {
-				r.StateMtx.Lock()
-				defer r.StateMtx.Unlock()
-
-				// record in-memory for any local clients who want to query us
-				r.State[res.SessionID] = *res
-
-				stateYAML, err := yaml.Marshal(r.State)
+				err := r.addLocalResponse(ctx, res)
 				if err != nil {
 					return err
 				}
-				fmt.Println("==========================================")
-				fmt.Println("             LOCAL STATE")
-				fmt.Println("==========================================")
-				fmt.Println(string(stateYAML))
-				fmt.Println("==========================================")
 			}
-
 			return r.uploadWorkerResponse(res, session)
 		},
 		r.Options,
@@ -371,6 +359,26 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
 		r.activeModelInstances.Delete(modelInstance.id)
 	}()
+	return nil
+}
+
+func (r *Runner) addLocalResponse(ctx context.Context, res *types.WorkerTaskResponse) error {
+	r.StateMtx.Lock()
+	defer r.StateMtx.Unlock()
+
+	// record in-memory for any local clients who want to query us
+	r.State[res.SessionID] = *res
+
+	stateYAML, err := yaml.Marshal(r.State)
+	if err != nil {
+		return err
+	}
+	fmt.Println("==========================================")
+	fmt.Println("             LOCAL STATE")
+	fmt.Println("==========================================")
+	fmt.Println(string(stateYAML))
+	fmt.Println("==========================================")
+
 	return nil
 }
 

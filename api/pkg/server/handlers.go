@@ -593,7 +593,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
+func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
 	vars := mux.Vars(req)
 	runnerID := vars["runnerid"]
 	if runnerID == "" {
@@ -606,7 +606,7 @@ func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
+	taskResponse, err = apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
 		return nil, err
 	}
