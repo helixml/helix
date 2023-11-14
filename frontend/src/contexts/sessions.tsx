@@ -14,12 +14,14 @@ export interface ISessionsContext {
   initialized: boolean,
   sessions: ISession[],
   loadSessions: () => void,
+  addSesssion: (session: ISession) => void,
 }
 
 export const SessionsContext = createContext<ISessionsContext>({
   initialized: false,
   sessions: [],
   loadSessions: () => {},
+  addSesssion: (session: ISession) => {},
 })
 
 export const useSessionsContext = (): ISessionsContext => {
@@ -32,6 +34,10 @@ export const useSessionsContext = (): ISessionsContext => {
     const result = await api.get<ISession[]>('/api/v1/sessions')
     if(!result) return
     setSessions(result)
+  }, [])
+
+  const addSesssion = useCallback((session: ISession) => {
+    setSessions(sessions => sessions.concat([session]))
   }, [])
 
   const initialize = useCallback(async () => {
@@ -79,10 +85,12 @@ export const useSessionsContext = (): ISessionsContext => {
     initialized,
     sessions,
     loadSessions,
+    addSesssion,
   }), [
     initialized,
     sessions,
     loadSessions,
+    addSesssion,
   ])
 
   return contextValue
