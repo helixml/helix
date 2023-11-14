@@ -26,6 +26,17 @@ func ConnectRunnerWebSocketClient(
 		case <-ctx.Done():
 			go ws.Close()
 			return
+		case <-time.After(10 * time.Second):
+			ev := &types.WebsocketEvent{
+				Type:      types.WebsocketEventSessionPing,
+				SessionID: "",
+				Owner:     "",
+			}
+			err := ws.WriteJSON(ev)
+			if err != nil {
+				log.Error().Msgf("Error writing ping to websocket: %s %+v", err.Error(), ev)
+				continue
+			}
 		case ev := <-websocketEventChan:
 			log.Debug().
 				Str("action", "Websocket WRITE").
