@@ -20,6 +20,12 @@ import {
   AccountContextProvider,
 } from './account'
 
+// all of these contexts MUST be below the account context
+// because they rely on it
+import {
+  SessionsContextProvider,
+} from './sessions'
+
 const AllContextProvider: FC = ({ children }) => {
   return (
     <RouterContextProvider>
@@ -27,7 +33,9 @@ const AllContextProvider: FC = ({ children }) => {
         <LoadingContextProvider>
           <ThemeProviderWrapper>
             <AccountContextProvider>
-              { children }
+              <SessionsContextProvider>
+                { children }
+              </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
         </LoadingContextProvider>

@@ -4,10 +4,6 @@ export interface IUser {
   token: string,
 }
 
-export interface IWebsocketEvent {
-  type: string,
-}
-
 export interface IBalanceTransferData {
   job_id?: string,
   stripe_payment_id?: string,
@@ -77,6 +73,26 @@ export const SESSION_STATE_PREPARING: ISessionState = 'preparing'
 export const SESSION_STATE_READY: ISessionState = 'ready'
 export const SESSION_STATE_ERROR: ISessionState = 'error'
 
+export type IWebSocketEventType = 'session_update' | 'worker_task_response'
+export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
+export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
+
+export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
+export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
+export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
+export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
+
+export interface IWorkerTaskResponse {
+  type: IWorkerTaskResponseType,
+  session_id: string,
+  owner: string,
+  message?: string,
+  progress?: number,
+  status?: string,
+  files?: string[],
+  error?: string,
+}
+
 export interface IInteraction {
   id: string,
   created: number,
@@ -107,6 +123,14 @@ export interface ISession {
   interactions: IInteraction[],
   owner: string,
   owner_type: IOwnerType,
+}
+
+export interface IWebsocketEvent {
+  type: IWebSocketEventType,
+  session_id: string,
+  owner: string,
+  session?: ISession,
+  worker_task_response?: IInteraction,
 }
 
 export interface IServerConfig {
