@@ -100,7 +100,7 @@ func (c *Controller) Initialize() error {
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
 				go func() {
-					log.Debug().Msgf("Runner websocket event: %+v", *event.WorkerTaskResponse)
+					log.Debug().Msgf("Runner websocket event: %+v", *event)
 				}()
 				_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
 				if err != nil {
