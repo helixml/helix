@@ -88,6 +88,11 @@ func NewController(
 }
 
 func (c *Controller) Initialize() error {
+
+	// here we are reading *types.WebsocketEvent from the runner websocket server
+	// it's the runners way of saying "here is an update"
+	// it is used for "stream" and "progress" events
+	// the "result" event is posted to the API (to ensure finality)
 	go func() {
 		for {
 			select {
@@ -102,6 +107,8 @@ func (c *Controller) Initialize() error {
 			}
 		}
 	}()
+
+	// load the session queue from the database to survive restarts
 	err := c.loadSessionQueues(c.Ctx)
 	if err != nil {
 		return err
