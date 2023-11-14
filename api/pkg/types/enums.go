@@ -108,6 +108,7 @@ const (
 type WebsocketEventType string
 
 const (
+	WebsocketEventSessionPing        WebsocketEventType = "ping"
 	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
 	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
 )
