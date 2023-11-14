@@ -89,9 +89,6 @@ export const Interaction: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
-  console.log('--------------------------------------------')
-  console.log(isEditingConversations)
-
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
