@@ -40,7 +40,7 @@ type ControllerOptions struct {
 type Controller struct {
 	Ctx                    context.Context
 	Options                ControllerOptions
-	UserWebsocketEventChan chan *types.UserWebsocketEvent
+	UserWebsocketEventChan chan *types.WebsocketEvent
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
 	sessionQueueMtx sync.Mutex
@@ -73,7 +73,7 @@ func NewController(
 	controller := &Controller{
 		Ctx:                    ctx,
 		Options:                options,
-		UserWebsocketEventChan: make(chan *types.UserWebsocketEvent),
+		UserWebsocketEventChan: make(chan *types.WebsocketEvent),
 		sessionQueue:           []*types.Session{},
 		models:                 models,
 	}

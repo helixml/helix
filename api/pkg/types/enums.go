@@ -105,11 +105,11 @@ const (
 	CreatorTypeUser   CreatorType = "user"
 )
 
-type UserWebsocketEventType string
+type WebsocketEventType string
 
 const (
-	WebsocketEventSessionUpdate     UserWebsocketEventType = "session"
-	WebsocketEventInteractionStream UserWebsocketEventType = "interaction_stream"
+	WebsocketEventSessionUpdate     WebsocketEventType = "session"
+	WebsocketEventInteractionStream WebsocketEventType = "interaction_stream"
 )
 
 type WorkerTaskResponseType string

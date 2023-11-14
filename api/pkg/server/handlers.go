@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
@@ -391,8 +390,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	log.Debug().
-		Msgf("🟢 new session")
-	spew.Dump(session)
+		Msgf("🟢 new session: %+v", session)
 
 	// create session in database
 	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
@@ -468,8 +466,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
 
 	log.Debug().
-		Msgf("🟢 update session")
-	spew.Dump(sessionCopy)
+		Msgf("🟢 update session: %+v", sessionCopy)
 
 	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, sessionCopy)
 	if err != nil {

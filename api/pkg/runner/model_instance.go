@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -474,9 +473,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	}
 
 	log.Info().
-		Msgf("🟢 run model instance")
-	spew.Dump(cmd.Dir)
-	spew.Dump(cmd.Args)
+		Msgf("🟢 run model instance: %s, %+v", cmd.Dir, cmd.Args)
 
 	instance.currentCommand = cmd
 

@@ -116,11 +116,11 @@ type UserStatus struct {
 }
 
 // a single envelope that is broadcast to users
-type UserWebsocketEvent struct {
-	Type              UserWebsocketEventType `json:"type"`
-	SessionID         string                 `json:"session_id"`
-	Session           *Session               `json:"session"`
-	InteractionStream string                 `json:"interaction_stream"`
+type WebsocketEvent struct {
+	Type              WebsocketEventType `json:"type"`
+	SessionID         string             `json:"session_id"`
+	Session           *Session           `json:"session"`
+	InteractionStream string             `json:"interaction_stream"`
 }
 
 // the context of a long running python process

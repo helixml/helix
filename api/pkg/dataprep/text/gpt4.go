@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -77,9 +76,6 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		},
 	}
 
-	fmt.Printf("messages --------------------------------------\n")
-	spew.Dump(messages)
-
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
@@ -90,9 +86,6 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("resp.Choices[0].Message.Content --------------------------------------\n")
-	spew.Dump(resp.Choices[0].Message.Content)
 
 	var res []DataPrepTextConversation
 
