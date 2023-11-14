@@ -94,6 +94,7 @@ const New: FC = () => {
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     sessions.addSesssion(session)
+    navigate('session', {session_id: session.id})
   }
 
   const onAddTextFile = useCallback(() => {
