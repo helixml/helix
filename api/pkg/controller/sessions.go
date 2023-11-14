@@ -11,7 +11,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -137,11 +136,9 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 		session := c.sessionQueue[sessionIndex]
 
 		log.Debug().
-			Msgf("🔵 scheduler hit query")
-		spew.Dump(filter)
+			Msgf("🔵 scheduler hit query: %+v", filter)
 		log.Debug().
-			Msgf("🔵 scheduler hit session")
-		spew.Dump(session)
+			Msgf("🔵 scheduler hit session: %+v", session)
 
 		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
 
@@ -178,15 +175,14 @@ func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) erro
 // WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(session *types.Session) {
 	log.Debug().
-		Msgf("🔵 update session: %s", session.ID)
-	spew.Dump(session)
+		Msgf("🔵 update session: %s %+v", session.ID, session)
 
 	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
 	}
 
-	event := &types.UserWebsocketEvent{
+	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
 		SessionID: session.ID,
 		Session:   session,
@@ -552,8 +548,6 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
-
-	spew.Dump(systemInteraction)
 
 	// we return nil here because we want the user to edit the JSONL
 	// file and we will handle adding the session to the queue ourselves

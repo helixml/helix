@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lukemarsden/helix/api/pkg/controller"
@@ -13,7 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var upgrader = websocket.Upgrader{
+var userWebsocketUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
@@ -23,7 +25,7 @@ var upgrader = websocket.Upgrader{
 
 type GetUserIDFromRequest func(r *http.Request) (string, error)
 
-type ConnectionWrapper struct {
+type UserConnectionWrapper struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
 	user string
@@ -35,17 +37,17 @@ func StartUserWebSocketServer(
 	r *mux.Router,
 	Controller *controller.Controller,
 	path string,
-	userWebsocketEventChan chan *types.UserWebsocketEvent,
+	websocketEventChan chan *types.WebsocketEvent,
 	getUserIDFromRequest GetUserIDFromRequest,
 ) {
 	var mutex = &sync.Mutex{}
 
-	connections := map[*websocket.Conn]*ConnectionWrapper{}
+	connections := map[*websocket.Conn]*UserConnectionWrapper{}
 
 	addConnection := func(conn *websocket.Conn, user string) {
 		mutex.Lock()
 		defer mutex.Unlock()
-		connections[conn] = &ConnectionWrapper{
+		connections[conn] = &UserConnectionWrapper{
 			conn: conn,
 			user: user,
 		}
@@ -65,7 +67,9 @@ func StartUserWebSocketServer(
 	go func() {
 		for {
 			select {
-			case event := <-userWebsocketEventChan:
+			case event := <-websocketEventChan:
+				fmt.Printf("event --------------------------------------\n")
+				spew.Dump(event)
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
@@ -99,7 +103,7 @@ func StartUserWebSocketServer(
 			return
 		}
 
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
