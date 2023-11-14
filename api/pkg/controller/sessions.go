@@ -266,15 +266,7 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 }
 
 func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.WorkerTaskResponse, error) {
-	// if ev.Type == types.WebsocketEventInteractionStream {
-	// 	return c.HandleRunnerResponse(ctx, &types.WorkerTaskResponse{
-	// 		Type:      types.WorkerTaskResponseTypeStream,
-	// 		SessionID: ev.SessionID,
-	// 		Message:   ev.InteractionStream,
-	// 	})
-	// } else {
-	// 	return nil, fmt.Errorf("unknown websocket event type: %s", ev.Type)
-	// }
+	c.UserWebsocketEventChanWriter <- ev
 	return nil, nil
 }
 

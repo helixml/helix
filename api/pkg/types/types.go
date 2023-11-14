@@ -167,11 +167,11 @@ type WorkerTaskResponse struct {
 	Owner     string                 `json:"owner"`
 	// which fields the python code decides to fill in here depends
 	// on what the type of model it is
-	Message  string   `json:"message"`  // e.g. Prove pythagoras
-	Progress int      `json:"progress"` // e.g. 0-100
-	Status   string   `json:"status"`   // e.g. updating X
-	Files    []string `json:"files"`    // list of filepath paths
-	Error    string   `json:"error"`
+	Message  string   `json:"message,omitempty"`  // e.g. Prove pythagoras
+	Progress int      `json:"progress,omitempty"` // e.g. 0-100
+	Status   string   `json:"status,omitempty"`   // e.g. updating X
+	Files    []string `json:"files,omitempty"`    // list of filepath paths
+	Error    string   `json:"error,omitempty"`
 }
 
 type ServerConfig struct {
