@@ -25,6 +25,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
 import useLoading from '../hooks/useLoading'
 
 import {
@@ -56,6 +57,7 @@ const New: FC = () => {
   const api = useApi()
   const {navigate} = useRouter()
   const account = useAccount()
+  const sessions = useSessions()
 
   const [ uploadProgress, setUploadProgress ] = useState<IFilestoreUploadProgress>()
 
@@ -91,7 +93,7 @@ const New: FC = () => {
     
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
-    account.loadSessions()
+    sessions.loadSessions()
     navigate('session', {session_id: session.id})
   }
 
@@ -153,7 +155,7 @@ const New: FC = () => {
         setUploadProgress(undefined)
         return
       }
-      account.loadSessions()
+      sessions.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
@@ -206,7 +208,7 @@ const New: FC = () => {
         setUploadProgress(undefined)
         return
       }
-      account.loadSessions()
+      sessions.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 

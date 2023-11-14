@@ -16,6 +16,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
 
 const Session: FC = () => {
   const filestore = useFilestore()
@@ -23,6 +24,7 @@ const Session: FC = () => {
   const api = useApi()
   const {navigate, params} = useRouter()
   const account = useAccount()
+  const sessions = useSessions()
 
   const divRef = useRef<HTMLDivElement>()
 
@@ -33,7 +35,7 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
 
-  const session = account.sessions?.find(session => session.id === params["session_id"])
+  const session = sessions.sessions?.find(session => session.id === params["session_id"])
 
   const loading = useMemo(() => {
     return false
@@ -56,7 +58,7 @@ const Session: FC = () => {
 
     const newSession = await api.put(`/api/v1/sessions/${session.id}`, formData)
     if(!newSession) return
-    account.loadSessions()
+    sessions.loadSessions()
 
     setFiles([])
     setInputValue("")
