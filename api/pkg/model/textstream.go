@@ -2,8 +2,8 @@ package model
 
 import (
 	"bufio"
+	"fmt"
 	"io"
-	"log"
 )
 
 // a configurable text stream to process llm output
@@ -32,8 +32,7 @@ func NewTextStream(
 func (stream *TextStream) Write(data []byte) (int, error) {
 	n, err := stream.writer.Write(data)
 	if err != nil {
-		log.Printf("error writing to stream: %s", err)
-		return n, err
+		return n, fmt.Errorf("error writing to stream: %s", err)
 	}
 	return n, nil
 }
