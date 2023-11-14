@@ -115,9 +115,12 @@ type UserStatus struct {
 	Credits int    `json:"credits"`
 }
 
-type WebsocketEvent struct {
-	Type    WebsocketEventType `json:"type"`
-	Session *Session           `json:"session"`
+// a single envelope that is broadcast to users
+type UserWebsocketEvent struct {
+	Type              UserWebsocketEventType `json:"type"`
+	SessionID         string                 `json:"session_id"`
+	Session           *Session               `json:"session"`
+	InteractionStream string                 `json:"interaction_stream"`
 }
 
 // the context of a long running python process
@@ -160,8 +163,6 @@ type WorkerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	// this is filled in by the runner on the way back to the api
-	InteractionID string `json:"interaction_id"`
 	// which fields the python code decides to fill in here depends
 	// on what the type of model it is
 	Message  string   `json:"message"`  // e.g. Prove pythagoras

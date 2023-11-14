@@ -186,7 +186,7 @@ export const useAccountContext = (): IAccountContext => {
     if(!user?.token) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHostname = window.location.hostname
-    const url = `${wsProtocol}//${wsHostname}/api/v1/ws?access_token=${user?.token}`
+    const url = `${wsProtocol}//${wsHostname}/api/v1/ws/user?access_token=${user?.token}`
     const rws = new ReconnectingWebSocket(url)
     rws.addEventListener('message', (event) => {
       const parsedData = JSON.parse(event.data)
@@ -200,6 +200,9 @@ export const useAccountContext = (): IAccountContext => {
           return existingSession
         }))
       }
+    })
+    rws.addEventListener('open', () => {
+      // todo: send subscriptions for current sessions
     })
     return () => rws.close()
   }, [

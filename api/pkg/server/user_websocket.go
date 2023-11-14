@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -28,12 +29,13 @@ type ConnectionWrapper struct {
 	user string
 }
 
-// StartWebSocketServer starts a WebSocket server
-func StartWebSocketServer(
+// StartUserWebSocketServer starts a WebSocket server
+func StartUserWebSocketServer(
 	ctx context.Context,
 	r *mux.Router,
+	Controller *controller.Controller,
 	path string,
-	sessionUpdatesChan chan *types.Session,
+	userWebsocketEventChan chan *types.UserWebsocketEvent,
 	getUserIDFromRequest GetUserIDFromRequest,
 ) {
 	var mutex = &sync.Mutex{}
@@ -63,11 +65,7 @@ func StartWebSocketServer(
 	go func() {
 		for {
 			select {
-			case sessionUpdate := <-sessionUpdatesChan:
-				event := types.WebsocketEvent{
-					Type:    types.WebsocketEventSessionUpdate,
-					Session: sessionUpdate,
-				}
+			case event := <-userWebsocketEventChan:
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
@@ -107,13 +105,18 @@ func StartWebSocketServer(
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		defer conn.Close()
+		defer removeConnection(conn)
 		addConnection(conn, userID)
 
 		log.Debug().
 			Str("action", "⚪ ws CONNECT").
 			Msgf("connected user websocket: %s\n", userID)
 
+		// we block on reading messages from the client
+		// if we get any errors then we break and this will close
+		// the connection and remove it from our map
 		for {
 			messageType, _, err := conn.ReadMessage()
 			if err != nil {

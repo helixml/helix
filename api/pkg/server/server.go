@@ -119,7 +119,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.respondRunnerSession)).Methods("POST")
+	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
 
 	// handle downloading a single file from a session to a runner
 	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download", apiServer.runnerSessionDownloadFile).Methods("GET")
@@ -127,11 +127,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	// all files uploaded will be put under the "sessions/{sessionid}/results" folder in the filestore
 	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 
-	StartWebSocketServer(
+	StartUserWebSocketServer(
 		ctx,
 		subrouter,
-		"/ws",
-		apiServer.Controller.SessionUpdatesChan,
+		apiServer.Controller,
+		"/ws/user",
+		apiServer.Controller.UserWebsocketEventChan,
 		keyCloakMiddleware.userIDFromRequest,
 	)
 

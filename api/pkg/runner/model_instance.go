@@ -329,17 +329,10 @@ func (instance *ModelInstance) downloadSessionFile(sessionID string, folder stri
 */
 
 func (instance *ModelInstance) errorSession(session *types.Session, err error) {
-	interactionID, getInteractionErr := getLastInteractionID(session)
-	if getInteractionErr != nil {
-		log.Error().Msgf("Error reporting error to api: %v\n", getInteractionErr.Error())
-		return
-	}
-
 	apiUpdateErr := instance.responseHandler(&types.WorkerTaskResponse{
-		Type:          types.WorkerTaskResponseTypeResult,
-		SessionID:     session.ID,
-		InteractionID: interactionID,
-		Error:         err.Error(),
+		Type:      types.WorkerTaskResponseTypeResult,
+		SessionID: session.ID,
+		Error:     err.Error(),
 	})
 
 	if apiUpdateErr != nil {
@@ -372,13 +365,13 @@ func (instance *ModelInstance) handleProgress(ctx context.Context, taskResponse 
 		return fmt.Errorf("session ID mismatch")
 	}
 	instance.lastActivityTimestamp = time.Now().Unix()
-	interactionID, err := getLastInteractionID(instance.currentSession)
-	if err != nil {
-		return err
-	}
+	// interactionID, err := getLastInteractionID(instance.currentSession)
+	// if err != nil {
+	// 	return err
+	// }
 	taskResponseCopy := *taskResponse
-	taskResponseCopy.InteractionID = interactionID
-	err = instance.responseHandler(&taskResponseCopy)
+	// taskResponseCopy.InteractionID = interactionID
+	err := instance.responseHandler(&taskResponseCopy)
 	if err != nil {
 		return err
 	}
@@ -399,23 +392,23 @@ func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *t
 	// we update the timeout timestamp
 	instance.lastActivityTimestamp = time.Now().Unix()
 
-	interactionID, err := getLastInteractionID(instance.currentSession)
-	if err != nil {
-		return err
-	}
+	// interactionID, err := getLastInteractionID(instance.currentSession)
+	// if err != nil {
+	// 	return err
+	// }
 
 	// inject the interaction ID into the response
 	// this means the python code never needs to worry about
 	// feeding interaction ids back to us
 	taskResponseCopy := *taskResponse
-	taskResponseCopy.InteractionID = interactionID
+	// taskResponseCopy.InteractionID = interactionID
 
 	// now we pass the response through the model handler
 	// this gives each model a chance to process the result
 	// for example, the SDXL model will upload the files to the filestore
 	// and turn them into full URLs that can be displayed in the UI
 
-	err = instance.responseHandler(&taskResponseCopy)
+	err := instance.responseHandler(&taskResponseCopy)
 	if err != nil {
 		return err
 	}
@@ -510,6 +503,15 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	// parse correctly
 
 	textStream, err := instance.model.GetTextStream(session.Mode, func(taskResponse *types.WorkerTaskResponse) {
+		if instance.currentSession == nil {
+			log.Error().Msgf("no current session")
+			return
+		}
+		if instance.currentSession.ID != taskResponse.SessionID {
+			log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
+			return
+		}
+		instance.lastActivityTimestamp = time.Now().Unix()
 		fmt.Printf("taskResponse --------------------------------------\n")
 		spew.Dump(taskResponse)
 	})

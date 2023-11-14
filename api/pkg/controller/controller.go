@@ -38,9 +38,9 @@ type ControllerOptions struct {
 }
 
 type Controller struct {
-	Ctx                context.Context
-	Options            ControllerOptions
-	SessionUpdatesChan chan *types.Session
+	Ctx                    context.Context
+	Options                ControllerOptions
+	UserWebsocketEventChan chan *types.UserWebsocketEvent
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
 	sessionQueueMtx sync.Mutex
@@ -71,11 +71,11 @@ func NewController(
 		return nil, err
 	}
 	controller := &Controller{
-		Ctx:                ctx,
-		Options:            options,
-		SessionUpdatesChan: make(chan *types.Session),
-		sessionQueue:       []*types.Session{},
-		models:             models,
+		Ctx:                    ctx,
+		Options:                options,
+		UserWebsocketEventChan: make(chan *types.UserWebsocketEvent),
+		sessionQueue:           []*types.Session{},
+		models:                 models,
 	}
 	return controller, nil
 }
