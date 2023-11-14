@@ -189,7 +189,7 @@ func (c *Controller) WriteSession(session *types.Session) {
 		Session:   session,
 	}
 
-	c.UserWebsocketEventChan <- event
+	c.UserWebsocketEventChanWriter <- event
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
@@ -263,6 +263,19 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 	}
 
 	c.sessionQueue = newQueue
+}
+
+func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.WorkerTaskResponse, error) {
+	// if ev.Type == types.WebsocketEventInteractionStream {
+	// 	return c.HandleRunnerResponse(ctx, &types.WorkerTaskResponse{
+	// 		Type:      types.WorkerTaskResponseTypeStream,
+	// 		SessionID: ev.SessionID,
+	// 		Message:   ev.InteractionStream,
+	// 	})
+	// } else {
+	// 	return nil, fmt.Errorf("unknown websocket event type: %s", ev.Type)
+	// }
+	return nil, nil
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {

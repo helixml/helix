@@ -81,6 +81,9 @@ type Runner struct {
 	// TODO: maybe preserve insertion order
 	localSessions *xsync.MapOf[string, *types.Session]
 
+	// how we write web sockets messages to the api server
+	websocketEventChannel chan *types.WebsocketEvent
+
 	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
 	// then we keep state in memory
 	// in-memory state to record status that would normally be posted up as a result
@@ -92,11 +95,12 @@ func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
 ) (*Runner, error) {
-	if options.ApiHost != "" {
-		// these are only required if api-host is specified, we can also run in
-		// a purely local mode
+	if !options.LocalMode {
 		if options.ID == "" {
 			return nil, fmt.Errorf("id is required")
+		}
+		if options.ApiHost == "" {
+			return nil, fmt.Errorf("api host required")
 		}
 		if options.ApiToken == "" {
 			return nil, fmt.Errorf("api token is required")
@@ -124,45 +128,32 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances: xsync.NewMapOf[string, *ModelInstance](),
-		localSessions:        xsync.NewMapOf[string, *types.Session](),
-		State:                map[string]types.WorkerTaskResponse{},
+		activeModelInstances:  xsync.NewMapOf[string, *ModelInstance](),
+		localSessions:         xsync.NewMapOf[string, *types.Session](),
+		State:                 map[string]types.WorkerTaskResponse{},
+		websocketEventChannel: make(chan *types.WebsocketEvent),
 	}
 	return runner, nil
 }
 
-func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
-	if !r.Options.LocalMode {
-		return fmt.Errorf("cannot add to local queue when not in local mode")
-	}
-	// iterate over model instances to see if one exists and if it doesn't, create it.
-	// then add session to localQueue
-
-	// Check if a model instance exists for the session's model ID
-	found := false
-
-	// loop over r.activeModelInstances, checking whether the filters on the
-	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		if modelInstanceMatchesSession(modelInstance, session) {
-			// no need to create another one, because there's already one which will match the session
-			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
-			found = true
-			return false
-		}
-		return true
-	})
-	if !found {
-		// Create a new model instance because it doesn't exist
-		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
-		err := r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
+func (r *Runner) Initialize(ctx context.Context) error {
+	// connect to the runner websocket server on the api
+	// when we write events down the channel - write them to the websocket
+	parsedURL, err := url.Parse(server.WSURL(r.httpClientOptions, "/ws/runner"))
+	if err != nil {
+		return err
 	}
 
-	// Add the session to the local queue
-	r.localSessions.Store(session.ID, session)
+	queryParams := url.Values{}
+	queryParams.Add("runnerid", r.Options.ID)
+	parsedURL.RawQuery = queryParams.Encode()
+
+	server.ConnectRunnerWebSocketClient(
+		parsedURL.String(),
+		r.websocketEventChannel,
+		ctx,
+	)
+
 	return nil
 }
 
@@ -207,6 +198,41 @@ func (r *Runner) loop(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
+	if !r.Options.LocalMode {
+		return fmt.Errorf("cannot add to local queue when not in local mode")
+	}
+	// iterate over model instances to see if one exists and if it doesn't, create it.
+	// then add session to localQueue
+
+	// Check if a model instance exists for the session's model ID
+	found := false
+
+	// loop over r.activeModelInstances, checking whether the filters on the
+	// model instance match the session mode, type and finetune
+	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+		if modelInstanceMatchesSession(modelInstance, session) {
+			// no need to create another one, because there's already one which will match the session
+			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		// Create a new model instance because it doesn't exist
+		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
+		err := r.createModelInstance(ctx, session)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Add the session to the local queue
+	r.localSessions.Store(session.ID, session)
 	return nil
 }
 
@@ -297,10 +323,10 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 // will take into account the fact this model is running
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
-func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
+func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
-		session,
+		initialSession,
 		r.Options.TaskURL,
 		r.Options.SessionURL,
 		r.Options.ResponseURL,
@@ -316,8 +342,11 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 				if err != nil {
 					return err
 				}
+				return nil
+			} else {
+				// if the response is for the initial session then inclide
+				return r.handleWorkerResponse(res)
 			}
-			return r.uploadWorkerResponse(res, session)
 		},
 		r.Options,
 	)
@@ -326,7 +355,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := float32(modelInstance.model.GetMemoryRequirements(session.Mode)) / 1024 / 1024 / 1024
+	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
 	if modelMem > freeMem {
 		// refuse to start or record the model instance, it will just get GC'd at this point
@@ -341,12 +370,12 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	// and do any other prep it needs to do before being passed into the Python process
 	// over http - this is run for EVERY session not just the first one (look in getNextTask)
 	// this will run in a go-routine internally
-	go modelInstance.queueSession(session)
+	go modelInstance.queueSession(initialSession)
 
 	// now we block on starting the process
 	// for inference on a lora type file, this will need to download the lora file
 	// BEFORE we start the process -these files are part of the weights loaded into memory
-	err = modelInstance.startProcess(session)
+	err = modelInstance.startProcess(initialSession)
 	if err != nil {
 		return err
 	}
@@ -521,90 +550,38 @@ func (r *Runner) getFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemory()
 }
 
-func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
-	if r.httpClientOptions.Host == "" {
-		// no upstream server configured, skip uploading
-		return nil
+func (r *Runner) handleWorkerResponse(res *types.WorkerTaskResponse) error {
+	if res.Type == types.WorkerTaskResponseTypeResult {
+		// if it's a full result then we just post it to the api
+		return r.postWorkerResponseToApi(res)
+	} else if res.Type == types.WorkerTaskResponseTypeProgress || res.Type == types.WorkerTaskResponseTypeStream {
+		// otherwise for streaming updates it's a websocket event
+		return r.sendWorkerResponseToWebsocket(res)
+	} else {
+		return fmt.Errorf("unknown response type: %s", res.Type)
 	}
+}
+
+func (r *Runner) sendWorkerResponseToWebsocket(res *types.WorkerTaskResponse) error {
+	r.websocketEventChannel <- &types.WebsocketEvent{
+		Type:               types.WebsocketEventWorkerTaskResponse,
+		SessionID:          res.SessionID,
+		Owner:              res.Owner,
+		WorkerTaskResponse: res,
+	}
+	return nil
+}
+
+func (r *Runner) postWorkerResponseToApi(res *types.WorkerTaskResponse) error {
+	var err error
 	if len(res.Files) > 0 {
-		// create a new multipart form
-		body := &bytes.Buffer{}
-		writer := multipart.NewWriter(body)
-
-		// loop over each file and add it to the form
-		for _, filepath := range res.Files {
-			file, err := os.Open(filepath)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			// create a new form field for the file
-			part, err := writer.CreateFormFile("files", filepath)
-			if err != nil {
-				return err
-			}
-
-			// copy the file contents into the form field
-			_, err = io.Copy(part, file)
-			if err != nil {
-				return err
-			}
-		}
-
-		// close the multipart form
-		err := writer.Close()
+		res, err = r.uploadWorkerResponseFilesToApi(res)
 		if err != nil {
 			return err
 		}
-
-		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
-
-		log.Debug().Msgf("🟠 upload files %s", url)
-
-		// create a new POST request with the multipart form as the body
-		req, err := http.NewRequest("POST", url, body)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", writer.FormDataContentType())
-		server.AddHeadersVanilla(req, r.httpClientOptions.Token)
-
-		// send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		// handle the response
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		}
-
-		var data []filestore.FileStoreItem
-		resultBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		// parse body as json into result
-		err = json.Unmarshal(resultBody, &data)
-		if err != nil {
-			return err
-		}
-
-		mappedFiles := []string{}
-
-		for _, fileItem := range data {
-			mappedFiles = append(mappedFiles, fileItem.Path)
-		}
-
-		res.Files = mappedFiles
 	}
 
-	log.Debug().Msgf("🟠 Sending task response %s %+v", session.ID, res)
+	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 
 	// this function will write any task responses back to the api server for it to process
 	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
@@ -613,7 +590,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	_, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+	_, err = server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/response", r.Options.ID),
 		res,
@@ -622,4 +599,84 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 		return err
 	}
 	return nil
+}
+
+func (r *Runner) uploadWorkerResponseFilesToApi(res *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+	// create a new multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// loop over each file and add it to the form
+	for _, filepath := range res.Files {
+		file, err := os.Open(filepath)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		// create a new form field for the file
+		part, err := writer.CreateFormFile("files", filepath)
+		if err != nil {
+			return nil, err
+		}
+
+		// copy the file contents into the form field
+		_, err = io.Copy(part, file)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// close the multipart form
+	err := writer.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, res.SessionID))
+
+	log.Debug().Msgf("🟠 upload files %s", url)
+
+	// create a new POST request with the multipart form as the body
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	server.AddHeadersVanilla(req, r.httpClientOptions.Token)
+
+	// send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// handle the response
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var data []filestore.FileStoreItem
+	resultBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// parse body as json into result
+	err = json.Unmarshal(resultBody, &data)
+	if err != nil {
+		return nil, err
+	}
+
+	mappedFiles := []string{}
+
+	for _, fileItem := range data {
+		mappedFiles = append(mappedFiles, fileItem.Path)
+	}
+
+	res.Files = mappedFiles
+
+	return res, nil
 }

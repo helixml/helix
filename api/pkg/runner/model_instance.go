@@ -83,7 +83,7 @@ func NewModelInstance(
 	ctx context.Context,
 
 	// the session that meant this model instance is instantiated
-	session *types.Session,
+	initialSession *types.Session,
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
@@ -99,7 +99,7 @@ func NewModelInstance(
 
 	runnerOptions RunnerOptions,
 ) (*ModelInstance, error) {
-	modelInstance, err := model.GetModel(session.ModelName)
+	modelInstance, err := model.GetModel(initialSession.ModelName)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func NewModelInstance(
 	// if this is empty string then we need to hoist it to be types.FINETUNE_FILE_NONE
 	// because then we are always specifically asking for a session that has no finetune file
 	// if we left this blank we are saying "we don't care if it has one or not"
-	useFinetuneFile := session.FinetuneFile
+	useFinetuneFile := initialSession.FinetuneFile
 
 	if useFinetuneFile == "" {
 		useFinetuneFile = types.FINETUNE_FILE_NONE
@@ -123,12 +123,12 @@ func NewModelInstance(
 		taskURL:         fmt.Sprintf("%s/%s", taskURL, id),
 		sessionURL:      fmt.Sprintf("%s/%s", sessionURL, id),
 		responseURL:     fmt.Sprintf("%s/%s", responseURL, id),
-		initialSession:  session,
+		initialSession:  initialSession,
 		filter: types.SessionFilter{
-			ModelName:    session.ModelName,
-			Mode:         session.Mode,
+			ModelName:    initialSession.ModelName,
+			Mode:         initialSession.Mode,
 			FinetuneFile: useFinetuneFile,
-			Type:         session.Type,
+			Type:         initialSession.Type,
 		},
 		runnerOptions: runnerOptions,
 		httpClientOptions: server.ClientOptions{
@@ -339,111 +339,6 @@ func (instance *ModelInstance) errorSession(session *types.Session, err error) {
 	}
 }
 
-func (instance *ModelInstance) handleStream(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
-	if instance.currentSession == nil {
-		return fmt.Errorf("no current session")
-	}
-	if taskResponse.SessionID == "" {
-		return fmt.Errorf("no session ID")
-	}
-	if taskResponse.SessionID != instance.currentSession.ID {
-		return fmt.Errorf("session ID mismatch")
-	}
-	instance.lastActivityTimestamp = time.Now().Unix()
-	return nil
-}
-
-func (instance *ModelInstance) handleProgress(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
-	if instance.currentSession == nil {
-		return fmt.Errorf("no current session")
-	}
-	if taskResponse.SessionID == "" {
-		return fmt.Errorf("no session ID")
-	}
-	if taskResponse.SessionID != instance.currentSession.ID {
-		return fmt.Errorf("session ID mismatch")
-	}
-	instance.lastActivityTimestamp = time.Now().Unix()
-	// interactionID, err := getLastInteractionID(instance.currentSession)
-	// if err != nil {
-	// 	return err
-	// }
-	taskResponseCopy := *taskResponse
-	// taskResponseCopy.InteractionID = interactionID
-	err := instance.responseHandler(&taskResponseCopy)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (instance *ModelInstance) handleResult(ctx context.Context, taskResponse *types.WorkerTaskResponse) error {
-	if instance.currentSession == nil {
-		return fmt.Errorf("no current session")
-	}
-	if taskResponse.SessionID == "" {
-		return fmt.Errorf("no session ID")
-	}
-	if taskResponse.SessionID != instance.currentSession.ID {
-		return fmt.Errorf("session ID mismatch")
-	}
-
-	// we update the timeout timestamp
-	instance.lastActivityTimestamp = time.Now().Unix()
-
-	// interactionID, err := getLastInteractionID(instance.currentSession)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// inject the interaction ID into the response
-	// this means the python code never needs to worry about
-	// feeding interaction ids back to us
-	taskResponseCopy := *taskResponse
-	// taskResponseCopy.InteractionID = interactionID
-
-	// now we pass the response through the model handler
-	// this gives each model a chance to process the result
-	// for example, the SDXL model will upload the files to the filestore
-	// and turn them into full URLs that can be displayed in the UI
-
-	err := instance.responseHandler(&taskResponseCopy)
-	if err != nil {
-		return err
-	}
-
-	instance.currentSession = nil
-	return nil
-}
-
-func (instance *ModelInstance) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	if taskResponse == nil {
-		return nil, fmt.Errorf("task response is required")
-	}
-	switch {
-	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
-		err := instance.handleStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
-		err := instance.handleProgress(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling progress: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
-		err := instance.handleResult(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling job result: %s", err.Error())
-			return nil, err
-		}
-	}
-
-	return taskResponse, nil
-}
-
 /*
 
 
@@ -508,7 +403,11 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
 			return
 		}
+		taskResponse.Owner = instance.currentSession.Owner
 		instance.lastActivityTimestamp = time.Now().Unix()
+
+		// this will emit to the controller handler
+		// i.e. the function defined in createModelInstance
 		err := instance.responseHandler(taskResponse)
 		if err != nil {
 			log.Error().Msgf("error writing event: %s", err.Error())

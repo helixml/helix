@@ -38,9 +38,15 @@ type ControllerOptions struct {
 }
 
 type Controller struct {
-	Ctx                    context.Context
-	Options                ControllerOptions
-	UserWebsocketEventChan chan *types.WebsocketEvent
+	Ctx     context.Context
+	Options ControllerOptions
+
+	// this is used to WRITE events to browsers
+	UserWebsocketEventChanWriter chan *types.WebsocketEvent
+
+	// this is used to READ events from runners
+	RunnerWebsocketEventChanReader chan *types.WebsocketEvent
+
 	// the backlog of sessions that need a GPU
 	sessionQueue    []*types.Session
 	sessionQueueMtx sync.Mutex
@@ -71,16 +77,31 @@ func NewController(
 		return nil, err
 	}
 	controller := &Controller{
-		Ctx:                    ctx,
-		Options:                options,
-		UserWebsocketEventChan: make(chan *types.WebsocketEvent),
-		sessionQueue:           []*types.Session{},
-		models:                 models,
+		Ctx:                            ctx,
+		Options:                        options,
+		UserWebsocketEventChanWriter:   make(chan *types.WebsocketEvent),
+		RunnerWebsocketEventChanReader: make(chan *types.WebsocketEvent),
+		sessionQueue:                   []*types.Session{},
+		models:                         models,
 	}
 	return controller, nil
 }
 
 func (c *Controller) Initialize() error {
+	go func() {
+		for {
+			select {
+			case <-c.Ctx.Done():
+				return
+			case event := <-c.RunnerWebsocketEventChanReader:
+				log.Debug().Msgf("Runner websocket event: %+v", event)
+				_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
+				if err != nil {
+					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
+				}
+			}
+		}
+	}()
 	err := c.loadSessionQueues(c.Ctx)
 	if err != nil {
 		return err

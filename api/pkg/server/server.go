@@ -132,8 +132,16 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		subrouter,
 		apiServer.Controller,
 		"/ws/user",
-		apiServer.Controller.UserWebsocketEventChan,
+		apiServer.Controller.UserWebsocketEventChanWriter,
 		keyCloakMiddleware.userIDFromRequest,
+	)
+
+	StartRunnerWebSocketServer(
+		ctx,
+		subrouter,
+		apiServer.Controller,
+		"/ws/runner",
+		apiServer.Controller.RunnerWebsocketEventChanReader,
 	)
 
 	srv := &http.Server{

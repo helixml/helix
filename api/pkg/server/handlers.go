@@ -591,12 +591,6 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 }
 
 func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
-	vars := mux.Vars(req)
-	runnerID := vars["runnerid"]
-	if runnerID == "" {
-		return nil, fmt.Errorf("cannot get next session without runner id")
-	}
-
 	taskResponse := &types.WorkerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {

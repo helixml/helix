@@ -126,6 +126,11 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return err
 	}
 
+	err = runnerController.Initialize(ctx)
+	if err != nil {
+		return err
+	}
+
 	go runnerController.StartLooping()
 
 	server, err := runner.NewRunnerServer(options.Server, runnerController)

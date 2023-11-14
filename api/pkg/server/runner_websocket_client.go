@@ -5,71 +5,85 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
 // this is designed to write messages from the runner to the api server
 func ConnectRunnerWebSocketClient(
 	url string,
-	messageChan chan []byte,
+	websocketEventChan chan *types.WebsocketEvent,
 	ctx context.Context,
-) *websocket.Conn {
+) error {
+
+	connectWebSocket := func() (*websocket.Conn, error) {
+		log.Debug().Msgf("Web socket Connecting to %s", url)
+		c, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			log.Error().Msgf("Dial error: %s", err.Error())
+			return nil, err
+		}
+		return c, nil
+	}
+
+	var wsConn *websocket.Conn
+	var err error
 	closed := false
 
-	var conn *websocket.Conn
+	wsConn, err = connectWebSocket()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			// Read messages in a loop
+			_, message, err := wsConn.ReadMessage()
+			if err != nil {
+				log.Error().Msgf("Websocket Read error: %s", err.Error())
+				wsConn.Close()
+				if closed {
+					break
+				}
+
+				// Reconnect logic
+				wsConn, err = connectWebSocket()
+				if err != nil {
+					log.Error().Msgf("Websocket Reconnect failed: %s", err.Error())
+					time.Sleep(time.Second * time.Duration(1))
+				}
+				continue
+			}
+
+			// Process the received message
+			log.Debug().Msgf("Websocket Received: %s", message)
+		}
+	}()
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				closed = true
-				if conn != nil {
-					conn.Close()
+				if wsConn != nil {
+					wsConn.Close()
 				}
-
-				return
+				break
+			case ev := <-websocketEventChan:
+				if wsConn == nil {
+					continue
+				}
+				log.Debug().
+					Str("action", "Websocket WRITE").
+					Msgf("payload %+v", ev)
+				err := wsConn.WriteJSON(ev)
+				if err != nil {
+					log.Error().Msgf("Error writing data to websocket: %s %+v", err.Error(), ev)
+					continue
+				}
 			}
 		}
 	}()
 
-	for {
-		var err error
-		log.Debug().Msgf("WebSocket connection connecting: %s", url)
-		conn, _, err = websocket.DefaultDialer.Dial(url, nil)
-		if err != nil {
-			log.Error().Msgf("WebSocket connection failed: %s\nReconnecting in 2 seconds...", err)
-			if closed {
-				break
-			}
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		break
-	}
-
-	if !closed {
-		go func() {
-			for {
-				messageType, p, err := conn.ReadMessage()
-				if err != nil {
-					if closed {
-						return
-					}
-					log.Error().Msgf("Read error: %s\nReconnecting in 2 seconds...", err)
-					time.Sleep(2 * time.Second)
-					conn = ConnectRunnerWebSocketClient(url, messageChan, ctx)
-					continue
-				}
-				if messageType == websocket.TextMessage {
-					log.Debug().
-						Str("action", "ws READ").
-						Str("payload", string(p)).
-						Msgf("")
-					messageChan <- p
-				}
-			}
-		}()
-	}
-
-	return conn
+	return nil
 }
