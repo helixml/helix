@@ -7,6 +7,8 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
+type WorkerEventHandler func(res *types.WorkerTaskResponse)
+
 type Model interface {
 	// return the number of bytes of memory this model will require
 	// this enables the runner to multiplex models onto one GPU
@@ -35,5 +37,5 @@ type Model interface {
 	// but it's really up to the model to decide how to parse the output
 	// the eventHandler is the function that is wired up to the runner controller
 	// and will update the api with changes to the given session
-	GetTextStream(mode types.SessionMode, eventHandler func(res *types.WorkerTaskResponse)) (*TextStream, error)
+	GetTextStream(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, error)
 }
