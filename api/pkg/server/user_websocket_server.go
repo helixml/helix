@@ -113,7 +113,7 @@ func StartUserWebSocketServer(
 		addConnection(conn, userID)
 
 		log.Debug().
-			Str("action", "⚪ ws CONNECT").
+			Str("action", "⚪ user ws CONNECT").
 			Msgf("connected user websocket: %s\n", userID)
 
 		// we block on reading messages from the client
