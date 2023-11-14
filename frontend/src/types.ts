@@ -130,7 +130,7 @@ export interface IWebsocketEvent {
   session_id: string,
   owner: string,
   session?: ISession,
-  worker_task_response?: IInteraction,
+  worker_task_response?: IWorkerTaskResponse,
 }
 
 export interface IServerConfig {
