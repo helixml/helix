@@ -185,6 +185,7 @@ func (c *Controller) WriteSession(session *types.Session) {
 	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventSessionUpdate,
 		SessionID: session.ID,
+		Owner:     session.Owner,
 		Session:   session,
 	}
 

@@ -3,11 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lukemarsden/helix/api/pkg/controller"
@@ -68,8 +66,7 @@ func StartUserWebSocketServer(
 		for {
 			select {
 			case event := <-websocketEventChan:
-				fmt.Printf("event --------------------------------------\n")
-				spew.Dump(event)
+				log.Debug().Msgf("User websocket event: %+v", event)
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
@@ -77,10 +74,9 @@ func StartUserWebSocketServer(
 				}
 				// TODO: make this more efficient
 				for _, connWrapper := range connections {
-					// TODO: put this back after we start sending correct user/owner
-					// if connWrapper.user != sessionUpdate.Owner {
-					// 	continue
-					// }
+					if connWrapper.user != event.Owner {
+						continue
+					}
 					connWrapper.mu.Lock()
 					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 						log.Error().Msgf("Error writing to websocket: %s", err.Error())

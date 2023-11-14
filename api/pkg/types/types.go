@@ -119,6 +119,7 @@ type UserStatus struct {
 type WebsocketEvent struct {
 	Type              WebsocketEventType `json:"type"`
 	SessionID         string             `json:"session_id"`
+	Owner             string             `json:"owner"`
 	Session           *Session           `json:"session"`
 	InteractionStream string             `json:"interaction_stream"`
 }
