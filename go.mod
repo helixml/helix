@@ -24,6 +24,11 @@ require (
 require github.com/sashabaranov/go-openai v1.17.3
 
 require (
+	github.com/jpillora/backoff v1.0.0 // indirect
+	github.com/recws-org/recws v1.4.0 // indirect
+)
+
+require (
 	cloud.google.com/go v0.110.8 // indirect
 	cloud.google.com/go/compute v1.23.0 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect

@@ -148,7 +148,7 @@ func (r *Runner) Initialize(ctx context.Context) error {
 	queryParams.Add("runnerid", r.Options.ID)
 	parsedURL.RawQuery = queryParams.Encode()
 
-	server.ConnectRunnerWebSocketClient(
+	go server.ConnectRunnerWebSocketClient(
 		parsedURL.String(),
 		r.websocketEventChannel,
 		ctx,

@@ -65,12 +65,12 @@ func StartRunnerWebSocketServer(
 		defer conn.Close()
 		defer removeConnection(conn)
 
-		// TODO: extract the runner ID somehow
-		runnerID := ""
+		// extract the runner ID from the query parameter
+		runnerID := r.URL.Query().Get("runnerid")
 		addConnection(conn, runnerID)
 
 		log.Debug().
-			Str("action", "⚪ ws CONNECT").
+			Str("action", "🟠 runner ws CONNECT").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
 		// we block on reading messages from the client
