@@ -512,8 +512,11 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			return
 		}
 		instance.lastActivityTimestamp = time.Now().Unix()
-		fmt.Printf("taskResponse --------------------------------------\n")
-		spew.Dump(taskResponse)
+		err := instance.responseHandler(taskResponse)
+		if err != nil {
+			log.Error().Msgf("error writing event: %s", err.Error())
+			return
+		}
 	})
 	if err != nil {
 		return err
@@ -523,8 +526,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	}
 	go textStream.Start()
 	go func() {
-		_, err := io.Copy(io.MultiWriter(textStream), stdoutPipe)
-		//_, err := io.Copy(io.MultiWriter(textStream, os.Stdout), stdoutPipe)
+		_, err := io.Copy(io.MultiWriter(textStream, os.Stdout), stdoutPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stdout: %v", err)
 		}
@@ -537,8 +539,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	// stream stderr to os.Stderr (so we can see it in the logs)
 	// and also the error buffer we will use to post the error to the api
 	go func() {
-		_, err := io.Copy(io.MultiWriter(stderrBuf), stderrPipe)
-		//_, err := io.Copy(io.MultiWriter(stderrBuf, os.Stderr), stderrPipe)
+		_, err := io.Copy(io.MultiWriter(stderrBuf, os.Stderr), stderrPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stderr: %v", err)
 		}

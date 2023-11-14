@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
@@ -605,8 +604,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 		res.Files = mappedFiles
 	}
 
-	log.Debug().Msgf("🟠 Sending task response %s", session.ID)
-	spew.Dump(res)
+	log.Debug().Msgf("🟠 Sending task response %s %+v", session.ID, res)
 
 	// this function will write any task responses back to the api server for it to process
 	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
