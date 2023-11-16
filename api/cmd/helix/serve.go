@@ -283,9 +283,17 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("openai api key is required")
 	}
 
+	var appController *controller.Controller
+
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
+
+	// a text.DataPrepText factory that runs jobs on ourselves
+	// dogfood nom nom nom
 	options.ControllerOptions.DataPrepTextFactory = func() (text.DataPrepText, error) {
+		if appController == nil {
+			return nil, fmt.Errorf("app controller is not initialized")
+		}
 		return getTextDataPrep(ctx, options)
 	}
 
@@ -293,19 +301,19 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
 	}
 
-	controller, err := controller.NewController(ctx, options.ControllerOptions)
+	appController, err = controller.NewController(ctx, options.ControllerOptions)
 	if err != nil {
 		return err
 	}
 
-	err = controller.Initialize()
+	err = appController.Initialize()
 	if err != nil {
 		return err
 	}
 
-	go controller.StartLooping()
+	go appController.StartLooping()
 
-	server, err := server.NewServer(options.ServerOptions, store, controller)
+	server, err := server.NewServer(options.ServerOptions, store, appController)
 	if err != nil {
 		return err
 	}

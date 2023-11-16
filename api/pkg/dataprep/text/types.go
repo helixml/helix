@@ -1,5 +1,8 @@
 package text
 
+// generic options - api key need not be defined
+// the chunk sizes applies to all interfaces because
+// we just call out to our unstructured service for all things
 type DataPrepTextOptions struct {
 	APIKey            string
 	ChunkSize         int
@@ -21,6 +24,9 @@ type ShareGPTConversations struct {
 	Conversations []ShareGPTConversation `json:"conversations"`
 }
 
+// an implementation that knows how to add documents,
+// chunk into pieces with overflow
+// and convert into question answer pairs
 type DataPrepText interface {
 	// add a document to the collection
 	AddDocument(content string) error
