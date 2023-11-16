@@ -590,8 +590,8 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
-	taskResponse := &types.WorkerTaskResponse{}
+func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.RunnerTaskResponse, error) {
+	taskResponse := &types.RunnerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
 		return nil, err

@@ -121,7 +121,7 @@ type WebsocketEvent struct {
 	SessionID          string              `json:"session_id"`
 	Owner              string              `json:"owner"`
 	Session            *Session            `json:"session"`
-	WorkerTaskResponse *WorkerTaskResponse `json:"worker_task_response"`
+	WorkerTaskResponse *RunnerTaskResponse `json:"worker_task_response"`
 }
 
 // the context of a long running python process
@@ -144,7 +144,7 @@ type RunnerProcessConfig struct {
 // the api controller will have already appended the system interaction
 // to the very end of the Session.Interactions list
 // our job is to fill in the Message and/or Files field of that interaction
-type WorkerTask struct {
+type RunnerTask struct {
 	SessionID string `json:"session_id"`
 	// the string that we are calling the prompt that we will feed into the model
 	Prompt string `json:"prompt"`
@@ -158,7 +158,7 @@ type WorkerTask struct {
 	FinetuneInputDir string `json:"finetune_input_dir"`
 }
 
-type WorkerTaskResponse struct {
+type RunnerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`

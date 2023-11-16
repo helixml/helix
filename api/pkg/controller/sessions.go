@@ -265,12 +265,12 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 	c.sessionQueue = newQueue
 }
 
-func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.WorkerTaskResponse, error) {
+func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.RunnerTaskResponse, error) {
 	c.UserWebsocketEventChanWriter <- ev
 	return nil, nil
 }
 
-func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err

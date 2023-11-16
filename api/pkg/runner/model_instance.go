@@ -44,7 +44,7 @@ type ModelInstance struct {
 	initialSessionURL string
 
 	// we write responses to this function and they will be sent to the api
-	responseHandler func(res *types.WorkerTaskResponse) error
+	responseHandler func(res *types.RunnerTaskResponse) error
 
 	// we create a cancel context for the running process
 	// which is derived from the main runner context
@@ -90,7 +90,7 @@ func NewModelInstance(
 	// e.g. http://localhost:8080/api/v1/worker/initial_session/:instanceid
 	initialSessionURL string,
 
-	responseHandler func(res *types.WorkerTaskResponse) error,
+	responseHandler func(res *types.RunnerTaskResponse) error,
 
 	runnerOptions RunnerOptions,
 ) (*ModelInstance, error) {
@@ -144,7 +144,7 @@ func NewModelInstance(
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
+func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
 	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
@@ -320,7 +320,7 @@ func (instance *ModelInstance) downloadSessionFile(sessionID string, folder stri
 */
 
 func (instance *ModelInstance) errorSession(session *types.Session, err error) {
-	apiUpdateErr := instance.responseHandler(&types.WorkerTaskResponse{
+	apiUpdateErr := instance.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: session.ID,
 		Error:     err.Error(),
@@ -342,7 +342,7 @@ func (instance *ModelInstance) errorSession(session *types.Session, err error) {
 */
 
 // we call this function from the text processors
-func (instance *ModelInstance) taskResponseHandler(taskResponse *types.WorkerTaskResponse) {
+func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
 	if instance.currentSession == nil {
 		log.Error().Msgf("no current session")
 		return
