@@ -349,11 +349,35 @@ func (instance *ModelInstance) errorSession(session *types.Session, err error) {
 
 */
 
+// we call this function from the text processors
+func (instance *ModelInstance) taskResponseHandler(taskResponse *types.WorkerTaskResponse) {
+	if instance.currentSession == nil {
+		log.Error().Msgf("no current session")
+		return
+	}
+	if instance.currentSession.ID != taskResponse.SessionID {
+		log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
+		return
+	}
+	taskResponse.Owner = instance.currentSession.Owner
+	instance.lastActivityTimestamp = time.Now().Unix()
+
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+		instance.currentSession = nil
+	}
+
+	// this will emit to the controller handler
+	// i.e. the function defined in createModelInstance
+	err := instance.responseHandler(taskResponse)
+	if err != nil {
+		log.Error().Msgf("error writing event: %s", err.Error())
+		return
+	}
+}
+
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
 func (instance *ModelInstance) startProcess(session *types.Session) error {
-	// download lora file
-
 	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter, types.RunnerProcessConfig{
 		InstanceID:  instance.id,
 		TaskURL:     instance.taskURL,
@@ -382,6 +406,13 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		return err
 	}
 
+	// this buffer is so we can keep the last 10kb of stderr so if
+	// there is an error we can send it to the api
+	stderrBuf := system.NewLimitedBuffer(1024 * 10)
+
+	stdoutWriters := []io.Writer{os.Stdout}
+	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
 	// create the model textsream
 	// this is responsible for chunking stdout into session outputs
 	// and keeping track of the current session
@@ -393,49 +424,32 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	// in all cases - each model get's to decide what formatting
 	// it's Python needs to use so that these text streams will
 	// parse correctly
-
-	textStream, err := instance.model.GetTextStream(session.Mode, func(taskResponse *types.WorkerTaskResponse) {
-		if instance.currentSession == nil {
-			log.Error().Msgf("no current session")
-			return
-		}
-		if instance.currentSession.ID != taskResponse.SessionID {
-			log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
-			return
-		}
-		taskResponse.Owner = instance.currentSession.Owner
-		instance.lastActivityTimestamp = time.Now().Unix()
-
-		// this will emit to the controller handler
-		// i.e. the function defined in createModelInstance
-		err := instance.responseHandler(taskResponse)
-		if err != nil {
-			log.Error().Msgf("error writing event: %s", err.Error())
-			return
-		}
-	})
+	stdout, stderr, err := instance.model.GetTextStreams(session.Mode, instance.taskResponseHandler)
 	if err != nil {
 		return err
 	}
-	if textStream == nil {
-		return fmt.Errorf("no text stream")
+
+	if stdout != nil {
+		go stdout.Start()
+		stdoutWriters = append(stdoutWriters, stdout)
 	}
-	go textStream.Start()
+
+	if stderr != nil {
+		go stderr.Start()
+		stderrWriters = append(stderrWriters, stderr)
+	}
+
 	go func() {
-		_, err := io.Copy(io.MultiWriter(textStream, os.Stdout), stdoutPipe)
+		_, err := io.Copy(io.MultiWriter(stdoutWriters...), stdoutPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stdout: %v", err)
 		}
 	}()
 
-	// this buffer is so we can keep the last 10kb of stderr so if
-	// there is an error we can send it to the api
-	stderrBuf := system.NewLimitedBuffer(1024 * 10)
-
 	// stream stderr to os.Stderr (so we can see it in the logs)
 	// and also the error buffer we will use to post the error to the api
 	go func() {
-		_, err := io.Copy(io.MultiWriter(stderrBuf, os.Stderr), stderrPipe)
+		_, err := io.Copy(io.MultiWriter(stderrWriters...), stderrPipe)
 		if err != nil {
 			log.Error().Msgf("Error copying stderr: %v", err)
 		}
