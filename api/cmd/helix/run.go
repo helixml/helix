@@ -3,6 +3,7 @@ package helix
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,11 +17,15 @@ import (
 
 type RunOptions struct {
 	RunnerUrl string
+	Type      string
+	Prompt    string
 }
 
 func NewRunOptions() *RunOptions {
 	return &RunOptions{
 		RunnerUrl: getDefaultServeOptionString("RUNNER_URL", "http://localhost:8080"),
+		Type:      "image",
+		Prompt:    "a question mark floating in space",
 	}
 }
 
@@ -39,7 +44,17 @@ func newRunCmd() *cobra.Command {
 
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.RunnerUrl, "api-host", allOptions.RunnerUrl,
-		`The base URL of the runner - e.g. http://localhost:8080`,
+		`The base URL of the runner`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Type, "type", allOptions.Type,
+		`Type of generative AI: image, text`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Prompt, "prompt", allOptions.Prompt,
+		`Prompt for the model`,
 	)
 
 	return runnerCmd
@@ -58,28 +73,37 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	defer cancel()
 
 	interaction := types.Interaction{
-		ID:       "cli-intx",
+		ID:       "cli-user",
 		Created:  time.Now(),
 		Creator:  "user",
-		Runner:   "",
-		Message:  "a unicorn riding a horse",
-		Progress: 0,
-		Files:    []string{},
+		Message:  options.Prompt,
 		Finished: true,
-		Metadata: map[string]string{},
-		Error:    "",
+	}
+	interactionSystem := types.Interaction{
+		ID:       "cli-system",
+		Created:  time.Now(),
+		Creator:  "system",
+		Finished: false,
 	}
 
+	var modelName types.ModelName
+	if options.Type == "image" {
+		modelName = types.Model_SDXL
+	} else if options.Type == "text" {
+		modelName = types.Model_Mistral7b
+	}
+
+	id := system.GenerateUUID()
 	session := types.Session{
-		ID:           "cli",
+		ID:           "cli-" + id,
 		Name:         "cli",
 		Created:      time.Now(),
 		Updated:      time.Now(),
 		Mode:         "inference",
-		Type:         "image",
-		ModelName:    "stabilityai/stable-diffusion-xl-base-1.0",
+		Type:         types.SessionType(options.Type),
+		ModelName:    modelName,
 		FinetuneFile: "",
-		Interactions: []types.Interaction{interaction},
+		Interactions: []types.Interaction{interaction, interactionSystem},
 		Owner:        "cli-user",
 		OwnerType:    "user",
 	}
@@ -101,9 +125,28 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	}
 	defer resp.Body.Close()
 
-	log.Printf("Response: %+v", resp)
-
-	// TODO: poll /worker/state, updating the CLI with the result
-
-	return nil
+	for {
+		resp, err := http.Get(options.RunnerUrl + "/api/v1/worker/state")
+		if err != nil {
+			return err
+		}
+		bd, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		rr := make(map[string]types.WorkerTaskResponse)
+		err = json.Unmarshal(bd, &rr)
+		if err != nil {
+			return err
+		}
+		wtr, ok := rr["cli-"+id]
+		if ok {
+			log.Printf("Progress: %+v%%", wtr.Progress)
+			if len(wtr.Files) > 0 {
+				log.Printf("File has been written: %s", wtr.Files[0][len("/app/sd-scripts/./output_images/"):])
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
