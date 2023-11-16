@@ -35,27 +35,31 @@ func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
 }
 
 func (l *SDXL) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
-	if mode == types.SessionModeInference {
-		// the same chunker handles both stdout and stderr
-		// that is because the progress appears on stderr
-		// and the session ID appears on stdout and so we need shared state
-		// effectively - the chunker is getting a combo of stdout and stderr
-		chunker := newSDXLInferenceChunker(eventHandler)
-		stdout := NewTextStream(bufio.ScanWords, func(chunk string) {
-			err := chunker.write(chunk)
-			if err != nil {
-				log.Error().Msgf("error writing word to sdxl inference chunker: %s", err)
-			}
-		})
-		stderr := NewTextStream(bufio.ScanWords, func(chunk string) {
-			err := chunker.write(chunk)
-			if err != nil {
-				log.Error().Msgf("error writing word to sdxl inference chunker: %s", err)
-			}
-		})
-		return stdout, stderr, nil
+	progressActivationWord := ""
+	if mode == types.SessionModeFinetune {
+		progressActivationWord = "steps:"
 	}
-	return nil, nil, nil
+	// the same chunker works for both modes
+	// the same chunker handles both stdout and stderr
+	// that is because the progress appears on stderr
+	// and the session ID appears on stdout and so we need shared state
+	// effectively - the chunker is getting a combo of stdout and stderr
+	chunker := newSDXLChunker(eventHandler, SDXLChunkerOptions{
+		progressActivationWord: progressActivationWord,
+	})
+	stdout := NewTextStream(bufio.ScanWords, func(chunk string) {
+		err := chunker.write(chunk)
+		if err != nil {
+			log.Error().Msgf("error writing word to sdxl inference chunker: %s", err)
+		}
+	})
+	stderr := NewTextStream(bufio.ScanWords, func(chunk string) {
+		err := chunker.write(chunk)
+		if err != nil {
+			log.Error().Msgf("error writing word to sdxl inference chunker: %s", err)
+		}
+	})
+	return stdout, stderr, nil
 }
 
 func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
@@ -108,28 +112,41 @@ func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter
 
 	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
-		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
-		fmt.Sprintf("HELIX_READ_INITIAL_SESSION_URL=%s", config.SessionURL),
-		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
+		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
+		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
 		"PYTHONUNBUFFERED=1",
 	}
 
 	return cmd, nil
 }
 
-type SDXLInferenceChunker struct {
-	sessionID    string
-	eventHandler WorkerEventHandler
+type SDXLChunkerOptions struct {
+	// if defined - we must wait until we see this word
+	// before we start to activate percentages
+	// this is because the fine tuning emits percentages
+	// before the actual training starts so causes
+	// the loading bar to flicker back and forth
+	progressActivationWord string
 }
 
-func newSDXLInferenceChunker(eventHandler WorkerEventHandler) *SDXLInferenceChunker {
-	return &SDXLInferenceChunker{
-		sessionID:    "",
-		eventHandler: eventHandler,
+// the same chunker works for inference and fine tuning
+type SDXLChunker struct {
+	sessionID      string
+	progressActive bool
+	options        SDXLChunkerOptions
+	eventHandler   WorkerEventHandler
+}
+
+func newSDXLChunker(eventHandler WorkerEventHandler, options SDXLChunkerOptions) *SDXLChunker {
+	return &SDXLChunker{
+		sessionID:      "",
+		progressActive: false,
+		options:        options,
+		eventHandler:   eventHandler,
 	}
 }
 
-func (chunker *SDXLInferenceChunker) emitProgress(progress int) {
+func (chunker *SDXLChunker) emitProgress(progress int) {
 	chunker.eventHandler(&types.WorkerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeProgress,
 		SessionID: chunker.sessionID,
@@ -137,7 +154,7 @@ func (chunker *SDXLInferenceChunker) emitProgress(progress int) {
 	})
 }
 
-func (chunker *SDXLInferenceChunker) emitResult(files []string) {
+func (chunker *SDXLChunker) emitResult(files []string) {
 	chunker.eventHandler(&types.WorkerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: chunker.sessionID,
@@ -145,7 +162,7 @@ func (chunker *SDXLInferenceChunker) emitResult(files []string) {
 	})
 }
 
-func (chunker *SDXLInferenceChunker) write(word string) error {
+func (chunker *SDXLChunker) write(word string) error {
 	if strings.HasPrefix(word, "[SESSION_START]") {
 		// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 		parts := strings.Split(word, "=")
@@ -166,9 +183,12 @@ func (chunker *SDXLInferenceChunker) write(word string) error {
 		}
 		chunker.emitResult(files)
 		chunker.reset()
-	} else {
+	} else if chunker.sessionID != "" {
+		if chunker.options.progressActivationWord != "" && !chunker.progressActive && word == chunker.options.progressActivationWord {
+			chunker.progressActive = true
+		}
 		// 10%|█
-		if strings.Contains(word, "%|") {
+		if strings.Contains(word, "%|") && (chunker.options.progressActivationWord == "" || chunker.progressActive) {
 			parts := strings.Split(word, "%")
 			percentStr := parts[0]
 			progress, err := strconv.Atoi(percentStr)
@@ -181,8 +201,9 @@ func (chunker *SDXLInferenceChunker) write(word string) error {
 	return nil
 }
 
-func (chunker *SDXLInferenceChunker) reset() {
+func (chunker *SDXLChunker) reset() {
 	chunker.sessionID = ""
+	chunker.progressActive = false
 }
 
 // Compile-time interface check:

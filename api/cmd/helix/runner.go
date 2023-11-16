@@ -118,8 +118,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// because it's a model_instance that will spawn Python
 	// processes that will then speak back to these routes
 	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/task", options.Server.Port)
-	options.Runner.SessionURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/initial_session", options.Server.Port)
-	options.Runner.ResponseURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/response", options.Server.Port)
+	options.Runner.InitialSessionURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/initial_session", options.Server.Port)
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {

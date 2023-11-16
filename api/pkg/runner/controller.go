@@ -40,10 +40,7 @@ type RunnerOptions struct {
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/session
-	SessionURL string
-	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
-	// we just pass http://localhost:8080/api/v1/worker/response
-	ResponseURL string
+	InitialSessionURL string
 
 	// how long to wait between loops for the controller
 	// this will affect how often we ask for a global session
@@ -328,8 +325,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		r.Ctx,
 		initialSession,
 		r.Options.TaskURL,
-		r.Options.SessionURL,
-		r.Options.ResponseURL,
+		r.Options.InitialSessionURL,
 
 		// this function will convert any files it sees locally into an upload
 		// to the api server filestore - all files will be written to the filestore
