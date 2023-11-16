@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -76,6 +77,9 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		},
 	}
 
+	log.Debug().
+		Msgf("🔴 GPT Question: %+v", messages)
+
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
@@ -87,10 +91,15 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		return nil, err
 	}
 
+	answer := resp.Choices[0].Message.Content
+
 	var res []DataPrepTextConversation
 
+	log.Debug().
+		Msgf("🔴 GPT Answer: %+v", answer)
+
 	// parse body as json into result
-	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &res)
+	err = json.Unmarshal([]byte(answer), &res)
 	if err != nil {
 		return nil, err
 	}
