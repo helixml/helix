@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -37,28 +36,28 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask
 	return task, nil
 }
 
-func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, error) {
+func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
 	if mode == types.SessionModeInference {
-
 		// this understands the context of each word and keeps state
 		// to manage the session output window and emit events
 		// via the event handler
-		chunker := newMistral7bTextChunker(eventHandler, mistral7bTextChunkerOptions{
+		chunker := newMistral7bInferenceChunker(eventHandler, mistral7bInferenceChunkerOptions{
 			bufferSize: 32,
 		})
 
 		// this will get called for each word
 		// we have already replaced newlines with "[NEWLINE]"
-		stream := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
+		stdout := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
 			err := chunker.write(chunk)
 			if err != nil {
-				log.Error().Msgf("error writing word to chunker: %s", err)
+				log.Error().Msgf("error writing word to mistral inference chunker: %s", err)
 			}
 		})
 
-		return stream, nil
+		return stdout, nil, nil
 	}
-	return nil, nil
+
+	return nil, nil, nil
 }
 
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
@@ -88,20 +87,20 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
-		fmt.Sprintf("HELIX_GET_SESSION_URL=%s", config.SessionURL),
+		fmt.Sprintf("HELIX_READ_INITIAL_SESSION_URL=%s", config.SessionURL),
 		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 	}
 
 	return cmd, nil
 }
 
-type mistral7bTextChunkerOptions struct {
+type mistral7bInferenceChunkerOptions struct {
 	// the max size of our buffer - we emit an event if the buffer get's bigger than this
 	bufferSize int
 }
 
-type mistral7bTextChunker struct {
-	options   mistral7bTextChunkerOptions
+type mistral7bInferenceChunker struct {
+	options   mistral7bInferenceChunkerOptions
 	sessionID string
 	// we keep X bytes in memory before emitting an event for the stream
 	bufferStream string
@@ -113,8 +112,8 @@ type mistral7bTextChunker struct {
 	eventHandler WorkerEventHandler
 }
 
-func newMistral7bTextChunker(eventHandler WorkerEventHandler, options mistral7bTextChunkerOptions) *mistral7bTextChunker {
-	return &mistral7bTextChunker{
+func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistral7bInferenceChunkerOptions) *mistral7bInferenceChunker {
+	return &mistral7bInferenceChunker{
 		options:       options,
 		sessionID:     "",
 		bufferStream:  "",
@@ -124,15 +123,15 @@ func newMistral7bTextChunker(eventHandler WorkerEventHandler, options mistral7bT
 	}
 }
 
-func (chunker *mistral7bTextChunker) addBuffer(word string) {
+func (chunker *mistral7bInferenceChunker) addBuffer(word string) {
 	chunker.bufferStream += word + " "
 	chunker.bufferSession += word + " "
 	if len(chunker.bufferStream) > chunker.options.bufferSize {
-		chunker.emitBufferStream()
+		chunker.emitStream()
 	}
 }
 
-func (chunker *mistral7bTextChunker) emitBufferStream() {
+func (chunker *mistral7bInferenceChunker) emitStream() {
 	chunker.eventHandler(&types.WorkerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeStream,
 		SessionID: chunker.sessionID,
@@ -140,8 +139,7 @@ func (chunker *mistral7bTextChunker) emitBufferStream() {
 	})
 	chunker.bufferStream = ""
 }
-
-func (chunker *mistral7bTextChunker) emitBufferSession() {
+func (chunker *mistral7bInferenceChunker) emitResult() {
 	chunker.eventHandler(&types.WorkerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: chunker.sessionID,
@@ -150,7 +148,7 @@ func (chunker *mistral7bTextChunker) emitBufferSession() {
 	chunker.bufferSession = ""
 }
 
-func (chunker *mistral7bTextChunker) write(word string) error {
+func (chunker *mistral7bInferenceChunker) write(word string) error {
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
 		parts := strings.Split(word, "=")
@@ -162,7 +160,7 @@ func (chunker *mistral7bTextChunker) write(word string) error {
 		}
 		chunker.sessionID = parts[1]
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
-		chunker.emitBufferSession()
+		chunker.emitResult()
 		chunker.reset()
 	} else if chunker.sessionID != "" {
 		if chunker.active {
@@ -177,82 +175,11 @@ func (chunker *mistral7bTextChunker) write(word string) error {
 	return nil
 }
 
-func (chunker *mistral7bTextChunker) reset() {
+func (chunker *mistral7bInferenceChunker) reset() {
 	chunker.sessionID = ""
 	chunker.bufferStream = ""
 	chunker.bufferSession = ""
 	chunker.active = false
-}
-
-// ////////////////////////////////////////////////////////////////////////
-// ////////////////////////////////////////////////////////////////////////
-// this is a copy of bufio.ScanWords from the go stdlib
-// we want to preserve newlines in the output
-// but we want to stream words to the client without waiting for a newline
-// so - we can't use the stdlib bufio.ScanLines because otherwise we
-// are waiting for a newline before we emit a word
-// and we can't use bufio.ScanWords because it strips newlines before
-// we get a chance to know they were there
-//
-// this implementation will replace newlines with "[NEWLINE]" sequence
-func isSpace(r rune) bool {
-	if r <= '\u00FF' {
-		// Obvious ASCII ones: \t through \r plus space. Plus two Latin-1 oddballs.
-		switch r {
-		case ' ', '\t', '\n', '\v', '\f', '\r':
-			return true
-		case '\u0085', '\u00A0':
-			return true
-		}
-		return false
-	}
-	// High-valued ones.
-	if '\u2000' <= r && r <= '\u200a' {
-		return true
-	}
-	switch r {
-	case '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000':
-		return true
-	}
-	return false
-}
-
-func scanWordsPreserveNewlines(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	// Skip leading spaces except newlines.
-	start := 0
-	for width := 0; start < len(data); start += width {
-		var r rune
-		r, width = utf8.DecodeRune(data[start:])
-		if !isSpace(r) || r == '\n' {
-			break
-		}
-	}
-
-	// Check for newline at the current position.
-	if start < len(data) {
-		r, _ := utf8.DecodeRune(data[start:])
-		if r == '\n' {
-			// Return "[NEWLINE]" token for newline character.
-			return start + 1, []byte("\n"), nil
-		}
-	}
-
-	// Scan until space, marking end of word.
-	for width, i := 0, start; i < len(data); i += width {
-		var r rune
-		r, width = utf8.DecodeRune(data[i:])
-		if isSpace(r) {
-			return i + width, data[start:i], nil
-		}
-	}
-
-	// If we're at EOF, we have a final, non-empty, non-terminated word. Return it.
-	if atEOF && len(data) > start {
-		return len(data), data[start:], nil
-	}
-
-	// Request more data.
-	return start, nil, nil
 }
 
 // Compile-time interface check:
