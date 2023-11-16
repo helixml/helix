@@ -84,7 +84,7 @@ type Runner struct {
 	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
 	// then we keep state in memory
 	// in-memory state to record status that would normally be posted up as a result
-	State    map[string]types.WorkerTaskResponse
+	State    map[string]types.RunnerTaskResponse
 	StateMtx sync.Mutex
 }
 
@@ -127,7 +127,7 @@ func NewRunner(
 		},
 		activeModelInstances:  xsync.NewMapOf[string, *ModelInstance](),
 		localSessions:         xsync.NewMapOf[string, *types.Session](),
-		State:                 map[string]types.WorkerTaskResponse{},
+		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 	}
 	return runner, nil
@@ -332,7 +332,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		// under a session sub path - you can include tar files and they will untarred at the other end
 		// into the filestore
 		// TODO: support the tar feature above
-		func(res *types.WorkerTaskResponse) error {
+		func(res *types.RunnerTaskResponse) error {
 			if r.Options.LocalMode {
 				err := r.addLocalResponse(ctx, res)
 				if err != nil {
@@ -386,7 +386,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	return nil
 }
 
-func (r *Runner) addLocalResponse(ctx context.Context, res *types.WorkerTaskResponse) error {
+func (r *Runner) addLocalResponse(ctx context.Context, res *types.RunnerTaskResponse) error {
 	r.StateMtx.Lock()
 	defer r.StateMtx.Unlock()
 
@@ -413,7 +413,7 @@ func (r *Runner) addLocalResponse(ctx context.Context, res *types.WorkerTaskResp
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.RunnerTask, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -546,7 +546,7 @@ func (r *Runner) getFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemory()
 }
 
-func (r *Runner) handleWorkerResponse(res *types.WorkerTaskResponse) error {
+func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
 	if res.Type == types.WorkerTaskResponseTypeResult {
 		// if it's a full result then we just post it to the api
 		return r.postWorkerResponseToApi(res)
@@ -558,7 +558,7 @@ func (r *Runner) handleWorkerResponse(res *types.WorkerTaskResponse) error {
 	}
 }
 
-func (r *Runner) sendWorkerResponseToWebsocket(res *types.WorkerTaskResponse) error {
+func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) error {
 	r.websocketEventChannel <- &types.WebsocketEvent{
 		Type:               types.WebsocketEventWorkerTaskResponse,
 		SessionID:          res.SessionID,
@@ -568,7 +568,7 @@ func (r *Runner) sendWorkerResponseToWebsocket(res *types.WorkerTaskResponse) er
 	return nil
 }
 
-func (r *Runner) postWorkerResponseToApi(res *types.WorkerTaskResponse) error {
+func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 	var err error
 	if len(res.Files) > 0 {
 		res, err = r.uploadWorkerResponseFilesToApi(res)
@@ -586,7 +586,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.WorkerTaskResponse) error {
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	_, err = server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+	_, err = server.PostRequest[*types.RunnerTaskResponse, *types.RunnerTaskResponse](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/response", r.Options.ID),
 		res,
@@ -597,7 +597,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.WorkerTaskResponse) error {
 	return nil
 }
 
-func (r *Runner) uploadWorkerResponseFilesToApi(res *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
+func (r *Runner) uploadWorkerResponseFilesToApi(res *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
 	// create a new multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)

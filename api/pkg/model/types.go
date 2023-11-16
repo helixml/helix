@@ -7,7 +7,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
-type WorkerEventHandler func(res *types.WorkerTaskResponse)
+type WorkerEventHandler func(res *types.RunnerTaskResponse)
 
 type TextStreamType string
 
@@ -29,7 +29,7 @@ type Model interface {
 	// and downloading files from the filestore
 	// we don't need to fill in the SessionID and Session fields
 	// the runner controller will do that for us
-	GetTask(session *types.Session) (*types.WorkerTask, error)
+	GetTask(session *types.Session) (*types.RunnerTask, error)
 
 	// the function we call to get the python process booted and
 	// asking us for work

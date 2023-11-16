@@ -30,7 +30,7 @@ func (l *SDXL) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
-func (l *SDXL) GetTask(session *types.Session) (*types.WorkerTask, error) {
+func (l *SDXL) GetTask(session *types.Session) (*types.RunnerTask, error) {
 	return getGenericTask(session)
 }
 
@@ -147,7 +147,7 @@ func newSDXLChunker(eventHandler WorkerEventHandler, options SDXLChunkerOptions)
 }
 
 func (chunker *SDXLChunker) emitProgress(progress int) {
-	chunker.eventHandler(&types.WorkerTaskResponse{
+	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeProgress,
 		SessionID: chunker.sessionID,
 		Progress:  progress,
@@ -155,7 +155,7 @@ func (chunker *SDXLChunker) emitProgress(progress int) {
 }
 
 func (chunker *SDXLChunker) emitResult(files []string) {
-	chunker.eventHandler(&types.WorkerTaskResponse{
+	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: chunker.sessionID,
 		Files:     files,

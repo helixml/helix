@@ -79,7 +79,7 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 // we look at the instance by ID and check if it has a nextSession
 // if it does then we assign that as the current session
 // if it does not - then we need to reach out to the master API to get one
-func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+func (runnerServer *RunnerServer) getWorkerTask(res http.ResponseWriter, req *http.Request) (*types.RunnerTask, error) {
 	vars := mux.Vars(req)
 	if vars["instanceid"] == "" {
 		return nil, fmt.Errorf("instanceid is required")
@@ -95,7 +95,7 @@ func (runnerServer *RunnerServer) readInitialWorkerSession(res http.ResponseWrit
 	return runnerServer.Controller.readInitialWorkerSession(req.Context(), vars["instanceid"])
 }
 
-func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.WorkerTaskResponse, error) {
+func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.RunnerTaskResponse, error) {
 	runnerServer.Controller.StateMtx.Lock()
 	defer runnerServer.Controller.StateMtx.Unlock()
 
@@ -112,7 +112,7 @@ func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Reque
 	return runnerServer.Controller.State, nil
 }
 
-func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTask, error) {
+func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, req *http.Request) (*types.RunnerTask, error) {
 	session := &types.Session{}
 	err := json.NewDecoder(req.Body).Decode(session)
 	if err != nil {
@@ -123,7 +123,7 @@ func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, r
 	if err != nil {
 		return nil, err
 	}
-	response := &types.WorkerTask{
+	response := &types.RunnerTask{
 		SessionID: session.ID,
 	}
 

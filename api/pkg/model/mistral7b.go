@@ -27,7 +27,7 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask, error) {
+func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (chunker *mistral7bInferenceChunker) addBuffer(word string) {
 }
 
 func (chunker *mistral7bInferenceChunker) emitStream() {
-	chunker.eventHandler(&types.WorkerTaskResponse{
+	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeStream,
 		SessionID: chunker.sessionID,
 		Message:   chunker.bufferStream,
@@ -139,7 +139,7 @@ func (chunker *mistral7bInferenceChunker) emitStream() {
 	chunker.bufferStream = ""
 }
 func (chunker *mistral7bInferenceChunker) emitResult() {
-	chunker.eventHandler(&types.WorkerTaskResponse{
+	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: chunker.sessionID,
 		Message:   chunker.bufferSession,

@@ -36,7 +36,7 @@ func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
 // each model get's to decide what it's task looks like
 // but this is the vanilla "most models return this"
 // version - models call this and are free to override fields
-func getGenericTask(session *types.Session) (*types.WorkerTask, error) {
+func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
@@ -48,7 +48,7 @@ func getGenericTask(session *types.Session) (*types.WorkerTask, error) {
 		return nil, fmt.Errorf("session has no user messages")
 	}
 	if session.Mode == types.SessionModeInference {
-		return &types.WorkerTask{
+		return &types.RunnerTask{
 			Prompt:       lastInteraction.Message,
 			FinetuneFile: session.FinetuneFile,
 		}, nil
@@ -60,7 +60,7 @@ func getGenericTask(session *types.Session) (*types.WorkerTask, error) {
 		// by the controller and put into a shared folder
 		// so - we extract the folder path from the first file
 		// and pass it into the python job as the input dir
-		return &types.WorkerTask{
+		return &types.RunnerTask{
 			FinetuneInputDir: path.Dir(lastInteraction.Files[0]),
 		}, nil
 	} else {
