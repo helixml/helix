@@ -165,7 +165,7 @@ func (instance *ModelInstance) queueSession(session *types.Session) {
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.prepareSession(session)
+	preparedSession, err := instance.downloadSessionFiles(session)
 
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
@@ -182,7 +182,7 @@ func (instance *ModelInstance) queueSession(session *types.Session) {
 	instance.nextSession = preparedSession
 }
 
-func (instance *ModelInstance) prepareSession(session *types.Session) (*types.Session, error) {
+func (instance *ModelInstance) downloadSessionFiles(session *types.Session) (*types.Session, error) {
 	session, err := instance.downloadFinetuneFile(session)
 
 	if err != nil {

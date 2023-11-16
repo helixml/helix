@@ -73,6 +73,17 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type SessionState string
+
+const (
+	SessionStateUnknown      SessionState = "unknown"
+	SessionStateUserEditting SessionState = "user_editing"
+	SessionStateQueued       SessionState = "queued"
+	SessionStateRunning      SessionState = "running"
+	SessionStateComplete     SessionState = "complete"
+	SessionStateError        SessionState = "error"
+)
+
 type InteractionState string
 
 const (

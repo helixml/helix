@@ -352,9 +352,26 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 }
 
 // this is called in a go routine from the main api handler
-// it needs to first prepare the session
-// and then it can add it to the queue for backend processing
+// this is blocking the session being added to the queue
+// so we get the chance to do some async pre-processing
+// before the session joins the queue
+// in some cases - we need the user to interact with our pre-processing
+// in this case - let's return nil here and let the user interaction add the session to the queue
+// once they have completed their editing
+// e.g. for text fine-tuning we need to prepare the input files
+//   - convert pdf, docx, etc to txt
+//   - chunk the text based on buffer and overflow config
+//   - feed each chunk into an LLM implementation to extract q&a pairs
+//   - append the q&a pairs to a jsonl file
+//
+// so - that is all auto handled by the system
+// the user then needs to view and edit the resuting JSONL file in the browser
+// so now we are in a state where the session is still preparing but we are waiting
+// for the user - so, we return nil here with no error which
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+
+	// load the model
+	// call it's
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {

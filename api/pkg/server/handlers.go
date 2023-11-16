@@ -398,6 +398,11 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	// first we prepare the seession - which could mean whatever the model implementation wants
+	// so we have to wait for that to complete before adding to the queue
+	// the model can be adding subsequent child sessions to the queue
+	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
+	// text into q&a pairs and we want to use our own mistral inference
 	go func() {
 		preparedSession, err := apiServer.Controller.PrepareSession(sessionData)
 		if err != nil {
