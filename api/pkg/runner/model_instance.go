@@ -37,13 +37,11 @@ type ModelInstance struct {
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
-	taskURL string
+	nextTaskURL string
 	// this is used to read what the next session is
 	// i.e. once the session has prepared - we can read the next session
 	// and know what the Lora file is
-	sessionURL string
-	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
-	responseURL string
+	initialSessionURL string
 
 	// we write responses to this function and they will be sent to the api
 	responseHandler func(res *types.WorkerTaskResponse) error
@@ -87,13 +85,10 @@ func NewModelInstance(
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
-	taskURL string,
+	nextTaskURL string,
 	// these URLs will have the instance ID appended by the model instance
-	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
-	sessionURL string,
-	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
-	// we just pass http://localhost:8080/api/v1/worker/response
-	responseURL string,
+	// e.g. http://localhost:8080/api/v1/worker/initial_session/:instanceid
+	initialSessionURL string,
 
 	responseHandler func(res *types.WorkerTaskResponse) error,
 
@@ -115,15 +110,14 @@ func NewModelInstance(
 	}
 
 	return &ModelInstance{
-		id:              id,
-		ctx:             ctx,
-		finishChan:      make(chan bool, 1),
-		model:           modelInstance,
-		responseHandler: responseHandler,
-		taskURL:         fmt.Sprintf("%s/%s", taskURL, id),
-		sessionURL:      fmt.Sprintf("%s/%s", sessionURL, id),
-		responseURL:     fmt.Sprintf("%s/%s", responseURL, id),
-		initialSession:  initialSession,
+		id:                id,
+		ctx:               ctx,
+		finishChan:        make(chan bool, 1),
+		model:             modelInstance,
+		responseHandler:   responseHandler,
+		nextTaskURL:       fmt.Sprintf("%s/%s", nextTaskURL, id),
+		initialSessionURL: fmt.Sprintf("%s/%s", initialSessionURL, id),
+		initialSession:    initialSession,
 		filter: types.SessionFilter{
 			ModelName:    initialSession.ModelName,
 			Mode:         initialSession.Mode,
@@ -149,8 +143,6 @@ func NewModelInstance(
 */
 
 // this is the loading of a session onto a running model instance
-// it gets the text stream setup if the model returns one
-// and generally initializes a new task to be run on the model
 // it also returns the task that will be fed down into the python code to execute
 func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.WorkerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
@@ -379,10 +371,9 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.WorkerTas
 // we pass the instance context in so we can cancel it using our stopProcess function
 func (instance *ModelInstance) startProcess(session *types.Session) error {
 	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter, types.RunnerProcessConfig{
-		InstanceID:  instance.id,
-		TaskURL:     instance.taskURL,
-		SessionURL:  instance.sessionURL,
-		ResponseURL: instance.responseURL,
+		InstanceID:        instance.id,
+		NextTaskURL:       instance.nextTaskURL,
+		InitialSessionURL: instance.initialSessionURL,
 	})
 	if err != nil {
 		return err
