@@ -456,7 +456,7 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 		return session, nil
 	}
 
-	dataprep, err := c.Options.DataPrepTextFactory()
+	dataprep, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, err
 	}
