@@ -14,6 +14,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -253,10 +254,6 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 	return store, nil
 }
 
-func getTextDataPrep(ctx context.Context, options *ServeOptions) (text.DataPrepText, error) {
-	return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
-}
-
 func serve(cmd *cobra.Command, options *ServeOptions) error {
 	system.SetupLogging()
 
@@ -290,11 +287,11 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
-	options.ControllerOptions.DataPrepTextFactory = func() (text.DataPrepText, error) {
+	options.ControllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepText, error) {
 		if appController == nil {
 			return nil, fmt.Errorf("app controller is not initialized")
 		}
-		return getTextDataPrep(ctx, options)
+		return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
 	}
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {

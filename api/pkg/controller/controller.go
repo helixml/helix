@@ -18,7 +18,7 @@ import (
 type ControllerOptions struct {
 	Store               store.Store
 	Filestore           filestore.FileStore
-	DataPrepTextFactory func() (text.DataPrepText, error)
+	DataPrepTextFactory func(session *types.Session) (text.DataPrepText, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
