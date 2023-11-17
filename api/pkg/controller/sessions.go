@@ -203,17 +203,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	return taskResponse, nil
 }
 
-type CreateSessionRequest struct {
-	SessionMode     types.SessionMode
-	SessionType     types.SessionType
-	ParentSession   string
-	ModelName       types.ModelName
-	Owner           string
-	OwnerType       types.OwnerType
-	UserInteraction types.Interaction
-}
-
-func (c *Controller) CreateSession(ctx context.Context, req CreateSessionRequest) (*types.Session, error) {
+func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
 	sessionID := system.GenerateUUID()
 
 	// the system interaction is the task we will run on a GPU and update in place
@@ -259,12 +249,7 @@ func (c *Controller) CreateSession(ctx context.Context, req CreateSessionRequest
 	return sessionData, nil
 }
 
-type UpdateSessionRequest struct {
-	SessionID       string
-	UserInteraction types.Interaction
-}
-
-func (c *Controller) UpdateSession(ctx context.Context, req UpdateSessionRequest) (*types.Session, error) {
+func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionRequest) (*types.Session, error) {
 	systemInteraction := types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),

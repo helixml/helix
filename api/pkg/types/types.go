@@ -181,3 +181,18 @@ type ServerConfig struct {
 	// can be the prefix to the bucket
 	FilestorePrefix string `json:"filestore_prefix"`
 }
+
+type CreateSessionRequest struct {
+	SessionMode     SessionMode
+	SessionType     SessionType
+	ParentSession   string
+	ModelName       ModelName
+	Owner           string
+	OwnerType       OwnerType
+	UserInteraction Interaction
+}
+
+type UpdateSessionRequest struct {
+	SessionID       string
+	UserInteraction Interaction
+}

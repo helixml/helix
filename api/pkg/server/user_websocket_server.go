@@ -67,7 +67,7 @@ func StartUserWebSocketServer(
 			select {
 			case event := <-websocketEventChan:
 				go func() {
-					log.Debug().Msgf("User websocket event: %+v", event)
+					log.Trace().Msgf("User websocket event: %+v", event)
 				}()
 				message, err := json.Marshal(event)
 				if err != nil {

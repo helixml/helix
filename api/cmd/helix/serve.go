@@ -291,7 +291,24 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		if appController == nil {
 			return nil, fmt.Errorf("app controller is not initialized")
 		}
-		return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+
+		// if we are using openai then let's do that
+		// otherwise - we use our own mistral plugin
+		if os.Getenv("DATA_PREP_USE_GPT4") != "" {
+			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+		} else {
+			// we give the mistal data prep module a way to run and read sessions
+			return text.NewDataPrepTextHelixMistral(
+				options.DataPrepTextOptions,
+				session,
+				func(req types.CreateSessionRequest) (*types.Session, error) {
+					return appController.CreateSession(context.Background(), req)
+				},
+				func(id string) (*types.Session, error) {
+					return appController.Options.Store.GetSession(context.Background(), id)
+				},
+			)
+		}
 	}
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {

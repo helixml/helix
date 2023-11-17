@@ -2,23 +2,40 @@ package text
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 )
+
+type DataPrepTextHelixMistralSessionCreate func(req types.CreateSessionRequest) (*types.Session, error)
+type DataPrepTextHelixMistralSessionGet func(id string) (*types.Session, error)
 
 // knows how to turn an array of raw documents
 // and make them into a finetune dataset for an LLM
 // we try to do alpaca_chat.load_qa: question and answer for alpaca chat
 // {"question": "...", "answer": "..."}
 type DataPrepTextHelixMistral struct {
-	Options DataPrepTextOptions
-	docs    *dataPrepDocuments
+	Options  DataPrepTextOptions
+	docs     *dataPrepDocuments
+	session  *types.Session
+	createFn DataPrepTextHelixMistralSessionCreate
+	getFn    DataPrepTextHelixMistralSessionGet
 }
 
-func NewDataPrepTextHelixMistral(options DataPrepTextOptions) (*DataPrepTextHelixMistral, error) {
+func NewDataPrepTextHelixMistral(
+	options DataPrepTextOptions,
+	session *types.Session,
+	createFn DataPrepTextHelixMistralSessionCreate,
+	getFn DataPrepTextHelixMistralSessionGet,
+) (*DataPrepTextHelixMistral, error) {
 	return &DataPrepTextHelixMistral{
-		Options: options,
-		docs:    newDataPrepDocuments(),
+		Options:  options,
+		session:  session,
+		docs:     newDataPrepDocuments(),
+		createFn: createFn,
+		getFn:    getFn,
 	}, nil
 }
 
@@ -31,7 +48,7 @@ func (helixMistral *DataPrepTextHelixMistral) GetChunks() ([]string, error) {
 }
 
 func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
-	systemPrompt := fmt.Sprintf(`
+	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate %d questions that
 captures an important fact from the context.
@@ -51,26 +68,75 @@ GOOD questions:
 The user will provide the context you should summarize into %d questions.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
-	`, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk)
 
-	userPrompt := fmt.Sprintf(`
 Given the following context - please summarize it into %d question and answer pairs.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
 %s
-	`, helixMistral.Options.QuestionsPerChunk, chunk)
+
+	`, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, chunk)
 
 	var res []DataPrepTextConversation
 
-	fmt.Printf("systemPrompt --------------------------------------\n")
-	spew.Dump(systemPrompt)
+	session, err := helixMistral.createFn(types.CreateSessionRequest{
+		SessionMode:   types.SessionModeInference,
+		SessionType:   types.SessionTypeText,
+		ModelName:     types.Model_Mistral7b,
+		Owner:         helixMistral.session.Owner,
+		OwnerType:     helixMistral.session.OwnerType,
+		ParentSession: helixMistral.session.ID,
+		UserInteraction: types.Interaction{
+			ID:       system.GenerateUUID(),
+			Created:  time.Now(),
+			Creator:  types.CreatorTypeUser,
+			Message:  prompt,
+			Files:    []string{},
+			State:    types.InteractionStateWaiting,
+			Finished: false,
+			Metadata: map[string]string{},
+		},
+	})
 
-	fmt.Printf("userPrompt --------------------------------------\n")
-	spew.Dump(userPrompt)
+	if err != nil {
+		return res, err
+	}
+
+	// we are now waiting for session to complete so we can get the answer
+	// how long are we willing to wait?
+
+	sanity := 0
+	result := ""
+
+	for {
+		session, err = helixMistral.getFn(session.ID)
+		if err != nil {
+			return res, err
+		}
+
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		if lastInteraction.Finished {
+			result = lastInteraction.Message
+			break
+		}
+
+		sanity++
+		if sanity > 100000 {
+			return res, fmt.Errorf("sanity check failed after %d iterations", sanity)
+		}
+		time.Sleep(1 * time.Second)
+	}
+	fmt.Printf("result --------------------------------------\n")
+	fmt.Printf("result --------------------------------------\n")
+	fmt.Printf("result --------------------------------------\n")
+	fmt.Printf("result --------------------------------------\n")
+	fmt.Printf("result --------------------------------------\n")
+	spew.Dump(result)
+
+	// TODO: parse this output
 
 	return res, nil
 }
 
 // Compile-time interface check:
-var _ DataPrepText = (*DataPrepTextGPT4)(nil)
+var _ DataPrepText = (*DataPrepTextHelixMistral)(nil)
