@@ -10,9 +10,11 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -199,6 +201,118 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	c.WriteSession(session)
 
 	return taskResponse, nil
+}
+
+type CreateSessionRequest struct {
+	SessionMode     types.SessionMode
+	SessionType     types.SessionType
+	ParentSession   string
+	ModelName       types.ModelName
+	Owner           string
+	OwnerType       types.OwnerType
+	UserInteraction types.Interaction
+}
+
+func (c *Controller) CreateSession(ctx context.Context, req CreateSessionRequest) (*types.Session, error) {
+	sessionID := system.GenerateUUID()
+
+	// the system interaction is the task we will run on a GPU and update in place
+	systemInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		State:    types.InteractionStateWaiting,
+		Finished: false,
+		Metadata: map[string]string{},
+	}
+
+	session := types.Session{
+		ID:            sessionID,
+		Name:          system.GenerateAmusingName(),
+		ModelName:     req.ModelName,
+		Type:          req.SessionType,
+		Mode:          req.SessionMode,
+		ParentSession: req.ParentSession,
+		Owner:         req.Owner,
+		OwnerType:     req.OwnerType,
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Interactions: []types.Interaction{
+			req.UserInteraction,
+			systemInteraction,
+		},
+	}
+
+	log.Debug().
+		Msgf("🟢 new session: %+v", session)
+
+	// create session in database
+	sessionData, err := c.Options.Store.CreateSession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	go c.SessionRunner(sessionData)
+
+	return sessionData, nil
+}
+
+type UpdateSessionRequest struct {
+	SessionID       string
+	UserInteraction types.Interaction
+}
+
+func (c *Controller) UpdateSession(ctx context.Context, req UpdateSessionRequest) (*types.Session, error) {
+	systemInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		State:    types.InteractionStateWaiting,
+		Finished: false,
+	}
+	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	session.Updated = time.Now()
+	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
+
+	log.Debug().
+		Msgf("🟢 update session: %+v", session)
+
+	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, err
+	}
+
+	go c.SessionRunner(sessionData)
+
+	return sessionData, nil
+}
+
+// called once we've done the pre-processing for both create and update calls to sessions
+func (c *Controller) SessionRunner(sessionData *types.Session) {
+	// first we prepare the seession - which could mean whatever the model implementation wants
+	// so we have to wait for that to complete before adding to the queue
+	// the model can be adding subsequent child sessions to the queue
+	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
+	// text into q&a pairs and we want to use our own mistral inference
+	preparedSession, err := c.PrepareSession(sessionData)
+	if err != nil {
+		log.Error().Msgf("error preparing session: %s", err.Error())
+		c.ErrorSession(sessionData, err)
+		return
+	}
+	// it's ok if we did not get a session back here
+	// it means there will be a later action that will add the session to the queue
+	// in the case the user needs to edit some data before it can be run for example
+	if preparedSession != nil {
+		c.AddSessionToQueue(preparedSession)
+	}
 }
 
 // this is called in a go routine from the main api handler

@@ -129,28 +129,28 @@ func (d *PostgresStore) GetSessions(
 		rows, err = d.db.Query(`
 			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
-			WHERE owner = $1 AND owner_type = $2 AND parent_session IS NULL
+			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.Owner, query.OwnerType)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(`
 			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
-			WHERE owner = $1
+			WHERE owner = $1 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.Owner)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(`
 			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
-			WHERE owner_type = $1 AND parent_session IS NULL
+			WHERE owner_type = $1 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.OwnerType)
 	} else {
 		rows, err = d.db.Query(`
 			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
 			FROM session
-			WHERE parent_session IS NULL
+			WHERE parent_session = ''
 			ORDER BY created DESC
 		`)
 	}

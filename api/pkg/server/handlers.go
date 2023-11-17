@@ -361,63 +361,14 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := &types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
-	}
-
-	session := types.Session{
-		ID:        sessionID,
-		Name:      system.GenerateAmusingName(),
-		ModelName: modelName,
-		Type:      sessionType,
-		Mode:      sessionMode,
-		Owner:     reqContext.Owner,
-		OwnerType: reqContext.OwnerType,
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		Interactions: []types.Interaction{
-			*userInteraction,
-			*systemInteraction,
-		},
-	}
-
-	log.Debug().
-		Msgf("🟢 new session: %+v", session)
-
-	// create session in database
-	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	// first we prepare the seession - which could mean whatever the model implementation wants
-	// so we have to wait for that to complete before adding to the queue
-	// the model can be adding subsequent child sessions to the queue
-	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
-	// text into q&a pairs and we want to use our own mistral inference
-	go func() {
-		preparedSession, err := apiServer.Controller.PrepareSession(sessionData)
-		if err != nil {
-			log.Error().Msgf("error preparing session: %s", err.Error())
-			apiServer.Controller.ErrorSession(sessionData, err)
-			return
-		}
-		// it's ok if we did not get a session back here
-		// it means there will be a later action that will add the session to the queue
-		// in the case the user needs to edit some data before it can be run for example
-		if preparedSession != nil {
-			apiServer.Controller.AddSessionToQueue(preparedSession)
-		}
-
-	}()
+	sessionData, err := apiServer.Controller.CreateSession(req.Context(), controller.CreateSessionRequest{
+		SessionMode:     sessionMode,
+		SessionType:     sessionType,
+		ModelName:       modelName,
+		Owner:           reqContext.Owner,
+		OwnerType:       reqContext.OwnerType,
+		UserInteraction: *userInteraction,
+	})
 
 	return sessionData, nil
 }
@@ -449,8 +400,6 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("access denied")
 	}
 
-	sessionCopy := *session
-
 	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
 	if err != nil {
 		return nil, err
@@ -458,37 +407,11 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	if userInteraction == nil {
 		return nil, fmt.Errorf("no interaction found")
 	}
-	systemInteraction := &types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-	}
-	sessionCopy.Updated = time.Now()
-	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
 
-	log.Debug().
-		Msgf("🟢 update session: %+v", sessionCopy)
-
-	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, sessionCopy)
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		preparedSession, err := apiServer.Controller.PrepareSession(sessionData)
-		if err != nil {
-			log.Error().Msgf("error preparing session: %s", err.Error())
-			apiServer.Controller.ErrorSession(sessionData, err)
-			return
-		}
-		if preparedSession != nil {
-			apiServer.Controller.AddSessionToQueue(preparedSession)
-		}
-	}()
+	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), controller.UpdateSessionRequest{
+		SessionID:       sessionID,
+		UserInteraction: *userInteraction,
+	})
 
 	return sessionData, nil
 }
