@@ -21,5 +21,5 @@ func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Se
 	return modelInstance.filter.Mode == session.Mode &&
 		modelInstance.filter.Type == session.Type &&
 		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||
-			(modelInstance.filter.FinetuneFile == "none" && session.FinetuneFile == ""))
+			(modelInstance.filter.FinetuneFile == types.FINETUNE_FILE_NONE && session.FinetuneFile == ""))
 }
