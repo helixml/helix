@@ -2,6 +2,8 @@ package types
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -75,6 +77,30 @@ type SessionFilterModel struct {
 	ModelName ModelName   `json:"model_name"`
 }
 
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch value := v.(type) {
+	case string:
+		tmp, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(tmp)
+		return nil
+	default:
+		return errors.New("invalid duration")
+	}
+}
+
 type SessionFilter struct {
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
@@ -92,6 +118,9 @@ type SessionFilter struct {
 	// normally used by runners that are running multiple types in parallel
 	// who don't want another version of what they are already running
 	Reject []SessionFilterModel `json:"reject"`
+
+	// only accept sessions that were created more than this duration ago
+	Older Duration `json:"older"`
 }
 
 type ApiKey struct {

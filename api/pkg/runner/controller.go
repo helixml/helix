@@ -238,6 +238,16 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// this means "only give me sessions that will fit in this much RAM"
 	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
 
+	// give currently running models a head start on claiming jobs - this is for
+	// when we have > 1 runner
+	//
+	// TODO: using timing for this prioitization heuristic is flaky and adds
+	// latency unnecessarily, instead we could have a bidding system where the
+	// api requests bids from all the connected runners and they bid on how
+	// quickly they could service the request (e.g. what is their queue length,
+	// do they have the model loaded into memory)
+	queryParams.Add("older", "2s")
+
 	// now let's loop over our running model instances and de-prioritise them
 	// we might still get sessions of this type but only if there isn't another
 	// type in the queue - this is to avoid running only one type of model

@@ -517,6 +517,17 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			})
 		}
 	}
+
+	older := req.URL.Query().Get("older")
+
+	var olderDuration time.Duration
+	if older != "" {
+		olderDuration, err = time.ParseDuration(older)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	filter := types.SessionFilter{
 		Mode:         sessionMode,
 		Type:         sessionType,
@@ -524,6 +535,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		Memory:       memory,
 		Reject:       reject,
 		FinetuneFile: finetuneFile,
+		Older:        types.Duration(olderDuration),
 	}
 
 	// alow the worker to filter what tasks it wants

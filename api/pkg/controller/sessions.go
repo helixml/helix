@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -18,6 +19,13 @@ const DEBUG = true
 // this function expects the sessionQueueMtx to be locked when it is run
 func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
+
+		if filter.Older != types.Duration(0) {
+			if time.Now().Add(-time.Duration(filter.Older)).After(session.Created) {
+				continue
+			}
+		}
+
 		if filter.Mode != "" && session.Mode != filter.Mode {
 			continue
 		}
