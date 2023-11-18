@@ -35,9 +35,10 @@ const Session: FC = () => {
   const session = account.sessions?.find(session => session.id === params["session_id"])
 
   const loading = useMemo(() => {
-    if(!session || !session?.interactions || session?.interactions.length === 0) return false
-    const interaction = session?.interactions[session?.interactions.length - 1]
-    return interaction.finished ? false : true
+    return false
+    // if(!session || !session?.interactions || session?.interactions.length === 0) return false
+    // const interaction = session?.interactions[session?.interactions.length - 1]
+    // return interaction.finished ? false : true
   }, [
     session,
   ])

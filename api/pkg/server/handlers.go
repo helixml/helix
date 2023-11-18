@@ -98,6 +98,9 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 	filePath := req.URL.Query().Get("path")
 	filename := filepath.Base(filePath)
 
+	log.Debug().
+		Msgf("🔵 download file: %s", filePath)
+
 	err := func() error {
 
 		session, err := apiServer.Store.GetSession(req.Context(), sessionid)
@@ -496,22 +499,34 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
-			pair := strings.Split(rejectPair, ":")
-			if len(pair) != 2 {
+			triple := strings.Split(rejectPair, ":")
+			if len(triple) != 3 {
 				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			rejectModelName, err := types.ValidateModelName(pair[0], false)
+			rejectModelName, err := types.ValidateModelName(triple[0], false)
 			if err != nil {
 				return nil, err
 			}
-			rejectModelMode, err := types.ValidateSessionMode(pair[1], false)
+			rejectModelMode, err := types.ValidateSessionMode(triple[1], false)
 			if err != nil {
 				return nil, err
 			}
+			rejectFinetuneFile := triple[2]
 			reject = append(reject, types.SessionFilterModel{
-				ModelName: rejectModelName,
-				Mode:      rejectModelMode,
+				ModelName:    rejectModelName,
+				Mode:         rejectModelMode,
+				FinetuneFile: rejectFinetuneFile,
 			})
+		}
+	}
+
+	older := req.URL.Query().Get("older")
+
+	var olderDuration time.Duration
+	if older != "" {
+		olderDuration, err = time.ParseDuration(older)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -522,6 +537,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		Memory:       memory,
 		Reject:       reject,
 		FinetuneFile: finetuneFile,
+		Older:        types.Duration(olderDuration),
 	}
 
 	// alow the worker to filter what tasks it wants

@@ -29,8 +29,9 @@ func NewRunnerOptions() *RunnerOptions {
 			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 		},
 		Server: runner.RunnerServerOptions{
-			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
+			Host:      getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port:      getDefaultServeOptionInt("SERVER_PORT", 8080),
+			LocalMode: getDefaultServeOptionBool("LOCAL_MODE", false),
 		},
 	}
 }
@@ -87,6 +88,11 @@ func newRunnerCmd() *cobra.Command {
 		`The port to bind the runner server to.`,
 	)
 
+	runnerCmd.PersistentFlags().BoolVar(
+		&allOptions.Server.LocalMode, "local-mode", allOptions.Server.LocalMode,
+		`Are we running in local mode?`,
+	)
+
 	return runnerCmd
 }
 
@@ -106,6 +112,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// because it's a model_instance that will spawn Python
 	// processes that will then speak back to these routes
 	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/task", options.Server.Port)
+	options.Runner.SessionURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/session", options.Server.Port)
 	options.Runner.ResponseURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/response", options.Server.Port)
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)

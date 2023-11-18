@@ -26,7 +26,12 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 }
 
 func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.WorkerTask, error) {
-	return getGenericTask(session)
+	task, err := getGenericTask(session)
+	if err != nil {
+		return nil, err
+	}
+	task.Prompt = fmt.Sprintf("[INST]%s[/INST]", task.Prompt)
+	return task, nil
 }
 
 func (l *Mistral7bInstruct01) GetTextStream(mode types.SessionMode) (*TextStream, error) {
@@ -67,6 +72,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_GET_JOB_URL=%s", config.TaskURL),
+		fmt.Sprintf("HELIX_GET_SESSION_URL=%s", config.SessionURL),
 		fmt.Sprintf("HELIX_RESPOND_JOB_URL=%s", config.ResponseURL),
 	}
 

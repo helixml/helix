@@ -444,6 +444,20 @@ const Layout: FC = ({
               </>
             )
           }
+          {
+            account.user ? null : (
+              <Button
+                variant="contained"
+                color="secondary"
+                endIcon={<LoginIcon />}
+                onClick={ () => {
+                  account.onLogin()
+                }}
+              >
+                Login / Register
+              </Button>
+            )
+          }
         </Toolbar>
       </AppBar>
       <MuiDrawer
