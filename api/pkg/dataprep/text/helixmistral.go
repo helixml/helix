@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type DataPrepTextHelixMistralSessionCreate func(req types.CreateSessionRequest) (*types.Session, error)
@@ -47,13 +47,14 @@ func (helixMistral *DataPrepTextHelixMistral) GetChunks() ([]string, error) {
 	return helixMistral.docs.GetChunks(helixMistral.Options.ChunkSize, helixMistral.Options.OverflowSize)
 }
 
+// TODO: getting a consistent output format that we can parse reliably is really hard
 func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
 	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
-Using the provided context, formulate %d questions that
+Using the provided context, formulate exactly %d question and answer pairs that
 captures an important fact from the context.
 You MUST obey the following criteria:
-  - Restrict the question to the context information provided.
+	- Restrict the question to the context information provided.
 	- Do NOT create a question that cannot be answered from the context.
 	- Phrase the question so that it does NOT refer to specific context. For instance, do NOT put phrases like given provided context or in this work in the question, because if the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
 	
@@ -65,21 +66,22 @@ GOOD questions:
 	What did Barack Obama do in his childhood
 	What were the main findings in the original Transformers paper by Vaswani et al.
 
-The user will provide the context you should summarize into %d questions.
+Please write exactly %d question and answer pairs.
 
-Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
+Each question should be on a single line and start with the word "[QUESTION]".
+Each answer should be on a single line and start with the word "[ANSWER]".
 
-Given the following context - please summarize it into %d question and answer pairs.
-
-Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
+Do not number the questions or answers.
 
 %s
 
-	`, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, chunk)
+	`, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, chunk)
 
-	var res []DataPrepTextConversation
+	log.Debug().
+		Msgf("🔴 Mistral Question: %s", prompt)
 
 	session, err := helixMistral.createFn(types.CreateSessionRequest{
+		SessionID:     system.GenerateUUID(),
 		SessionMode:   types.SessionModeInference,
 		SessionType:   types.SessionTypeText,
 		ModelName:     types.Model_Mistral7b,
@@ -99,7 +101,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	})
 
 	if err != nil {
-		return res, err
+		return nil, err
 	}
 
 	// we are now waiting for session to complete so we can get the answer
@@ -111,7 +113,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	for {
 		session, err = helixMistral.getFn(session.ID)
 		if err != nil {
-			return res, err
+			return nil, err
 		}
 
 		lastInteraction := session.Interactions[len(session.Interactions)-1]
@@ -122,18 +124,47 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 
 		sanity++
 		if sanity > 100000 {
-			return res, fmt.Errorf("sanity check failed after %d iterations", sanity)
+			return nil, fmt.Errorf("sanity check failed after %d iterations", sanity)
 		}
 		time.Sleep(1 * time.Second)
 	}
-	fmt.Printf("result --------------------------------------\n")
-	fmt.Printf("result --------------------------------------\n")
-	fmt.Printf("result --------------------------------------\n")
-	fmt.Printf("result --------------------------------------\n")
-	fmt.Printf("result --------------------------------------\n")
-	spew.Dump(result)
 
-	// TODO: parse this output
+	var res []DataPrepTextConversation
+
+	log.Debug().
+		Msgf("🔴 Mistral Answer: %+v", result)
+
+	// r := csv.NewReader(strings.NewReader(lastInteraction.Message))
+	// // var conversations []DataPrepTextConversation
+
+	// for {
+	// 	record, err := r.Read()
+	// 	if err != nil {
+	// 		if err == io.EOF {
+	// 			break
+	// 		}
+	// 		return nil, err
+	// 	}
+
+	// 	fmt.Printf("record --------------------------------------\n")
+	// 	spew.Dump(record)
+
+	// 	// // Assuming the CSV format is correct and each row has 2 fields
+	// 	// conversations = append(conversations, DataPrepTextConversation{
+	// 	// 		Question: record[0],
+	// 	// 		Answer:   record[1],
+	// 	// })
+	// }
+	// break
+
+	// // parse body as json into result
+	// err = json.Unmarshal([]byte(result), &res)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// fmt.Printf("[]DataPrepTextConversation --------------------------------------\n")
+	// spew.Dump(res)
 
 	return res, nil
 }
