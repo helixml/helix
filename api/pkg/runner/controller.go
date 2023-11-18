@@ -256,7 +256,12 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// before trying to run another type of model
 
 	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+		queryParams.Add("reject", fmt.Sprintf(
+			"%s:%s:%s",
+			modelInstance.filter.ModelName,
+			modelInstance.filter.Mode,
+			modelInstance.filter.FinetuneFile,
+		))
 		return true
 	})
 

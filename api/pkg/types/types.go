@@ -73,8 +73,9 @@ type Session struct {
 }
 
 type SessionFilterModel struct {
-	Mode      SessionMode `json:"mode"`
-	ModelName ModelName   `json:"model_name"`
+	Mode         SessionMode `json:"mode"`
+	ModelName    ModelName   `json:"model_name"`
+	FinetuneFile string      `json:"finetune_file"`
 }
 
 type Duration time.Duration

@@ -499,21 +499,23 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
-			pair := strings.Split(rejectPair, ":")
-			if len(pair) != 2 {
+			triple := strings.Split(rejectPair, ":")
+			if len(triple) != 3 {
 				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			rejectModelName, err := types.ValidateModelName(pair[0], false)
+			rejectModelName, err := types.ValidateModelName(triple[0], false)
 			if err != nil {
 				return nil, err
 			}
-			rejectModelMode, err := types.ValidateSessionMode(pair[1], false)
+			rejectModelMode, err := types.ValidateSessionMode(triple[1], false)
 			if err != nil {
 				return nil, err
 			}
+			rejectFinetuneFile := triple[2]
 			reject = append(reject, types.SessionFilterModel{
-				ModelName: rejectModelName,
-				Mode:      rejectModelMode,
+				ModelName:    rejectModelName,
+				Mode:         rejectModelMode,
+				FinetuneFile: rejectFinetuneFile,
 			})
 		}
 	}
