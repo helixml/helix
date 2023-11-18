@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"runtime/debug"
+	"sort"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -32,6 +33,10 @@ type RunnerOptions struct {
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
 	TaskURL string
+	// these URLs will have the instance ID appended by the model instance
+	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
+	// we just pass http://localhost:8080/api/v1/worker/session
+	SessionURL string
 	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/response
 	ResponseURL string
@@ -111,14 +116,6 @@ func NewRunner(
 	return runner, nil
 }
 
-func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
-	log.Printf("🟠 comparing modelInstance type=%s, mode=%s, finetuneFile=%s to session type=%s, mode=%s, finetuneFile=%s", modelInstance.filter.Type, modelInstance.filter.Mode, modelInstance.filter.FinetuneFile, session.Type, session.Mode, session.FinetuneFile)
-	return modelInstance.filter.Mode == session.Mode &&
-		modelInstance.filter.Type == session.Type &&
-		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||
-			(modelInstance.filter.FinetuneFile == "none" && session.FinetuneFile == ""))
-}
-
 func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
 	// iterate over model instances to see if one exists and if it doesn't, create it.
 	// then add session to localQueue
@@ -157,7 +154,7 @@ func (r *Runner) StartLooping() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(100 * time.Millisecond):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
@@ -168,22 +165,27 @@ func (r *Runner) StartLooping() {
 }
 
 func (r *Runner) loop(ctx context.Context) error {
-	// check for running model instances that have not seen a job in a while
-	// and kill them if they are over the timeout
-	// TODO: get the timeout to be configurable from the api and so dynamic
-	// based on load
-	err := r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds))
-	if err != nil {
-		return err
-	}
 
-	// ask the api server if it currently has any work based on our free memory
+	// ask the api server if it currently has any work based on the amount of
+	// memory we could free if we killed stale sessions
 	session, err := r.getNextGlobalSession(ctx)
 	if err != nil {
 		return err
 	}
 
 	if session != nil {
+		// if we need to kill any stale sessions, do it now
+
+		// check for running model instances that have not seen a job in a while
+		// and kill them if they are over the timeout AND the session requires it
+
+		// TODO: get the timeout to be configurable from the api and so dynamic
+		// based on load
+		err = r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds), session)
+		if err != nil {
+			return err
+		}
+
 		log.Debug().
 			Msgf("🔵 runner start model instance")
 		err = r.createModelInstance(ctx, session)
@@ -197,23 +199,69 @@ func (r *Runner) loop(ctx context.Context) error {
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration) error {
+func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
+	// calculate stale model instances
+	// sort by memory usage
+	// kill as few of them as possible to free up newSession much memory
+
+	stales := []*ModelInstance{}
 	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
-		// this means we are booting so let's leave it alone to boot
+		stale := false
 		if activeModelInstance.lastActivityTimestamp == 0 {
-			return true
+			stale = false
+		} else if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+			stale = true
 		}
-		if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
-			log.Info().Msgf("Killing stale model instance %s", activeModelInstance.id)
-			err := activeModelInstance.stopProcess()
-			if err != nil {
-				log.Error().Msgf("error stopping model instance %s: %s", activeModelInstance.id, err.Error())
-				return true
-			}
-			r.activeModelInstances.Delete(activeModelInstance.id)
+		if stale {
+			stales = append(stales, activeModelInstance)
 		}
 		return true
 	})
+
+	// sort by memory usage ascending
+	sort.Slice(stales, func(i, j int) bool {
+		return stales[i].model.GetMemoryRequirements(stales[i].filter.Mode) < stales[j].model.GetMemoryRequirements(stales[j].filter.Mode)
+	})
+
+	// calculate mem required by new session
+	modelInstance, err := NewModelInstance(
+		r.Ctx,
+		newSession,
+		r.Options.TaskURL,
+		r.Options.SessionURL,
+		r.Options.ResponseURL,
+		func(res *types.WorkerTaskResponse) error {
+			return nil
+		},
+		r.Options,
+	)
+	if err != nil {
+		return err
+	}
+
+	// we don't need to free as much memory as we already have free
+	currentlyAvailableMemory := r.getFreeMemory()
+
+	// for this session
+	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode) - currentlyAvailableMemory
+
+	if requiredMemoryFreed <= 0 {
+		return nil
+	}
+
+	for _, m := range stales {
+		if requiredMemoryFreed > 0 {
+			log.Info().Msgf("Killing stale model instance %s", m.id)
+			err := m.stopProcess()
+			if err != nil {
+				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
+			}
+			r.activeModelInstances.Delete(m.id)
+			requiredMemoryFreed -= m.model.GetMemoryRequirements(m.filter.Mode)
+		} else {
+			log.Info().Msgf("cleared up enough model memory, overshot by %d bytes", requiredMemoryFreed)
+		}
+	}
 	return nil
 }
 
@@ -229,7 +277,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		// smarts for local tasks
 		return nil, nil
 	}
-	freeMemory := r.getFreeMemory()
+	freeMemory := r.getHypotheticalFreeMemory()
 
 	if freeMemory < r.lowestMemoryRequirement {
 		// we don't have enough memory to run anything
@@ -242,6 +290,16 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// this means "only give me sessions that will fit in this much RAM"
 	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
 
+	// give currently running models a head start on claiming jobs - this is for
+	// when we have > 1 runner
+	//
+	// TODO: using timing for this prioitization heuristic is flaky and adds
+	// latency unnecessarily, instead we could have a bidding system where the
+	// api requests bids from all the connected runners and they bid on how
+	// quickly they could service the request (e.g. what is their queue length,
+	// do they have the model loaded into memory)
+	queryParams.Add("older", "2s")
+
 	// now let's loop over our running model instances and de-prioritise them
 	// we might still get sessions of this type but only if there isn't another
 	// type in the queue - this is to avoid running only one type of model
@@ -250,11 +308,34 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// before trying to run another type of model
 
 	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		queryParams.Add("reject", fmt.Sprintf("%s:%s", modelInstance.filter.ModelName, modelInstance.filter.Mode))
+		queryParams.Add("reject", fmt.Sprintf(
+			"%s:%s:%s",
+			modelInstance.filter.ModelName,
+			modelInstance.filter.Mode,
+			modelInstance.filter.FinetuneFile,
+		))
 		return true
 	})
 
-	return r.getNextSession(ctx, queryParams)
+	return r.getNextApiSession(ctx, queryParams)
+}
+
+// used by the Python code to know that a session has finished preparing and is ready to pull from the
+// queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
+// but it gives the python code a chance to wait for Lora weights to download before loading them
+// into GPU memory - at which point it would start pulling from the queue as normal
+func (r *Runner) readNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+	if modelInstance.nextSession == nil {
+		return nil, fmt.Errorf("no session found")
+	}
+	return modelInstance.nextSession, nil
 }
 
 // we have popped the next session from the master API
@@ -269,6 +350,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 		r.Ctx,
 		session,
 		r.Options.TaskURL,
+		r.Options.SessionURL,
 		r.Options.ResponseURL,
 
 		// this function will convert any files it sees locally into an upload
@@ -328,7 +410,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -379,7 +461,7 @@ func (r *Runner) getNextTask(ctx context.Context, instanceID string) (*types.Wor
 			queryParams.Add("mode", string(modelInstance.filter.Mode))
 			queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
 
-			apiSession, err := r.getNextSession(ctx, queryParams)
+			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
 				return nil, err
 			}
@@ -440,7 +522,7 @@ func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, task
 	return taskResponse, nil
 }
 
-func (r *Runner) getNextSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
+func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
 	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
 	if err != nil {
 		return nil, err
@@ -489,8 +571,35 @@ func (r *Runner) getUsedMemory() uint64 {
 	return memoryUsed
 }
 
+func (r *Runner) getUsedMemoryByNonStale() uint64 {
+	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
+
+	memoryUsed := uint64(0)
+	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
+		// assume stale
+		stale := true
+		// this means we are booting so let's leave it alone to boot
+		if modelInstance.lastActivityTimestamp == 0 {
+			stale = false
+		}
+		// the model is not stale don't include it
+		if modelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+			stale = false
+		}
+		if stale {
+			memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+		}
+		return true
+	})
+	return memoryUsed
+}
+
 func (r *Runner) getFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemory()
+}
+
+func (r *Runner) getHypotheticalFreeMemory() uint64 {
+	return r.Options.MemoryBytes - r.getUsedMemoryByNonStale()
 }
 
 func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {

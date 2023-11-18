@@ -2,6 +2,8 @@ package types
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"time"
 )
 
@@ -71,8 +73,33 @@ type Session struct {
 }
 
 type SessionFilterModel struct {
-	Mode      SessionMode `json:"mode"`
-	ModelName ModelName   `json:"model_name"`
+	Mode         SessionMode `json:"mode"`
+	ModelName    ModelName   `json:"model_name"`
+	FinetuneFile string      `json:"finetune_file"`
+}
+
+type Duration time.Duration
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	switch value := v.(type) {
+	case string:
+		tmp, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(tmp)
+		return nil
+	default:
+		return errors.New("invalid duration")
+	}
 }
 
 type SessionFilter struct {
@@ -92,6 +119,9 @@ type SessionFilter struct {
 	// normally used by runners that are running multiple types in parallel
 	// who don't want another version of what they are already running
 	Reject []SessionFilterModel `json:"reject"`
+
+	// only accept sessions that were created more than this duration ago
+	Older Duration `json:"older"`
 }
 
 type ApiKey struct {
@@ -125,7 +155,11 @@ type RunnerProcessConfig struct {
 	// the id of the model instance
 	InstanceID string `json:"instance_id"`
 	// the URL to ask for more tasks
+	// this will pop the task from the queue
 	TaskURL string `json:"task_url"`
+	// the URL to ask for what the session is (e.g. to know what finetune_file to load)
+	// this is readonly and will not pop the session(task) from the queue
+	SessionURL string `json:"session_url"`
 	// the URL to send responses to
 	ResponseURL string `json:"response_url"`
 }
