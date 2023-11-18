@@ -58,7 +58,9 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		// look to see if we have any rejection matches that we should not include
 		reject := false
 		for _, rejectEntry := range filter.Reject {
-			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode {
+			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode &&
+				((rejectEntry.FinetuneFile == types.FINETUNE_FILE_NONE && session.FinetuneFile == "") ||
+					(rejectEntry.FinetuneFile != "" && rejectEntry.FinetuneFile == session.FinetuneFile)) {
 				reject = true
 			}
 		}
