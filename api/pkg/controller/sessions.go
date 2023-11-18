@@ -20,8 +20,16 @@ const DEBUG = true
 func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
 
+		// include sessions that are older than filter.Older
+		// so - filter out ones that are too new
 		if filter.Older != types.Duration(0) {
-			if time.Now().Add(-time.Duration(filter.Older)).After(session.Created) {
+			now := time.Now()
+			tooNewThreshold := now.Add(-time.Duration(filter.Older))
+			if session.Created.After(tooNewThreshold) { // too new
+				log.Info().Msgf(
+					"skipping session %s because it is too new (session created at %s which is after threshold %s)",
+					session.ID, session.Created, tooNewThreshold,
+				)
 				continue
 			}
 		}
