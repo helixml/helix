@@ -154,7 +154,7 @@ func (r *Runner) StartLooping() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(100 * time.Millisecond):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
