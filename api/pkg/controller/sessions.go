@@ -204,8 +204,6 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 }
 
 func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
-	sessionID := system.GenerateUUID()
-
 	// the system interaction is the task we will run on a GPU and update in place
 	systemInteraction := types.Interaction{
 		ID:       system.GenerateUUID(),
@@ -219,7 +217,7 @@ func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionR
 	}
 
 	session := types.Session{
-		ID:            sessionID,
+		ID:            req.SessionID,
 		Name:          system.GenerateAmusingName(),
 		ModelName:     req.ModelName,
 		Type:          req.SessionType,
@@ -235,8 +233,10 @@ func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionR
 		},
 	}
 
-	log.Debug().
-		Msgf("🟢 new session: %+v", session)
+	if req.ParentSession != "" {
+		log.Debug().
+			Msgf("🟢 new session: %+v", session)
+	}
 
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx, session)
@@ -318,13 +318,13 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // so now we are in a state where the session is still preparing but we are waiting
 // for the user - so, we return nil here with no error which
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
-
+	var err error
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, err := c.convertDocumentsToText(session)
+		session, err = c.convertDocumentsToText(session)
 		if err != nil {
 			return nil, err
 		}
@@ -486,15 +486,30 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	systemInteraction.Status = fmt.Sprintf("converted 0 of %d chunks into training data", len(chunks))
 	c.WriteInteraction(session, systemInteraction)
 
+	conversationsCh := make(chan []text.DataPrepTextConversation, len(chunks))
+	errCh := make(chan error, len(chunks))
+
 	for index, chunk := range chunks {
-		conversations, err := dataprep.ConvertChunk(chunk)
-		if err != nil {
-			return nil, err
+		go func(index int, chunk string) {
+			conversations, err := dataprep.ConvertChunk(chunk)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			conversationsCh <- conversations
+		}(index, chunk)
+	}
+
+	for i := 0; i < len(chunks); i++ {
+		select {
+		case conversations := <-conversationsCh:
+			allConversations = append(allConversations, conversations...)
+			systemInteraction.Progress = int(float64(i+1) / float64(len(chunks)) * 100)
+			systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", i+1, len(chunks))
+			c.WriteInteraction(session, systemInteraction)
+		case err := <-errCh:
+			log.Error().Msgf("error converting chunk: %s", err.Error())
 		}
-		allConversations = append(allConversations, conversations...)
-		systemInteraction.Progress = int(float64(index+1) / float64(len(chunks)) * 100)
-		systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", index+1, len(chunks))
-		c.WriteInteraction(session, systemInteraction)
 	}
 
 	// now we have allConversations we convert into jsonL data

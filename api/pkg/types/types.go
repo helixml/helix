@@ -183,6 +183,7 @@ type ServerConfig struct {
 }
 
 type CreateSessionRequest struct {
+	SessionID       string
 	SessionMode     SessionMode
 	SessionType     SessionType
 	ParentSession   string

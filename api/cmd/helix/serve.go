@@ -30,6 +30,7 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
+			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt4")),
 			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
@@ -78,6 +79,13 @@ func newServeCmd() *cobra.Command {
 			return serve(cmd, allOptions)
 		},
 	}
+
+	var dataprepModule string
+	serveCmd.PersistentFlags().StringVar(
+		&dataprepModule, "dataprep-module", string(allOptions.DataPrepTextOptions.Module),
+		`Which module to use for text data prep`,
+	)
+	allOptions.DataPrepTextOptions.Module = text.DataPrepModule(dataprepModule)
 
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.DataPrepTextOptions.APIKey, "openai-key", allOptions.DataPrepTextOptions.APIKey,
@@ -294,9 +302,9 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 		// if we are using openai then let's do that
 		// otherwise - we use our own mistral plugin
-		if os.Getenv("DATA_PREP_USE_GPT4") != "" {
+		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
 			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
-		} else {
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
 			return text.NewDataPrepTextHelixMistral(
 				options.DataPrepTextOptions,
@@ -308,6 +316,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 					return appController.Options.Store.GetSession(context.Background(), id)
 				},
 			)
+		} else {
+			return nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
 		}
 	}
 

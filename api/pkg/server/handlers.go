@@ -362,6 +362,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(req.Context(), types.CreateSessionRequest{
+		SessionID:       sessionID,
 		SessionMode:     sessionMode,
 		SessionType:     sessionType,
 		ModelName:       modelName,
