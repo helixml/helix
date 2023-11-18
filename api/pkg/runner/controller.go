@@ -239,7 +239,15 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		return err
 	}
 
-	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode)
+	// we don't need to free as much memory as we already have free
+	currentlyAvailableMemory := r.getFreeMemory()
+
+	// for this session
+	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode) - currentlyAvailableMemory
+
+	if requiredMemoryFreed <= 0 {
+		return nil
+	}
 
 	for _, m := range stales {
 		if requiredMemoryFreed > 0 {
