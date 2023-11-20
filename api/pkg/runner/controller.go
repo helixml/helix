@@ -572,8 +572,6 @@ func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) er
 }
 
 func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
-	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
-
 	var err error
 	if len(res.Files) > 0 {
 		uploadedFiles, err := r.uploadWorkerResponseFilesToApi(res.SessionID, res.Files, "results")
@@ -593,6 +591,8 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 		}
 		res.LoraDir = uploadedLoraDirs[0]
 	}
+
+	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 
 	// this function will write any task responses back to the api server for it to process
 	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult

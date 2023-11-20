@@ -175,6 +175,10 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		targetInteraction.Files = taskResponse.Files
 	}
 
+	if taskResponse.LoraDir != "" {
+		targetInteraction.LoraDir = taskResponse.LoraDir
+	}
+
 	if taskResponse.Error != "" {
 		targetInteraction.Error = taskResponse.Error
 	}
