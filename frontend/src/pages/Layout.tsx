@@ -336,6 +336,16 @@ const Layout: FC = ({
 
                 <MenuItem onClick={ () => {
                   handleCloseAccountMenu()
+                  navigate('dashboard')
+                }}>
+                  <ListItemIcon>
+                    <DashboardIcon fontSize="small" />
+                  </ListItemIcon> 
+                  Dashboard
+                </MenuItem>
+
+                <MenuItem onClick={ () => {
+                  handleCloseAccountMenu()
                   account.onLogout()
                 }}>
                   <ListItemIcon>
@@ -377,17 +387,17 @@ const Layout: FC = ({
       <CssBaseline />
       <GlobalStyles
         styles={{
-          body: {
+          ".home": {
             fontFamily: 'Open Sauce Sans',
-          },
-          h1: {
-            letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
-          },
-          p: {
-            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-          },
-          li: {
-            letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+            h1: {
+              letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
+            },
+            p: {
+              letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+            },
+            li: {
+              letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
+            },
           },
         }}
       />
@@ -479,7 +489,7 @@ const Layout: FC = ({
           },
         }}
       >
-        {drawer}
+        {meta.sidebar?drawer:null}
       </MuiDrawer>
       <Drawer
         variant="permanent"
@@ -495,7 +505,7 @@ const Layout: FC = ({
         }}
         open
       >
-        {drawer}
+        {meta.sidebar?drawer:null}
       </Drawer>
       <Box
         component="main"

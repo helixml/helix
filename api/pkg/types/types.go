@@ -206,3 +206,7 @@ type ServerConfig struct {
 	// can be the prefix to the bucket
 	FilestorePrefix string `json:"filestore_prefix"`
 }
+
+type DashboardData struct {
+	Sessions []Session `json:"sessions"`
+}

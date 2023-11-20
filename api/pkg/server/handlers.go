@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -438,6 +439,52 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	}
 
 	return sessionData, nil
+}
+
+func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
+	user := getRequestUser(req)
+	adminUserIDs := strings.Split(os.Getenv("ADMIN_USER_IDS"), ",")
+	for _, a := range adminUserIDs {
+		// development mode everyone is an admin
+		if a == "*" {
+			return true
+		}
+		if a == user {
+			return true
+		}
+	}
+	return false
+}
+
+func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
+	isAdmin := apiServer.isAdmin(req)
+	if !isAdmin {
+		return fmt.Errorf("access denied")
+	} else {
+		return nil
+	}
+}
+
+func (apiServer *HelixAPIServer) dashboard(res http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
+	err := apiServer.requireAdmin(req)
+	if err != nil {
+		return nil, err
+	}
+	return &types.DashboardData{
+		Sessions: []types.Session{{
+			ID:           "frob",
+			Name:         "name",
+			Created:      time.Time{},
+			Updated:      time.Time{},
+			Mode:         "inference",
+			Type:         "finetune",
+			ModelName:    "bob's model",
+			FinetuneFile: "",
+			Interactions: []types.Interaction{},
+			Owner:        "bob",
+			OwnerType:    "user",
+		}},
+	}, nil
 }
 
 func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {

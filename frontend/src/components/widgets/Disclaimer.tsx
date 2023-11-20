@@ -14,7 +14,7 @@ const Disclaimer: FC<{
   return (
     <Container maxWidth={'xl'}>
       <Typography variant="body2" color="text.secondary" align="center">
-        {'Open source models may produce inaccurate information about people, places, or facts. Created by '}
+        {'Open source models can make mistakes. Consider checking important information. Created by '}
         <Link color="inherit" href={ themeConfig.url }>
           { themeConfig.company }
         </Link>{' '}
