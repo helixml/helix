@@ -100,7 +100,7 @@ func NewModelInstance(
 	}
 	id := system.GenerateUUID()
 
-	// if this is empty string then we need to hoist it to be types.FINETUNE_FILE_NONE
+	// if this is empty string then we need to hoist it to be types.LORA_DIR_NONE
 	// because then we are always specifically asking for a session that has no finetune file
 	// if we left this blank we are saying "we don't care if it has one or not"
 	useLoraDir := initialSession.LoraDir
