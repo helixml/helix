@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -350,8 +353,6 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		return err
 	}
 
-	r.activeModelInstances.Store(modelInstance.id, modelInstance)
-
 	// belt and braces in remote case and reject jobs that won't fit in local case
 	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
@@ -359,10 +360,11 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		// refuse to start or record the model instance, it will just get GC'd at this point
 		return fmt.Errorf("cannot fit model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	}
-	log.Printf("🟠 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
-
+	log.Debug().Msgf("🔵 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.id)
+
+	r.activeModelInstances.Store(modelInstance.id, modelInstance)
 
 	initialSession, err = modelInstance.downloadSessionFiles(initialSession)
 
@@ -596,13 +598,89 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 	return nil
 }
 
+// createTar takes a directory path and creates a .tar file from it.
+// It returns the path of the created .tar file and any error encountered.
+func createTar(dirPath string) (string, error) {
+	// Define the .tar file name (it will be in the same directory as the input folder)
+	tarFilePath := dirPath + ".tar"
+
+	// Create the .tar file
+	tarFile, err := os.Create(tarFilePath)
+	if err != nil {
+		return "", err
+	}
+	defer tarFile.Close()
+
+	// Create a new tar writer
+	tw := tar.NewWriter(tarFile)
+	defer tw.Close()
+
+	// Walk through every file in the folder
+	err = filepath.Walk(dirPath, func(file string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Create a header for the current file
+		header, err := tar.FileInfoHeader(fi, fi.Name())
+		if err != nil {
+			return err
+		}
+
+		// Ensure the header name is correct
+		// This is to ensure that the path in the tar file is relative and not absolute.
+		header.Name = strings.TrimPrefix(strings.Replace(file, dirPath, "", -1), string(filepath.Separator))
+
+		// Write the header to the tarball archive
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+
+		// If it's not a directory, write its content
+		if !fi.IsDir() {
+			data, err := os.Open(file)
+			if err != nil {
+				return err
+			}
+			defer data.Close()
+
+			if _, err := io.Copy(tw, data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return tarFilePath, nil
+}
+
 func (r *Runner) uploadWorkerResponseFilesToApi(res *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
 	// create a new multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
+	log.Debug().Msgf("🟠 Uploading task files %s %+v", res.SessionID, res)
+
 	// loop over each file and add it to the form
 	for _, filepath := range res.Files {
+		fileInfo, err := os.Stat(filepath)
+		if err != nil {
+			return nil, err
+		}
+
+		if fileInfo.IsDir() {
+			// Create a .tar file from the directory
+			tarFilePath, err := createTar(filepath)
+			if err != nil {
+				return nil, err
+			}
+			filepath = tarFilePath // Update filepath to point to the .tar file
+		}
+
 		file, err := os.Open(filepath)
 		if err != nil {
 			return nil, err
