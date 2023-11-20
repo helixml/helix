@@ -150,7 +150,7 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 	}()
 
 	if err != nil {
-		log.Ctx(req.Context()).Error().Msgf("error for download file: %s", err.Error())
+		log.Error().Msgf("error for download file: %s", err.Error())
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 }
