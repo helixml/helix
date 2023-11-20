@@ -159,6 +159,88 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
+	folder := vars["folder"]
+
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), folder)
+
+	reqContext := types.RequestContext{
+		Ctx:       req.Context(),
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	}
+
+	result := []filestore.FileStoreItem{}
+	files := req.MultipartForm.File["files"]
+
+	for _, fileHeader := range files {
+		if strings.HasSuffix(fileHeader.Filename, ".tar") {
+			log.Debug().Msgf("🟠 Got tar file %s", fileHeader.Filename)
+
+			// Handle .tar file
+			tarFile, err := fileHeader.Open()
+			if err != nil {
+				return nil, fmt.Errorf("unable to open tar file")
+			}
+			defer func() {
+				tarFile.Close()
+			}()
+
+			tarReader := tar.NewReader(tarFile)
+			for {
+				header, err := tarReader.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return nil, fmt.Errorf("error reading tar file: %s", err)
+				}
+				if header.Typeflag == tar.TypeReg {
+					buffer := bytes.NewBuffer(nil)
+					if _, err := io.Copy(buffer, tarReader); err != nil {
+						return nil, fmt.Errorf("error reading file inside tar: %s", err)
+					}
+
+					// Create a virtual file from the buffer to upload
+					vFile := bytes.NewReader(buffer.Bytes())
+					item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, header.Name), vFile)
+					if err != nil {
+						return nil, fmt.Errorf("unable to upload file: %s", err.Error())
+					}
+					result = append(result, item)
+				}
+			}
+		} else {
+			// Handle non-tar files as before
+			file, err := fileHeader.Open()
+			if err != nil {
+				return nil, fmt.Errorf("unable to open file")
+			}
+			defer file.Close()
+
+			item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
+			if err != nil {
+				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
+			}
+			result = append(result, item)
+		}
+	}
+
+	return result, nil
+}
+
+func (apiServer *HelixAPIServer) runnerSessionUploadLoraDir(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
+	vars := mux.Vars(req)
+	sessionid := vars["sessionid"]
 
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {

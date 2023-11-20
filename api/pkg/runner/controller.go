@@ -576,10 +576,22 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 
 	var err error
 	if len(res.Files) > 0 {
-		res, err = r.uploadWorkerResponseFilesToApi(res)
+		uploadedFiles, err := r.uploadWorkerResponseFilesToApi(res.SessionID, res.Files, "results")
 		if err != nil {
 			return err
 		}
+		res.Files = uploadedFiles
+	}
+
+	if res.LoraDir != "" {
+		uploadedLoraDirs, err := r.uploadWorkerResponseFilesToApi(res.SessionID, []string{res.LoraDir}, "lora_dir")
+		if err != nil {
+			return err
+		}
+		if len(uploadedLoraDirs) <= 0 {
+			return fmt.Errorf("no lora dir uploaded")
+		}
+		res.LoraDir = uploadedLoraDirs[0]
 	}
 
 	// this function will write any task responses back to the api server for it to process
@@ -660,15 +672,19 @@ func createTar(dirPath string) (string, error) {
 	return tarFilePath, nil
 }
 
-func (r *Runner) uploadWorkerResponseFilesToApi(res *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
+func (r *Runner) uploadWorkerResponseFilesToApi(
+	sessionID string,
+	localFiles []string,
+	remoteFolder string,
+) ([]string, error) {
 	// create a new multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	log.Debug().Msgf("🟠 Uploading task files %s %+v", res.SessionID, res)
+	log.Debug().Msgf("🟠 Uploading task files %s %+v", sessionID, localFiles)
 
 	// loop over each file and add it to the form
-	for _, filepath := range res.Files {
+	for _, filepath := range localFiles {
 		fileInfo, err := os.Stat(filepath)
 		if err != nil {
 			return nil, err
@@ -708,7 +724,7 @@ func (r *Runner) uploadWorkerResponseFilesToApi(res *types.RunnerTaskResponse) (
 		return nil, err
 	}
 
-	url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, res.SessionID))
+	url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload/%s", r.Options.ID, sessionID, remoteFolder))
 
 	log.Debug().Msgf("🟠 upload files %s", url)
 
@@ -751,7 +767,5 @@ func (r *Runner) uploadWorkerResponseFilesToApi(res *types.RunnerTaskResponse) (
 		mappedFiles = append(mappedFiles, fileItem.Path)
 	}
 
-	res.Files = mappedFiles
-
-	return res, nil
+	return mappedFiles, nil
 }
