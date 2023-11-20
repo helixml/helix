@@ -108,7 +108,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions", Wrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", Wrapper(apiServer.createSession)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.getSession)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/conversations", Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.deleteSession)).Methods("DELETE")
 

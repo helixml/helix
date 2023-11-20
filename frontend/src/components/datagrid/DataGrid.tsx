@@ -17,19 +17,6 @@ const gridStyle = {
   flexBasis: '100%',
 }
 
-const getHeaderStyle = (theme: Theme) => ({
-  backgroundColor: theme.palette.primary.main,
-  color: theme.palette.primary.contrastText,
-  border: 'none',
-  fontSize: '0.8rem',
-  fontWeight: 500,
-  textTransform: 'uppercase',
-  fontFamily: '"Open Sans", sans-serif, Arial, Helvetica',
-  paddingLeft: '0.2rem',
-  paddingRight: '0.2rem',
-  height: '40px',
-})
-
 export interface IDataGrid2_Column_Render_Params<DataType = any> {
   value: any,
   data: DataType,
@@ -42,6 +29,7 @@ export interface IDataGrid2_Column<DataType = any> {
   defaultWidth?: number,
   minWidth?: number,
   textAlign?: 'start' | 'center' | 'end',
+  cellStyle?: any,
   render?: (params: IDataGrid2_Column_Render_Params<DataType>) => any, 
 }
 
@@ -132,7 +120,7 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
           onCellDoubleClick={ (ev, props) => onDoubleClick && onDoubleClick(props.rowIndex) }
           headerHeight={ headerHeight }
           minRowHeight={ rowHeight }
-          rowHeight={ rowHeight }
+          rowHeight={ null }
           style={ gridStyle }
           showCellBorders={ false }
         />

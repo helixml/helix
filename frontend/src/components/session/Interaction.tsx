@@ -4,11 +4,14 @@ import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Progress from '../widgets/Progress'
+import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
+import ConversationEditor from './ConversationEditor'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -16,6 +19,7 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
+  INTERACTION_STATE_EDITING,
 } from '../../types'
 
 import {
@@ -33,6 +37,7 @@ import {
 const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
+  session_id?: string,
   type: ISessionType,
   mode: ISessionMode,
   interaction: IInteraction,
@@ -40,6 +45,7 @@ export const Interaction: FC<{
   error?: string,
   isLast?: boolean,
 }> = ({
+  session_id,
   type,
   mode,
   interaction,
@@ -56,7 +62,7 @@ export const Interaction: FC<{
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
 
-  const isEditingConversations = interaction.state == 'editing' && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
+  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
 
   if(type == SESSION_TYPE_TEXT) {
@@ -64,7 +70,7 @@ export const Interaction: FC<{
     if(!displayMessage && isLoading) {
       if(interaction.progress > 0) {
         progress = interaction.progress
-      } else {
+      } else if (interaction.state != INTERACTION_STATE_EDITING) {
         displayMessage = '🤔'
       }
     }
@@ -86,7 +92,7 @@ export const Interaction: FC<{
       }
     }
   }
-
+  
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
@@ -169,11 +175,19 @@ export const Interaction: FC<{
                               flexDirection: 'column',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              color: '#999'
+                              color: '#999',
+                              cursor: 'pointer',
+                            }}
+                            onClick={ () => {
+                              window.open(useURL)
                             }}
                           >
                             <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(filename)}`}></span>
-                            <Typography variant="caption">{filename}</Typography>
+                            <Typography variant="caption" sx={{
+                              textAlign: 'center',
+                              color: 'blue',
+                              textDecoration: 'underline',
+                            }}>{filename}</Typography>
                           </Box>
                         </Grid>
                       )
@@ -190,8 +204,21 @@ export const Interaction: FC<{
           )
         }
         {
-          interaction.status && !useErrorText && (
+          interaction.status && !useErrorText && !isEditingConversations && (
             <Typography variant="caption" dangerouslySetInnerHTML={{__html: interaction.status.replace(/\n/g, '<br/>')}}></Typography>
+          )
+        }
+        {
+          isEditingConversations && session_id && (
+            <Box
+              sx={{
+                mt: 2,
+              }}
+            >
+              <ConversationEditor
+                session_id={ session_id }
+              />
+            </Box>
           )
         }
         {

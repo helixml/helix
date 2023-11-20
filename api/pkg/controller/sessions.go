@@ -65,7 +65,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	}
 
 	userInteraction.Finished = true
-	userInteraction.State = types.InteractionStateReady
+	userInteraction.State = types.InteractionStateComplete
 
 	errorInteraction, err := model.GetSystemInteraction(session)
 	if err != nil {
@@ -150,7 +150,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	// mark the interaction as complete if we are a fully finished response
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
 		targetInteraction.Finished = true
-		targetInteraction.State = types.InteractionStateReady
+		targetInteraction.State = types.InteractionStateComplete
 	}
 
 	// update the message if we've been given one
@@ -336,6 +336,116 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 	return session, nil
 }
 
+// return the JSON of some fine tune conversation data
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPTConversations, error) {
+	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var conversations []text.ShareGPTConversations
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var conversation text.ShareGPTConversations
+		err := json.Unmarshal([]byte(line), &conversation)
+		if err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, conversation)
+	}
+
+	return conversations, nil
+}
+
+func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []text.ShareGPTConversations) error {
+	jsonLines := []string{}
+
+	for _, conversationEntry := range data {
+		jsonLine, err := json.Marshal(conversationEntry)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+
+	_, err := c.Options.Filestore.Upload(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// once we've edited the JSONL file - we trigger the fine tuning by adding more interactions
+func (c *Controller) BeginTextFineTune(session *types.Session) error {
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return err
+	}
+	if len(systemInteraction.Files) == 0 {
+		return fmt.Errorf("no files found")
+	}
+	filepath := systemInteraction.Files[0]
+	if !strings.HasSuffix(filepath, ".jsonl") {
+		return fmt.Errorf("file is not a jsonl file")
+	}
+
+	systemInteraction.Message = "completed document conversion"
+	systemInteraction.Status = "all files converted to txt"
+	systemInteraction.State = types.InteractionStateComplete
+	systemInteraction.Finished = true
+
+	finetuneUserInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeUser,
+		Message:  "completed question & answer editing",
+		Status:   "all question & answer pairs edited",
+		Files:    systemInteraction.Files,
+		State:    types.InteractionStateComplete,
+		Finished: true,
+		Metadata: map[string]string{},
+	}
+
+	finetuneSystemInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		State:    types.InteractionStateWaiting,
+		Finished: false,
+		Metadata: map[string]string{},
+	}
+
+	systemInteraction.Files = []string{}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == systemInteraction.ID {
+			newInteractions = append(newInteractions, *systemInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+	newInteractions = append(newInteractions, finetuneUserInteraction, finetuneSystemInteraction)
+	session.Interactions = newInteractions
+
+	c.WriteSession(session)
+	c.AddSessionToQueue(session)
+
+	return nil
+}
+
 type convertTextItem struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -352,10 +462,6 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	systemInteraction, err := model.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
-	}
-
-	if userInteraction.State != types.InteractionStateWaiting {
-		return session, nil
 	}
 
 	newFiles := []string{}
@@ -414,9 +520,9 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			newFiles = append(newFiles, newFilepath)
 		}
 
-		userInteraction.Files = newFiles
-
 		// now we have added some text files let's update the user interaction
+		userInteraction.Files = newFiles
+		userInteraction.State = types.InteractionStateComplete
 		session = c.WriteInteraction(session, userInteraction)
 
 		systemInteraction.Status = fmt.Sprintf("all files converted to txt")
@@ -435,10 +541,6 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	systemInteraction, err := model.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
-	}
-
-	if userInteraction.State != types.InteractionStateWaiting {
-		return session, nil
 	}
 
 	dataprep, err := c.Options.DataPrepTextFactory(session)
@@ -486,34 +588,18 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	systemInteraction.Status = fmt.Sprintf("converted 0 of %d chunks into training data", len(chunks))
 	c.WriteInteraction(session, systemInteraction)
 
-	conversationsCh := make(chan []text.DataPrepTextConversation, len(chunks))
-	errCh := make(chan error, len(chunks))
-
-	for index, chunk := range chunks {
-		go func(index int, chunk string) {
-			conversations, err := dataprep.ConvertChunk(chunk)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			conversationsCh <- conversations
-		}(index, chunk)
-	}
-
-	for i := 0; i < len(chunks); i++ {
-		select {
-		case conversations := <-conversationsCh:
-			allConversations = append(allConversations, conversations...)
-			systemInteraction.Progress = int(float64(i+1) / float64(len(chunks)) * 100)
-			systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", i+1, len(chunks))
-			c.WriteInteraction(session, systemInteraction)
-		case err := <-errCh:
-			log.Error().Msgf("error converting chunk: %s", err.Error())
+	for i, chunk := range chunks {
+		conversations, err := dataprep.ConvertChunk(chunk)
+		if err != nil {
+			return nil, err
 		}
+		allConversations = append(allConversations, conversations...)
+		systemInteraction.Progress = int(float64(i+1) / float64(len(chunks)) * 100)
+		systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", i+1, len(chunks))
+		c.WriteInteraction(session, systemInteraction)
 	}
 
 	// now we have allConversations we convert into jsonL data
-
 	jsonLines := []string{}
 
 	for _, conversationEntry := range allConversations {
@@ -539,53 +625,4 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	// we return nil here because we want the user to edit the JSONL
 	// file and we will handle adding the session to the queue ourselves
 	return nil, nil
-}
-
-// return the JSON of some fine tune conversation data
-func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPTConversation, error) {
-	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	var conversations []text.ShareGPTConversation
-	lines := strings.Split(string(data), "\n")
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var conversation text.ShareGPTConversation
-		err := json.Unmarshal([]byte(line), &conversation)
-		if err != nil {
-			return nil, err
-		}
-		conversations = append(conversations, conversation)
-	}
-
-	return conversations, nil
-}
-
-func (c *Controller) SaveTextFineTuneQuestions(filepath string, data []text.ShareGPTConversation) error {
-	jsonLines := []string{}
-
-	for _, conversationEntry := range data {
-		jsonLine, err := json.Marshal(conversationEntry)
-		if err != nil {
-			return err
-		}
-		jsonLines = append(jsonLines, string(jsonLine))
-	}
-
-	_, err := c.Options.Filestore.Upload(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

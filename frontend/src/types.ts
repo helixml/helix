@@ -67,11 +67,12 @@ export type ISessionType = 'text' | 'image'
 export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
-export type ISessionState = 'preparing' | 'ready' | 'error'
+export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
 
-export const SESSION_STATE_PREPARING: ISessionState = 'preparing'
-export const SESSION_STATE_READY: ISessionState = 'ready'
-export const SESSION_STATE_ERROR: ISessionState = 'error'
+export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
+export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
+export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
+export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
 export type IWebSocketEventType = 'session_update' | 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
@@ -101,7 +102,7 @@ export interface IInteraction {
   message: string,
   progress: number,
   status: string,
-  state: string,
+  state: IInteractionState,
   files: string[],
   finetune_file: string,
   finished: boolean,
@@ -114,10 +115,10 @@ export interface ISession {
   name: string,
   created: number,
   updated: number,
+  parent_session: string,
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
-  state: ISessionState,
   error: string,
   finetune_file: string,
   interactions: IInteraction[],
@@ -135,4 +136,19 @@ export interface IWebsocketEvent {
 
 export interface IServerConfig {
   filestore_prefix: string,
+}
+
+export interface IConversation {
+  from: string,
+  value: string,
+}
+
+export interface IConversations {
+  conversations: IConversation[],
+}
+
+export interface IQuestionAnswer {
+  id: string,
+  question: string,
+  answer: string,
 }
