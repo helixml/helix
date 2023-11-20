@@ -55,6 +55,15 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		})
 
 		return stdout, nil, nil
+	} else if mode == types.SessionModeFinetune {
+		chunker := newMistral7bFinetuneChunker(eventHandler)
+		stdout := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
+			err := chunker.write(chunk)
+			if err != nil {
+				log.Error().Msgf("error writing word to mistral inference chunker: %s", err)
+			}
+		})
+		return stdout, nil, nil
 	}
 
 	return nil, nil, nil
@@ -63,11 +72,6 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
 	if sessionFilter.Mode == types.SessionModeInference {
-
-		// this bash script will be in the dockerfile that we use to
-		// manage runners
-		// TODO: should this be included in the gofs and written to the FS dynamically
-		// so we can distribute a go binary if needed?
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
@@ -76,7 +80,13 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"examples/mistral/qlora-instruct.yml",
 		)
 	} else {
-		return nil, fmt.Errorf("invalid Mistral7bInstruct01 session mode: %s", sessionFilter.Mode)
+		cmd = exec.CommandContext(
+			ctx,
+			"bash", "runner/venv_command.sh",
+			"python", "-u", "-m",
+			"axolotl.cli.train",
+			"examples/mistral/qlora.yml",
+		)
 	}
 
 	wd, err := os.Getwd()
@@ -179,6 +189,44 @@ func (chunker *mistral7bInferenceChunker) reset() {
 	chunker.bufferStream = ""
 	chunker.bufferSession = ""
 	chunker.active = false
+}
+
+type mistral7bFinetuneChunker struct {
+	sessionID    string
+	eventHandler WorkerEventHandler
+}
+
+func newMistral7bFinetuneChunker(eventHandler WorkerEventHandler) *mistral7bFinetuneChunker {
+	return &mistral7bFinetuneChunker{
+		sessionID:    "",
+		eventHandler: eventHandler,
+	}
+}
+
+func (chunker *mistral7bFinetuneChunker) write(word string) error {
+	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
+	if strings.HasPrefix(word, "[SESSION_START]") {
+		parts := strings.Split(word, "=")
+		if len(parts) < 2 {
+			// we reset here because we got a session start line with no ID
+			// which is very strange
+			return fmt.Errorf("invalid session start line: %s", word)
+		}
+		chunker.sessionID = parts[1]
+	} else if strings.HasPrefix(word, "[SESSION_END]") {
+		parts := strings.Split(word, "=")
+		if len(parts) < 2 {
+			// we reset here because we got a session start line with no ID
+			// which is very strange
+			return fmt.Errorf("invalid session start line: %s", word)
+		}
+		chunker.eventHandler(&types.RunnerTaskResponse{
+			Type:      types.WorkerTaskResponseTypeResult,
+			SessionID: chunker.sessionID,
+			Files:     []string{parts[1]},
+		})
+	}
+	return nil
 }
 
 // Compile-time interface check:
