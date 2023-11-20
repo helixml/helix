@@ -17,17 +17,7 @@ import Container from '@mui/material/Container'
 import {ISession} from '../types'
 
 const Dashboard: FC = () => {
-  const account = useAccount()
   const api = useApi()
-
-  if(!account.user) return null
-  const handleDeleteApiKey = async (key: string) => {
-    try {
-      await axios.delete(`/api/v1/api_keys?key=${key}`)
-    } catch (error) {
-      console.error(error)
-    }
-  }
 
   const [ sessions, setSessions ] = useState<ISession[]>(
     [{id: "session-001",
@@ -45,13 +35,25 @@ const Dashboard: FC = () => {
 
   useEffect(() => {
     const intervalId = setInterval(async () => {
-      const response = axios.get(`/api/v1/dashboard`)
+      const response = await axios.get(`/api/v1/dashboard`)
+      setSessions(response.sessions)
       console.log(response)
     }, 1000)
     return () => {
       clearInterval(intervalId)
     }
   })
+
+  const account = useAccount()
+  if(!account.user) return null
+
+  const handleDeleteApiKey = async (key: string) => {
+    try {
+      await axios.delete(`/api/v1/api_keys?key=${key}`)
+    } catch (error) {
+      console.error(error)
+    }
+  }
 
   return (
     <Box sx={{mt:4}}>
