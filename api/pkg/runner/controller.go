@@ -582,7 +582,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 	}
 
 	if res.LoraDir != "" {
-		uploadedLoraDirs, err := r.uploadWorkerResponseFilesToApi(res.SessionID, []string{res.LoraDir}, "lora_dir")
+		uploadedLoraDirs, err := r.uploadWorkerResponseFilesToApi(res.SessionID, []string{res.LoraDir}, "lora")
 		if err != nil {
 			return err
 		}
