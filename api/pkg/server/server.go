@@ -126,7 +126,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download", apiServer.runnerSessionDownloadFile).Methods("GET")
 
 	// all files uploaded will be put under the "sessions/{sessionid}/results" folder in the filestore
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/{folder}", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 
 	StartUserWebSocketServer(
 		ctx,

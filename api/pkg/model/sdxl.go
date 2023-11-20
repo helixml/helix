@@ -162,6 +162,15 @@ func (chunker *SDXLChunker) emitResult(files []string) {
 	})
 }
 
+func (chunker *SDXLChunker) emitLora(loraDir string) {
+	chunker.eventHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeResult,
+		SessionID: chunker.sessionID,
+		LoraDir:   loraDir,
+		Files:     []string{},
+	})
+}
+
 func (chunker *SDXLChunker) write(word string) error {
 	if strings.HasPrefix(word, "[SESSION_START]") {
 		// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
@@ -173,15 +182,20 @@ func (chunker *SDXLChunker) write(word string) error {
 			return fmt.Errorf("invalid session start line: %s", word)
 		}
 		chunker.sessionID = parts[1]
-	} else if strings.HasPrefix(word, "[SESSION_END]") {
-		// e.g. [SESSION_END]["/home/kai/projects/helix/sd-scripts/./output_images/image_98f3af8a-f77f-4f49-8a26-6ae314a09d3d_20231116-135033_000.png"]
-		data := strings.Replace(word, "[SESSION_END]", "", 1)
+	} else if strings.HasPrefix(word, "[SESSION_END_IMAGES]") {
+		// e.g. [SESSION_END_IMAGES]images=["/home/kai/projects/helix/sd-scripts/./output_images/image_98f3af8a-f77f-4f49-8a26-6ae314a09d3d_20231116-135033_000.png"]
+		parts := strings.Split(word, "=")
 		var files []string
-		err := json.Unmarshal([]byte(data), &files)
+		err := json.Unmarshal([]byte(parts[1]), &files)
 		if err != nil {
 			return err
 		}
 		chunker.emitResult(files)
+		chunker.reset()
+	} else if strings.HasPrefix(word, "[SESSION_END_LORA_DIR]") {
+		// e.g. [SESSION_END_LORA_DIR]lora_dir=/tmp/helix/results/123
+		parts := strings.Split(word, "=")
+		chunker.emitLora(parts[1])
 		chunker.reset()
 	} else if chunker.sessionID != "" {
 		if chunker.options.progressActivationWord != "" && !chunker.progressActive && word == chunker.options.progressActivationWord {

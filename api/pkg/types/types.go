@@ -169,6 +169,7 @@ type RunnerTaskResponse struct {
 	Progress int      `json:"progress,omitempty"` // e.g. 0-100
 	Status   string   `json:"status,omitempty"`   // e.g. updating X
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
+	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
 }
 
