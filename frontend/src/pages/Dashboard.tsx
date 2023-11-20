@@ -1,8 +1,9 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import axios from 'axios'
 
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
 import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
 import Typography from '@mui/material/Typography'
 import List from '@mui/material/List'
@@ -17,6 +18,8 @@ import {ISession} from '../types'
 
 const Dashboard: FC = () => {
   const account = useAccount()
+  const api = useApi()
+
   if(!account.user) return null
   const handleDeleteApiKey = async (key: string) => {
     try {
@@ -39,6 +42,16 @@ const Dashboard: FC = () => {
       owner: "bob",
       owner_type: "user"}]
   )
+
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      const response = axios.get(`/api/v1/dashboard`)
+      console.log(response)
+    }, 1000)
+    return () => {
+      clearInterval(intervalId)
+    }
+  })
 
   return (
     <Box sx={{mt:4}}>
