@@ -21,9 +21,14 @@ export const isPathReadonly = (config: IFileStoreConfig, path: string) =>{
   return folder?.readonly || false
 }
 
+export const FILE_EXT_MAP: Record<string, string> = {
+  'jsonl': 'json',
+}
+
 export const getFileExtension = (filename: string) => {
   const parts = filename.split('.')
-  return parts[parts.length - 1]
+  const ext = parts[parts.length - 1]
+  return FILE_EXT_MAP[ext] || ext
 }
 
 export const isImage = (filename: string) => {

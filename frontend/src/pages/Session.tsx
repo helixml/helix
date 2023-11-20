@@ -18,6 +18,10 @@ import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSessions from '../hooks/useSessions'
 
+import {
+  INTERACTION_STATE_EDITING,
+} from '../types'
+
 const Session: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
@@ -38,10 +42,9 @@ const Session: FC = () => {
   const session = sessions.sessions?.find(session => session.id === params["session_id"])
 
   const loading = useMemo(() => {
-    return false
-    // if(!session || !session?.interactions || session?.interactions.length === 0) return false
-    // const interaction = session?.interactions[session?.interactions.length - 1]
-    // return interaction.finished ? false : true
+    if(!session || !session?.interactions || session?.interactions.length === 0) return false
+    const interaction = session?.interactions[session?.interactions.length - 1]
+    return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session,
   ])
@@ -150,6 +153,7 @@ const Session: FC = () => {
                 return (
                   <Interaction
                     key={ i }
+                    session_id={ session.id }
                     type={ session.type }
                     mode={ session.mode }
                     interaction={ interaction }

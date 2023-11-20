@@ -215,7 +215,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	return apiServer.Store.GetSessions(reqContext.Ctx, query)
 }
 
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversation, error) {
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
@@ -243,6 +243,56 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 		return nil, fmt.Errorf("file is not a jsonl file")
 	}
 	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
+}
+
+func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if len(systemInteraction.Files) == 0 {
+		return nil, fmt.Errorf("no files found")
+	}
+	filepath := systemInteraction.Files[0]
+	if !strings.HasSuffix(filepath, ".jsonl") {
+		return nil, fmt.Errorf("file is not a jsonl file")
+	}
+
+	var data []text.ShareGPTConversations
+
+	// Decode the JSON from the request body
+	err = json.NewDecoder(req.Body).Decode(&data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = apiServer.Controller.WriteTextFineTuneQuestions(filepath, data)
+	if err != nil {
+		return nil, err
+	}
+
+	// now we switch the session into training mode
+	err = apiServer.Controller.BeginTextFineTune(session)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 // based on a multi-part form that has message and files
@@ -320,7 +370,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		Creator:  types.CreatorTypeUser,
 		Message:  message,
 		Files:    filePaths,
-		State:    types.InteractionStateWaiting,
+		State:    types.InteractionStateComplete,
 		Finished: false,
 		Metadata: metadata,
 	}, nil
