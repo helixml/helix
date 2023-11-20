@@ -42,7 +42,7 @@ type Interaction struct {
 	Status   string            `json:"status"`
 	Error    string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	FinetuneFile string `json:"finetune_file"`
+	LoraDir string `json:"lora_dir"`
 }
 
 type Session struct {
@@ -63,7 +63,7 @@ type Session struct {
 	// if type == finetune, we record a filestore path to e.g. lora file here
 	// currently the only place you can do inference on a finetune is within the
 	// session where the finetune was generated
-	FinetuneFile string `json:"finetune_file"`
+	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
 	Interactions []Interaction `json:"interactions"`
@@ -87,7 +87,7 @@ type SessionFilter struct {
 	// stabilityai/stable-diffusion-xl-base-1.0
 	ModelName ModelName `json:"model_name"`
 	// the filestore path to the file being used for finetuning
-	FinetuneFile string `json:"finetune_file"`
+	LoraDir string `json:"lora_dir"`
 	// this means "only give me sessions that will fit in this much ram"
 	Memory uint64 `json:"memory"`
 
@@ -150,13 +150,12 @@ type RunnerTask struct {
 	// the string that we are calling the prompt that we will feed into the model
 	Prompt string `json:"prompt"`
 
-	// this is the Lora type file that a fine tune session produced
-	// it is used for inference against a fine tuned model
-	FinetuneFile string `json:"finetune_file"`
+	// the directory that contains the lora training files
+	LoraDir string `json:"lora_dir"`
 
 	// this is the directory that contains the files used for fine tuning
 	// i.e. it's the user files that will be the input to a finetune session
-	FinetuneInputDir string `json:"finetune_input_dir"`
+	DatasetDir string `json:"dataset_dir"`
 }
 
 type RunnerTaskResponse struct {

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -57,8 +58,8 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		return stdout, nil, nil
 	} else if mode == types.SessionModeFinetune {
 		chunker := newMistral7bFinetuneChunker(eventHandler)
-		stdout := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
-			err := chunker.write(chunk)
+		stdout := NewTextStream(bufio.ScanLines, func(line string) {
+			err := chunker.write(line)
 			if err != nil {
 				log.Error().Msgf("error writing word to mistral inference chunker: %s", err)
 			}
@@ -203,27 +204,33 @@ func newMistral7bFinetuneChunker(eventHandler WorkerEventHandler) *mistral7bFine
 	}
 }
 
-func (chunker *mistral7bFinetuneChunker) write(word string) error {
+func (chunker *mistral7bFinetuneChunker) write(line string) error {
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
-	if strings.HasPrefix(word, "[SESSION_START]") {
-		parts := strings.Split(word, "=")
+	if strings.HasPrefix(line, "[SESSION_START]") {
+		parts := strings.Split(line, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
 			// which is very strange
-			return fmt.Errorf("invalid session start line: %s", word)
+			return fmt.Errorf("invalid session start line: %s", line)
 		}
 		chunker.sessionID = parts[1]
-	} else if strings.HasPrefix(word, "[SESSION_END]") {
-		parts := strings.Split(word, "=")
+	} else if strings.HasPrefix(line, "[SESSION_END]") {
+		parts := strings.Split(line, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
 			// which is very strange
-			return fmt.Errorf("invalid session start line: %s", word)
+			return fmt.Errorf("invalid session start line: %s", line)
 		}
 		chunker.eventHandler(&types.RunnerTaskResponse{
 			Type:      types.WorkerTaskResponseTypeResult,
 			SessionID: chunker.sessionID,
 			Files:     []string{parts[1]},
+		})
+	} else if chunker.sessionID != "" {
+		chunker.eventHandler(&types.RunnerTaskResponse{
+			Type:      types.WorkerTaskResponseTypeProgress,
+			SessionID: chunker.sessionID,
+			Status:    line,
 		})
 	}
 	return nil

@@ -20,6 +20,6 @@ func getLastInteractionID(session *types.Session) (string, error) {
 func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
 	return modelInstance.filter.Mode == session.Mode &&
 		modelInstance.filter.Type == session.Type &&
-		(modelInstance.filter.FinetuneFile == session.FinetuneFile ||
-			(modelInstance.filter.FinetuneFile == "none" && session.FinetuneFile == ""))
+		(modelInstance.filter.LoraDir == session.LoraDir ||
+			(modelInstance.filter.LoraDir == "none" && session.LoraDir == ""))
 }

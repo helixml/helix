@@ -49,27 +49,20 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	}
 	if session.Mode == types.SessionModeInference {
 		return &types.RunnerTask{
-			Prompt:       lastInteraction.Message,
-			FinetuneFile: session.FinetuneFile,
+			Prompt:  lastInteraction.Message,
+			LoraDir: session.LoraDir,
 		}, nil
 	} else if session.Mode == types.SessionModeFinetune {
-		if session.Type == types.SessionTypeText {
-			return &types.RunnerTask{
-				FinetuneFile:     lastInteraction.Files[0],
-				FinetuneInputDir: path.Dir(lastInteraction.Files[0]),
-			}, nil
-		} else {
-			if len(lastInteraction.Files) == 0 {
-				return nil, fmt.Errorf("session has no files")
-			}
-			// we expect all of the files to have been downloaded
-			// by the controller and put into a shared folder
-			// so - we extract the folder path from the first file
-			// and pass it into the python job as the input dir
-			return &types.RunnerTask{
-				FinetuneInputDir: path.Dir(lastInteraction.Files[0]),
-			}, nil
+		if len(lastInteraction.Files) == 0 {
+			return nil, fmt.Errorf("session has no files")
 		}
+		// we expect all of the files to have been downloaded
+		// by the controller and put into a shared folder
+		// so - we extract the folder path from the first file
+		// and pass it into the python job as the input dir
+		return &types.RunnerTask{
+			DatasetDir: path.Dir(lastInteraction.Files[0]),
+		}, nil
 	} else {
 		return nil, fmt.Errorf("invalid session mode")
 	}

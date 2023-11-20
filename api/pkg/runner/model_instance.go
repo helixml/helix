@@ -103,10 +103,10 @@ func NewModelInstance(
 	// if this is empty string then we need to hoist it to be types.FINETUNE_FILE_NONE
 	// because then we are always specifically asking for a session that has no finetune file
 	// if we left this blank we are saying "we don't care if it has one or not"
-	useFinetuneFile := initialSession.FinetuneFile
+	useLoraDir := initialSession.LoraDir
 
-	if useFinetuneFile == "" {
-		useFinetuneFile = types.FINETUNE_FILE_NONE
+	if useLoraDir == "" {
+		useLoraDir = types.LORA_DIR_NONE
 	}
 
 	return &ModelInstance{
@@ -119,10 +119,10 @@ func NewModelInstance(
 		initialSessionURL: fmt.Sprintf("%s/%s", initialSessionURL, id),
 		initialSession:    initialSession,
 		filter: types.SessionFilter{
-			ModelName:    initialSession.ModelName,
-			Mode:         initialSession.Mode,
-			FinetuneFile: useFinetuneFile,
-			Type:         initialSession.Type,
+			ModelName: initialSession.ModelName,
+			Mode:      initialSession.Mode,
+			LoraDir:   useLoraDir,
+			Type:      initialSession.Type,
 		},
 		runnerOptions: runnerOptions,
 		httpClientOptions: server.ClientOptions{
@@ -208,16 +208,16 @@ func (instance *ModelInstance) downloadSessionFiles(session *types.Session) (*ty
 */
 
 func (instance *ModelInstance) downloadFinetuneFile(session *types.Session) (*types.Session, error) {
-	if session.FinetuneFile == "" {
+	if session.LoraDir == "" {
 		return session, nil
 	}
 
-	downloadedPath, err := instance.downloadSessionFile(session.ID, "finetune_file", session.FinetuneFile)
+	downloadedPath, err := instance.downloadSessionFile(session.ID, "lora_dir", session.LoraDir)
 	if err != nil {
 		return nil, err
 	}
 
-	session.FinetuneFile = downloadedPath
+	session.LoraDir = downloadedPath
 
 	return session, nil
 }

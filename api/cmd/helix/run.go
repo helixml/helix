@@ -102,7 +102,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		Mode:         "inference",
 		Type:         types.SessionType(options.Type),
 		ModelName:    modelName,
-		FinetuneFile: "",
+		LoraDir:      "",
 		Interactions: []types.Interaction{interaction, interactionSystem},
 		Owner:        "cli-user",
 		OwnerType:    "user",

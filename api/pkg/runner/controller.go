@@ -466,7 +466,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 
 			queryParams.Add("model_name", string(modelInstance.filter.ModelName))
 			queryParams.Add("mode", string(modelInstance.filter.Mode))
-			queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
+			queryParams.Add("lora_dir", string(modelInstance.filter.LoraDir))
 
 			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
@@ -482,7 +482,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	// we don't have any work for this model instance
 	if session == nil {
 		// TODO: this should be a 404 not a 500?
-		log.Printf("🟠🟠 No session found for model instance %+v", modelInstance)
 		return nil, fmt.Errorf("no session found")
 	}
 
@@ -570,6 +569,8 @@ func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) er
 }
 
 func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
+	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
+
 	var err error
 	if len(res.Files) > 0 {
 		res, err = r.uploadWorkerResponseFilesToApi(res)
@@ -577,8 +578,6 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 			return err
 		}
 	}
-
-	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 
 	// this function will write any task responses back to the api server for it to process
 	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult

@@ -120,4 +120,4 @@ const (
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
 
-const FINETUNE_FILE_NONE = "none"
+const LORA_DIR_NONE = "none"
