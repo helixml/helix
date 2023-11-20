@@ -24,17 +24,17 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 			continue
 		}
 
-		if filter.FinetuneFile == types.FINETUNE_FILE_NONE {
+		if filter.LoraDir == types.LORA_DIR_NONE {
 			// the filter is NONE - we cannot have a finetune file
-			if session.FinetuneFile != "" {
+			if session.LoraDir != "" {
 				continue
 			}
-		} else if filter.FinetuneFile != "" {
+		} else if filter.LoraDir != "" {
 			// the filter is a SPECIFIC file - we must have that file
-			if session.FinetuneFile != filter.FinetuneFile {
+			if session.LoraDir != filter.LoraDir {
 				continue
 			}
-		} else if filter.FinetuneFile == "" {
+		} else if filter.LoraDir == "" {
 			// the filter is ANY file - so anything goes
 		}
 

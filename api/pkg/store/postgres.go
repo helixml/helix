@@ -99,7 +99,7 @@ func (d *PostgresStore) GetSession(
 
 	var interactions []byte
 	session := &types.Session{}
-	err := row.Scan(&session.ID, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
+	err := row.Scan(&session.ID, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.LoraDir, &interactions, &session.Owner, &session.OwnerType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -127,28 +127,28 @@ func (d *PostgresStore) GetSessions(
 	/// XXX SECURITY not sure this is what we want - audit who can set these values?
 	if query.Owner != "" && query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.Owner, query.OwnerType)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 			FROM session
 			WHERE owner = $1 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.Owner)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 			FROM session
 			WHERE owner_type = $1 AND parent_session = ''
 			ORDER BY created DESC
 		`, query.OwnerType)
 	} else {
 		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 			FROM session
 			WHERE parent_session = ''
 			ORDER BY created DESC
@@ -165,7 +165,7 @@ func (d *PostgresStore) GetSessions(
 		session := &types.Session{}
 
 		var interactions []byte
-		err := rows.Scan(&session.ID, &session.Created, &session.Updated, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.FinetuneFile, &interactions, &session.Owner, &session.OwnerType)
+		err := rows.Scan(&session.ID, &session.Created, &session.Updated, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.LoraDir, &interactions, &session.Owner, &session.OwnerType)
 		if err != nil {
 			return nil, err
 		}
@@ -198,11 +198,11 @@ func (d *PostgresStore) CreateSession(
 
 	_, err = d.db.Exec(`
 		INSERT INTO session (
-			id, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+			id, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 		)
-	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.FinetuneFile, interactions, session.Owner, session.OwnerType)
+	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.LoraDir, interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
 		return nil, err
@@ -231,12 +231,12 @@ func (d *PostgresStore) UpdateSession(
 			mode = $4,
 			type = $5,
 			model_name = $6,
-			finetune_file = $7,
+			lora_dir = $7,
 			interactions = $8,
 			owner = $9,
 			owner_type = $10
 		WHERE id = $1
-	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.FinetuneFile, interactions, session.Owner, session.OwnerType)
+	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.LoraDir, interactions, session.Owner, session.OwnerType)
 
 	if err != nil {
 		return nil, err

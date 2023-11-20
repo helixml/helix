@@ -183,8 +183,8 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		// we got some files back from a finetune
 		// so let's hoist the session into inference mode but with the finetune file attached
 		session.Mode = types.SessionModeInference
-		session.FinetuneFile = taskResponse.Files[0]
-		targetInteraction.FinetuneFile = taskResponse.Files[0]
+		session.LoraDir = taskResponse.Files[0]
+		targetInteraction.LoraDir = taskResponse.Files[0]
 	}
 
 	newInteractions := []types.Interaction{}

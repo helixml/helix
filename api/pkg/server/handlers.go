@@ -547,7 +547,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	finetuneFile := req.URL.Query().Get("finetune_file")
+	loraDir := req.URL.Query().Get("lora_dir")
 
 	memory := uint64(0)
 	memoryString := req.URL.Query().Get("memory")
@@ -584,12 +584,12 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		}
 	}
 	filter := types.SessionFilter{
-		Mode:         sessionMode,
-		Type:         sessionType,
-		ModelName:    modelName,
-		Memory:       memory,
-		Reject:       reject,
-		FinetuneFile: finetuneFile,
+		Mode:      sessionMode,
+		Type:      sessionType,
+		ModelName: modelName,
+		Memory:    memory,
+		Reject:    reject,
+		LoraDir:   loraDir,
 	}
 
 	// alow the worker to filter what tasks it wants
