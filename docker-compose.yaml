@@ -72,6 +72,8 @@ services:
       - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
+      # lock down dashboard in production
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS-*}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod

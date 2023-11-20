@@ -111,6 +111,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
+	authRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
+
 	// TODO: this has no auth right now
 	// we need to add JWTs to the urls we are using to connect models to the workers
 	// the task filters (mode, type and modelName) are all given as query params

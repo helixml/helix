@@ -44,7 +44,7 @@ const LeftMedia = styled('div')({
 const LeftContent = styled('div')({
     flex: '1',
     textAlign: 'left',
-    fontWeight: 499,
+    fontWeight: 500,
     paddingRight: '40px',
 });
 
@@ -196,7 +196,7 @@ function Footer() {
 // export default App;
 const Dashboard: FC = () => {
   return (
-      <XContainer>
+      <XContainer className="home">
           <OpenAIBlock />
           <ImageModelsBlock />
           <LanguageModelsBlock />

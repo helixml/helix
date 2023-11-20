@@ -5,6 +5,7 @@ import browserPlugin from 'router5-plugin-browser'
 import Home from './pages/Home'
 import Session from './pages/Session'
 import Account from './pages/Account'
+import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -30,6 +31,7 @@ const routes: IApplicationRoute[] = [{
   path: '/',
   meta: {
     title: 'Home',
+    sidebar: true,
   },
   render: () => (
     <Home />
@@ -39,6 +41,7 @@ const routes: IApplicationRoute[] = [{
   path: '/files',
   meta: {
     title: 'Files',
+    sidebar: true,
   },
   render: () => (
     <FilestoreContextProvider>
@@ -50,6 +53,7 @@ const routes: IApplicationRoute[] = [{
   path: '/new',
   meta: {
     title: 'New Session',
+    sidebar: true,
   },
   render: () => (
       <New />
@@ -59,15 +63,27 @@ const routes: IApplicationRoute[] = [{
   path: '/session/:session_id',
   meta: {
     title: 'Session',
+    sidebar: true,
   },
   render: () => (
       <Session />
+  ),
+}, {
+  name: 'dashboard',
+  path: '/dashboard',
+  meta: {
+    title: 'Dashboard',
+    sidebar: true,
+  },
+  render: () => (
+      <Dashboard />
   ),
 }, {
   name: 'account',
   path: '/account',
   meta: {
     title: 'Account',
+    sidebar: true,
   },
   render: () => <Account />,
 }, NOT_FOUND_ROUTE]
