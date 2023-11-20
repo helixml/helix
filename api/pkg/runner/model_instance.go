@@ -183,8 +183,7 @@ func (instance *ModelInstance) queueSession(session *types.Session) {
 }
 
 func (instance *ModelInstance) downloadSessionFiles(session *types.Session) (*types.Session, error) {
-	session, err := instance.downloadFinetuneFile(session)
-
+	session, err := instance.downloadLoraDir(session)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +206,7 @@ func (instance *ModelInstance) downloadSessionFiles(session *types.Session) (*ty
 
 */
 
-func (instance *ModelInstance) downloadFinetuneFile(session *types.Session) (*types.Session, error) {
+func (instance *ModelInstance) downloadLoraDir(session *types.Session) (*types.Session, error) {
 	if session.LoraDir == "" {
 		return session, nil
 	}
