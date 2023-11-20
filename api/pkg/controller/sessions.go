@@ -175,20 +175,16 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		targetInteraction.Files = taskResponse.Files
 	}
 
-	if taskResponse.LoraDir != "" {
-		targetInteraction.LoraDir = taskResponse.LoraDir
-	}
-
 	if taskResponse.Error != "" {
 		targetInteraction.Error = taskResponse.Error
 	}
 
-	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && len(taskResponse.Files) > 0 {
+	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && taskResponse.LoraDir != "" {
 		// we got some files back from a finetune
 		// so let's hoist the session into inference mode but with the finetune file attached
 		session.Mode = types.SessionModeInference
-		session.LoraDir = taskResponse.Files[0]
-		targetInteraction.LoraDir = taskResponse.Files[0]
+		session.LoraDir = taskResponse.LoraDir
+		targetInteraction.LoraDir = taskResponse.LoraDir
 	}
 
 	newInteractions := []types.Interaction{}
