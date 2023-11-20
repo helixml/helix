@@ -93,7 +93,7 @@ func (d *PostgresStore) GetSession(
 		return nil, fmt.Errorf("sessionID cannot be empty")
 	}
 	row := d.db.QueryRow(`
-		SELECT id, name, parent_session, mode, type, model_name, finetune_file, interactions, owner, owner_type
+		SELECT id, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type
 		FROM session WHERE id = $1
 	`, sessionID)
 
