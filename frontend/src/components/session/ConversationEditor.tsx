@@ -27,6 +27,7 @@ export const ConversationEditor: FC<{
   const snackbar = useSnackbar()
   const api = useApi()
 
+  const [ editMode, setEditMode ] = useState(false)
   const [ editQuestion, setEditQuestion ] = useState<IQuestionAnswer>()
   const [ deleteQuestion, setDeleteQuestion ] = useState<IQuestionAnswer>()
   const [ questions, setQuestions ] = useState<IQuestionAnswer[]>([])
@@ -190,35 +191,73 @@ export const ConversationEditor: FC<{
           <Typography gutterBottom>
             Your documents have been turned into question answer pairs ready for fine tuning.
           </Typography>
-          <Typography gutterBottom>
-            Please edit the questions and answers below and click the <strong>Save</strong> button to continue.
-          </Typography>
+          {
+            editMode ? (
+              <Typography gutterBottom>
+                Please edit the questions and answers below and click the <strong>Save</strong> button to continue.
+              </Typography>
+            ) : (
+              <Typography gutterBottom>
+                You can start training now or edit the questions and answers.
+              </Typography>
+            )
+          }
         </Box>
         <Box
           sx={{
             flexGrow: 0,
           }}
         >
-          <Button
-            variant="contained"
-            color="secondary"
-            endIcon={<NavigateNextIcon />}
-            onClick={ submitData }
-          >
-            Save Questions
-          </Button>
+          {
+            editMode ? (
+              <Button
+                variant="contained"
+                color="secondary"
+                endIcon={<NavigateNextIcon />}
+                onClick={ submitData }
+              >
+                Save Questions
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  sx={{
+                    mr: 2,
+                  }}
+                  endIcon={<EditIcon />}
+                  onClick={ () => setEditMode(true) }
+                >
+                  Edit Questions
+                </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  endIcon={<NavigateNextIcon />}
+                  onClick={ submitData }
+                >
+                  Start Training
+                </Button>
+              </>
+            )
+          }
         </Box>
 
       </Box>
            
       <Box sx={{ height: 600, width: '100%' }}>
-        <DataGrid2
-          autoSort
-          userSelect
-          rows={ questions }
-          columns={ columns }
-          loading={ false }
-        />
+        {
+          editMode && (
+            <DataGrid2
+              autoSort
+              userSelect
+              rows={ questions }
+              columns={ columns }
+              loading={ false }
+            />
+          )
+        }
         {
           deleteQuestion && (
             <SimpleDeleteConfirmWindow
