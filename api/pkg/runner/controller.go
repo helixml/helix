@@ -350,6 +350,8 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		return err
 	}
 
+	r.activeModelInstances.Store(modelInstance.id, modelInstance)
+
 	// belt and braces in remote case and reject jobs that won't fit in local case
 	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
@@ -362,21 +364,18 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.id)
 
-	// every session is queued - it gives the session a chance to download files
-	// and do any other prep it needs to do before being passed into the Python process
-	// over http - this is run for EVERY session not just the first one (look in getNextTask)
-	// this will run in a go-routine internally
-	go modelInstance.queueSession(initialSession)
+	initialSession, err = modelInstance.downloadSessionFiles(initialSession)
 
 	// now we block on starting the process
 	// for inference on a lora type file, this will need to download the lora file
-	// BEFORE we start the process -these files are part of the weights loaded into memory
+	// BEFORE we start the process - these files are part of the weights loaded into memory
 	err = modelInstance.startProcess(initialSession)
 	if err != nil {
 		return err
 	}
 
-	r.activeModelInstances.Store(modelInstance.id, modelInstance)
+	modelInstance.nextSession = initialSession
+
 	go func() {
 		<-modelInstance.finishChan
 		log.Debug().
