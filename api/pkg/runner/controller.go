@@ -367,6 +367,9 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	r.activeModelInstances.Store(modelInstance.id, modelInstance)
 
 	initialSession, err = modelInstance.downloadSessionFiles(initialSession)
+	if err != nil {
+		return err
+	}
 
 	// now we block on starting the process
 	// for inference on a lora type file, this will need to download the lora file

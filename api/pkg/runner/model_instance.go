@@ -385,6 +385,9 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	log.Info().
 		Msgf("🟢 run model instance: %s, %+v", cmd.Dir, cmd.Args)
 
+	log.Info().
+		Msgf("🟢 initial session: %s, %+v", session.ID, session)
+
 	instance.currentCommand = cmd
 
 	// Create pipes for stdout and stderr
