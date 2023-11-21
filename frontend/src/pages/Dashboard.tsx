@@ -27,10 +27,13 @@ const Dashboard: FC = () => {
       mode: "inference",
       type: "text",
       model_name: "",
-      finetune_file: "",
+      lora_dir: "",
       interactions: [],
       owner: "",
-      owner_type: "user"}]
+      owner_type: "user",
+      parent_session: "",
+      error: "",
+    }]
   )
 
   useEffect(() => {
