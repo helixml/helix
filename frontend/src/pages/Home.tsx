@@ -196,13 +196,15 @@ function Footer() {
 // export default App;
 const Dashboard: FC = () => {
   return (
-      <XContainer className="home">
+      <XContainer>
+        <XContainer className="home">
           <OpenAIBlock />
           <ImageModelsBlock />
           <LanguageModelsBlock />
           <DeploymentBlock />
           <Footer />
-          <Disclaimer />
+        </XContainer>
+        <Disclaimer />
       </XContainer>
   );
 }
