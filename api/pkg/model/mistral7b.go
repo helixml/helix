@@ -62,7 +62,7 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		chunker := newMistral7bInferenceChunker(eventHandler, mistral7bInferenceChunkerOptions{
 			// no buffering - send every single word
 			bufferSize: 0,
-			turns:      l.turns,
+			mistral:    l,
 		})
 
 		// this will get called for each word
@@ -126,8 +126,8 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 type mistral7bInferenceChunkerOptions struct {
 	// the max size of our buffer - we emit an event if the buffer get's bigger than this
 	bufferSize int
-	// how many user requests (used to identify boundary between input and output)
-	turns int
+	// need to access turns: how many user requests (used to identify boundary between input and output)
+	mistral *Mistral7bInstruct01
 }
 
 type mistral7bInferenceChunker struct {
@@ -141,6 +141,7 @@ type mistral7bInferenceChunker struct {
 	// this means "have we seen the [/INST] so are now into the answer?"
 	active       bool
 	eventHandler WorkerEventHandler
+	turnsSoFar   int
 }
 
 func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistral7bInferenceChunkerOptions) *mistral7bInferenceChunker {
@@ -151,6 +152,7 @@ func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistr
 		bufferSession: "",
 		active:        false,
 		eventHandler:  eventHandler,
+		turnsSoFar:    -1,
 	}
 }
 
@@ -181,7 +183,9 @@ func (chunker *mistral7bInferenceChunker) emitResult() {
 }
 
 func (chunker *mistral7bInferenceChunker) write(word string) error {
-	turnsSoFar := chunker.options.turns
+	if chunker.turnsSoFar == -1 {
+		chunker.turnsSoFar = chunker.options.mistral.turns
+	}
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
 		parts := strings.Split(word, "=")
@@ -202,9 +206,9 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			}
 			chunker.addBuffer(word)
 		} else if strings.HasSuffix(word, "[/INST]") {
-			turnsSoFar -= 1
-			chunker.addBuffer(fmt.Sprintf("turnsSoFar=%d ", turnsSoFar))
-			if turnsSoFar <= 0 {
+			chunker.turnsSoFar -= 1
+			// chunker.addBuffer(fmt.Sprintf("turnsSoFar=%d ", chunker.turnsSoFar))
+			if chunker.turnsSoFar <= 0 {
 				chunker.active = true
 			}
 		}
