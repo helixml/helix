@@ -78,7 +78,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	}
 
 	log.Debug().
-		Msgf("🔴 GPT Question: %+v", messages)
+		Msgf("🔴🔴🔴 GPT 3.5 Turbo Question: %+v", messages)
 
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
@@ -96,7 +96,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	var res []DataPrepTextConversation
 
 	log.Debug().
-		Msgf("🔴 GPT Answer: %+v", answer)
+		Msgf("🔴🔴🔴 GPT 3.5 Turbo Answer: %+v", answer)
 
 	// parse body as json into result
 	err = json.Unmarshal([]byte(answer), &res)

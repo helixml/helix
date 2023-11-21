@@ -70,6 +70,8 @@ export const Interaction: FC<{
     if(!displayMessage && isLoading) {
       if(interaction.progress > 0) {
         progress = interaction.progress
+      } else if(interaction.lora_dir) {
+        displayMessage = 'Fine fining complete - you can now ask the model questions...'
       } else if (interaction.state != INTERACTION_STATE_EDITING) {
         displayMessage = '🤔'
       }
