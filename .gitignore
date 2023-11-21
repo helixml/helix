@@ -3,3 +3,4 @@ node_modules
 *.sw*
 frontend/lib
 gradio/__pycache__
+venv

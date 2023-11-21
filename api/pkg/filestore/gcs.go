@@ -1,6 +1,8 @@
 package filestore
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -101,6 +103,47 @@ func (s *GCSStorage) Download(ctx context.Context, path string) (io.Reader, erro
 		return nil, fmt.Errorf("failed to create GCS object reader: %w", err)
 	}
 	return reader, nil
+}
+
+func (s *GCSStorage) DownloadFolder(ctx context.Context, path string) (io.Reader, error) {
+	var buf bytes.Buffer
+	tarWriter := tar.NewWriter(&buf)
+	defer tarWriter.Close()
+
+	it := s.bucket.Objects(ctx, &storage.Query{Prefix: path})
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// Read the object
+		obj := s.bucket.Object(attrs.Name)
+		reader, err := obj.NewReader(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		// Write the file header to the tar
+		if err := tarWriter.WriteHeader(&tar.Header{
+			Name: attrs.Name,
+			Mode: 0600,
+			Size: attrs.Size,
+		}); err != nil {
+			return nil, err
+		}
+
+		// Copy file content to tar
+		if _, err := io.Copy(tarWriter, reader); err != nil {
+			return nil, err
+		}
+		reader.Close()
+	}
+
+	return &buf, nil
 }
 
 func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {

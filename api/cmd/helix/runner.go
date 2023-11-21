@@ -26,12 +26,13 @@ func NewRunnerOptions() *RunnerOptions {
 			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
 			// TODO: this is currently very quick to unload a model
 			// this is so we can test quickly
-			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			ControlLoopDelayMilliseconds: getDefaultServeOptionInt("CONTROL_LOOP_DELAY_MILLISECONDS", 100),
+			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
 		},
 		Server: runner.RunnerServerOptions{
-			Host:      getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port:      getDefaultServeOptionInt("SERVER_PORT", 8080),
-			LocalMode: getDefaultServeOptionBool("LOCAL_MODE", false),
+			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port: getDefaultServeOptionInt("SERVER_PORT", 8080),
 		},
 	}
 }
@@ -79,6 +80,16 @@ func newRunnerCmd() *cobra.Command {
 		`How many seconds without a task before we shutdown a running model instance`,
 	)
 
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.ControlLoopDelayMilliseconds, "control-loop-delay-milliseconds", allOptions.Runner.ControlLoopDelayMilliseconds,
+		`How many milliseconds do we wait between running the control loop (which asks for the next global session)`,
+	)
+
+	runnerCmd.PersistentFlags().BoolVar(
+		&allOptions.Runner.LocalMode, "local-mode", allOptions.Runner.LocalMode,
+		`Are we running in local mode?`,
+	)
+
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Server.Host, "server-host", allOptions.Server.Host,
 		`The host to bind the runner server to.`,
@@ -86,11 +97,6 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
 		`The port to bind the runner server to.`,
-	)
-
-	runnerCmd.PersistentFlags().BoolVar(
-		&allOptions.Server.LocalMode, "local-mode", allOptions.Server.LocalMode,
-		`Are we running in local mode?`,
 	)
 
 	return runnerCmd
@@ -112,10 +118,14 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// because it's a model_instance that will spawn Python
 	// processes that will then speak back to these routes
 	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/task", options.Server.Port)
-	options.Runner.SessionURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/session", options.Server.Port)
-	options.Runner.ResponseURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/response", options.Server.Port)
+	options.Runner.InitialSessionURL = fmt.Sprintf("http://localhost:%d/api/v1/worker/initial_session", options.Server.Port)
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
+	if err != nil {
+		return err
+	}
+
+	err = runnerController.Initialize(ctx)
 	if err != nil {
 		return err
 	}

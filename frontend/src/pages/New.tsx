@@ -10,10 +10,12 @@ import Box from '@mui/material/Box'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
+import AddCircleIcon from '@mui/icons-material/AddCircle'
 import FormControl from '@mui/material/FormControl'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Interaction from '../components/session/Interaction'
-import GlobalLoading from '../components/system/GlobalLoading'
+import Progress from '../components/widgets/Progress'
+import CircularProgress from '@mui/material/CircularProgress'
 
 import useFilestore from '../hooks/useFilestore'
 import FileUpload from '../components/widgets/FileUpload'
@@ -23,6 +25,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
 import useLoading from '../hooks/useLoading'
 
 import {
@@ -43,17 +46,25 @@ import {
   getSystemMessage,
 } from '../utils/session'
 
+import {
+  getFileExtension,
+  isImage,
+} from '../utils/filestore'
+
 const New: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
   const {navigate} = useRouter()
   const account = useAccount()
+  const sessions = useSessions()
 
   const [ uploadProgress, setUploadProgress ] = useState<IFilestoreUploadProgress>()
 
   const [inputValue, setInputValue] = useState('')
   
+  const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
+  const [manualTextFile, setManualTextFile] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
   const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
@@ -65,7 +76,8 @@ const New: FC = () => {
     setInputValue(event.target.value)
   }
 
-  const onSend = async () => {
+  // this is for inference in both modes
+  const onInference = async () => {
     if(selectedMode == SESSION_MODE_FINETUNE) {
       snackbar.error('Please complete the fine-tuning process before trying to talk with your model')
       return
@@ -81,9 +93,23 @@ const New: FC = () => {
     
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
-    account.loadSessions()
+    sessions.addSesssion(session)
     navigate('session', {session_id: session.id})
   }
+
+  const onAddTextFile = useCallback(() => {
+    const newCounter = manualTextFileCounter + 1
+    setManualTextFileCounter(newCounter)
+    const file = new File([
+      new Blob([manualTextFile], { type: 'text/plain' })
+    ], `textfile-${newCounter}.txt`)
+    setFiles(files.concat(file))
+    setManualTextFile('')
+  }, [
+    manualTextFile,
+    manualTextFileCounter,
+    files,
+  ])
 
   const onDropFiles = useCallback(async (newFiles: File[]) => {
     const existingFiles = files.reduce<Record<string, string>>((all, file) => {
@@ -96,7 +122,52 @@ const New: FC = () => {
     files,
   ])
 
-  const onUpload = useCallback(async () => {
+  // this is for text finetune
+  const onUploadDocuments = useCallback(async () => {
+    setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+
+    try {
+      const formData = new FormData()
+      files.forEach((file) => {
+        formData.append("files", file)
+      })
+
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+
+      const session = await api.post('/api/v1/sessions', formData, {
+        onUploadProgress: (progressEvent) => {
+          const percent = progressEvent.total && progressEvent.total > 0 ?
+            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
+            0
+          setUploadProgress({
+            percent,
+            totalBytes: progressEvent.total || 0,
+            uploadedBytes: progressEvent.loaded || 0,
+          })
+        }
+      })
+      if(!session) {
+        setUploadProgress(undefined)
+        return
+      }
+      sessions.loadSessions()
+      navigate('session', {session_id: session.id})
+    } catch(e: any) {}
+
+    setUploadProgress(undefined)
+  }, [
+    selectedMode,
+    selectedType,
+    files,
+  ])
+
+  // this is for image finetune
+  const onUploadImages = useCallback(async () => {
     const errorFiles = files.filter(file => labels[file.name] ? false : true)
     if(errorFiles.length > 0) {
       setShowImageLabelErrors(true)
@@ -133,20 +204,25 @@ const New: FC = () => {
           })
         }
       })
-      if(!session) return
-      account.loadSessions()
+      if(!session) {
+        setUploadProgress(undefined)
+        return
+      }
+      sessions.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
     setUploadProgress(undefined)
   }, [
+    selectedMode,
+    selectedType,
     files,
     labels,
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
-      onSend()
+      onInference()
       event.preventDefault()
     }
   }
@@ -334,6 +410,159 @@ const New: FC = () => {
             )
           }
           {
+            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && fineTuneStep == 0 && (
+              <Box
+                sx={{
+                  mt: 2,
+                }}
+              >
+                <Box
+                  sx={{
+                    mt: 4,
+                    mb: 4,
+                  }}
+                >
+                  <Interaction
+                    interaction={ getSystemMessage('Firstly, paste some text or upload some documents you want your model to learn from:') }
+                    type={ SESSION_TYPE_TEXT }
+                    mode={ SESSION_MODE_INFERENCE }
+                    serverConfig={ account.serverConfig }
+                  />
+                </Box>
+                <Box
+                  sx={{
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      flexGrow: 1,
+                      pr: 2,
+                    }}
+                  >
+                    <TextField
+                      fullWidth
+                      value={ manualTextFile }
+                      multiline
+                      rows={ 10 }
+                      onChange={ (e) => {
+                        setManualTextFile(e.target.value)
+                      }}
+                    />
+                  </Box>
+                  <Box
+                    sx={{
+                      flexGrow: 0,
+                    }}
+                  >
+                    <Button
+                      variant="outlined"
+                      color={ "primary" }
+                      endIcon={<AddCircleIcon />}
+                      onClick={ onAddTextFile }
+                    >
+                      Add Text
+                    </Button>
+                  </Box>
+                  
+                </Box>
+                <FileUpload
+                  sx={{
+                    width: '100%',
+                    mt: 2,
+                  }}
+                  onlyDocuments
+                  onUpload={ onDropFiles }
+                >
+                  <Button
+                    sx={{
+                      width: '100%',
+                    }}
+                    variant="contained"
+                    color={ files.length > 0 ? "primary" : "secondary" }
+                    endIcon={<CloudUploadIcon />}
+                  >
+                    Choose { files.length > 0 ? ' More' : '' } Files
+                  </Button>
+                  <Box
+                    sx={{
+                      border: '1px dashed #ccc',
+                      p: 2,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'flex-start',
+                      minHeight: '100px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {
+                      files.length <= 0 && (
+                        <Typography
+                          sx={{
+                            color: '#999',
+                            width: '100%',
+                          }}
+                          variant="caption"
+                        >
+                          drop files here to upload them ...
+                        </Typography>
+                      )
+                    }
+                    <Grid container spacing={3} direction="row" justifyContent="flex-start">
+                      {
+                        files.length > 0 && files.map((file) => {
+                          return (
+                            <Grid item xs={4} md={4} key={file.name}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: '#999'
+                                }}
+                              >
+                                <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(file.name)}`}></span>
+                                <Typography variant="caption">
+                                  {file.name}
+                                </Typography>
+                                <Typography variant="caption">
+                                  ({file.size} bytes)
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          )
+                        })
+                          
+                      }
+                    </Grid>
+                  </Box>
+                </FileUpload>
+                {
+                  files.length > 0 && (
+                    <Button
+                      sx={{
+                        width: '100%',
+                      }}
+                      variant="contained"
+                      color="secondary"
+                      endIcon={<ArrowCircleRightIcon />}
+                      onClick={ () => {
+                        onUploadDocuments()
+                      }}
+                    >
+                      Upload Documents
+                    </Button>
+                  )
+                }
+              </Box>
+            )
+          }
+          {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && fineTuneStep == 1 && (
               <Box
                 sx={{
@@ -409,7 +638,7 @@ const New: FC = () => {
                       variant="contained"
                       color="secondary"
                       endIcon={<ArrowCircleRightIcon />}
-                      onClick={ onUpload }
+                      onClick={ onUploadImages }
                     >
                       Start Training
                     </Button>
@@ -464,7 +693,7 @@ const New: FC = () => {
             <Button
               variant='contained'
               disabled={selectedMode == SESSION_MODE_FINETUNE}
-              onClick={ onSend }
+              onClick={ onInference }
               sx={{ ml: 2 }}
             >
               Send
@@ -480,6 +709,66 @@ const New: FC = () => {
         </Container>
         
       </Box>
+
+      {
+        uploadProgress && (
+          <Box
+            component="div"
+            sx={{
+              position: 'fixed',
+              left: '0px',
+              top: '0px',
+              zIndex: 10000,
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.7)'
+            }}
+          >
+            <Box
+              component="div"
+              sx={{
+                padding: 6,
+                backgroundColor: '#ffffff',
+                border: '1px solid #e5e5e5',
+              }}
+            >
+              <Box
+                component="div"
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  height: '100%',
+                }}
+              >
+                <Box
+                  component="div"
+                  sx={{
+                    maxWidth: '100%'
+                  }}
+                >
+                  <Box
+                    component="div"
+                    sx={{
+                      textAlign: 'center',
+                      display: 'inline-block',
+                    }}
+                  >
+                    <CircularProgress />
+                    <Typography variant='subtitle1'>
+                      Uploading...
+                    </Typography>
+                    <Progress progress={ uploadProgress.percent } />
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+        )
+      }
 
     </Box>
   )

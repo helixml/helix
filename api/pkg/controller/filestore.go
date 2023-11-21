@@ -156,6 +156,14 @@ func (c *Controller) FilestoreDownload(ctx types.RequestContext, path string) (i
 	return c.Options.Filestore.Download(c.Ctx, filePath)
 }
 
+func (c *Controller) FilestoreDownloadFolder(ctx types.RequestContext, path string) (io.Reader, error) {
+	filePath, err := c.ensureFilestoreUserPath(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	return c.Options.Filestore.DownloadFolder(c.Ctx, filePath)
+}
+
 func (c *Controller) FilestoreUpload(ctx types.RequestContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {

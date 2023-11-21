@@ -108,6 +108,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions", Wrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", Wrapper(apiServer.createSession)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.getSession)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
@@ -120,20 +122,35 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.respondRunnerSession)).Methods("POST")
+	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
 
-	// handle downloading a single file from a session to a runner
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download", apiServer.runnerSessionDownloadFile).Methods("GET")
+	// single file downloader
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
 
-	// all files uploaded will be put under the "sessions/{sessionid}/results" folder in the filestore
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+	// tar folder downloader
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
 
-	StartWebSocketServer(
+	// file uploader - this can accept multiple files they are part of a multipart form
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+
+	// folder downloader - the tar file is still attached to a multipart form
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", Wrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
+
+	StartUserWebSocketServer(
 		ctx,
 		subrouter,
-		"/ws",
-		apiServer.Controller.SessionUpdatesChan,
+		apiServer.Controller,
+		"/ws/user",
+		apiServer.Controller.UserWebsocketEventChanWriter,
 		keyCloakMiddleware.userIDFromRequest,
+	)
+
+	StartRunnerWebSocketServer(
+		ctx,
+		subrouter,
+		apiServer.Controller,
+		"/ws/runner",
+		apiServer.Controller.RunnerWebsocketEventChanReader,
 	)
 
 	srv := &http.Server{

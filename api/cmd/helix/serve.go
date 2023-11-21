@@ -9,27 +9,38 @@ import (
 	"path/filepath"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 type ServeOptions struct {
-	ControllerOptions controller.ControllerOptions
-	FilestoreOptions  filestore.FileStoreOptions
-	StoreOptions      store.StoreOptions
-	ServerOptions     server.ServerOptions
+	DataPrepTextOptions text.DataPrepTextOptions
+	ControllerOptions   controller.ControllerOptions
+	FilestoreOptions    filestore.FileStoreOptions
+	StoreOptions        store.StoreOptions
+	ServerOptions       server.ServerOptions
 }
 
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
+		DataPrepTextOptions: text.DataPrepTextOptions{
+			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt4")),
+			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
+			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
+			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
+			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 10),
+		},
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults: getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
+			TextExtractionURL: getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
@@ -68,6 +79,33 @@ func newServeCmd() *cobra.Command {
 			return serve(cmd, allOptions)
 		},
 	}
+
+	var dataprepModule string
+	serveCmd.PersistentFlags().StringVar(
+		&dataprepModule, "dataprep-module", string(allOptions.DataPrepTextOptions.Module),
+		`Which module to use for text data prep`,
+	)
+	allOptions.DataPrepTextOptions.Module = text.DataPrepModule(dataprepModule)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.DataPrepTextOptions.APIKey, "openai-key", allOptions.DataPrepTextOptions.APIKey,
+		`The API Key for OpenAI`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.ChunkSize, "dataprep-chunk-size", allOptions.DataPrepTextOptions.ChunkSize,
+		`The chunk size for the text data prep`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
+		`The overflow size for the text data prep`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.DataPrepTextOptions.QuestionsPerChunk, "dataprep-questions-per-chunk", allOptions.DataPrepTextOptions.QuestionsPerChunk,
+		`The questions per chunk for the text data prep`,
+	)
 
 	// ControllerOptions
 	serveCmd.PersistentFlags().StringVar(
@@ -246,26 +284,60 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
+	if options.DataPrepTextOptions.APIKey == "" {
+		return fmt.Errorf("openai api key is required")
+	}
+
+	var appController *controller.Controller
+
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
+
+	// a text.DataPrepText factory that runs jobs on ourselves
+	// dogfood nom nom nom
+	options.ControllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepText, error) {
+		if appController == nil {
+			return nil, fmt.Errorf("app controller is not initialized")
+		}
+
+		// if we are using openai then let's do that
+		// otherwise - we use our own mistral plugin
+		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
+			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
+			// we give the mistal data prep module a way to run and read sessions
+			return text.NewDataPrepTextHelixMistral(
+				options.DataPrepTextOptions,
+				session,
+				func(req types.CreateSessionRequest) (*types.Session, error) {
+					return appController.CreateSession(context.Background(), req)
+				},
+				func(id string) (*types.Session, error) {
+					return appController.Options.Store.GetSession(context.Background(), id)
+				},
+			)
+		} else {
+			return nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
+		}
+	}
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
 	}
 
-	controller, err := controller.NewController(ctx, options.ControllerOptions)
+	appController, err = controller.NewController(ctx, options.ControllerOptions)
 	if err != nil {
 		return err
 	}
 
-	err = controller.Initialize()
+	err = appController.Initialize()
 	if err != nil {
 		return err
 	}
 
-	go controller.StartLooping()
+	go appController.StartLooping()
 
-	server, err := server.NewServer(options.ServerOptions, store, controller)
+	server, err := server.NewServer(options.ServerOptions, store, appController)
 	if err != nil {
 		return err
 	}

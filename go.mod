@@ -6,7 +6,6 @@ require (
 	cloud.google.com/go/storage v1.33.0
 	github.com/Nerzal/gocloak/v13 v13.8.0
 	github.com/bacalhau-project/golang-mutex-tracer v0.0.0-20230214151516-bb996d6e8b46
-	github.com/davecgh/go-spew v1.1.1
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/uuid v1.3.1
@@ -19,6 +18,11 @@ require (
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/cobra v1.7.0
 	google.golang.org/api v0.147.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1
+	github.com/sashabaranov/go-openai v1.17.3
 )
 
 require (
