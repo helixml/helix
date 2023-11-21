@@ -76,11 +76,13 @@ services:
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-*}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
+      - FILESTORE_LOCALFS_PATH=/filestore
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
+      - ${FILESTORE_DATA:-helix-filestore}:/filestore
   gradio:
     ports:
       - 7860:7860
@@ -133,4 +135,5 @@ services:
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
+  helix-filestore:
 
