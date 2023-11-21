@@ -38,6 +38,9 @@ func NewFileHandler(
 }
 
 func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
+	log.Info().
+		Msgf("🟢 upload worker response: %+v", res)
+
 	if len(res.Files) > 0 {
 		uploadedFiles, err := handler.uploadFiles(res.SessionID, res.Files, "results")
 		if err != nil {
@@ -375,7 +378,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var data []filestore.FileStoreItem
+	var data filestore.FileStoreItem
 	resultBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -387,17 +390,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", err
 	}
 
-	mappedFiles := []string{}
-
-	for _, fileItem := range data {
-		mappedFiles = append(mappedFiles, fileItem.Path)
-	}
-
-	if len(mappedFiles) != 1 {
-		return "", fmt.Errorf("expected 1 file, got %d", len(mappedFiles))
-	}
-
-	return mappedFiles[0], nil
+	return data.Path, nil
 }
 
 // createTar takes a directory path and creates a .tar file from it.
