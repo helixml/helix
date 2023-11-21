@@ -21,6 +21,9 @@ type ServerOptions struct {
 	KeyCloakURL   string
 	KeyCloakToken string
 	RunnerToken   string
+	// a list of keycloak ids that are considered admins
+	// if the string '*' is included it means ALL users
+	AdminIDs []string
 	// this is for when we are running localfs filesystem
 	// and we need to add a route to view files based on their path
 	// we are assuming all file storage is open right now
@@ -34,6 +37,8 @@ type HelixAPIServer struct {
 	Options    ServerOptions
 	Store      store.Store
 	Controller *controller.Controller
+	runnerAuth *runnerAuth
+	adminAuth  *adminAuth
 }
 
 func NewServer(
@@ -61,6 +66,8 @@ func NewServer(
 		Options:    options,
 		Store:      store,
 		Controller: controller,
+		runnerAuth: newRunnerAuth(options.RunnerToken),
+		adminAuth:  newAdminAuth(options.AdminIDs),
 	}, nil
 }
 
@@ -75,18 +82,21 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 
-	// runner router requires a valid runner token
-	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-
 	keycloak := newKeycloak(apiServer.Options)
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
 
-	// runner auth
-	runnerAuth := newRunnerAuth(apiServer.Options.RunnerToken)
-	runnerRouter.Use(runnerAuth.verifyToken)
+	// runner router requires a valid runner token
+	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
+	runnerRouter.Use(apiServer.runnerAuth.middleware)
+
+	// admin auth
+	adminRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
+	adminRouter.Use(apiServer.adminAuth.middleware)
 
 	subrouter.HandleFunc("/config", WrapperWithConfig(apiServer.config, WrapperConfig{
 		SilenceErrors: true,
@@ -123,12 +133,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
-	authRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
+	adminRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
 
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/state", Wrapper(apiServer.handleRunnerMetrics)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
@@ -149,7 +160,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		apiServer.Controller,
 		"/ws/runner",
 		apiServer.Controller.RunnerWebsocketEventChanReader,
-		runnerAuth.isRequestAuthenticated,
+		apiServer.runnerAuth.isRequestAuthenticated,
 	)
 
 	srv := &http.Server{

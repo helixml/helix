@@ -12,6 +12,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -54,6 +55,10 @@ type Controller struct {
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us
 	models map[types.ModelName]model.Model
+
+	// the map of model instances that we have loaded
+	// and are currently running
+	activeRunners *xsync.MapOf[string, *types.RunnerState]
 }
 
 func NewController(
@@ -83,6 +88,7 @@ func NewController(
 		RunnerWebsocketEventChanReader: make(chan *types.WebsocketEvent),
 		sessionQueue:                   []*types.Session{},
 		models:                         models,
+		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
 	}
 	return controller, nil
 }
@@ -135,5 +141,10 @@ func (c *Controller) StartLooping() {
 }
 
 func (c *Controller) loop(ctx context.Context) error {
+	err := c.cleanOldRunnerMetrics(ctx)
+	if err != nil {
+		log.Error().Msgf("error in controller loop: %s", err.Error())
+		debug.PrintStack()
+	}
 	return nil
 }

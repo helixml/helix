@@ -46,10 +46,12 @@ func (apiServer *HelixAPIServer) corsMiddleware(next http.Handler) http.Handler 
 }
 
 func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.RequestContext {
+	user := getRequestUser(req)
 	return types.RequestContext{
 		Ctx:       req.Context(),
-		Owner:     getRequestUser(req),
+		Owner:     user,
 		OwnerType: types.OwnerTypeUser,
+		Admin:     apiServer.adminAuth.isUserAdmin(user),
 	}
 }
 

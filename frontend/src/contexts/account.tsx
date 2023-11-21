@@ -24,6 +24,7 @@ const CLIENT_ID = 'frontend'
 export interface IAccountContext {
   initialized: boolean,
   credits: number,
+  admin: boolean,
   user?: IUser,
   serverConfig: IServerConfig,
   transactions: IBalanceTransfer[],
@@ -35,6 +36,7 @@ export interface IAccountContext {
 export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
+  admin: false,
   serverConfig: {
     filestore_prefix: '',
   },
@@ -49,6 +51,7 @@ export const useAccountContext = (): IAccountContext => {
   const snackbar = useSnackbar()
   const loading = useLoading()
   const { route } = useRoute()
+  const [ admin, setAdmin ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()
   const [ credits, setCredits ] = useState(0)
@@ -77,6 +80,7 @@ export const useAccountContext = (): IAccountContext => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
     setCredits(statusResult.credits)
+    setAdmin(statusResult.admin)
   }, [])
 
   const loadConfig = useCallback(async () => {
@@ -173,6 +177,7 @@ export const useAccountContext = (): IAccountContext => {
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
+    admin,
     serverConfig,
     credits,
     sessions,
@@ -183,6 +188,7 @@ export const useAccountContext = (): IAccountContext => {
   }), [
     initialized,
     user,
+    admin,
     serverConfig,
     credits,
     sessions,

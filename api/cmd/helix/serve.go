@@ -65,6 +65,7 @@ func NewServeOptions() *ServeOptions {
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
 			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
+			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 	}
 }
@@ -198,10 +199,13 @@ func newServeCmd() *cobra.Command {
 		&allOptions.ServerOptions.KeyCloakToken, "keycloak-token", allOptions.ServerOptions.KeyCloakToken,
 		`The api token for the keycloak server.`,
 	)
-
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ServerOptions.RunnerToken, "runner-token", allOptions.ServerOptions.RunnerToken,
 		`The token for runner auth.`,
+	)
+	serveCmd.PersistentFlags().StringArrayVar(
+		&allOptions.ServerOptions.AdminIDs, "admin-ids", allOptions.ServerOptions.AdminIDs,
+		`Keycloak admin IDs`,
 	)
 
 	return serveCmd

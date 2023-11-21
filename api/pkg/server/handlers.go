@@ -623,26 +623,9 @@ func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
 	}
 }
 
+// admin is required by the auth middleware
 func (apiServer *HelixAPIServer) dashboard(res http.ResponseWriter, req *http.Request) (*types.DashboardData, error) {
-	err := apiServer.requireAdmin(req)
-	if err != nil {
-		return nil, err
-	}
-	return &types.DashboardData{
-		Sessions: []types.Session{{
-			ID:           "frob",
-			Name:         "name",
-			Created:      time.Time{},
-			Updated:      time.Time{},
-			Mode:         "inference",
-			Type:         "finetune",
-			ModelName:    "bob's model",
-			LoraDir:      "",
-			Interactions: []types.Interaction{},
-			Owner:        "bob",
-			OwnerType:    "user",
-		}},
-	}, nil
+	return apiServer.Controller.GetDashboardData(req.Context())
 }
 
 func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -773,6 +756,20 @@ func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, r
 		return nil, err
 	}
 	return taskResponse, nil
+}
+
+func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {
+	runnerState := &types.RunnerState{}
+	err := json.NewDecoder(req.Body).Decode(runnerState)
+	if err != nil {
+		return nil, err
+	}
+
+	runnerState, err = apiServer.Controller.AddRunnerMetrics(req.Context(), runnerState)
+	if err != nil {
+		return nil, err
+	}
+	return runnerState, nil
 }
 
 func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {

@@ -40,12 +40,16 @@ type RunnerOptions struct {
 	// we just pass http://localhost:8080/api/v1/worker/session
 	InitialSessionURL string
 
-	// how long to wait between loops for the controller
-	// this will affect how often we ask for a global session
-	ControlLoopDelayMilliseconds int
-
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
+
+	// how long to wait between loops for the controller
+	// this will affect how often we ask for a global session
+	GetTaskDelayMilliseconds int
+
+	// how often to report our overal state to the api
+	ReporStateDelaySeconds int
+
 	// how many bytes of memory does our GPU have?
 	// we report this back to the api when we ask
 	// for the global next task (well, this minus the
@@ -54,6 +58,8 @@ type RunnerOptions struct {
 	// if this is defined then we convert it usng
 	// github.com/inhies/go-bytesize
 	MemoryString string
+
+	Labels map[string]string
 }
 
 type Runner struct {
@@ -154,21 +160,25 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 // this should be run in a go-routine
 func (r *Runner) StartLooping() {
+	go r.startTaskLoop()
+}
+
+func (r *Runner) startTaskLoop() {
 	for {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(time.Millisecond * time.Duration(r.Options.ControlLoopDelayMilliseconds)):
-			err := r.loop(r.Ctx)
+		case <-time.After(time.Millisecond * time.Duration(r.Options.GetTaskDelayMilliseconds)):
+			err := r.taskLoop(r.Ctx)
 			if err != nil {
-				log.Error().Msgf("error in runner loop: %s", err.Error())
+				log.Error().Msgf("error in task loop: %s", err.Error())
 				debug.PrintStack()
 			}
 		}
 	}
 }
 
-func (r *Runner) loop(ctx context.Context) error {
+func (r *Runner) taskLoop(ctx context.Context) error {
 
 	// ask the api server if it currently has any work based on the amount of
 	// memory we could free if we killed stale sessions
@@ -198,6 +208,38 @@ func (r *Runner) loop(ctx context.Context) error {
 		}
 	}
 
+	return nil
+}
+
+func (r *Runner) startReportStateLoop() {
+	for {
+		select {
+		case <-r.Ctx.Done():
+			return
+		case <-time.After(time.Second * time.Duration(r.Options.ReporStateDelaySeconds)):
+			err := r.reportStateLoop(r.Ctx)
+			if err != nil {
+				log.Error().Msgf("error in report state loop: %s", err.Error())
+				debug.PrintStack()
+			}
+		}
+	}
+}
+
+func (r *Runner) reportStateLoop(ctx context.Context) error {
+	state, err := r.getState()
+	if err != nil {
+		return err
+	}
+	log.Debug().Msgf("🟠 Sending runner state %s %+v", r.Options.ID, state)
+	_, err = server.PostRequest[*types.RunnerState, *types.RunnerState](
+		r.httpClientOptions,
+		fmt.Sprintf("/runner/%s/state", r.Options.ID),
+		state,
+	)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -674,4 +716,27 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 		return err
 	}
 	return nil
+}
+
+func (r *Runner) getState() (*types.RunnerState, error) {
+	modelInstances := []*types.ModelInstanceState{}
+	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+		state, err := modelInstance.getState()
+		if err != nil {
+			return false
+		}
+		modelInstances = append(modelInstances, state)
+		return true
+	})
+	if len(modelInstances) != r.activeModelInstances.Size() {
+		return nil, fmt.Errorf("error getting state")
+	}
+	return &types.RunnerState{
+		ID:             r.Options.ID,
+		Created:        time.Now(),
+		TotalMemory:    r.Options.MemoryBytes,
+		FreeMemory:     r.getFreeMemory(),
+		Labels:         r.Options.Labels,
+		ModelInstances: modelInstances,
+	}, nil
 }
