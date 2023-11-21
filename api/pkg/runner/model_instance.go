@@ -350,7 +350,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			// this normally means that a job caused an error so let's tell the api
 			// that this interaction has it's Error field set
 			if instance.currentSession != nil {
-				instance.errorSession(instance.currentSession, err)
+				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), string(stderrBuf.Bytes())))
 			}
 		}
 
