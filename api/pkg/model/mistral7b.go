@@ -152,7 +152,7 @@ func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistr
 		bufferSession: "",
 		active:        false,
 		eventHandler:  eventHandler,
-		turnsSoFar:    -1,
+		turnsSoFar:    0,
 	}
 }
 
@@ -183,11 +183,10 @@ func (chunker *mistral7bInferenceChunker) emitResult() {
 }
 
 func (chunker *mistral7bInferenceChunker) write(word string) error {
-	if chunker.turnsSoFar == -1 {
-		chunker.turnsSoFar = chunker.options.mistral.turns
-	}
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
+		// reset turns count
+		chunker.turnsSoFar = chunker.options.mistral.turns
 		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -207,7 +206,6 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			chunker.addBuffer(word)
 		} else if strings.HasSuffix(word, "[/INST]") {
 			chunker.turnsSoFar -= 1
-			// chunker.addBuffer(fmt.Sprintf("turnsSoFar=%d ", chunker.turnsSoFar))
 			if chunker.turnsSoFar <= 0 {
 				chunker.active = true
 			}
