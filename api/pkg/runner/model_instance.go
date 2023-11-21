@@ -397,13 +397,17 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if instance.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
 	}
+	currentSession := instance.currentSession
+	if currentSession == nil {
+		currentSession = instance.queuedSession
+	}
 	return &types.ModelInstanceState{
 		ID:               instance.id,
 		ModelName:        instance.initialSession.ModelName,
 		Mode:             instance.initialSession.Mode,
 		LoraDir:          instance.initialSession.LoraDir,
 		InitialSessionID: instance.initialSession.ID,
-		CurrentSession:   instance.currentSession,
+		CurrentSession:   currentSession,
 		JobHistory:       instance.jobHistory,
 	}, nil
 }

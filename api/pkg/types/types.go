@@ -248,9 +248,8 @@ type RunnerState struct {
 }
 
 type DashboardData struct {
-	RunningSessions []*Session     `json:"running_sessions"`
-	QueuedSessions  []*Session     `json:"queued_sessions"`
-	Runners         []*RunnerState `json:"runners"`
+	SessionQueue []*Session     `json:"session_queue"`
+	Runners      []*RunnerState `json:"runners"`
 }
 
 type CreateSessionRequest struct {
