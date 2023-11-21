@@ -39,7 +39,8 @@ const Dashboard: FC = () => {
 
   useEffect(() => {
     const intervalId = setInterval(async () => {
-      // const response = await api.get(`/api/v1/dashboard`)
+      const data = await api.get(`/api/v1/dashboard`)
+      console.log(JSON.stringify(data, null, 4))
       // setSessions(response.data.sessions)
     }, 1000)
     return () => {
@@ -58,7 +59,7 @@ const Dashboard: FC = () => {
               <Typography variant="h6">Session Queue</Typography>
               <ul>
               {sessions.map((session) => {
-                return (<li>{session.id}</li>)
+                return (<li key={session.id}>{session.id}</li>)
               })}
               </ul>
             </Grid>
