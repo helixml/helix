@@ -48,7 +48,7 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask
 		}
 	}
 
-	task.Prompt = strings.Join(messages, "\n")
+	task.Prompt = strings.Join(messages, "\n") + "\n"
 	// remember this because we'll use it to know when to start returning results
 	l.turns = turns
 	return task, nil
@@ -187,6 +187,7 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 	if strings.HasPrefix(word, "[SESSION_START]") {
 		// reset turns count
 		chunker.turnsSoFar = chunker.options.mistral.turns
+		log.Info().Msgf(">>> SESSION_START, turnsSoFar: %d", chunker.turnsSoFar)
 		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -206,7 +207,9 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			chunker.addBuffer(word)
 		} else if strings.HasSuffix(word, "[/INST]") {
 			chunker.turnsSoFar -= 1
+			log.Info().Msgf(">>> [/INST], turnsSoFar: %d", chunker.turnsSoFar)
 			if chunker.turnsSoFar <= 0 {
+				log.Info().Msgf(">>> ACTIVATE")
 				chunker.active = true
 			}
 		}
