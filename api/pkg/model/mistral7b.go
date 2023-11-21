@@ -43,7 +43,8 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		// to manage the session output window and emit events
 		// via the event handler
 		chunker := newMistral7bInferenceChunker(eventHandler, mistral7bInferenceChunkerOptions{
-			bufferSize: 16,
+			// no buffering - send every single word
+			bufferSize: 0,
 		})
 
 		// this will get called for each word
