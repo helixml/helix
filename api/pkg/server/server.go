@@ -20,6 +20,7 @@ type ServerOptions struct {
 	Port          int
 	KeyCloakURL   string
 	KeyCloakToken string
+	RunnerToken   string
 	// this is for when we are running localfs filesystem
 	// and we need to add a route to view files based on their path
 	// we are assuming all file storage is open right now
@@ -69,14 +70,23 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
 
-	// add one more subrouter for the authenticated service methods
+	// auth router requires a valid token from keycloak
 	authRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
+
+	// runner router requires a valid runner token
+	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 
 	keycloak := newKeycloak(apiServer.Options)
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.verifyToken)
+
+	// runner auth
+	runnerAuth := newRunnerAuth(apiServer.Options.RunnerToken)
+	runnerRouter.Use(runnerAuth.verifyToken)
 
 	subrouter.HandleFunc("/config", WrapperWithConfig(apiServer.config, WrapperConfig{
 		SilenceErrors: true,
@@ -115,26 +125,14 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	authRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
 
-	// TODO: this has no auth right now
-	// we need to add JWTs to the urls we are using to connect models to the workers
-	// the task filters (mode, type and modelName) are all given as query params
-	subrouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
+	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
-
-	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
-
-	// single file downloader
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
-
-	// tar folder downloader
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
-
-	// file uploader - this can accept multiple files they are part of a multipart form
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
-
-	// folder downloader - the tar file is still attached to a multipart form
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", Wrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", Wrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
 	StartUserWebSocketServer(
 		ctx,
