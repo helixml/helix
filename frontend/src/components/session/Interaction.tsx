@@ -71,7 +71,7 @@ export const Interaction: FC<{
       if(interaction.progress > 0) {
         progress = interaction.progress
       } else if(interaction.lora_dir) {
-        displayMessage = 'Fine fining complete - you can now ask the model questions...'
+        displayMessage = 'Fine tuning complete - you can now ask the model questions...'
       } else if (interaction.state != INTERACTION_STATE_EDITING) {
         displayMessage = '🤔'
       }
@@ -88,7 +88,7 @@ export const Interaction: FC<{
           displayMessage = '🤔'
         }
       } else if(interaction.lora_dir) {
-        displayMessage = 'Fine fining complete - you can now ask the model to create images...'
+        displayMessage = 'Fine tuning complete - you can now ask the model to create images...'
       } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
         imageURLs = interaction.files.filter(isImage)
       }
