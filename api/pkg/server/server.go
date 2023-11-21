@@ -149,6 +149,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		apiServer.Controller,
 		"/ws/runner",
 		apiServer.Controller.RunnerWebsocketEventChanReader,
+		runnerAuth.isRequestAuthenticated,
 	)
 
 	srv := &http.Server{
