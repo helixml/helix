@@ -187,6 +187,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 
 	// if the folder already exists, then assume we have already downloaded everything
 	if _, err := os.Stat(downloadFolder); err == nil {
+		log.Debug().Msgf("🟠 runner already downloaded folder: %s %s", sessionID, downloadFolder)
 		return downloadFolder, nil
 	}
 
