@@ -86,6 +86,10 @@ func GetTarStream(localPath string) (io.Reader, error) {
 }
 
 func ExpandTarBuffer(buf *bytes.Buffer, localPath string) error {
+	err := os.RemoveAll(localPath)
+	if err != nil {
+		return err
+	}
 	// Create a new tar reader
 	tr := tar.NewReader(buf)
 

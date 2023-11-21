@@ -161,14 +161,14 @@ func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *t
 }
 
 // to queue a session means to put it into a buffer and wait for the Python process to boot up and then "pull" it
-func (instance *ModelInstance) queueSession(session *types.Session) {
+func (instance *ModelInstance) queueSession(session *types.Session, isInitialSession bool) {
 	instance.queuedSession = session
 	instance.nextSession = nil
 
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.fileHandler.downloadSession(session)
+	preparedSession, err := instance.fileHandler.downloadSession(session, isInitialSession)
 
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
