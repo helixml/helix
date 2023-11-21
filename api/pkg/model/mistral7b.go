@@ -214,7 +214,8 @@ func (chunker *mistral7bFinetuneChunker) write(line string) error {
 			return fmt.Errorf("invalid session start line: %s", line)
 		}
 		chunker.sessionID = parts[1]
-	} else if strings.HasPrefix(line, "[SESSION_END]") {
+	} else if strings.HasPrefix(line, "[SESSION_END_LORA_DIR]") {
+		// e.g. [SESSION_END_LORA_DIR]lora_dir=/tmp/helix/results/123
 		parts := strings.Split(line, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -224,9 +225,11 @@ func (chunker *mistral7bFinetuneChunker) write(line string) error {
 		chunker.eventHandler(&types.RunnerTaskResponse{
 			Type:      types.WorkerTaskResponseTypeResult,
 			SessionID: chunker.sessionID,
-			Files:     []string{parts[1]},
+			LoraDir:   parts[1],
+			Files:     []string{},
 		})
 	} else if chunker.sessionID != "" {
+		// we can't get a streaming % from axolotl so we just emit the status lines
 		chunker.eventHandler(&types.RunnerTaskResponse{
 			Type:      types.WorkerTaskResponseTypeProgress,
 			SessionID: chunker.sessionID,

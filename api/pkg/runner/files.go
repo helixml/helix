@@ -60,11 +60,15 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 }
 
 // download the lora dir and the most recent user interaction files for a session
-func (handler *FileHandler) downloadSession(session *types.Session) (*types.Session, error) {
-	session, err := handler.downloadLoraDir(session)
-	if err != nil {
-		return nil, err
+func (handler *FileHandler) downloadSession(session *types.Session, isInitialSession bool) (*types.Session, error) {
+	var err error
+	if isInitialSession {
+		session, err = handler.downloadLoraDir(session)
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	session, err = handler.downloadUserInteractionFiles(session)
 	if err != nil {
 		return nil, err
@@ -130,6 +134,12 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 		return "", fmt.Errorf("failed to create folder: %w", err)
 	}
 	filename := path.Base(filepath)
+	finalPath := path.Join(downloadFolder, filename)
+
+	if _, err := os.Stat(finalPath); err == nil {
+		return finalPath, nil
+	}
+
 	url := server.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", filepath)
@@ -155,7 +165,6 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 		return "", fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
 	}
 
-	finalPath := path.Join(downloadFolder, filename)
 	file, err := os.Create(finalPath)
 	if err != nil {
 		return "", err
@@ -175,6 +184,12 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 
 func (handler *FileHandler) downloadFolder(sessionID string, localFolder string, filepath string) (string, error) {
 	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", sessionID, localFolder)
+
+	// if the folder already exists, then assume we have already downloaded everything
+	if _, err := os.Stat(downloadFolder); err == nil {
+		return downloadFolder, nil
+	}
+
 	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
 		return "", fmt.Errorf("failed to create folder: %w", err)
 	}
@@ -184,7 +199,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
 
 	log.Debug().
-		Msgf("🔵 runner downloading interaction file: %s", fullURL)
+		Msgf("🔵 runner downloading folder: %s %s", sessionID, filepath)
 
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
@@ -213,10 +228,14 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 		return "", err
 	}
 
+	log.Debug().Msgf("🟠 runner expanding tar buffer folder: %s %s", sessionID, downloadFolder)
+
 	err = system.ExpandTarBuffer(&buffer, downloadFolder)
 	if err != nil {
 		return "", err
 	}
+
+	log.Debug().Msgf("🟠 runner downloaded folder: %s %s", sessionID, downloadFolder)
 
 	return downloadFolder, nil
 }

@@ -365,7 +365,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	// whilst the files are downloading - there is no session to pull as "nextSession"
 	// so even if the python process starts up first - it has nothing to pull until
 	// the files have downloaded
-	go modelInstance.queueSession(initialSession)
+	go modelInstance.queueSession(initialSession, true)
 
 	err = modelInstance.startProcess(initialSession)
 	if err != nil {
@@ -442,7 +442,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	if foundLocalQueuedSession {
 		// queue it, and fall thru below to assign
 		log.Printf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
-		go modelInstance.queueSession(session)
+		go modelInstance.queueSession(session, false)
 	} else if modelInstance.nextSession != nil {
 		// if there is a session in the nextSession cache then we return it immediately
 		log.Printf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
@@ -468,7 +468,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 			}
 
 			if apiSession != nil {
-				go modelInstance.queueSession(apiSession)
+				go modelInstance.queueSession(apiSession, false)
 			}
 		}
 	}
