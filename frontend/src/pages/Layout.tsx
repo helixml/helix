@@ -41,6 +41,7 @@ import ListIcon from '@mui/icons-material/List'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
 import useThemeConfig from '../hooks/useThemeConfig'
@@ -108,8 +109,8 @@ const Layout: FC = ({
   children,
 }) => {
   const account = useAccount()
+  const sessions = useSessions()
   const {
-    name,
     meta,
     navigate,
     params
@@ -142,9 +143,7 @@ const Layout: FC = ({
             throw new Error('Failed to delete session')
           }
 
-          account.loadSessions()
-
-          // handle successful deletion
+          sessions.loadSessions()
         })
         .catch(error => {
           console.error(error)
@@ -222,7 +221,7 @@ const Layout: FC = ({
       >
         <List disablePadding>
           {
-            account.sessions.map((session, i) => {
+            sessions.sessions.map((session, i) => {
               return (
                 <ListItem
                   disablePadding

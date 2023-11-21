@@ -8,6 +8,7 @@ import (
 	stdlog "log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -24,6 +25,17 @@ type ClientOptions struct {
 
 func URL(options ClientOptions, path string) string {
 	return fmt.Sprintf("%s%s%s", options.Host, API_SUB_PATH, path)
+}
+
+func WSURL(options ClientOptions, path string) string {
+	url := URL(options, path)
+	// replace http:// with ws://
+	// and https:// with wss://
+	if strings.HasPrefix(url, "http://") {
+		return "ws" + url[4:]
+	} else {
+		return "wss" + url[5:]
+	}
 }
 
 func (apiServer *HelixAPIServer) corsMiddleware(next http.Handler) http.Handler {

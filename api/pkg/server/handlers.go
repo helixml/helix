@@ -1,6 +1,9 @@
 package server
 
 import (
+	"archive/tar"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,9 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
+
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -91,6 +95,34 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 	return true, nil
 }
 
+func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.RequestContext, error) {
+	session, err := apiServer.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", types.RequestContext{}, err
+	}
+
+	if session == nil {
+		return "", types.RequestContext{}, fmt.Errorf("no session found with id %v", sessionID)
+	}
+
+	requestContext := types.RequestContext{
+		Ctx:       ctx,
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	}
+	// let's remove the /dev/users/XXX part of the path if it's there
+	userPath, err := apiServer.Controller.GetFilestoreUserPath(requestContext, "")
+	if err != nil {
+		return "", types.RequestContext{}, err
+	}
+
+	if strings.HasPrefix(filePath, userPath) {
+		filePath = strings.TrimPrefix(filePath, userPath)
+	}
+
+	return filePath, requestContext, nil
+}
+
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path
 // so we need to remove the /dev/users/XXX part and then we load the session based on it's ID
 func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWriter, req *http.Request) {
@@ -103,32 +135,10 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 		Msgf("🔵 download file: %s", filePath)
 
 	err := func() error {
-
-		session, err := apiServer.Store.GetSession(req.Context(), sessionid)
+		filePath, requestContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
 		if err != nil {
 			return err
 		}
-
-		if session == nil {
-			return fmt.Errorf("no session found with id %v", sessionid)
-		}
-
-		requestContext := types.RequestContext{
-			Ctx:       req.Context(),
-			Owner:     session.Owner,
-			OwnerType: session.OwnerType,
-		}
-
-		// let's remove the /dev/users/XXX part of the path if it's there
-		userPath, err := apiServer.Controller.GetFilestoreUserPath(requestContext, "")
-		if err != nil {
-			return err
-		}
-
-		if strings.HasPrefix(filePath, userPath) {
-			filePath = strings.TrimPrefix(filePath, userPath)
-		}
-
 		stream, err := apiServer.Controller.FilestoreDownload(requestContext, filePath)
 		if err != nil {
 			return err
@@ -148,7 +158,45 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 	}()
 
 	if err != nil {
-		log.Ctx(req.Context()).Error().Msgf("error for download file: %s", err.Error())
+		log.Error().Msgf("error for download file: %s", err.Error())
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (apiServer *HelixAPIServer) runnerSessionDownloadFolder(res http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	sessionid := vars["sessionid"]
+	filePath := req.URL.Query().Get("path")
+	filename := filepath.Base(filePath)
+
+	log.Debug().
+		Msgf("🔵 download folder: %s", filePath)
+
+	err := func() error {
+		filePath, requestContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
+		if err != nil {
+			return err
+		}
+		tarStream, err := apiServer.Controller.FilestoreDownloadFolder(requestContext, filePath)
+		if err != nil {
+			return err
+		}
+
+		// Set the appropriate mime-type headers
+		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s,tar", filename))
+		res.Header().Set("Content-Type", "application/x-tar")
+
+		// Write the file to the http.ResponseWriter
+		_, err = io.Copy(res, tarStream)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}()
+
+	if err != nil {
+		log.Error().Msgf("error for download file: %s", err.Error())
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -157,6 +205,7 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
 	vars := mux.Vars(req)
 	sessionid := vars["sessionid"]
+	filePath := req.URL.Query().Get("path")
 
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -168,6 +217,8 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 		return nil, err
 	}
 
+	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
+
 	reqContext := types.RequestContext{
 		Ctx:       req.Context(),
 		Owner:     session.Owner,
@@ -176,13 +227,16 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 
 	result := []filestore.FileStoreItem{}
 	files := req.MultipartForm.File["files"]
+
 	for _, fileHeader := range files {
+		// Handle non-tar files as before
 		file, err := fileHeader.Open()
 		if err != nil {
 			return nil, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(controller.GetSessionResultsFolder(session.ID), fileHeader.Filename), file)
+
+		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -190,6 +244,84 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 	}
 
 	return result, nil
+}
+
+func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWriter, req *http.Request) (*filestore.FileStoreItem, error) {
+	vars := mux.Vars(req)
+	sessionid := vars["sessionid"]
+	filePath := req.URL.Query().Get("path")
+
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
+	if err != nil {
+		return nil, err
+	}
+
+	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
+
+	reqContext := types.RequestContext{
+		Ctx:       req.Context(),
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	}
+
+	files := req.MultipartForm.File["files"]
+
+	if len(files) != 1 {
+		return nil, fmt.Errorf("upload folder only supports a single file")
+	}
+
+	file := files[0]
+
+	if !strings.HasSuffix(file.Filename, ".tar") {
+		return nil, fmt.Errorf("upload folder only supports a tar file")
+	}
+
+	log.Debug().Msgf("🟠 Got tar file %s", file.Filename)
+
+	// Handle .tar file
+	tarFile, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("unable to open tar file")
+	}
+	defer func() {
+		tarFile.Close()
+	}()
+
+	tarReader := tar.NewReader(tarFile)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error reading tar file: %s", err)
+		}
+		if header.Typeflag == tar.TypeReg {
+			buffer := bytes.NewBuffer(nil)
+			if _, err := io.Copy(buffer, tarReader); err != nil {
+				return nil, fmt.Errorf("error reading file inside tar: %s", err)
+			}
+
+			// Create a virtual file from the buffer to upload
+			vFile := bytes.NewReader(buffer.Bytes())
+			_, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, header.Name), vFile)
+			if err != nil {
+				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
+			}
+		}
+	}
+
+	finalFolder, err := apiServer.Controller.FilestoreGet(reqContext, uploadFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	return &finalFolder, nil
 }
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -213,6 +345,86 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
 	return apiServer.Store.GetSessions(reqContext.Ctx, query)
+}
+
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if len(systemInteraction.Files) == 0 {
+		return nil, fmt.Errorf("no files found")
+	}
+	filepath := systemInteraction.Files[0]
+	if !strings.HasSuffix(filepath, ".jsonl") {
+		return nil, fmt.Errorf("file is not a jsonl file")
+	}
+	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
+}
+
+func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if len(systemInteraction.Files) == 0 {
+		return nil, fmt.Errorf("no files found")
+	}
+	filepath := systemInteraction.Files[0]
+	if !strings.HasSuffix(filepath, ".jsonl") {
+		return nil, fmt.Errorf("file is not a jsonl file")
+	}
+
+	var data []text.ShareGPTConversations
+
+	// Decode the JSON from the request body
+	err = json.NewDecoder(req.Body).Decode(&data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = apiServer.Controller.WriteTextFineTuneQuestions(filepath, data)
+	if err != nil {
+		return nil, err
+	}
+
+	// now we switch the session into training mode
+	err = apiServer.Controller.BeginTextFineTune(session)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 // based on a multi-part form that has message and files
@@ -290,6 +502,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		Creator:  types.CreatorTypeUser,
 		Message:  message,
 		Files:    filePaths,
+		State:    types.InteractionStateComplete,
 		Finished: true,
 		Metadata: metadata,
 	}, nil
@@ -330,48 +543,15 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := &types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		Finished: false,
-		Metadata: map[string]string{},
-	}
-
-	session := types.Session{
-		ID:        sessionID,
-		Name:      system.GenerateAmusingName(),
-		ModelName: modelName,
-		Type:      sessionType,
-		Mode:      sessionMode,
-		Owner:     reqContext.Owner,
-		OwnerType: reqContext.OwnerType,
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		Interactions: []types.Interaction{
-			*userInteraction,
-			*systemInteraction,
-		},
-	}
-
-	log.Debug().
-		Msgf("🟢 new session")
-	spew.Dump(session)
-
-	// create session in database
-	sessionData, err := apiServer.Store.CreateSession(reqContext.Ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	// add the session to the controller queue
-	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, sessionData)
-	if err != nil {
-		return nil, err
-	}
+	sessionData, err := apiServer.Controller.CreateSession(req.Context(), types.CreateSessionRequest{
+		SessionID:       sessionID,
+		SessionMode:     sessionMode,
+		SessionType:     sessionType,
+		ModelName:       modelName,
+		Owner:           reqContext.Owner,
+		OwnerType:       reqContext.OwnerType,
+		UserInteraction: *userInteraction,
+	})
 
 	return sessionData, nil
 }
@@ -403,8 +583,6 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("access denied")
 	}
 
-	sessionCopy := *session
-
 	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
 	if err != nil {
 		return nil, err
@@ -412,31 +590,11 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	if userInteraction == nil {
 		return nil, fmt.Errorf("no interaction found")
 	}
-	systemInteraction := &types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		Finished: false,
-	}
-	sessionCopy.Updated = time.Now()
-	sessionCopy.Interactions = append(sessionCopy.Interactions, *userInteraction, *systemInteraction)
 
-	log.Debug().
-		Msgf("🟢 update session")
-	spew.Dump(sessionCopy)
-
-	sessionData, err := apiServer.Store.UpdateSession(reqContext.Ctx, sessionCopy)
-	if err != nil {
-		return nil, err
-	}
-
-	// add the session to the controller queue
-	err = apiServer.Controller.PushSessionQueue(reqContext.Ctx, &sessionCopy)
-	if err != nil {
-		return nil, err
-	}
+	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), types.UpdateSessionRequest{
+		SessionID:       sessionID,
+		UserInteraction: *userInteraction,
+	})
 
 	return sessionData, nil
 }
@@ -479,7 +637,7 @@ func (apiServer *HelixAPIServer) dashboard(res http.ResponseWriter, req *http.Re
 			Mode:         "inference",
 			Type:         "finetune",
 			ModelName:    "bob's model",
-			FinetuneFile: "",
+			LoraDir:      "",
 			Interactions: []types.Interaction{},
 			Owner:        "bob",
 			OwnerType:    "user",
@@ -528,7 +686,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	finetuneFile := req.URL.Query().Get("finetune_file")
+	loraDir := req.URL.Query().Get("lora_dir")
 
 	memory := uint64(0)
 	memoryString := req.URL.Query().Get("memory")
@@ -578,13 +736,13 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	}
 
 	filter := types.SessionFilter{
-		Mode:         sessionMode,
-		Type:         sessionType,
-		ModelName:    modelName,
-		Memory:       memory,
-		Reject:       reject,
-		FinetuneFile: finetuneFile,
-		Older:        types.Duration(olderDuration),
+		Mode:      sessionMode,
+		Type:      sessionType,
+		ModelName: modelName,
+		Memory:    memory,
+		Reject:    reject,
+		LoraDir:   loraDir,
+		Older:     types.Duration(olderDuration),
 	}
 
 	// alow the worker to filter what tasks it wants
@@ -603,20 +761,14 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	return nextSession, nil
 }
 
-func (apiServer *HelixAPIServer) respondRunnerSession(res http.ResponseWriter, req *http.Request) (*types.WorkerTaskResponse, error) {
-	vars := mux.Vars(req)
-	runnerID := vars["runnerid"]
-	if runnerID == "" {
-		return nil, fmt.Errorf("cannot get next session without runner id")
-	}
-
-	taskResponse := &types.WorkerTaskResponse{}
+func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, req *http.Request) (*types.RunnerTaskResponse, error) {
+	taskResponse := &types.RunnerTaskResponse{}
 	err := json.NewDecoder(req.Body).Decode(taskResponse)
 	if err != nil {
 		return nil, err
 	}
 
-	taskResponse, err = apiServer.Controller.HandleWorkerResponse(req.Context(), taskResponse)
+	taskResponse, err = apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
 		return nil, err
 	}

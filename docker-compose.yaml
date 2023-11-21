@@ -70,10 +70,12 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - SERVER_URL=${SERVER_URL:-http://localhost}
       - KEYCLOAK_URL=http://keycloak:8080/auth
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-*}
+      - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
@@ -98,6 +100,17 @@ services:
     # TODO: mount the same data directory api server is using for filestore to
     # gradio so it can just read files from there, including results...
 
+  unstructured:
+    ports:
+      - 5000:5000
+    build:
+      context: unstructured
+      dockerfile: Dockerfile
+    entrypoint: tail -f /dev/null
+    restart: always
+    volumes:
+      - ./unstructured/src:/home/notebook-user/app/src
+ 
   frontend:
     ports:
       - 8081:${FRONTEND_INTERNAL_PORT:-8081}

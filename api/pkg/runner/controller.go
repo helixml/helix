@@ -6,28 +6,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
 	"runtime/debug"
 	"sort"
+	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/inhies/go-bytesize"
-	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 type RunnerOptions struct {
 	ID       string
 	ApiHost  string
 	ApiToken string
+
+	// this means a CLI will be posting jobs to us locally and we will
+	// not be polling a remote api
+	LocalMode bool
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
@@ -36,10 +38,11 @@ type RunnerOptions struct {
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/session/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/session
-	SessionURL string
-	// e.g. http://localhost:8080/api/v1/worker/response/:instanceid
-	// we just pass http://localhost:8080/api/v1/worker/response
-	ResponseURL string
+	InitialSessionURL string
+
+	// how long to wait between loops for the controller
+	// this will affect how often we ask for a global session
+	ControlLoopDelayMilliseconds int
 
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
@@ -72,17 +75,27 @@ type Runner struct {
 	// local sessions, which will be executed in no particular order
 	// TODO: maybe preserve insertion order
 	localSessions *xsync.MapOf[string, *types.Session]
+
+	// how we write web sockets messages to the api server
+	websocketEventChannel chan *types.WebsocketEvent
+
+	// if we are in "local" mode (i.e. posting jobs to a local runner using "helix run")
+	// then we keep state in memory
+	// in-memory state to record status that would normally be posted up as a result
+	State    map[string]types.RunnerTaskResponse
+	StateMtx sync.Mutex
 }
 
 func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
 ) (*Runner, error) {
-	if options.ApiHost != "" {
-		// these are only required if api-host is specified, we can also run in
-		// a purely local mode
+	if !options.LocalMode {
 		if options.ID == "" {
 			return nil, fmt.Errorf("id is required")
+		}
+		if options.ApiHost == "" {
+			return nil, fmt.Errorf("api host required")
 		}
 		if options.ApiToken == "" {
 			return nil, fmt.Errorf("api token is required")
@@ -110,41 +123,32 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances: xsync.NewMapOf[string, *ModelInstance](),
-		localSessions:        xsync.NewMapOf[string, *types.Session](),
+		activeModelInstances:  xsync.NewMapOf[string, *ModelInstance](),
+		localSessions:         xsync.NewMapOf[string, *types.Session](),
+		State:                 map[string]types.RunnerTaskResponse{},
+		websocketEventChannel: make(chan *types.WebsocketEvent),
 	}
 	return runner, nil
 }
 
-func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
-	// iterate over model instances to see if one exists and if it doesn't, create it.
-	// then add session to localQueue
-
-	// Check if a model instance exists for the session's model ID
-	found := false
-
-	// loop over r.activeModelInstances, checking whether the filters on the
-	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		if modelInstanceMatchesSession(modelInstance, session) {
-			// no need to create another one, because there's already one which will match the session
-			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
-			found = true
-			return false
-		}
-		return true
-	})
-	if !found {
-		// Create a new model instance because it doesn't exist
-		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
-		err := r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
+func (r *Runner) Initialize(ctx context.Context) error {
+	// connect to the runner websocket server on the api
+	// when we write events down the channel - write them to the websocket
+	parsedURL, err := url.Parse(server.WSURL(r.httpClientOptions, "/ws/runner"))
+	if err != nil {
+		return err
 	}
 
-	// Add the session to the local queue
-	r.localSessions.Store(session.ID, session)
+	queryParams := url.Values{}
+	queryParams.Add("runnerid", r.Options.ID)
+	parsedURL.RawQuery = queryParams.Encode()
+
+	go server.ConnectRunnerWebSocketClient(
+		parsedURL.String(),
+		r.websocketEventChannel,
+		ctx,
+	)
+
 	return nil
 }
 
@@ -154,7 +158,7 @@ func (r *Runner) StartLooping() {
 		select {
 		case <-r.Ctx.Done():
 			return
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(time.Millisecond * time.Duration(r.Options.ControlLoopDelayMilliseconds)):
 			err := r.loop(r.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in runner loop: %s", err.Error())
@@ -197,6 +201,41 @@ func (r *Runner) loop(ctx context.Context) error {
 	return nil
 }
 
+func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
+	if !r.Options.LocalMode {
+		return fmt.Errorf("cannot add to local queue when not in local mode")
+	}
+	// iterate over model instances to see if one exists and if it doesn't, create it.
+	// then add session to localQueue
+
+	// Check if a model instance exists for the session's model ID
+	found := false
+
+	// loop over r.activeModelInstances, checking whether the filters on the
+	// model instance match the session mode, type and finetune
+	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+		if modelInstanceMatchesSession(modelInstance, session) {
+			// no need to create another one, because there's already one which will match the session
+			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		// Create a new model instance because it doesn't exist
+		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
+		err := r.createModelInstance(ctx, session)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Add the session to the local queue
+	r.localSessions.Store(session.ID, session)
+	return nil
+}
+
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
 func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
@@ -228,9 +267,8 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		r.Ctx,
 		newSession,
 		r.Options.TaskURL,
-		r.Options.SessionURL,
-		r.Options.ResponseURL,
-		func(res *types.WorkerTaskResponse) error {
+		r.Options.InitialSessionURL,
+		func(res *types.RunnerTaskResponse) error {
 			return nil
 		},
 		r.Options,
@@ -312,7 +350,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 			"%s:%s:%s",
 			modelInstance.filter.ModelName,
 			modelInstance.filter.Mode,
-			modelInstance.filter.FinetuneFile,
+			modelInstance.filter.LoraDir,
 		))
 		return true
 	})
@@ -324,7 +362,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 // queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
 // but it gives the python code a chance to wait for Lora weights to download before loading them
 // into GPU memory - at which point it would start pulling from the queue as normal
-func (r *Runner) readNextSession(ctx context.Context, instanceID string) (*types.Session, error) {
+func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string) (*types.Session, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -345,21 +383,29 @@ func (r *Runner) readNextSession(ctx context.Context, instanceID string) (*types
 // will take into account the fact this model is running
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
-func (r *Runner) createModelInstance(ctx context.Context, session *types.Session) error {
+func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
-		session,
+		initialSession,
 		r.Options.TaskURL,
-		r.Options.SessionURL,
-		r.Options.ResponseURL,
+		r.Options.InitialSessionURL,
 
 		// this function will convert any files it sees locally into an upload
 		// to the api server filestore - all files will be written to the filestore
 		// under a session sub path - you can include tar files and they will untarred at the other end
 		// into the filestore
 		// TODO: support the tar feature above
-		func(res *types.WorkerTaskResponse) error {
-			return r.uploadWorkerResponse(res, session)
+		func(res *types.RunnerTaskResponse) error {
+			if r.Options.LocalMode {
+				err := r.addLocalResponse(ctx, res)
+				if err != nil {
+					return err
+				}
+				return nil
+			} else {
+				// if the response is for the initial session then inclide
+				return r.handleWorkerResponse(res)
+			}
 		},
 		r.Options,
 	)
@@ -368,38 +414,56 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := float32(modelInstance.model.GetMemoryRequirements(session.Mode)) / 1024 / 1024 / 1024
+	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
 	if modelMem > freeMem {
 		// refuse to start or record the model instance, it will just get GC'd at this point
 		return fmt.Errorf("cannot fit model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	}
-	log.Printf("🟠 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
-
+	log.Debug().Msgf("🔵 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.id)
 
-	// every session is queued - it gives the session a chance to download files
-	// and do any other prep it needs to do before being passed into the Python process
-	// over http - this is run for EVERY session not just the first one (look in getNextTask)
-	// this will run in a go-routine internally
-	go modelInstance.queueSession(session)
+	r.activeModelInstances.Store(modelInstance.id, modelInstance)
 
-	// now we block on starting the process
-	// for inference on a lora type file, this will need to download the lora file
-	// BEFORE we start the process -these files are part of the weights loaded into memory
-	err = modelInstance.startProcess(session)
+	// THERE IS NOT A RACE HERE (so Kai please stop thinking there is)
+	// the files are dowloading at the same time as the python process is booting
+	// whilst the files are downloading - there is no session to pull as "nextSession"
+	// so even if the python process starts up first - it has nothing to pull until
+	// the files have downloaded
+	go modelInstance.queueSession(initialSession)
+
+	err = modelInstance.startProcess(initialSession)
 	if err != nil {
 		return err
 	}
 
-	r.activeModelInstances.Store(modelInstance.id, modelInstance)
 	go func() {
 		<-modelInstance.finishChan
 		log.Debug().
 			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
 		r.activeModelInstances.Delete(modelInstance.id)
 	}()
+	return nil
+}
+
+func (r *Runner) addLocalResponse(ctx context.Context, res *types.RunnerTaskResponse) error {
+	r.StateMtx.Lock()
+	defer r.StateMtx.Unlock()
+
+	// record in-memory for any local clients who want to query us
+	r.State[res.SessionID] = *res
+
+	stateYAML, err := yaml.Marshal(r.State)
+	if err != nil {
+		return err
+	}
+	fmt.Println("==========================================")
+	fmt.Println("             LOCAL STATE")
+	fmt.Println("==========================================")
+	fmt.Println(string(stateYAML))
+	fmt.Println("==========================================")
+
 	return nil
 }
 
@@ -410,7 +474,7 @@ func (r *Runner) createModelInstance(ctx context.Context, session *types.Session
 // this function being called means "I am ready for more work"
 // because the child processes are blocking - the child will not be
 // asking for more work until it's ready to accept and run it
-func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.WorkerTask, error) {
+func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.RunnerTask, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -420,18 +484,21 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 	}
 
 	var session *types.Session
-
 	foundLocalQueuedSession := false
-	r.localSessions.Range(func(i string, sess *types.Session) bool {
-		if modelInstanceMatchesSession(modelInstance, sess) {
-			foundLocalQueuedSession = true
-			// remove it from the local queue
-			r.localSessions.Delete(i)
-			session = sess
-			return false
-		}
-		return true
-	})
+
+	if r.Options.LocalMode {
+		r.localSessions.Range(func(i string, sess *types.Session) bool {
+			if modelInstanceMatchesSession(modelInstance, sess) {
+				foundLocalQueuedSession = true
+				// remove it from the local queue
+				r.localSessions.Delete(i)
+				session = sess
+				return false
+			}
+			return true
+		})
+	}
+
 	// as the first check, we need to ask if there's a session in localQueue
 	// that matches this model instance. if there is, we've got a local
 	// session and it takes precedence over remote work
@@ -459,7 +526,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 
 			queryParams.Add("model_name", string(modelInstance.filter.ModelName))
 			queryParams.Add("mode", string(modelInstance.filter.Mode))
-			queryParams.Add("finetune_file", string(modelInstance.filter.FinetuneFile))
+			queryParams.Add("lora_dir", string(modelInstance.filter.LoraDir))
 
 			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
@@ -475,7 +542,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 	// we don't have any work for this model instance
 	if session == nil {
 		// TODO: this should be a 404 not a 500?
-		log.Printf("🟠🟠 No session found for model instance %+v", modelInstance)
 		return nil, fmt.Errorf("no session found")
 	}
 
@@ -485,41 +551,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Wor
 	}
 
 	return task, nil
-}
-
-func (r *Runner) handleTaskResponse(ctx context.Context, instanceID string, taskResponse *types.WorkerTaskResponse) (*types.WorkerTaskResponse, error) {
-	if instanceID == "" {
-		return nil, fmt.Errorf("instanceid is required")
-	}
-	if taskResponse == nil {
-		return nil, fmt.Errorf("task response is required")
-	}
-	modelInstance, ok := r.activeModelInstances.Load(instanceID)
-	if !ok {
-		return nil, fmt.Errorf("instance not found: %s", instanceID)
-	}
-	switch {
-	case taskResponse.Type == types.WorkerTaskResponseTypeStream:
-		err := modelInstance.handleStream(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling stream: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeProgress:
-		err := modelInstance.handleProgress(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling progress: %s", err.Error())
-			return nil, err
-		}
-	case taskResponse.Type == types.WorkerTaskResponseTypeResult:
-		err := modelInstance.handleResult(ctx, taskResponse)
-		if err != nil {
-			log.Error().Msgf("error handling job result: %s", err.Error())
-			return nil, err
-		}
-	}
-
-	return taskResponse, nil
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
@@ -602,91 +633,30 @@ func (r *Runner) getHypotheticalFreeMemory() uint64 {
 	return r.Options.MemoryBytes - r.getUsedMemoryByNonStale()
 }
 
-func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *types.Session) error {
-	if r.httpClientOptions.Host == "" {
-		// no upstream server configured, skip uploading
-		return nil
+func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
+	if res.Type == types.WorkerTaskResponseTypeResult {
+		// if it's a full result then we just post it to the api
+		return r.postWorkerResponseToApi(res)
+	} else if res.Type == types.WorkerTaskResponseTypeProgress || res.Type == types.WorkerTaskResponseTypeStream {
+		// otherwise for streaming updates it's a websocket event
+		return r.sendWorkerResponseToWebsocket(res)
+	} else {
+		return fmt.Errorf("unknown response type: %s", res.Type)
 	}
-	if len(res.Files) > 0 {
-		// create a new multipart form
-		body := &bytes.Buffer{}
-		writer := multipart.NewWriter(body)
+}
 
-		// loop over each file and add it to the form
-		for _, filepath := range res.Files {
-			file, err := os.Open(filepath)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			// create a new form field for the file
-			part, err := writer.CreateFormFile("files", filepath)
-			if err != nil {
-				return err
-			}
-
-			// copy the file contents into the form field
-			_, err = io.Copy(part, file)
-			if err != nil {
-				return err
-			}
-		}
-
-		// close the multipart form
-		err := writer.Close()
-		if err != nil {
-			return err
-		}
-
-		url := server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload", r.Options.ID, session.ID))
-
-		log.Debug().Msgf("🟠 upload files %s", url)
-
-		// create a new POST request with the multipart form as the body
-		req, err := http.NewRequest("POST", url, body)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", writer.FormDataContentType())
-		server.AddHeadersVanilla(req, r.httpClientOptions.Token)
-
-		// send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		// handle the response
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		}
-
-		var data []filestore.FileStoreItem
-		resultBody, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		// parse body as json into result
-		err = json.Unmarshal(resultBody, &data)
-		if err != nil {
-			return err
-		}
-
-		mappedFiles := []string{}
-
-		for _, fileItem := range data {
-			mappedFiles = append(mappedFiles, fileItem.Path)
-		}
-
-		res.Files = mappedFiles
+func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) error {
+	r.websocketEventChannel <- &types.WebsocketEvent{
+		Type:               types.WebsocketEventWorkerTaskResponse,
+		SessionID:          res.SessionID,
+		Owner:              res.Owner,
+		WorkerTaskResponse: res,
 	}
+	return nil
+}
 
-	log.Debug().Msgf("🟠 Sending task response %s", session.ID)
-	spew.Dump(res)
+func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
+	log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 
 	// this function will write any task responses back to the api server for it to process
 	// we will only hear WorkerTaskResponseTypeStreamContinue and WorkerTaskResponseTypeResult
@@ -695,7 +665,7 @@ func (r *Runner) uploadWorkerResponse(res *types.WorkerTaskResponse, session *ty
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	_, err := server.PostRequest[*types.WorkerTaskResponse, *types.WorkerTaskResponse](
+	_, err := server.PostRequest[*types.RunnerTaskResponse, *types.RunnerTaskResponse](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/response", r.Options.ID),
 		res,

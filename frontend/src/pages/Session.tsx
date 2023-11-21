@@ -16,6 +16,11 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
+
+import {
+  INTERACTION_STATE_EDITING,
+} from '../types'
 
 const Session: FC = () => {
   const filestore = useFilestore()
@@ -23,6 +28,7 @@ const Session: FC = () => {
   const api = useApi()
   const {navigate, params} = useRouter()
   const account = useAccount()
+  const sessions = useSessions()
 
   const divRef = useRef<HTMLDivElement>()
 
@@ -32,13 +38,13 @@ const Session: FC = () => {
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-  const session = account.sessions?.find(session => session.id === params["session_id"])
+
+  const session = sessions.sessions?.find(session => session.id === params["session_id"])
 
   const loading = useMemo(() => {
-    return false
-    // if(!session || !session?.interactions || session?.interactions.length === 0) return false
-    // const interaction = session?.interactions[session?.interactions.length - 1]
-    // return interaction.finished ? false : true
+    if(!session || !session?.interactions || session?.interactions.length === 0) return false
+    const interaction = session?.interactions[session?.interactions.length - 1]
+    return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session,
   ])
@@ -55,7 +61,7 @@ const Session: FC = () => {
 
     const newSession = await api.put(`/api/v1/sessions/${session.id}`, formData)
     if(!newSession) return
-    account.loadSessions()
+    sessions.loadSessions()
 
     setFiles([])
     setInputValue("")
@@ -108,24 +114,50 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Typography
+          <Box
             sx={{
-              fontSize: "small",
-              color: "gray"
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
             }}
           >
-            Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
-            { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
-          </Typography>
+            <Typography
+              sx={{
+                fontSize: "small",
+                color: "gray",
+                flexGrow: 1,
+              }}
+            >
+              Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
+              { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "small",
+                color: "gray",
+                flexGrow: 0,
+              }}
+            >
+              <Link href="/files?path=%2Fsessions" onClick={(e) => {
+                e.preventDefault()
+                navigate('files', {
+                  path: `/sessions/${session?.id}`
+                })
+              }}>View Files</Link>
+            </Typography>
+          </Box>
           <br />
             {
               session?.interactions.map((interaction: any, i: number) => {
                 return (
                   <Interaction
-                    key={ interaction.id }
+                    key={ i }
+                    session_id={ session.id }
                     type={ session.type }
                     mode={ session.mode }
                     interaction={ interaction }
+                    error={ session.error }
                     serverConfig={ account.serverConfig }
                     isLast={ i === session.interactions.length - 1 }
                   />

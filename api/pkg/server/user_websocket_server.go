@@ -8,11 +8,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
-var upgrader = websocket.Upgrader{
+var userWebsocketUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
@@ -22,28 +23,29 @@ var upgrader = websocket.Upgrader{
 
 type GetUserIDFromRequest func(r *http.Request) (string, error)
 
-type ConnectionWrapper struct {
+type UserConnectionWrapper struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
 	user string
 }
 
-// StartWebSocketServer starts a WebSocket server
-func StartWebSocketServer(
+// StartUserWebSocketServer starts a WebSocket server
+func StartUserWebSocketServer(
 	ctx context.Context,
 	r *mux.Router,
+	Controller *controller.Controller,
 	path string,
-	sessionUpdatesChan chan *types.Session,
+	websocketEventChan chan *types.WebsocketEvent,
 	getUserIDFromRequest GetUserIDFromRequest,
 ) {
 	var mutex = &sync.Mutex{}
 
-	connections := map[*websocket.Conn]*ConnectionWrapper{}
+	connections := map[*websocket.Conn]*UserConnectionWrapper{}
 
 	addConnection := func(conn *websocket.Conn, user string) {
 		mutex.Lock()
 		defer mutex.Unlock()
-		connections[conn] = &ConnectionWrapper{
+		connections[conn] = &UserConnectionWrapper{
 			conn: conn,
 			user: user,
 		}
@@ -63,11 +65,10 @@ func StartWebSocketServer(
 	go func() {
 		for {
 			select {
-			case sessionUpdate := <-sessionUpdatesChan:
-				event := types.WebsocketEvent{
-					Type:    types.WebsocketEventSessionUpdate,
-					Session: sessionUpdate,
-				}
+			case event := <-websocketEventChan:
+				go func() {
+					log.Trace().Msgf("User websocket event: %+v", event)
+				}()
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
@@ -75,10 +76,9 @@ func StartWebSocketServer(
 				}
 				// TODO: make this more efficient
 				for _, connWrapper := range connections {
-					// TODO: put this back after we start sending correct user/owner
-					// if connWrapper.user != sessionUpdate.Owner {
-					// 	continue
-					// }
+					if connWrapper.user != event.Owner {
+						continue
+					}
 					connWrapper.mu.Lock()
 					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 						log.Error().Msgf("Error writing to websocket: %s", err.Error())
@@ -101,19 +101,24 @@ func StartWebSocketServer(
 			return
 		}
 
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		defer conn.Close()
+		defer removeConnection(conn)
 		addConnection(conn, userID)
 
 		log.Debug().
-			Str("action", "⚪ ws CONNECT").
+			Str("action", "⚪ user ws CONNECT").
 			Msgf("connected user websocket: %s\n", userID)
 
+		// we block on reading messages from the client
+		// if we get any errors then we break and this will close
+		// the connection and remove it from our map
 		for {
 			messageType, _, err := conn.ReadMessage()
 			if err != nil {

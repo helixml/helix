@@ -55,6 +55,8 @@ type FileStore interface {
 	Get(ctx context.Context, path string) (FileStoreItem, error)
 	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
 	Download(ctx context.Context, path string) (io.Reader, error)
+	// this will return a tar file stream
+	DownloadFolder(ctx context.Context, path string) (io.Reader, error)
 	Upload(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
 	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
 	Delete(ctx context.Context, path string) error

@@ -27,8 +27,6 @@ export interface IAccountContext {
   user?: IUser,
   serverConfig: IServerConfig,
   transactions: IBalanceTransfer[],
-  sessions: ISession[],
-  loadSessions: () => void,
   apiKeys: IApiKey[],
   onLogin: () => void,
   onLogout: () => void,
@@ -40,9 +38,7 @@ export const AccountContext = createContext<IAccountContext>({
   serverConfig: {
     filestore_prefix: '',
   },
-  sessions: [],
   transactions: [],
-  loadSessions: () => {},
   apiKeys: [],
   onLogin: () => {},
   onLogout: () => {},
@@ -69,12 +65,6 @@ export const useAccountContext = (): IAccountContext => {
       url: KEYCLOAK_URL,
       clientId: CLIENT_ID,
     })
-  }, [])
-
-  const loadSessions = useCallback(async () => {
-    const result = await api.get<ISession[]>('/api/v1/sessions')
-    if(!result) return
-    setSessions(result)
   }, [])
 
   const loadTransactions = useCallback(async () => {
@@ -104,14 +94,12 @@ export const useAccountContext = (): IAccountContext => {
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
-      loadSessions(),
       loadTransactions(),
       loadStatus(),
       loadConfig(),
       loadApiKeys(),
     ])
   }, [
-    loadSessions,
     loadTransactions,
     loadStatus,
     loadConfig,
@@ -182,31 +170,6 @@ export const useAccountContext = (): IAccountContext => {
     user,
   ])
 
-  useEffect(() => {
-    if(!user?.token) return
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHostname = window.location.hostname
-    const url = `${wsProtocol}//${wsHostname}/api/v1/ws?access_token=${user?.token}`
-    const rws = new ReconnectingWebSocket(url)
-    rws.addEventListener('message', (event) => {
-      const parsedData = JSON.parse(event.data)
-      // console.dir(parsedData)
-
-      // we have a session update message
-      if(parsedData.type === 'session' && parsedData.session) {
-        console.log("got new session from backend over websocket!")
-        const newSession: ISession = parsedData.session
-        setSessions(sessions => sessions.map(existingSession => {
-          if(existingSession.id === newSession.id) return newSession
-          return existingSession
-        }))
-      }
-    })
-    return () => rws.close()
-  }, [
-    user?.token,
-  ])
-
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
@@ -214,7 +177,6 @@ export const useAccountContext = (): IAccountContext => {
     credits,
     sessions,
     transactions,
-    loadSessions,
     apiKeys,
     onLogin,
     onLogout,
@@ -225,7 +187,6 @@ export const useAccountContext = (): IAccountContext => {
     credits,
     sessions,
     transactions,
-    loadSessions,
     apiKeys,
     onLogin,
     onLogout,

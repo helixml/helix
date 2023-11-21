@@ -73,6 +73,16 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type InteractionState string
+
+const (
+	InteractionStateNone     InteractionState = ""
+	InteractionStateWaiting  InteractionState = "waiting"
+	InteractionStateEditing  InteractionState = "editing"
+	InteractionStateComplete InteractionState = "complete"
+	InteractionStateError    InteractionState = "error"
+)
+
 type OwnerType string
 
 const (
@@ -97,7 +107,9 @@ const (
 type WebsocketEventType string
 
 const (
-	WebsocketEventSessionUpdate WebsocketEventType = "session"
+	WebsocketEventSessionPing        WebsocketEventType = "ping"
+	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
+	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
 )
 
 type WorkerTaskResponseType string
@@ -108,4 +120,4 @@ const (
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
 
-const FINETUNE_FILE_NONE = "none"
+const LORA_DIR_NONE = "none"

@@ -102,7 +102,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		Mode:         "inference",
 		Type:         types.SessionType(options.Type),
 		ModelName:    modelName,
-		FinetuneFile: "",
+		LoraDir:      "",
 		Interactions: []types.Interaction{interaction, interactionSystem},
 		Owner:        "cli-user",
 		OwnerType:    "user",
@@ -134,7 +134,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		if err != nil {
 			return err
 		}
-		rr := make(map[string]types.WorkerTaskResponse)
+		rr := make(map[string]types.RunnerTaskResponse)
 		err = json.Unmarshal(bd, &rr)
 		if err != nil {
 			return err
