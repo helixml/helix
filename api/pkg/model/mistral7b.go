@@ -203,7 +203,8 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			chunker.addBuffer(word)
 		} else if strings.HasSuffix(word, "[/INST]") {
 			turnsSoFar -= 1
-			if turnsSoFar == 0 {
+			chunker.addBuffer(fmt.Sprintf("turnsSoFar=%d ", turnsSoFar))
+			if turnsSoFar <= 0 {
 				chunker.active = true
 			}
 		}
