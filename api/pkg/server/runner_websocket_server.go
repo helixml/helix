@@ -21,6 +21,8 @@ var runnerWebsocketUpgrader = websocket.Upgrader{
 	},
 }
 
+type AuthenticateRequest func(r *http.Request) bool
+
 type RunnerConnectionWrapper struct {
 	conn   *websocket.Conn
 	mu     sync.Mutex
@@ -34,6 +36,7 @@ func StartRunnerWebSocketServer(
 	Controller *controller.Controller,
 	path string,
 	websocketEventChan chan *types.WebsocketEvent,
+	authHandler AuthenticateRequest,
 ) {
 	var mutex = &sync.Mutex{}
 
@@ -55,6 +58,13 @@ func StartRunnerWebSocketServer(
 	}
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		authed := authHandler(r)
+		if !authed {
+			log.Error().Msgf("Error authorizing runner websocket")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
