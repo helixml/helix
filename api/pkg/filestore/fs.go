@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/lukemarsden/helix/api/pkg/system"
 )
 
 type FileSystemStorage struct {
@@ -93,6 +95,11 @@ func (s *FileSystemStorage) Download(ctx context.Context, path string) (io.Reade
 	}
 
 	return file, nil
+}
+
+func (s *FileSystemStorage) DownloadFolder(ctx context.Context, path string) (io.Reader, error) {
+	fullPath := filepath.Join(s.basePath, path)
+	return system.GetTarStream(fullPath)
 }
 
 func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {

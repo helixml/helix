@@ -122,11 +122,17 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	subrouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
 
-	// handle downloading a single file from a session to a runner
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download", apiServer.runnerSessionDownloadFile).Methods("GET")
+	// single file downloader
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
 
-	// all files uploaded will be put under the "sessions/{sessionid}/results" folder in the filestore
-	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/{folder}", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+	// tar folder downloader
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
+
+	// file uploader - this can accept multiple files they are part of a multipart form
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+
+	// folder downloader - the tar file is still attached to a multipart form
+	subrouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", Wrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
 	StartUserWebSocketServer(
 		ctx,
