@@ -14,6 +14,9 @@ import (
 )
 
 type Mistral7bInstruct01 struct {
+	// how many user queries so far (used to calculate [/INST] boundary between
+	// query and response)
+	turns int
 }
 
 func (l *Mistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint64 {
@@ -33,7 +36,21 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask
 	if err != nil {
 		return nil, err
 	}
-	task.Prompt = fmt.Sprintf("[INST]%s[/INST]", task.Prompt)
+
+	var turns int
+	var messages []string
+	for _, interaction := range session.Interactions {
+		if interaction.Creator == "user" {
+			turns += 1
+			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
+		} else {
+			messages = append(messages, interaction.Message)
+		}
+	}
+
+	task.Prompt = strings.Join(messages, "\n") + "\n"
+	// remember this because we'll use it to know when to start returning results
+	l.turns = turns
 	return task, nil
 }
 
@@ -45,6 +62,7 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		chunker := newMistral7bInferenceChunker(eventHandler, mistral7bInferenceChunkerOptions{
 			// no buffering - send every single word
 			bufferSize: 0,
+			mistral:    l,
 		})
 
 		// this will get called for each word
@@ -108,6 +126,8 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 type mistral7bInferenceChunkerOptions struct {
 	// the max size of our buffer - we emit an event if the buffer get's bigger than this
 	bufferSize int
+	// need to access turns: how many user requests (used to identify boundary between input and output)
+	mistral *Mistral7bInstruct01
 }
 
 type mistral7bInferenceChunker struct {
@@ -121,6 +141,7 @@ type mistral7bInferenceChunker struct {
 	// this means "have we seen the [/INST] so are now into the answer?"
 	active       bool
 	eventHandler WorkerEventHandler
+	turnsSoFar   int
 }
 
 func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistral7bInferenceChunkerOptions) *mistral7bInferenceChunker {
@@ -131,6 +152,7 @@ func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistr
 		bufferSession: "",
 		active:        false,
 		eventHandler:  eventHandler,
+		turnsSoFar:    0,
 	}
 }
 
@@ -150,6 +172,7 @@ func (chunker *mistral7bInferenceChunker) emitStream() {
 	})
 	chunker.bufferStream = ""
 }
+
 func (chunker *mistral7bInferenceChunker) emitResult() {
 	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
@@ -162,6 +185,9 @@ func (chunker *mistral7bInferenceChunker) emitResult() {
 func (chunker *mistral7bInferenceChunker) write(word string) error {
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
+		// reset turns count
+		chunker.turnsSoFar = chunker.options.mistral.turns
+		log.Info().Msgf(">>> SESSION_START, turnsSoFar: %d", chunker.turnsSoFar)
 		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -180,7 +206,12 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			}
 			chunker.addBuffer(word)
 		} else if strings.HasSuffix(word, "[/INST]") {
-			chunker.active = true
+			chunker.turnsSoFar -= 1
+			log.Info().Msgf(">>> [/INST], turnsSoFar: %d", chunker.turnsSoFar)
+			if chunker.turnsSoFar <= 0 {
+				log.Info().Msgf(">>> ACTIVATE")
+				chunker.active = true
+			}
 		}
 	}
 	return nil
