@@ -123,8 +123,11 @@ func setRequestUser(ctx context.Context, userid string) context.Context {
 }
 
 func getRequestUser(req *http.Request) string {
-	// return the "userid" value from the request context
-	return req.Context().Value("userid").(string)
+	val := req.Context().Value("userid")
+	if val == nil {
+		return ""
+	}
+	return val.(string)
 }
 
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
