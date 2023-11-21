@@ -85,13 +85,15 @@ export const Interaction: FC<{
         } else {
           displayMessage = '🤔'
         }
-      } else if(interaction.finetune_file) {
-        displayMessage = 'Fine fining complete - you can now use the model for inference.'
+      } else if(interaction.lora_dir) {
+        displayMessage = 'Fine fining complete - you can now ask the model to create images...'
       } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
         imageURLs = interaction.files.filter(isImage)
       }
     }
   }
+
+  console.dir(interaction)
   
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
