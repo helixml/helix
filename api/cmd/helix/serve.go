@@ -63,6 +63,8 @@ func NewServeOptions() *ServeOptions {
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
+			// if this is defined it means runner auth is enabled
+			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
 		},
 	}
 }
@@ -195,6 +197,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ServerOptions.KeyCloakToken, "keycloak-token", allOptions.ServerOptions.KeyCloakToken,
 		`The api token for the keycloak server.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.ServerOptions.RunnerToken, "runner-token", allOptions.ServerOptions.RunnerToken,
+		`The token for runner auth.`,
 	)
 
 	return serveCmd

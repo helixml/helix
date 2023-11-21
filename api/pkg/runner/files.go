@@ -153,7 +153,7 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 	if err != nil {
 		return "", err
 	}
-	server.AddHeadersVanilla(req, handler.httpClientOptions.Token)
+	server.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -206,7 +206,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 	if err != nil {
 		return "", err
 	}
-	server.AddHeadersVanilla(req, handler.httpClientOptions.Token)
+	server.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -288,7 +288,7 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	server.AddHeadersVanilla(req, handler.httpClientOptions.Token)
+	server.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	// send the request
 	client := &http.Client{}
@@ -383,7 +383,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	server.AddHeadersVanilla(req, handler.httpClientOptions.Token)
+	server.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	// send the request
 	client := &http.Client{}

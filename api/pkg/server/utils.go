@@ -86,7 +86,7 @@ func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func
 	return ret
 }
 
-func AddHeaders(
+func AddAuthHeadersRetryable(
 	req *retryablehttp.Request,
 	token string,
 ) error {
@@ -96,7 +96,7 @@ func AddHeaders(
 	return nil
 }
 
-func AddHeadersVanilla(
+func AddAutheaders(
 	req *http.Request,
 	token string,
 ) error {
@@ -155,7 +155,7 @@ func GetRequestBufferWithQuery(
 	if err != nil {
 		return nil, err
 	}
-	AddHeaders(req, options.Token)
+	AddAuthHeadersRetryable(req, options.Token)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -203,7 +203,7 @@ func PostRequestBuffer[ResultType any](
 	if err != nil {
 		return result, err
 	}
-	err = AddHeaders(req, options.Token)
+	err = AddAuthHeadersRetryable(req, options.Token)
 	if err != nil {
 		return result, err
 	}

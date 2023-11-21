@@ -565,7 +565,7 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", r.httpClientOptions.Token))
+	server.AddAutheaders(req, r.httpClientOptions.Token)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
