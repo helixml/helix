@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
-	urllib "net/url"
 	"os"
 	"os/exec"
-	"path"
 	"syscall"
 	"time"
 
@@ -75,6 +72,9 @@ type ModelInstance struct {
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
 	lastActivityTimestamp int64
+
+	// the file handler we use to download and upload session files
+	fileHandler *FileHandler
 }
 
 func NewModelInstance(
@@ -109,6 +109,11 @@ func NewModelInstance(
 		useLoraDir = types.LORA_DIR_NONE
 	}
 
+	httpClientOptions := server.ClientOptions{
+		Host:  runnerOptions.ApiHost,
+		Token: runnerOptions.ApiToken,
+	}
+
 	return &ModelInstance{
 		id:                id,
 		ctx:               ctx,
@@ -124,11 +129,9 @@ func NewModelInstance(
 			LoraDir:   useLoraDir,
 			Type:      initialSession.Type,
 		},
-		runnerOptions: runnerOptions,
-		httpClientOptions: server.ClientOptions{
-			Host:  runnerOptions.ApiHost,
-			Token: runnerOptions.ApiToken,
-		},
+		runnerOptions:     runnerOptions,
+		httpClientOptions: httpClientOptions,
+		fileHandler:       NewFileHandler(runnerOptions.ID, httpClientOptions),
 	}, nil
 }
 
@@ -165,7 +168,7 @@ func (instance *ModelInstance) queueSession(session *types.Session) {
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.downloadSessionFiles(session)
+	preparedSession, err := instance.fileHandler.downloadSession(session)
 
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
@@ -180,132 +183,6 @@ func (instance *ModelInstance) queueSession(session *types.Session) {
 
 	instance.queuedSession = nil
 	instance.nextSession = preparedSession
-}
-
-func (instance *ModelInstance) downloadSessionFiles(session *types.Session) (*types.Session, error) {
-	session, err := instance.downloadLoraDir(session)
-	if err != nil {
-		return nil, err
-	}
-
-	session, err = instance.downloadInteractionFiles(session)
-	if err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}
-
-/*
-
-
-
-	FILES
-
-
-
-*/
-
-func (instance *ModelInstance) downloadLoraDir(session *types.Session) (*types.Session, error) {
-	if session.LoraDir == "" {
-		return session, nil
-	}
-
-	downloadedPath, err := instance.downloadSessionFile(session.ID, "lora_dir", session.LoraDir)
-	if err != nil {
-		return nil, err
-	}
-
-	session.LoraDir = downloadedPath
-
-	return session, nil
-}
-
-func (instance *ModelInstance) downloadInteractionFiles(session *types.Session) (*types.Session, error) {
-	interaction, err := model.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	if interaction == nil {
-		return nil, fmt.Errorf("no model interaction")
-	}
-
-	remappedFilepaths := []string{}
-
-	for _, filepath := range interaction.Files {
-		downloadedPath, err := instance.downloadSessionFile(session.ID, interaction.ID, filepath)
-		if err != nil {
-			return nil, err
-		}
-
-		remappedFilepaths = append(remappedFilepaths, downloadedPath)
-	}
-
-	interaction.Files = remappedFilepaths
-
-	newInteractions := []types.Interaction{}
-
-	for _, existingInteraction := range session.Interactions {
-		if existingInteraction.ID == interaction.ID {
-			newInteractions = append(newInteractions, *interaction)
-		} else {
-			newInteractions = append(newInteractions, existingInteraction)
-		}
-	}
-
-	session.Interactions = newInteractions
-
-	return session, nil
-}
-
-func (instance *ModelInstance) downloadSessionFile(sessionID string, folder string, filepath string) (string, error) {
-	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", sessionID, folder)
-	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
-		return "", fmt.Errorf("failed to create folder: %w", err)
-	}
-	filename := path.Base(filepath)
-	url := server.URL(instance.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download", instance.runnerOptions.ID, sessionID))
-	urlValues := urllib.Values{}
-	urlValues.Add("path", filepath)
-
-	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
-
-	log.Debug().
-		Msgf("🔵 runner downloading interaction file: %s", fullURL)
-
-	req, err := http.NewRequest("GET", fullURL, nil)
-	if err != nil {
-		return "", err
-	}
-	server.AddHeadersVanilla(req, instance.httpClientOptions.Token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
-	}
-
-	finalPath := path.Join(downloadFolder, filename)
-	file, err := os.Create(finalPath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	log.Debug().
-		Msgf("🔵 runner downloaded interaction file: %s -> %s", fullURL, finalPath)
-
-	return finalPath, nil
 }
 
 /*
@@ -353,13 +230,23 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 	taskResponse.Owner = instance.currentSession.Owner
 	instance.lastActivityTimestamp = time.Now().Unix()
 
+	var err error
+
+	// if it's the final result then we need to upload the files first
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+		taskResponse, err = instance.fileHandler.uploadWorkerResponse(taskResponse)
+		if err != nil {
+			log.Error().Msgf("error uploading task result files: %s", err.Error())
+			instance.currentSession = nil
+			return
+		}
+
 		instance.currentSession = nil
 	}
 
 	// this will emit to the controller handler
 	// i.e. the function defined in createModelInstance
-	err := instance.responseHandler(taskResponse)
+	err = instance.responseHandler(taskResponse)
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
