@@ -90,7 +90,7 @@ func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter
 			"--output_name=lora",
 			"--save_model_as=safetensors",
 			"--prior_loss_weight=1.0",
-			"--max_train_steps=400",
+			"--max_train_steps=100",
 			"--vae=madebyollin/sdxl-vae-fp16-fix",
 			"--learning_rate=1e-4",
 			"--optimizer_type=AdamW8bit",
