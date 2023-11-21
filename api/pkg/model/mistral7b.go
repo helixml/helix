@@ -33,7 +33,17 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask
 	if err != nil {
 		return nil, err
 	}
-	task.Prompt = fmt.Sprintf("[INST]%s[/INST]", task.Prompt)
+
+	var messages []string
+	for _, interaction := range session.Interactions {
+		if interaction.Creator == "user" {
+			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
+		} else {
+			messages = append(messages, interaction.Message)
+		}
+	}
+
+	task.Prompt = "<s>" + strings.Join(messages, "\n")
 	return task, nil
 }
 
