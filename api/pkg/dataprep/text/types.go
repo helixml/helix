@@ -6,6 +6,7 @@ type DataPrepModule string
 
 const (
 	DataPrepModule_None         DataPrepModule = ""
+	DataPrepModule_GPT35Turbo   DataPrepModule = "gpt35_turbo"
 	DataPrepModule_GPT4         DataPrepModule = "gpt4"
 	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
 )

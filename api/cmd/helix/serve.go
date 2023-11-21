@@ -30,7 +30,7 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
-			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt4")),
+			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt35_turbo")),
 			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
@@ -304,6 +304,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		// otherwise - we use our own mistral plugin
 		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
 			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT35Turbo {
+			return text.NewDataPrepTextGPT35Turbo(options.DataPrepTextOptions)
 		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
 			return text.NewDataPrepTextHelixMistral(

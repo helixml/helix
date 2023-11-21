@@ -13,29 +13,29 @@ import (
 // and make them into a finetune dataset for an LLM
 // we try to do alpaca_chat.load_qa: question and answer for alpaca chat
 // {"question": "...", "answer": "..."}
-type DataPrepTextGPT4 struct {
+type DataPrepTextGPT35Turbo struct {
 	Options DataPrepTextOptions
 	client  *openai.Client
 	docs    *dataPrepDocuments
 }
 
-func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataPrepTextGPT4, error) {
-	return &DataPrepTextGPT4{
+func NewDataPrepTextGPT35Turbo(options DataPrepTextOptions) (*DataPrepTextGPT35Turbo, error) {
+	return &DataPrepTextGPT35Turbo{
 		Options: options,
 		client:  openai.NewClient(options.APIKey),
 		docs:    newDataPrepDocuments(),
 	}, nil
 }
 
-func (gpt *DataPrepTextGPT4) AddDocument(content string) error {
+func (gpt *DataPrepTextGPT35Turbo) AddDocument(content string) error {
 	return gpt.docs.AddDocument(content)
 }
 
-func (gpt *DataPrepTextGPT4) GetChunks() ([]string, error) {
+func (gpt *DataPrepTextGPT35Turbo) GetChunks() ([]string, error) {
 	return gpt.docs.GetChunks(gpt.Options.ChunkSize, gpt.Options.OverflowSize)
 }
 
-func (gpt *DataPrepTextGPT4) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
+func (gpt *DataPrepTextGPT35Turbo) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
 	systemPrompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate %d questions that
@@ -83,7 +83,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model:    openai.GPT40613,
+			Model:    openai.GPT3Dot5Turbo,
 			Messages: messages,
 		},
 	)
