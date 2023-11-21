@@ -20,24 +20,23 @@ const Dashboard: FC = () => {
   const api = useApi()
 
   const [ sessions, setSessions ] = useState<ISession[]>(
-    [{id: "session-001",
-      name: "",
+    [{id: "Loading...",
+      name: "Loading...",
       created: 0,
       updated: 0,
       mode: "inference",
       type: "text",
-      model_name: "bob's model",
+      model_name: "",
       finetune_file: "",
       interactions: [],
-      owner: "bob",
+      owner: "",
       owner_type: "user"}]
   )
 
   useEffect(() => {
     const intervalId = setInterval(async () => {
       const response = await axios.get(`/api/v1/dashboard`)
-      setSessions(response.sessions)
-      console.log(response)
+      setSessions(response.data.sessions)
     }, 1000)
     return () => {
       clearInterval(intervalId)
