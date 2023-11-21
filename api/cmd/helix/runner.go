@@ -19,16 +19,16 @@ type RunnerOptions struct {
 func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.RunnerOptions{
-			ID:           getDefaultServeOptionString("RUNNER_ID", ""),
-			ApiHost:      getDefaultServeOptionString("API_HOST", ""),
-			ApiToken:     getDefaultServeOptionString("API_TOKEN", ""),
-			MemoryBytes:  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
-			MemoryString: getDefaultServeOptionString("MEMORY_STRING_", ""),
-			// TODO: this is currently very quick to unload a model
-			// this is so we can test quickly
-			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
-			ControlLoopDelayMilliseconds: getDefaultServeOptionInt("CONTROL_LOOP_DELAY_MILLISECONDS", 100),
-			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
+			ID:                          getDefaultServeOptionString("RUNNER_ID", ""),
+			ApiHost:                     getDefaultServeOptionString("API_HOST", ""),
+			ApiToken:                    getDefaultServeOptionString("API_TOKEN", ""),
+			MemoryBytes:                 uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
+			MemoryString:                getDefaultServeOptionString("MEMORY_STRING_", ""),
+			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			GetTaskDelayMilliseconds:    getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
+			ReporStateDelaySeconds:      getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
+			LocalMode:                   getDefaultServeOptionBool("LOCAL_MODE", false),
+			Labels:                      getDefaultServeOptionMap("LABELS", map[string]string{}),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -75,14 +75,24 @@ func newRunnerCmd() *cobra.Command {
 		`Short notation for the amount of GPU memory available - e.g. 1GB`,
 	)
 
+	runnerCmd.PersistentFlags().StringToStringVar(
+		&allOptions.Runner.Labels, "label", allOptions.Runner.Labels,
+		`Labels to attach to this runner`,
+	)
+
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Runner.ModelInstanceTimeoutSeconds, "timeout-seconds", allOptions.Runner.ModelInstanceTimeoutSeconds,
 		`How many seconds without a task before we shutdown a running model instance`,
 	)
 
 	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.ControlLoopDelayMilliseconds, "control-loop-delay-milliseconds", allOptions.Runner.ControlLoopDelayMilliseconds,
+		&allOptions.Runner.GetTaskDelayMilliseconds, "get-task-delay-milliseconds", allOptions.Runner.GetTaskDelayMilliseconds,
 		`How many milliseconds do we wait between running the control loop (which asks for the next global session)`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.ReporStateDelaySeconds, "report-state-delay-seconds", allOptions.Runner.ReporStateDelaySeconds,
+		`How many seconds do we wait between reporting our state to the api`,
 	)
 
 	runnerCmd.PersistentFlags().BoolVar(

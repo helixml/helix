@@ -29,7 +29,7 @@ func (auth *runnerAuth) isRequestAuthenticated(r *http.Request) bool {
 }
 
 // verify a single shared secret if provided
-func (auth *runnerAuth) verifyToken(next http.Handler) http.Handler {
+func (auth *runnerAuth) middleware(next http.Handler) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		if !auth.isRequestAuthenticated(r) {
 			http.Error(w, "no token", http.StatusUnauthorized)

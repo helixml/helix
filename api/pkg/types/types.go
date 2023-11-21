@@ -137,11 +137,13 @@ type ApiKey struct {
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
+	Admin     bool
 	Owner     string
 	OwnerType OwnerType
 }
 
 type UserStatus struct {
+	Admin   bool   `json:"admin"`
 	User    string `json:"user"`
 	Credits int    `json:"credits"`
 }
@@ -203,6 +205,8 @@ type RunnerTaskResponse struct {
 	Error    string   `json:"error,omitempty"`
 }
 
+// this is returned by the api server so that clients can see what
+// config it's using e.g. filestore prefix
 type ServerConfig struct {
 	// used to prepend onto raw filestore paths to download files
 	// the filestore path will have the user info in it - i.e.
@@ -212,8 +216,41 @@ type ServerConfig struct {
 	FilestorePrefix string `json:"filestore_prefix"`
 }
 
+type ModelInstanceJob struct {
+	Created       time.Time `json:"created"`
+	SessionID     string    `json:"session_id"`
+	InteractionID string    `json:"interaction_id"`
+}
+
+type ModelInstanceState struct {
+	ID               string      `json:"id"`
+	ModelName        ModelName   `json:"model_name"`
+	Mode             SessionMode `json:"mode"`
+	LoraDir          string      `json:"lora_dir"`
+	InitialSessionID string      `json:"initial_session_id"`
+	// this is either the currently running session
+	// or the queued session that will be run next but is currently downloading
+	CurrentSession *Session            `json:"current_session"`
+	JobHistory     []*ModelInstanceJob `json:"job_history"`
+}
+
+// the basic struct reported by a runner when it connects
+// and keeps reporting it's status to the api server
+// we expire these records after a certain amount of time
+type RunnerState struct {
+	ID      string    `json:"id"`
+	Created time.Time `json:"created"`
+	// the URL that the runner will POST to to get a task
+	TotalMemory    uint64                `json:"total_memory"`
+	FreeMemory     uint64                `json:"free_memory"`
+	Labels         map[string]string     `json:"labels"`
+	ModelInstances []*ModelInstanceState `json:"model_instances"`
+}
+
 type DashboardData struct {
-	Sessions []Session `json:"sessions"`
+	RunningSessions []*Session     `json:"running_sessions"`
+	QueuedSessions  []*Session     `json:"queued_sessions"`
+	Runners         []*RunnerState `json:"runners"`
 }
 
 type CreateSessionRequest struct {

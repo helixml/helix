@@ -333,15 +333,19 @@ const Layout: FC = ({
                   My account
                 </MenuItem>
 
-                <MenuItem onClick={ () => {
-                  handleCloseAccountMenu()
-                  navigate('dashboard')
-                }}>
-                  <ListItemIcon>
-                    <DashboardIcon fontSize="small" />
-                  </ListItemIcon> 
-                  Dashboard
-                </MenuItem>
+                {
+                  account.admin && (
+                    <MenuItem onClick={ () => {
+                      handleCloseAccountMenu()
+                      navigate('dashboard')
+                    }}>
+                      <ListItemIcon>
+                        <DashboardIcon fontSize="small" />
+                      </ListItemIcon> 
+                      Dashboard
+                    </MenuItem>
+                  )
+                }
 
                 <MenuItem onClick={ () => {
                   handleCloseAccountMenu()

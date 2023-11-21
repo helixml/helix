@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -23,6 +24,7 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 		credits += balanceTransfer.Amount
 	}
 	return types.UserStatus{
+		Admin:   ctx.Admin,
 		User:    ctx.Owner,
 		Credits: credits,
 	}, nil
@@ -34,6 +36,7 @@ func (c *Controller) GetTransactions(ctx types.RequestContext) ([]*types.Balance
 		OwnerType: ctx.OwnerType,
 	})
 }
+
 func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string, error) {
 	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, store.OwnerQuery{
 		Owner:     ctx.Owner,
@@ -88,4 +91,42 @@ func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.Api
 		return nil, err
 	}
 	return key, nil
+}
+
+func (c *Controller) cleanOldRunnerMetrics(ctx context.Context) error {
+	deleteIDs := []string{}
+	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
+		// any runner that has not reported within the last minute
+		// should be removed
+		if time.Since(metrics.Created) > (time.Minute * 1) {
+			deleteIDs = append(deleteIDs, i)
+		}
+		return true
+	})
+
+	// Perform the deletion logic using the deleteIDs slice
+	for _, id := range deleteIDs {
+		c.activeRunners.Delete(id)
+	}
+
+	return nil
+}
+
+func (c *Controller) AddRunnerMetrics(ctx context.Context, metrics *types.RunnerState) (*types.RunnerState, error) {
+	c.activeRunners.Store(metrics.ID, metrics)
+	return metrics, nil
+}
+
+func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData, error) {
+	c.sessionQueueMtx.Lock()
+	defer c.sessionQueueMtx.Unlock()
+	runners := []*types.RunnerState{}
+	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
+		runners = append(runners, metrics)
+		return true
+	})
+	return &types.DashboardData{
+		Runners:        runners,
+		QueuedSessions: c.sessionQueue,
+	}, nil
 }

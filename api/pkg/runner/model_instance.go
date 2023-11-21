@@ -75,6 +75,9 @@ type ModelInstance struct {
 
 	// the file handler we use to download and upload session files
 	fileHandler *FileHandler
+
+	// a history of the session IDs
+	jobHistory []*types.ModelInstanceJob
 }
 
 func NewModelInstance(
@@ -180,6 +183,21 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 
 	log.Debug().
 		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
+
+	interactionID, err := getLastInteractionID(preparedSession)
+	if err != nil {
+		log.Error().Msgf("error preparing session: %s", err.Error())
+		instance.queuedSession = nil
+		instance.nextSession = nil
+		instance.errorSession(session, err)
+		return
+	}
+
+	instance.jobHistory = append(instance.jobHistory, &types.ModelInstanceJob{
+		Created:       time.Now(),
+		SessionID:     session.ID,
+		InteractionID: interactionID,
+	})
 
 	instance.queuedSession = nil
 	instance.nextSession = preparedSession
@@ -373,4 +391,19 @@ func (instance *ModelInstance) stopProcess() error {
 	}
 	log.Info().Msgf("🟢 stopped model process")
 	return nil
+}
+
+func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
+	if instance.initialSession == nil {
+		return nil, fmt.Errorf("no initial session")
+	}
+	return &types.ModelInstanceState{
+		ID:               instance.id,
+		ModelName:        instance.initialSession.ModelName,
+		Mode:             instance.initialSession.Mode,
+		LoraDir:          instance.initialSession.LoraDir,
+		InitialSessionID: instance.initialSession.ID,
+		CurrentSession:   instance.currentSession,
+		JobHistory:       instance.jobHistory,
+	}, nil
 }
