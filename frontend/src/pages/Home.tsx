@@ -194,7 +194,7 @@ function Footer() {
 }
 
 // export default App;
-const Dashboard: FC = () => {
+const Home: FC = () => {
   return (
       <XContainer>
         <XContainer className="home">
@@ -211,4 +211,4 @@ const Dashboard: FC = () => {
 // TODO: replace iframe above with a gradio-embed javascript lib, otherwise it's
 // iframe-in-iframe, and scroll bars are undisablable
 
-export default Dashboard
+export default Home
