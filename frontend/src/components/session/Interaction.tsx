@@ -75,7 +75,7 @@ export const Interaction: FC<{
       }
     }
     if(interaction.lora_dir) {
-      displayMessage = 'Fine fining complete - you can now ask the model questions...'
+      displayMessage = 'Fine tuning complete - you can now ask the model questions...'
     }
   } else if(type == SESSION_TYPE_IMAGE) {
     if(interaction.creator == SESSION_CREATOR_USER) {
