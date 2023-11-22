@@ -161,6 +161,7 @@ func (r *Runner) Initialize(ctx context.Context) error {
 // this should be run in a go-routine
 func (r *Runner) StartLooping() {
 	go r.startTaskLoop()
+	go r.startReportStateLoop()
 }
 
 func (r *Runner) startTaskLoop() {
