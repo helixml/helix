@@ -32,10 +32,7 @@ func ConnectRunnerWebSocketClient(
 				}
 				return
 			case <-readMessageErr:
-				if conn != nil {
-					conn.Close()
-				}
-				log.Info().Msg("Exiting readloop because of read message error")
+				log.Info().Msg("Exiting readloop because connection closed")
 				return
 			case ev := <-websocketEventChan:
 				if conn == nil {
