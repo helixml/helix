@@ -17,8 +17,8 @@ export interface ITheme {
 
 export const THEMES: Record<string, ITheme> = {
   helix: {
-    company: 'MLOps Consulting',
-    url: 'https://mlops.consulting/',
+    company: 'Helix',
+    url: 'https://tryhelix.ai/',
     primary: '#7db6c7',
     secondary: '#e450bf',
     // this means ALL
