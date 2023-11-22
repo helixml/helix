@@ -2,7 +2,8 @@ import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 
 import {
-  ISession,
+  ISessionType,
+  ISessionMode,
 } from '../../types'
 
 import {
@@ -10,13 +11,15 @@ import {
 } from '../../utils/session'
 
 export const SessionBadge: FC<{
-  session: ISession,
+  type: ISessionType,
+  mode: ISessionMode
   size?: number,
 }> = ({
-  session,
+  type,
+  mode,
   size = 20,
 }) => {
-  const color = getColor(session)
+  const color = getColor(type, mode)
   return (
     <Box
       sx={{

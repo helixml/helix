@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"path"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -31,6 +32,40 @@ func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
 		}
 	}
 	return nil, fmt.Errorf("no system interaction found")
+}
+
+// update the most recent system interaction
+
+type InteractionUpdater func(*types.Interaction) (*types.Interaction, error)
+
+func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if targetInteraction == nil {
+		return nil, fmt.Errorf("interaction not found: %s", session.ID)
+	}
+
+	targetInteraction.Updated = time.Now()
+	updatedInteraction, err := updater(targetInteraction)
+	if err != nil {
+		return nil, err
+	}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == targetInteraction.ID {
+			newInteractions = append(newInteractions, *updatedInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	session.Interactions = newInteractions
+	session.Updated = time.Now()
+
+	return session, nil
 }
 
 // each model get's to decide what it's task looks like

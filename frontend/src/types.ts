@@ -97,6 +97,7 @@ export interface IWorkerTaskResponse {
 export interface IInteraction {
   id: string,
   created: string,
+  updated: string,
   scheduled: string,
   completed: string,
   creator: ISessionCreator,

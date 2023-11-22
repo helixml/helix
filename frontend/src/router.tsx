@@ -9,6 +9,8 @@ import Account from './pages/Account'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 
+import SessionBadgeKey from './components/session/SessionBadgeKey'
+
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 
@@ -82,7 +84,18 @@ const routes: IApplicationRoute[] = [{
       <Dashboard />
   ),
   getToolbarElement: () => (
-    <Box>hello</Box>
+    <Box
+      sx={{
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+      }}
+    >
+      <SessionBadgeKey />
+    </Box>
+    
   ),
 }, {
   name: 'account',
