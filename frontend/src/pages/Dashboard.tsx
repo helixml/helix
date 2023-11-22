@@ -1,6 +1,5 @@
-import React, { FC, useMemo, useState, useEffect, useRef } from 'react'
+import React, { FC, useState, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
-import axios from 'axios'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -9,13 +8,6 @@ import Typography from '@mui/material/Typography'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
-import List from '@mui/material/List'
-import ListItem from '@mui/material/ListItem'
-import ListItemText from '@mui/material/ListItemText'
-import IconButton from '@mui/material/IconButton'
-import DeleteIcon from '@mui/icons-material/Delete'
-import Grid from '@mui/material/Grid'
-import Container from '@mui/material/Container'
 
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
@@ -47,7 +39,7 @@ const Dashboard: FC = () => {
     return () => {
       clearInterval(intervalId)
     }
-  })
+  }, [])
 
   if(!account.user) return null
   if(!data) return null
