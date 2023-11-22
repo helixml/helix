@@ -30,11 +30,11 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
-			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt35_turbo")),
+			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt4")),
 			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
-			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 10),
+			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 50),
 		},
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),

@@ -38,8 +38,7 @@ func (gpt *DataPrepTextGPT4) GetChunks() ([]string, error) {
 func (gpt *DataPrepTextGPT4) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
 	systemPrompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
-Using the provided context, formulate %d questions that
-captures an important fact from the context.
+Using the provided context, formulate %d questions that captures an important fact from the context.
 You MUST obey the following criteria:
   - Restrict the question to the context information provided.
 	- Do NOT create a question that cannot be answered from the context.
@@ -59,7 +58,11 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	`, gpt.Options.QuestionsPerChunk, gpt.Options.QuestionsPerChunk)
 
 	userPrompt := fmt.Sprintf(`
-Given the following context - please summarize it into %d question and answer pairs.
+Given the following context - please summarize it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
+
+ONLY include a question if you know the answer.
+
+Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
