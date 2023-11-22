@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -130,9 +131,6 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	return nil
 }
 
-// the core function - decide which task to give to a worker
-// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
-// try to send similar tasks to the same worker
 func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
@@ -153,26 +151,18 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, fmt.Errorf("no interactions found")
 		}
 
+		session, err := model.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+			targetInteraction.Scheduled = time.Now()
+			return targetInteraction, nil
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		c.WriteSession(session)
 		return session, nil
 	}
 
 	return nil, nil
-}
-
-func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) error {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
-
-	sessionQueue := []*types.Session{}
-
-	for _, session := range c.sessionQueue {
-		if session.ID == id {
-			continue
-		}
-		sessionQueue = append(sessionQueue, session)
-	}
-
-	c.sessionQueue = sessionQueue
-
-	return nil
 }

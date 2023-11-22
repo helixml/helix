@@ -7,6 +7,10 @@ interface StyleProps {
 
 const useStyles = makeStyles(theme => ({
   root: ({scrolling}: StyleProps) => ({
+    padding: 2,
+    background: '#000000',
+    color: '#FFFFFF',
+    fontFamily: 'Courier New',
     width: '100%',
     height: '100%',
     overflow: scrolling ? 'auto' : 'visible',

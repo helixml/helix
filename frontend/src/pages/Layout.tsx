@@ -422,12 +422,17 @@ const Layout: FC = ({
             backgroundColor: '#fff',
             height: '100%',
             borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            width: '100%',
           }}
         >
           {
             bigScreen ? (
               <Box
                 sx={{
+                  flexGrow: 0,
                   display: 'flex',
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -446,13 +451,18 @@ const Layout: FC = ({
                 >
                   { meta.title || '' }
                 </Typography>
-                {
-                  getToolbarElement ? getToolbarElement() : null
-                }
+                
               </Box>
               
             ) : (
-              <>
+              <Box
+                sx={{
+                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
                 <IconButton
                   color="inherit"
                   aria-label="open drawer"
@@ -466,24 +476,33 @@ const Layout: FC = ({
                   <MenuIcon />
                 </IconButton>
                 { themeConfig.logo() }
-                <div style={{flex: 1}}></div>
-              </>
+              </Box>
             )
           }
-          {
-            account.user ? null : (
-              <Button
-                variant="contained"
-                color="secondary"
-                endIcon={<LoginIcon />}
-                onClick={ () => {
-                  account.onLogin()
-                }}
-              >
-                Login / Register
-              </Button>
-            )
-          }
+          <Box
+            sx={{
+              flexGrow: 1,
+              textAlign: 'right',
+            }}
+          >
+            {
+              bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
+            }
+            {
+              account.user ? null : (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  endIcon={<LoginIcon />}
+                  onClick={ () => {
+                    account.onLogin()
+                  }}
+                >
+                  Login / Register
+                </Button>
+              )
+            }
+          </Box>
         </Toolbar>
       </AppBar>
       <MuiDrawer

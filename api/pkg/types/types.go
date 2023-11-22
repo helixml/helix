@@ -32,6 +32,7 @@ type Module struct {
 type Interaction struct {
 	ID        string      `json:"id"`
 	Created   time.Time   `json:"created"`
+	Updated   time.Time   `json:"updated"`
 	Scheduled time.Time   `json:"scheduled"`
 	Completed time.Time   `json:"completed"`
 	Creator   CreatorType `json:"creator"` // e.g. User

@@ -1,5 +1,7 @@
 import {
   ISession,
+  ISessionType,
+  ISessionMode,
   IInteraction,
   SESSION_CREATOR_SYSTEM,
   SESSION_TYPE_IMAGE,
@@ -9,17 +11,18 @@ import {
 } from '../types'
 
 const COLORS = {
-  text_inference: '#7180AC',
-  text_finetune: '#2B4570',
-  image_inference: '#E49273', 
-  image_finetune: '#A37A74',
+  image_inference: '#D183C9',
+  image_finetune: '#E3879E',
+  text_inference: '#F4D35E',
+  text_finetune: '#EE964B',
+  
 }
-
 
 export const getSystemMessage = (message: string): IInteraction => {
   return {
     id: 'system',
     created: '',
+    updated: '',
     scheduled: '',
     completed: '',
     creator: SESSION_CREATOR_SYSTEM,
@@ -32,7 +35,7 @@ export const getSystemMessage = (message: string): IInteraction => {
     message,
     progress: 0,
     files: [],
-    finished: true,
+    finished: true, 
   }
 }
 
@@ -48,8 +51,8 @@ export const getSystemInteraction = (session: ISession): IInteraction | undefine
   return userInteractions[userInteractions.length - 1]
 }
 
-export const getColor = (session: ISession): string => {
-  return COLORS[`${session.type}_${session.mode}`]
+export const getColor = (type: ISessionType, mode: ISessionMode): string => {
+  return COLORS[`${type}_${mode}`]
 }
 
 export const getModelName = (session: ISession): string => {
@@ -75,5 +78,20 @@ export const getSummary = (session: ISession): string => {
     const userInteraction = getUserInteraction(session)
     if(!userInteraction) return 'no user interaction found'
     return `fine tuning on ${userInteraction.files.length} files`
+  }
+}
+
+export const getTiming = (session: ISession): string => {
+  const systemInteraction = getSystemInteraction(session)
+  if(systemInteraction?.scheduled) {
+    const runningFor = Date.now() - new Date(systemInteraction.scheduled).getTime()
+    const runningForSeconds = Math.floor(runningFor / 1000)
+    return `running ${runningForSeconds} secs`
+  } else if(systemInteraction?.created){
+    const waitingFor = Date.now() - new Date(systemInteraction.created).getTime()
+    const waitingForSeconds = Math.floor(waitingFor / 1000)
+    return `queued ${waitingForSeconds} secs`
+  } else {
+    return ''
   }
 }
