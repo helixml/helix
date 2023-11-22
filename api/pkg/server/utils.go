@@ -235,7 +235,7 @@ func newRetryClient() *retryablehttp.Client {
 	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
 		switch {
 		case req.Method == "POST":
-			log.Debug().
+			log.Trace().
 				Str(req.Method, req.URL.String()).
 				Int("attempt", attempt).
 				Msgf("")
