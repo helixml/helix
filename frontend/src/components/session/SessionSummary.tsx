@@ -4,6 +4,7 @@ import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
+import JsonWindowLink from '../widgets/JsonWindowLink'
 
 import {
   ISession,
@@ -65,9 +66,13 @@ export const SessionSummary: FC<{
           flexGrow: 0,
         }}
       >
-        <IconButton color="primary">
-          <VisibilityIcon />
-        </IconButton>
+        <JsonWindowLink
+          data={ session }
+        >
+          <IconButton color="primary">
+            <VisibilityIcon />
+          </IconButton>
+        </JsonWindowLink>
       </Box>
     </Box>
   )

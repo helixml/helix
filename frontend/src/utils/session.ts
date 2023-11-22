@@ -10,12 +10,19 @@ import {
   SESSION_MODE_INFERENCE,
 } from '../types'
 
+const NO_DATE = '0001-01-01T00:00:00Z'
+
 const COLORS = {
   image_inference: '#D183C9',
   image_finetune: '#E3879E',
   text_inference: '#F4D35E',
   text_finetune: '#EE964B',
   
+}
+
+export const hasDate = (dt?: string): boolean => {
+  if(!dt) return false
+  return dt != NO_DATE
 }
 
 export const getSystemMessage = (message: string): IInteraction => {
@@ -83,12 +90,12 @@ export const getSummary = (session: ISession): string => {
 
 export const getTiming = (session: ISession): string => {
   const systemInteraction = getSystemInteraction(session)
-  if(systemInteraction?.scheduled) {
-    const runningFor = Date.now() - new Date(systemInteraction.scheduled).getTime()
+  if(hasDate(systemInteraction?.scheduled)) {
+    const runningFor = Date.now() - new Date(systemInteraction?.scheduled || '').getTime()
     const runningForSeconds = Math.floor(runningFor / 1000)
     return `running ${runningForSeconds} secs`
-  } else if(systemInteraction?.created){
-    const waitingFor = Date.now() - new Date(systemInteraction.created).getTime()
+  } else if(hasDate(systemInteraction?.created)){
+    const waitingFor = Date.now() - new Date(systemInteraction?.created || '').getTime()
     const waitingForSeconds = Math.floor(waitingFor / 1000)
     return `queued ${waitingForSeconds} secs`
   } else {
