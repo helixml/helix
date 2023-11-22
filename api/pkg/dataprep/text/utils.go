@@ -1,6 +1,9 @@
 package text
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type dataPrepDocuments struct {
 	rawData []string
@@ -36,6 +39,13 @@ func chunkWithOverflow(strs []string, maxChunkSize, overflowSize int) ([]string,
 			}
 
 			chunk := str[:chunkEnd]
+
+			// Find the last space character within the chunk
+			lastSpace := strings.LastIndex(chunk, " ")
+			if lastSpace != -1 {
+				chunkEnd = lastSpace + 1
+				chunk = str[:chunkEnd]
+			}
 
 			// Add overflow from the previous end if available
 			if len(previousEnd) > 0 {
