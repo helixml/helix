@@ -160,9 +160,25 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, err
 		}
 
+		c.addSchedulingDecision(filter, runnerID, session)
 		c.WriteSession(session)
 		return session, nil
 	}
 
 	return nil, nil
+}
+
+func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
+	decision := &types.GlobalSchedulingDecision{
+		Created:  time.Now(),
+		RunnerID: runnerID,
+		Session:  session,
+		Filter:   filter,
+	}
+
+	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)
+
+	if len(c.schedulingDecisions) > c.Options.SchedulingDecisionBufferSize {
+		c.schedulingDecisions = c.schedulingDecisions[:len(c.schedulingDecisions)-1]
+	}
 }

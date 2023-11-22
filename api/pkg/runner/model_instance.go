@@ -393,6 +393,16 @@ func (instance *ModelInstance) stopProcess() error {
 	return nil
 }
 
+func (instance *ModelInstance) isStale() bool {
+	stale := false
+	if instance.lastActivityTimestamp == 0 {
+		stale = false
+	} else if instance.lastActivityTimestamp+int64(instance.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
+		stale = true
+	}
+	return stale
+}
+
 func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if instance.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
@@ -409,5 +419,8 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 		InitialSessionID: instance.initialSession.ID,
 		CurrentSession:   currentSession,
 		JobHistory:       instance.jobHistory,
+		Timeout:          int(instance.runnerOptions.ModelInstanceTimeoutSeconds),
+		LastActivity:     int(instance.lastActivityTimestamp),
+		Stale:            instance.isStale(),
 	}, nil
 }

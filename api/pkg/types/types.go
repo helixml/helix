@@ -219,6 +219,22 @@ type ServerConfig struct {
 	FilestorePrefix string `json:"filestore_prefix"`
 }
 
+type CreateSessionRequest struct {
+	SessionID       string
+	SessionMode     SessionMode
+	SessionType     SessionType
+	ParentSession   string
+	ModelName       ModelName
+	Owner           string
+	OwnerType       OwnerType
+	UserInteraction Interaction
+}
+
+type UpdateSessionRequest struct {
+	SessionID       string
+	UserInteraction Interaction
+}
+
 type ModelInstanceJob struct {
 	Created       time.Time `json:"created"`
 	SessionID     string    `json:"session_id"`
@@ -235,6 +251,13 @@ type ModelInstanceState struct {
 	// or the queued session that will be run next but is currently downloading
 	CurrentSession *Session            `json:"current_session"`
 	JobHistory     []*ModelInstanceJob `json:"job_history"`
+	// how many seconds to wait before calling ourselves stale
+	Timeout int `json:"timeout"`
+	// when was the last activity seen on this instance
+	LastActivity int `json:"last_activity"`
+	// we let the server tell us if it thinks this
+	// (even though we could work it out)
+	Stale bool `json:"stale"`
 }
 
 // the basic struct reported by a runner when it connects
@@ -244,29 +267,22 @@ type RunnerState struct {
 	ID      string    `json:"id"`
 	Created time.Time `json:"created"`
 	// the URL that the runner will POST to to get a task
-	TotalMemory    uint64                `json:"total_memory"`
-	FreeMemory     uint64                `json:"free_memory"`
-	Labels         map[string]string     `json:"labels"`
-	ModelInstances []*ModelInstanceState `json:"model_instances"`
+	TotalMemory         uint64                `json:"total_memory"`
+	FreeMemory          uint64                `json:"free_memory"`
+	Labels              map[string]string     `json:"labels"`
+	ModelInstances      []*ModelInstanceState `json:"model_instances"`
+	SchedulingDecisions []string              `json:"scheduling_decisions"`
 }
 
 type DashboardData struct {
-	SessionQueue []*Session     `json:"session_queue"`
-	Runners      []*RunnerState `json:"runners"`
+	SessionQueue              []*Session                  `json:"session_queue"`
+	Runners                   []*RunnerState              `json:"runners"`
+	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
 }
 
-type CreateSessionRequest struct {
-	SessionID       string
-	SessionMode     SessionMode
-	SessionType     SessionType
-	ParentSession   string
-	ModelName       ModelName
-	Owner           string
-	OwnerType       OwnerType
-	UserInteraction Interaction
-}
-
-type UpdateSessionRequest struct {
-	SessionID       string
-	UserInteraction Interaction
+type GlobalSchedulingDecision struct {
+	Created  time.Time     `json:"created"`
+	RunnerID string        `json:"runner_id"`
+	Session  *Session      `json:"session"`
+	Filter   SessionFilter `json:"filter"`
 }

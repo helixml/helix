@@ -60,6 +60,8 @@ type RunnerOptions struct {
 	MemoryString string
 
 	Labels map[string]string
+
+	SchedulingDecisionBufferSize int
 }
 
 type Runner struct {
@@ -90,6 +92,11 @@ type Runner struct {
 	// in-memory state to record status that would normally be posted up as a result
 	State    map[string]types.RunnerTaskResponse
 	StateMtx sync.Mutex
+
+	// TODO: we could make this a struct but there are lots of various
+	// things happening and I can't be bothered to define them all
+	// so let's just add strings for the moment
+	schedulingDecisions []string
 }
 
 func NewRunner(
@@ -332,6 +339,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 
 	for _, m := range stales {
 		if requiredMemoryFreed > 0 {
+			r.addSchedulingDecision(fmt.Sprintf("Killing stale model instance %s", m.id))
 			log.Info().Msgf("Killing stale model instance %s", m.id)
 			err := m.stopProcess()
 			if err != nil {
@@ -398,7 +406,16 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return true
 	})
 
-	return r.getNextApiSession(ctx, queryParams)
+	session, err := r.getNextApiSession(ctx, queryParams)
+	if err != nil {
+		return nil, err
+	}
+
+	if session != nil {
+		r.addSchedulingDecision(fmt.Sprintf("loaded global session %s from api with params %s", session.ID, queryParams.Encode()))
+	}
+
+	return session, nil
 }
 
 // used by the Python code to know that a session has finished preparing and is ready to pull from the
@@ -733,11 +750,20 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		return nil, fmt.Errorf("error getting state")
 	}
 	return &types.RunnerState{
-		ID:             r.Options.ID,
-		Created:        time.Now(),
-		TotalMemory:    r.Options.MemoryBytes,
-		FreeMemory:     r.getFreeMemory(),
-		Labels:         r.Options.Labels,
-		ModelInstances: modelInstances,
+		ID:                  r.Options.ID,
+		Created:             time.Now(),
+		TotalMemory:         r.Options.MemoryBytes,
+		FreeMemory:          r.getFreeMemory(),
+		Labels:              r.Options.Labels,
+		ModelInstances:      modelInstances,
+		SchedulingDecisions: r.schedulingDecisions,
 	}, nil
+}
+
+func (r *Runner) addSchedulingDecision(decision string) {
+	r.schedulingDecisions = append([]string{decision}, r.schedulingDecisions...)
+
+	if len(r.schedulingDecisions) > r.Options.SchedulingDecisionBufferSize {
+		r.schedulingDecisions = r.schedulingDecisions[:len(r.schedulingDecisions)-1]
+	}
 }

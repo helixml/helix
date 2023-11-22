@@ -19,16 +19,17 @@ type RunnerOptions struct {
 func NewRunnerOptions() *RunnerOptions {
 	return &RunnerOptions{
 		Runner: runner.RunnerOptions{
-			ID:                          getDefaultServeOptionString("RUNNER_ID", ""),
-			ApiHost:                     getDefaultServeOptionString("API_HOST", ""),
-			ApiToken:                    getDefaultServeOptionString("API_TOKEN", ""),
-			MemoryBytes:                 uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
-			MemoryString:                getDefaultServeOptionString("MEMORY_STRING_", ""),
-			ModelInstanceTimeoutSeconds: getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
-			GetTaskDelayMilliseconds:    getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
-			ReporStateDelaySeconds:      getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
-			LocalMode:                   getDefaultServeOptionBool("LOCAL_MODE", false),
-			Labels:                      getDefaultServeOptionMap("LABELS", map[string]string{}),
+			ID:                           getDefaultServeOptionString("RUNNER_ID", ""),
+			ApiHost:                      getDefaultServeOptionString("API_HOST", ""),
+			ApiToken:                     getDefaultServeOptionString("API_TOKEN", ""),
+			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
+			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING_", ""),
+			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
+			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
+			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
+			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
+			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -78,6 +79,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringToStringVar(
 		&allOptions.Runner.Labels, "label", allOptions.Runner.Labels,
 		`Labels to attach to this runner`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.Runner.SchedulingDecisionBufferSize,
+		`How many scheduling decisions to buffer before we start dropping them.`,
 	)
 
 	runnerCmd.PersistentFlags().IntVar(
