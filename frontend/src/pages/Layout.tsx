@@ -113,7 +113,8 @@ const Layout: FC = ({
   const {
     meta,
     navigate,
-    params
+    params,
+    getToolbarElement,
   } = useRouter()
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
@@ -425,19 +426,31 @@ const Layout: FC = ({
         >
           {
             bigScreen ? (
-              <Typography
-                component="h1"
-                variant="h6"
-                color="inherit"
-                noWrap
+              <Box
                 sx={{
-                  flexGrow: 1,
-                  ml: 1,
-                  color: 'text.primary',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}
               >
-                { meta.title || '' }
-              </Typography>
+                <Typography
+                  component="h1"
+                  variant="h6"
+                  color="inherit"
+                  noWrap
+                  sx={{
+                    flexGrow: 1,
+                    ml: 1,
+                    color: 'text.primary',
+                  }}
+                >
+                  { meta.title || '' }
+                </Typography>
+                {
+                  getToolbarElement ? getToolbarElement() : null
+                }
+              </Box>
+              
             ) : (
               <>
                 <IconButton
@@ -513,10 +526,12 @@ const Layout: FC = ({
       <Box
         component="main"
         sx={{
-          backgroundColor: (theme) =>
-            theme.palette.mode === 'light'
+          backgroundColor: (theme) => {
+            if(meta.background) return meta.background
+            return theme.palette.mode === 'light'
               ? "#FAEFE0" 
-              : theme.palette.grey[900],
+              : theme.palette.grey[900]
+          },
           flexGrow: 1,
           height: '100vh',
           display: 'flex',

@@ -30,9 +30,11 @@ type Module struct {
 }
 
 type Interaction struct {
-	ID      string      `json:"id"`
-	Created time.Time   `json:"created"`
-	Creator CreatorType `json:"creator"` // e.g. User
+	ID        string      `json:"id"`
+	Created   time.Time   `json:"created"`
+	Scheduled time.Time   `json:"scheduled"`
+	Completed time.Time   `json:"completed"`
+	Creator   CreatorType `json:"creator"` // e.g. User
 	// the ID of the runner that processed this interaction
 	Runner   string            `json:"runner"`   // e.g. 0
 	Message  string            `json:"message"`  // e.g. Prove pythagoras

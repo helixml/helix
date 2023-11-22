@@ -258,6 +258,7 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 		Files:    []string{},
 		State:    types.InteractionStateWaiting,
 		Finished: false,
+		Metadata: map[string]string{},
 	}
 	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
 	if err != nil {
