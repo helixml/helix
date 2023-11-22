@@ -411,6 +411,11 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if currentSession == nil {
 		currentSession = instance.queuedSession
 	}
+	// this can happen when the session has downloaded and is ready
+	// but the python is still booting up
+	if currentSession == nil {
+		currentSession = instance.nextSession
+	}
 	return &types.ModelInstanceState{
 		ID:               instance.id,
 		ModelName:        instance.initialSession.ModelName,
