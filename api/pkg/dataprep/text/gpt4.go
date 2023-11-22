@@ -38,8 +38,7 @@ func (gpt *DataPrepTextGPT4) GetChunks() ([]string, error) {
 func (gpt *DataPrepTextGPT4) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
 	systemPrompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
-Using the provided context, formulate %d questions that
-captures an important fact from the context.
+Using the provided context, formulate %d questions that captures an important fact from the context.
 You MUST obey the following criteria:
   - Restrict the question to the context information provided.
 	- Do NOT create a question that cannot be answered from the context.
