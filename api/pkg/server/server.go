@@ -136,9 +136,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	adminRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
 
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
-		SilenceErrors: true,
-	})).Methods("GET")
+	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", Wrapper(apiServer.getNextRunnerSession)).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/state", Wrapper(apiServer.handleRunnerMetrics)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")

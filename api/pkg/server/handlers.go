@@ -735,12 +735,8 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
-	// that is how the workers will know to wait before asking again
-	if nextSession == nil {
-		return nil, fmt.Errorf("no task found")
-	}
-
+	// if nextSession is nil - we will write null to the runner and it is setup
+	// to regard that as an error (this means we don't need to write http error codes anymore)
 	return nextSession, nil
 }
 

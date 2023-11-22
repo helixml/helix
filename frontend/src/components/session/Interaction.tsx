@@ -96,8 +96,6 @@ export const Interaction: FC<{
     }
   }
 
-  console.dir(interaction)
-  
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
