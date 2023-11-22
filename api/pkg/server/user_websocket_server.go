@@ -66,27 +66,34 @@ func StartUserWebSocketServer(
 		for {
 			select {
 			case event := <-websocketEventChan:
-				go func() {
-					log.Trace().Msgf("User websocket event: %+v", event)
-				}()
+				log.Trace().Msgf("User websocket event: %+v", event)
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
 					continue
 				}
-				// TODO: make this more efficient
-				for _, connWrapper := range connections {
-					if connWrapper.user != event.Owner {
-						continue
+				func() {
+					// hold the mutex while we iterate over connections because
+					// you can't modify a mutex while iterating over it (fatal
+					// error: concurrent map iteration and map write)
+					mutex.Lock()
+					defer mutex.Unlock()
+					for _, connWrapper := range connections {
+						if connWrapper.user != event.Owner {
+							continue
+						}
+						// wrap in a func so that we can defer the unlock so we can
+						// unlock the mutex on panics as well as errors
+						func() {
+							connWrapper.mu.Lock()
+							defer connWrapper.mu.Unlock()
+							if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+								log.Error().Msgf("Error writing to websocket: %s", err.Error())
+								return
+							}
+						}()
 					}
-					connWrapper.mu.Lock()
-					if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-						log.Error().Msgf("Error writing to websocket: %s", err.Error())
-						connWrapper.mu.Unlock()
-						return
-					}
-					connWrapper.mu.Unlock()
-				}
+				}()
 			case <-ctx.Done():
 				return
 			}
