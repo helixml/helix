@@ -1,5 +1,6 @@
 import React, { FC, useState, useEffect, useRef } from 'react'
 import Box from '@mui/material/Box'
+import Grid from '@mui/material/Grid'
 
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
@@ -11,6 +12,7 @@ import Switch from '@mui/material/Switch'
 
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
+import RunnerSummary from '../components/session/RunnerSummary'
 
 import {
   IDashboardData,
@@ -146,9 +148,24 @@ const Dashboard: FC = () => {
       <Box
         sx={{
           flexGrow: 1,
+          p: 2,
+          height: '100%',
+          overflowY: 'auto',
         }}
       >
-        Runners
+        <Grid container spacing={ 2 }>
+          {
+            data.runners.map((runner) => {
+              return (
+                <Grid item key={ runner.id } xs={ 12 } md={ 6 }>
+                  <RunnerSummary
+                    runner={ runner }
+                  />
+                </Grid>
+              )
+            })
+          }
+        </Grid>
       </Box>
     </Box>
   )

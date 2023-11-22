@@ -422,5 +422,6 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 		Timeout:          int(instance.runnerOptions.ModelInstanceTimeoutSeconds),
 		LastActivity:     int(instance.lastActivityTimestamp),
 		Stale:            instance.isStale(),
+		MemoryUsage:      instance.model.GetMemoryRequirements(instance.initialSession.Mode),
 	}, nil
 }
