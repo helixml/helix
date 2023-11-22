@@ -130,7 +130,7 @@ const Session: FC = () => {
               }}
             >
               Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
-              { session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }...
+              { session?.lora_dir ? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }...
             </Typography>
             <Typography
               sx={{
@@ -191,7 +191,7 @@ const Session: FC = () => {
             <TextField
               fullWidth
               label={(
-                session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.finetune_file ? ` finetuned on ${session?.finetune_file.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
                 ) + " (shift+enter to send)"
               }
               value={inputValue}

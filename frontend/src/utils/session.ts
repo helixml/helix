@@ -13,7 +13,7 @@ export const getSystemMessage = (message: string): IInteraction => {
     error: '',
     state: 'complete',
     status: '',
-    finetune_file: '',
+    lora_dir: '',
     metadata: {},
     message,
     progress: 0,
