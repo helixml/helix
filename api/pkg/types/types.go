@@ -257,7 +257,8 @@ type ModelInstanceState struct {
 	LastActivity int `json:"last_activity"`
 	// we let the server tell us if it thinks this
 	// (even though we could work it out)
-	Stale bool `json:"stale"`
+	Stale       bool   `json:"stale"`
+	MemoryUsage uint64 `json:"memory"`
 }
 
 // the basic struct reported by a runner when it connects
