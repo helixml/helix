@@ -1,7 +1,9 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
+import prettyBytes from 'pretty-bytes'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
+import LinearProgress from '@mui/material/LinearProgress'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
@@ -23,6 +25,7 @@ export const RunnerSummary: FC<{
 }> = ({
   runner,
 }) => {
+  const using_memory = runner.total_memory - runner.free_memory
   return (
     <Box
       sx={{
@@ -40,6 +43,18 @@ export const RunnerSummary: FC<{
         <Cell flexGrow={1} />
         <Cell flexGrow={0}>
           <Typography variant="caption" gutterBottom>{ Object.keys(runner.labels || {}).map(k => `${k}=${runner.labels[k]}`).join(', ') }</Typography>
+        </Cell>
+      </Row>
+      <Row>
+        <Cell flexGrow={0}>
+          <Typography variant="subtitle1" sx={{mr: 2}}>using { prettyBytes(using_memory) } of { prettyBytes(runner.total_memory) }</Typography>
+        </Cell>
+        <Cell flexGrow={1}>
+          <LinearProgress
+            variant="determinate"
+            value={100 * using_memory / runner.total_memory}
+            color="secondary"
+          />
         </Cell>
       </Row>
     </Box>
