@@ -1,12 +1,8 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import prettyBytes from 'pretty-bytes'
-import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import SessionBadge from './SessionBadge'
-import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ModelInstanceSummary from './ModelInstanceSummary'
@@ -14,12 +10,6 @@ import ModelInstanceSummary from './ModelInstanceSummary'
 import {
   IRunnerState,
 } from '../../types'
-
-import {
-  getHeadline,
-  getSummaryCaption,
-  getTiming,
-} from '../../utils/session'
 
 export const RunnerSummary: FC<{
   runner: IRunnerState,
@@ -38,16 +28,16 @@ export const RunnerSummary: FC<{
       }}
     >
       <Row>
-        <Cell flexGrow={0}>
+        <Cell>
           <Typography variant="h6" sx={{mr: 2}}>{ runner.id }</Typography>
         </Cell>
         <Cell flexGrow={1} />
-        <Cell flexGrow={0}>
+        <Cell>
           <Typography variant="caption" gutterBottom>{ Object.keys(runner.labels || {}).map(k => `${k}=${runner.labels[k]}`).join(', ') }</Typography>
         </Cell>
       </Row>
       <Row>
-        <Cell flexGrow={0}>
+        <Cell>
           <Typography variant="subtitle1" sx={{mr: 2}}>using { prettyBytes(using_memory) } of { prettyBytes(runner.total_memory) }</Typography>
         </Cell>
         <Cell flexGrow={1}>
@@ -68,6 +58,24 @@ export const RunnerSummary: FC<{
           )
         })
       }
+      <Box
+        sx={{
+          height: '100px',
+          maxHeight: '100px',
+          overflowY: 'auto',
+        }}
+      >
+        <Typography component="ul" variant="caption" gutterBottom>
+          {
+            runner.scheduling_decisions.map((decision, i) => {
+              return (
+                <li key={ i }>{ decision }</li>
+              )
+              
+            })
+          }
+        </Typography>
+      </Box>
     </Box>
   )
 }

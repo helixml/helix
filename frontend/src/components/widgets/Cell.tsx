@@ -6,7 +6,7 @@ const Cell: FC<{
   flexGrow?: number,
   sx?: SxProps,
 }> = ({
-  flexGrow = 1,
+  flexGrow = 0,
   sx = {},
   children,
 }) => {

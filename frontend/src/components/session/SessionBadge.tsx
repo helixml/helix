@@ -2,7 +2,6 @@ import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 
 import {
-  ISessionType,
   ISessionMode,
 } from '../../types'
 

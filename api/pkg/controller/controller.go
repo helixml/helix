@@ -95,6 +95,7 @@ func NewController(
 		sessionQueue:                   []*types.Session{},
 		models:                         models,
 		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
+		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
 	}
 	return controller, nil
 }

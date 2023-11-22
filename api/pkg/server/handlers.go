@@ -702,11 +702,11 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			if err != nil {
 				return nil, err
 			}
-			rejectFinetuneFile := triple[2]
+			rejectLoraDir := triple[2]
 			reject = append(reject, types.SessionFilterModel{
-				ModelName:    rejectModelName,
-				Mode:         rejectModelMode,
-				FinetuneFile: rejectFinetuneFile,
+				ModelName: rejectModelName,
+				Mode:      rejectModelMode,
+				LoraDir:   rejectLoraDir,
 			})
 		}
 	}

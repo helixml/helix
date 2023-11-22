@@ -38,7 +38,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
         >
           <Button
             color="secondary"
-            variant="contained"
+            variant="outlined"
           >
             Copy to clipboard
           </Button>
