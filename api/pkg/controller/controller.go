@@ -36,6 +36,9 @@ type ControllerOptions struct {
 
 	// the URL we post documents to so we can get the text back from them
 	TextExtractionURL string
+
+	// how many scheduler decisions to buffer before we start dropping them
+	SchedulingDecisionBufferSize int
 }
 
 type Controller struct {
@@ -59,6 +62,9 @@ type Controller struct {
 	// the map of model instances that we have loaded
 	// and are currently running
 	activeRunners *xsync.MapOf[string, *types.RunnerState]
+
+	// the current buffer of scheduling decisions
+	schedulingDecisions []*types.GlobalSchedulingDecision
 }
 
 func NewController(
