@@ -61,6 +61,10 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	userPrompt := fmt.Sprintf(`
 Given the following context - please summarize it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
 
+ONLY include a question if you know the answer.
+
+Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
+
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
 %s
