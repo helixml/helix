@@ -1,6 +1,7 @@
 import createRouter, { Route } from 'router5'
 import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
+import Box from '@mui/material/Box'
 
 import Home from './pages/Home'
 import Session from './pages/Session'
@@ -14,6 +15,7 @@ import Files from './pages/Files'
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
+  getToolbarElement?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
@@ -74,9 +76,13 @@ const routes: IApplicationRoute[] = [{
   meta: {
     title: 'Dashboard',
     sidebar: true,
+    background: '#ffffff'
   },
   render: () => (
       <Dashboard />
+  ),
+  getToolbarElement: () => (
+    <Box>hello</Box>
   ),
 }, {
   name: 'account',

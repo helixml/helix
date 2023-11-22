@@ -96,7 +96,9 @@ export interface IWorkerTaskResponse {
 
 export interface IInteraction {
   id: string,
-  created: number,
+  created: string,
+  scheduled: string,
+  completed: string,
   creator: ISessionCreator,
   runner: string,
   message: string,
@@ -113,13 +115,12 @@ export interface IInteraction {
 export interface ISession {
   id: string,
   name: string,
-  created: number,
-  updated: number,
+  created: string,
+  updated: string,
   parent_session: string,
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
-  error: string,
   lora_dir: string,
   interactions: IInteraction[],
   owner: string,
@@ -151,4 +152,34 @@ export interface IQuestionAnswer {
   id: string,
   question: string,
   answer: string,
+}
+
+export interface IModelInstanceJob {
+  created: number,
+  session_id: string,
+  interaction_id: string,
+}
+
+export interface IModelInstanceState {
+  id: string,
+  model_name: string,
+  mode: ISessionMode,
+  lora_dir: string,
+  initial_session_id: string,
+  current_session?: ISession,
+  job_history: IModelInstanceJob[],
+}
+
+export interface IRunnerState {
+  id: string,
+  created: number,
+  total_memory: number,
+  free_memory: number,
+  labels: Record<string, string>,
+  model_instances: IModelInstanceState[],
+}
+
+export interface IDashboardData {
+  session_queue: ISession[],
+  runners: IRunnerState[],
 }

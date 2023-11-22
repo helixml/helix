@@ -2,18 +2,32 @@ import {
   ISession,
   IInteraction,
   SESSION_CREATOR_SYSTEM,
+  SESSION_TYPE_IMAGE,
+  SESSION_TYPE_TEXT,
+  SESSION_MODE_FINETUNE,
+  SESSION_MODE_INFERENCE,
 } from '../types'
+
+const COLORS = {
+  text_inference: '#7180AC',
+  text_finetune: '#2B4570',
+  image_inference: '#E49273', 
+  image_finetune: '#A37A74',
+}
+
 
 export const getSystemMessage = (message: string): IInteraction => {
   return {
     id: 'system',
-    created: 0,
+    created: '',
+    scheduled: '',
+    completed: '',
     creator: SESSION_CREATOR_SYSTEM,
     runner: '',
     error: '',
     state: 'complete',
     status: '',
-    finetune_file: '',
+    lora_dir: '',
     metadata: {},
     message,
     progress: 0,
@@ -32,4 +46,34 @@ export const getSystemInteraction = (session: ISession): IInteraction | undefine
   const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_SYSTEM)
   if(userInteractions.length <=0) return undefined
   return userInteractions[userInteractions.length - 1]
+}
+
+export const getColor = (session: ISession): string => {
+  return COLORS[`${session.type}_${session.mode}`]
+}
+
+export const getModelName = (session: ISession): string => {
+  if(session.model_name.indexOf('stabilityai') >= 0) return 'sdxl'
+  if(session.model_name.indexOf('mistralai') >= 0) return 'mistral'
+  return ''
+}
+
+export const getHeadline = (session: ISession): string => {
+  return `${getModelName(session)} ${session.mode}`
+}
+
+// for inference sessions
+// we just return the last prompt
+// for funetune sessions
+// we return some kind of summary of the files
+export const getSummary = (session: ISession): string => {
+  if(session.mode == SESSION_MODE_INFERENCE) {
+    const userInteraction = getUserInteraction(session)
+    if(!userInteraction) return 'no user interaction found'
+    return userInteraction.message
+  } else {
+    const userInteraction = getUserInteraction(session)
+    if(!userInteraction) return 'no user interaction found'
+    return `fine tuning on ${userInteraction.files.length} files`
+  }
 }
