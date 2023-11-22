@@ -232,7 +232,7 @@ func (r *Runner) reportStateLoop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Debug().Msgf("🟠 Sending runner state %s %+v", r.Options.ID, state)
+	log.Trace().Msgf("🟠 Sending runner state %s %+v", r.Options.ID, state)
 	_, err = server.PostRequest[*types.RunnerState, *types.RunnerState](
 		r.httpClientOptions,
 		fmt.Sprintf("/runner/%s/state", r.Options.ID),
@@ -259,7 +259,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
 		if modelInstanceMatchesSession(modelInstance, session) {
 			// no need to create another one, because there's already one which will match the session
-			log.Printf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
+			log.Debug().Msgf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
 			found = true
 			return false
 		}
@@ -267,7 +267,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	})
 	if !found {
 		// Create a new model instance because it doesn't exist
-		log.Printf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
+		log.Debug().Msgf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
 		err := r.createModelInstance(ctx, session)
 		if err != nil {
 			return err
