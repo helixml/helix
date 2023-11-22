@@ -74,6 +74,7 @@ func NewServer(
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 	router.Use(apiServer.corsMiddleware)
+	router.Use(errorLoggingMiddleware)
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
 
