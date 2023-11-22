@@ -11,23 +11,25 @@ import {
 } from '../../utils/session'
 
 export const SessionBadge: FC<{
-  type: ISessionType,
-  mode: ISessionMode
+  modelName: string,
+  mode: ISessionMode,
+  reverse?: boolean,
   size?: number,
 }> = ({
-  type,
+  modelName,
   mode,
+  reverse = false,
   size = 20,
 }) => {
-  const color = getColor(type, mode)
+  const color = getColor(modelName, mode)
   return (
     <Box
       sx={{
         width: size,
         height: size,
-        backgroundColor: color,
+        backgroundColor: reverse ? '' : color,
         borderRadius: '50%',
-        border: '1px solid #000000'
+        border: `1px solid ${reverse ? color : '#000000'}`
       }}
     >
     </Box>

@@ -6,8 +6,8 @@ import SessionBadge from './SessionBadge'
 import {
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
+  MODEL_NAME_SDXL,
+  MODEL_NAME_MISTRAL,
 } from '../../types'
 
 export const SessionBadgeKey: FC<{
@@ -24,7 +24,7 @@ export const SessionBadgeKey: FC<{
       }}
     >
       <SessionBadge
-        type={ SESSION_TYPE_IMAGE }
+        modelName={ MODEL_NAME_SDXL }
         mode={ SESSION_MODE_INFERENCE }
       />
       <Typography
@@ -37,7 +37,7 @@ export const SessionBadgeKey: FC<{
       </Typography>
 
       <SessionBadge
-        type={ SESSION_TYPE_IMAGE }
+        modelName={ MODEL_NAME_SDXL }
         mode={ SESSION_MODE_FINETUNE }
       />
       <Typography
@@ -50,7 +50,7 @@ export const SessionBadgeKey: FC<{
       </Typography>
 
       <SessionBadge
-        type={ SESSION_TYPE_TEXT }
+        modelName={ MODEL_NAME_MISTRAL }
         mode={ SESSION_MODE_INFERENCE }
       />
       <Typography
@@ -63,7 +63,7 @@ export const SessionBadgeKey: FC<{
       </Typography>
 
       <SessionBadge
-        type={ SESSION_TYPE_TEXT }
+        modelName={ MODEL_NAME_MISTRAL }
         mode={ SESSION_MODE_FINETUNE }
       />
       <Typography

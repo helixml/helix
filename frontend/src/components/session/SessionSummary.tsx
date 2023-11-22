@@ -11,9 +11,8 @@ import {
 } from '../../types'
 
 import {
-  getHeadline,
-  getSummary,
-  getTiming,
+  getSessionHeadline,
+  getSummaryCaption,
 } from '../../utils/session'
 
 export const SessionSummary: FC<{
@@ -40,7 +39,7 @@ export const SessionSummary: FC<{
         }}
       >
         <SessionBadge
-          type={ session.type }
+          modelName={ session.model_name }
           mode={ session.mode }
         />
       </Box>
@@ -51,14 +50,11 @@ export const SessionSummary: FC<{
           mr: 1,
         }}
       >
-        <Typography
-          sx={{lineHeight: 1}}
-          variant="body2"
-        >
-          { getHeadline(session) } : { getTiming(session) }
+        <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          { getSessionHeadline(session) }
         </Typography>
-        <Typography variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          { getSummary(session) }
+        <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          { getSummaryCaption(session) }
         </Typography>
       </Box>
       <Box

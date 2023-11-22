@@ -9,6 +9,7 @@ import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import ModelInstanceSummary from './ModelInstanceSummary'
 
 import {
   IRunnerState,
@@ -16,7 +17,7 @@ import {
 
 import {
   getHeadline,
-  getSummary,
+  getSummaryCaption,
   getTiming,
 } from '../../utils/session'
 
@@ -53,10 +54,20 @@ export const RunnerSummary: FC<{
           <LinearProgress
             variant="determinate"
             value={100 * using_memory / runner.total_memory}
-            color="secondary"
+            color="primary"
           />
         </Cell>
       </Row>
+      {
+        runner.model_instances.map(modelInstance => {
+          return (
+            <ModelInstanceSummary
+              key={ modelInstance.id }
+              modelInstance={ modelInstance }
+            />
+          )
+        })
+      }
     </Box>
   )
 }

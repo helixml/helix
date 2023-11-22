@@ -1,7 +1,11 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
+import { SxProps } from '@mui/system'
 
-const Row: FC<{}> = ({
+const Row: FC<{
+  sx?: SxProps,
+}> = ({
+  sx = {},
   children,
 }) => {
   return (
@@ -12,6 +16,7 @@ const Row: FC<{}> = ({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'flex-start',
+        ...sx
       }}
     >
       { children }
