@@ -67,6 +67,9 @@ func StartUserWebSocketServer(
 			select {
 			case event := <-websocketEventChan:
 				log.Trace().Msgf("User websocket event: %+v", event)
+				if event.Type == types.WebsocketEventWorkerTaskResponse && event.WorkerTaskResponse.Type == types.WorkerTaskResponseTypeStream {
+					log.Info().Msgf("message: %s", event.WorkerTaskResponse.Message)
+				}
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())

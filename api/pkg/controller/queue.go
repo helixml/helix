@@ -160,7 +160,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, err
 		}
 
-		c.addSchedulingDecision(filter, runnerID, session.ID)
+		c.addSchedulingDecision(filter, runnerID, session)
 		c.WriteSession(session)
 		return session, nil
 	}
@@ -168,12 +168,14 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	return nil, nil
 }
 
-func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, sessionID string) {
+func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
 	decision := &types.GlobalSchedulingDecision{
 		Created:   time.Now(),
 		RunnerID:  runnerID,
-		SessionID: sessionID,
+		SessionID: session.ID,
 		Filter:    filter,
+		ModelName: session.ModelName,
+		Mode:      session.Mode,
 	}
 
 	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)

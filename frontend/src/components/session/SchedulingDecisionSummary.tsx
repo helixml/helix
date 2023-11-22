@@ -5,6 +5,7 @@ import Typography from '@mui/material/Typography'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
+import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -18,12 +19,25 @@ import {
 
 export const SchedulingDecisionSummary: FC<{
   decision: IGlobalSchedulingDecision,
+  onViewSession: {
+    (id: string): void,
+  }
 }> = ({
   decision,
+  onViewSession,
 }) => {
-  console.dir(decision)
   return (
     <Row>
+      <Cell
+        sx={{
+          width: '30px'
+        }}
+      >
+        <SessionBadge
+          modelName={ decision.model_name }
+          mode={ decision.mode }
+        />
+      </Cell>
       <Cell
         sx={{
           width: '70px'
@@ -38,9 +52,15 @@ export const SchedulingDecisionSummary: FC<{
           width: '70px'
         }}
       >
-        <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          { shortID(decision.session_id) }
-        </Typography>
+        <ClickLink
+          onClick={ () => {
+            onViewSession(decision.session_id)
+          }}
+        >
+          <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline' }}>
+            { shortID(decision.session_id) }
+          </Typography>
+        </ClickLink>
       </Cell>
       <Cell flexGrow={ 1 }>
         <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

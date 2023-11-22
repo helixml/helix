@@ -160,7 +160,7 @@ export interface IQuestionAnswer {
 }
 
 export interface IModelInstanceJob {
-  created: number,
+  created: string,
   session_id: string,
   interaction_id: string,
 }
@@ -209,6 +209,8 @@ export interface  IGlobalSchedulingDecision {
   runner_id: string,
   session_id: string,
   filter: ISessionFilter,
+  mode: ISessionMode,
+  model_name: string,
 }
 
 export interface IDashboardData {
