@@ -186,9 +186,33 @@ export interface IRunnerState {
   free_memory: number,
   labels: Record<string, string>,
   model_instances: IModelInstanceState[],
+  scheduling_decisions: string[],
+}
+
+export interface ISessionFilterModel {
+  mode: ISessionMode,
+  model_name?: string,
+  lora_dir?: string,
+}
+export interface ISessionFilter {
+  mode?: ISessionMode,
+  type?: ISessionType,
+  model_name?: string,
+  lora_dir?: string,
+  memory?: number,
+  reject?: ISessionFilterModel[],
+  older?: number,
+}
+
+export interface  IGlobalSchedulingDecision {
+  created: string,
+  runner_id: string,
+  session_id: string,
+  filter: ISessionFilter,
 }
 
 export interface IDashboardData {
   session_queue: ISession[],
   runners: IRunnerState[],
+  global_scheduling_decisions: IGlobalSchedulingDecision[],
 }

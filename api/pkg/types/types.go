@@ -79,9 +79,9 @@ type Session struct {
 }
 
 type SessionFilterModel struct {
-	Mode         SessionMode `json:"mode"`
-	ModelName    ModelName   `json:"model_name"`
-	FinetuneFile string      `json:"finetune_file"`
+	Mode      SessionMode `json:"mode"`
+	ModelName ModelName   `json:"model_name"`
+	LoraDir   string      `json:"lora_dir"`
 }
 
 type Duration time.Duration
@@ -282,8 +282,8 @@ type DashboardData struct {
 }
 
 type GlobalSchedulingDecision struct {
-	Created  time.Time     `json:"created"`
-	RunnerID string        `json:"runner_id"`
-	Session  *Session      `json:"session"`
-	Filter   SessionFilter `json:"filter"`
+	Created   time.Time     `json:"created"`
+	RunnerID  string        `json:"runner_id"`
+	SessionID string        `json:"session_id"`
+	Filter    SessionFilter `json:"filter"`
 }

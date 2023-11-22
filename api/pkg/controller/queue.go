@@ -71,8 +71,8 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		reject := false
 		for _, rejectEntry := range filter.Reject {
 			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode &&
-				((rejectEntry.FinetuneFile == types.LORA_DIR_NONE && session.LoraDir == "") ||
-					(rejectEntry.FinetuneFile != "" && rejectEntry.FinetuneFile == session.LoraDir)) {
+				((rejectEntry.LoraDir == types.LORA_DIR_NONE && session.LoraDir == "") ||
+					(rejectEntry.LoraDir != "" && rejectEntry.LoraDir == session.LoraDir)) {
 				reject = true
 			}
 		}
@@ -160,7 +160,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, err
 		}
 
-		c.addSchedulingDecision(filter, runnerID, session)
+		c.addSchedulingDecision(filter, runnerID, session.ID)
 		c.WriteSession(session)
 		return session, nil
 	}
@@ -168,12 +168,12 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	return nil, nil
 }
 
-func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
+func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, sessionID string) {
 	decision := &types.GlobalSchedulingDecision{
-		Created:  time.Now(),
-		RunnerID: runnerID,
-		Session:  session,
-		Filter:   filter,
+		Created:   time.Now(),
+		RunnerID:  runnerID,
+		SessionID: sessionID,
+		Filter:    filter,
 	}
 
 	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)

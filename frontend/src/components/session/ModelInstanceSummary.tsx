@@ -1,12 +1,8 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import prettyBytes from 'pretty-bytes'
-import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
-import LinearProgress from '@mui/material/LinearProgress'
-import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
-import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -20,8 +16,6 @@ import {
   getSessionHeadline,
   getSummaryCaption,
   getModelInstanceIdleTime,
-  getTiming,
-  getModelName,
 } from '../../utils/session'
 
 export const ModelInstanceSummary: FC<{
@@ -43,14 +37,14 @@ export const ModelInstanceSummary: FC<{
       }}
     >
       <Row>
-        <Cell flexGrow={0}>
+        <Cell>
           <SessionBadge
             reverse={ modelInstance.current_session ? false : true }
             modelName={ modelInstance.model_name }
             mode={ modelInstance.mode }
           />
         </Cell>
-        <Cell flexGrow={0} sx={{
+        <Cell sx={{
           ml: 2,
         }}>
           {
@@ -84,7 +78,7 @@ export const ModelInstanceSummary: FC<{
           }
         </Cell>
         <Cell flexGrow={1} />
-        <Cell flexGrow={0}>
+        <Cell>
           <Typography
             sx={{lineHeight: 1}}
             variant="body2"
@@ -96,7 +90,7 @@ export const ModelInstanceSummary: FC<{
       {
         modelInstance.current_session && (
           <Row>
-            <Cell flexGrow={0}>
+            <Cell>
               <Typography
                 sx={{lineHeight: 1}}
                 variant="caption"

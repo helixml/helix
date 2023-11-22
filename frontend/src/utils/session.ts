@@ -74,7 +74,7 @@ export const getHeadline = (modelName: string, mode: ISessionMode): string => {
 }
 
 export const getSessionHeadline = (session: ISession): string => {
-  return `${ getHeadline(session.model_name, session.mode) } : ${ session.id.split('-').shift() } : ${ getTiming(session) }`
+  return `${ getHeadline(session.model_name, session.mode) } : ${ shortID(session.id) } : ${ getTiming(session) }`
 }
 
 export const getModelInstanceNoSessionHeadline = (modelInstance: IModelInstanceState): string => {
@@ -102,6 +102,10 @@ export const getModelInstanceIdleTime = (modelInstance: IModelInstanceState): st
   const idleFor = Date.now() - modelInstance.last_activity * 1000
   const idleForSeconds = Math.floor(idleFor / 1000)
   return `idle for ${idleForSeconds} secs, timeout is ${modelInstance.timeout} secs, stale = ${modelInstance.stale}`
+}
+
+export const shortID = (id: string): string => {
+  return id.split('-').shift() || ''
 }
 
 export const getTiming = (session: ISession): string => {

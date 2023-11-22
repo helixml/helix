@@ -13,6 +13,7 @@ import Switch from '@mui/material/Switch'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
 import RunnerSummary from '../components/session/RunnerSummary'
+import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 
 import {
   IDashboardData,
@@ -133,13 +134,32 @@ const Dashboard: FC = () => {
             ) : null
           })
         }
-        <Typography variant="h6">Queued Jobs</Typography>
+        {
+          data.session_queue.length > 0 && (
+            <Typography variant="h6">Queued Jobs</Typography>
+          )
+        }
         {
           data.session_queue.map((session) => {
             return (
               <SessionSummary
                 key={ session.id }
                 session={ session }
+              />
+            )
+          })
+        }
+        {
+          data.global_scheduling_decisions.length > 0 && (
+            <Typography variant="h6">Global Scheduling</Typography>
+          )
+        }
+        {
+          data.global_scheduling_decisions.map((decision, i) => {
+            return (
+              <SchedulingDecisionSummary
+                key={ i }
+                decision={ decision }
               />
             )
           })
