@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+var mu sync.Mutex
 
 // ConnectWebSocket establishes a new WebSocket connection
 func ConnectRunnerWebSocketClient(
@@ -34,7 +37,11 @@ func ConnectRunnerWebSocketClient(
 				if conn == nil {
 					continue
 				}
-				conn.WriteJSON(ev)
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					conn.WriteJSON(ev)
+				}()
 			}
 		}
 	}()
