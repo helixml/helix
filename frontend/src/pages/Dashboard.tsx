@@ -1,7 +1,8 @@
-import React, { FC, useState, useEffect, useRef } from 'react'
+import React, { FC, useState, useEffect, useRef, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 
+import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import Divider from '@mui/material/Divider'
@@ -22,11 +23,18 @@ import {
 
 const Dashboard: FC = () => {
   const account = useAccount()
+  const router = useRouter()
   const api = useApi()
 
   const activeRef = useRef(true)
   const [ active, setActive ] = useState(true)
   const [ data, setData ] = useState<IDashboardData>()
+
+  const onViewSession = useCallback((session_id: string) => {
+    router.setParams({
+      session_id,
+    })
+  }, [])
 
   useEffect(() => {
     const loadData = async () => {
@@ -160,6 +168,7 @@ const Dashboard: FC = () => {
               <SchedulingDecisionSummary
                 key={ i }
                 decision={ decision }
+                onViewSession={ onViewSession }
               />
             )
           })

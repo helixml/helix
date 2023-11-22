@@ -1,10 +1,11 @@
-import React, { FC } from 'react'
+import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import prettyBytes from 'pretty-bytes'
 import Typography from '@mui/material/Typography'
 import SessionBadge from './SessionBadge'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import ClickLink from '../widgets/ClickLink'
 
 import {
   IModelInstanceState,
@@ -16,6 +17,7 @@ import {
   getSessionHeadline,
   getSummaryCaption,
   getModelInstanceIdleTime,
+  shortID,
 } from '../../utils/session'
 
 export const ModelInstanceSummary: FC<{
@@ -24,6 +26,7 @@ export const ModelInstanceSummary: FC<{
   modelInstance,
 }) => {
 
+  const [ historyViewing, setHistoryViewing ] = useState(false)
   const activeColor = getColor(modelInstance.model_name, modelInstance.mode)
 
   return (
@@ -100,6 +103,72 @@ export const ModelInstanceSummary: FC<{
             </Cell>
             <Cell flexGrow={1} />
           </Row>
+        )
+      }
+      <Row>
+        <Cell flexGrow={1} />
+        {
+          historyViewing ? (
+            <Cell>
+              <ClickLink
+                onClick={ () => setHistoryViewing(false) }
+              >
+                <Typography
+                  sx={{
+                    lineHeight: 1,
+                    textAlign: 'right'
+                  }}
+                  variant="caption"
+                >
+                  hide jobs
+                </Typography>
+              </ClickLink>
+            </Cell>
+          ) : (
+            <Cell>
+              <ClickLink
+                onClick={ () => setHistoryViewing(true) }
+              >
+                <Typography
+                  sx={{
+                    lineHeight: 1,
+                    textAlign: 'right'
+                  }}
+                  variant="caption"
+                >
+                  view {modelInstance.job_history.length} job{modelInstance.job_history.length == 1 ? '' : 's'}
+                </Typography>
+              </ClickLink>
+            </Cell>
+          )
+        }
+        
+      </Row>
+      {
+        historyViewing && (
+          <Box
+            sx={{
+              maxHeight: '100px',
+              overflowY: 'auto',
+            }}
+          >
+            <Typography component="ul" variant="caption" gutterBottom>
+              {
+                modelInstance.job_history.reverse().map((job, i) => {
+                  return (
+                    <li key={ i }>
+                      { job.created.split('T')[1].split('.')[0] }&nbsp;&nbsp;
+                      <ClickLink
+                        onClick={ () => setHistoryViewing(true) }
+                      >
+                        { shortID(job.session_id) } -&gt; { shortID(job.interaction_id) }
+                      </ClickLink>
+                    </li>
+                  )
+                })
+              }
+            </Typography>
+          </Box>
         )
       }
     </Box>

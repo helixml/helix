@@ -285,5 +285,7 @@ type GlobalSchedulingDecision struct {
 	Created   time.Time     `json:"created"`
 	RunnerID  string        `json:"runner_id"`
 	SessionID string        `json:"session_id"`
+	ModelName ModelName     `json:"model_name"`
+	Mode      SessionMode   `json:"mode"`
 	Filter    SessionFilter `json:"filter"`
 }
