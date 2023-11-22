@@ -83,6 +83,10 @@ export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
 export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
 
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
+export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
+
 export interface IWorkerTaskResponse {
   type: IWorkerTaskResponseType,
   session_id: string,
@@ -169,6 +173,10 @@ export interface IModelInstanceState {
   initial_session_id: string,
   current_session?: ISession,
   job_history: IModelInstanceJob[],
+  timeout: number,
+  last_activity: number,
+  stale: boolean,
+  memory: number,
 }
 
 export interface IRunnerState {

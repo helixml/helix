@@ -3,6 +3,7 @@ import {
   ISessionType,
   ISessionMode,
   IInteraction,
+  IModelInstanceState,
   SESSION_CREATOR_SYSTEM,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
@@ -12,12 +13,11 @@ import {
 
 const NO_DATE = '0001-01-01T00:00:00Z'
 
-const COLORS = {
-  image_inference: '#D183C9',
-  image_finetune: '#E3879E',
-  text_inference: '#F4D35E',
-  text_finetune: '#EE964B',
-  
+const COLORS: Record<string, string> = {
+  sdxl_inference: '#D183C9',
+  sdxl_finetune: '#E3879E',
+  mistral_inference: '#F4D35E',
+  mistral_finetune: '#EE964B',
 }
 
 export const hasDate = (dt?: string): boolean => {
@@ -58,25 +58,34 @@ export const getSystemInteraction = (session: ISession): IInteraction | undefine
   return userInteractions[userInteractions.length - 1]
 }
 
-export const getColor = (type: ISessionType, mode: ISessionMode): string => {
-  return COLORS[`${type}_${mode}`]
+export const getColor = (modelName: string, mode: ISessionMode): string => {
+  const key = `${getModelName(modelName)}_${mode}`
+  return COLORS[key]
 }
 
-export const getModelName = (session: ISession): string => {
-  if(session.model_name.indexOf('stabilityai') >= 0) return 'sdxl'
-  if(session.model_name.indexOf('mistralai') >= 0) return 'mistral'
+export const getModelName = (model_name: string): string => {
+  if(model_name.indexOf('stabilityai') >= 0) return 'sdxl'
+  if(model_name.indexOf('mistralai') >= 0) return 'mistral'
   return ''
 }
 
-export const getHeadline = (session: ISession): string => {
-  return `${getModelName(session)} ${session.mode}`
+export const getHeadline = (modelName: string, mode: ISessionMode): string => {
+  return `${getModelName(modelName)} ${mode}`
+}
+
+export const getSessionHeadline = (session: ISession): string => {
+  return `${ getHeadline(session.model_name, session.mode) } : ${ session.id.split('-').shift() } : ${ getTiming(session) }`
+}
+
+export const getModelInstanceNoSessionHeadline = (modelInstance: IModelInstanceState): string => {
+  return `${getHeadline(modelInstance.model_name, modelInstance.mode)} : ${getModelInstanceIdleTime(modelInstance)}`
 }
 
 // for inference sessions
 // we just return the last prompt
 // for funetune sessions
 // we return some kind of summary of the files
-export const getSummary = (session: ISession): string => {
+export const getSummaryCaption = (session: ISession): string => {
   if(session.mode == SESSION_MODE_INFERENCE) {
     const userInteraction = getUserInteraction(session)
     if(!userInteraction) return 'no user interaction found'
@@ -88,16 +97,23 @@ export const getSummary = (session: ISession): string => {
   }
 }
 
+export const getModelInstanceIdleTime = (modelInstance: IModelInstanceState): string => {
+  if(!modelInstance.last_activity) return ''
+  const idleFor = Date.now() - modelInstance.last_activity * 1000
+  const idleForSeconds = Math.floor(idleFor / 1000)
+  return `idle for ${idleForSeconds} secs, timeout is ${modelInstance.timeout} secs, stale = ${modelInstance.stale}`
+}
+
 export const getTiming = (session: ISession): string => {
   const systemInteraction = getSystemInteraction(session)
   if(hasDate(systemInteraction?.scheduled)) {
     const runningFor = Date.now() - new Date(systemInteraction?.scheduled || '').getTime()
     const runningForSeconds = Math.floor(runningFor / 1000)
-    return `running ${runningForSeconds} secs`
+    return `${runningForSeconds} secs`
   } else if(hasDate(systemInteraction?.created)){
     const waitingFor = Date.now() - new Date(systemInteraction?.created || '').getTime()
     const waitingForSeconds = Math.floor(waitingFor / 1000)
-    return `queued ${waitingForSeconds} secs`
+    return `${waitingForSeconds} secs`
   } else {
     return ''
   }
