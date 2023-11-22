@@ -59,7 +59,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	`, gpt.Options.QuestionsPerChunk, gpt.Options.QuestionsPerChunk)
 
 	userPrompt := fmt.Sprintf(`
-Given the following context - please summarize it into %d question and answer pairs.
+Given the following context - please summarize it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
