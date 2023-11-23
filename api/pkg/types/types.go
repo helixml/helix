@@ -294,10 +294,11 @@ type DashboardData struct {
 }
 
 type GlobalSchedulingDecision struct {
-	Created   time.Time     `json:"created"`
-	RunnerID  string        `json:"runner_id"`
-	SessionID string        `json:"session_id"`
-	ModelName ModelName     `json:"model_name"`
-	Mode      SessionMode   `json:"mode"`
-	Filter    SessionFilter `json:"filter"`
+	Created       time.Time     `json:"created"`
+	RunnerID      string        `json:"runner_id"`
+	SessionID     string        `json:"session_id"`
+	InteractionID string        `json:"interaction_id"`
+	ModelName     ModelName     `json:"model_name"`
+	Mode          SessionMode   `json:"mode"`
+	Filter        SessionFilter `json:"filter"`
 }

@@ -161,7 +161,7 @@ export const ModelInstanceSummary: FC<{
                       <ClickLink
                         onClick={ () => setHistoryViewing(true) }
                       >
-                        { shortID(job.session_id) } -&gt; { shortID(job.interaction_id) }
+                        { shortID(job.session_id) } : { shortID(job.interaction_id) }
                       </ClickLink>
                     </li>
                   )

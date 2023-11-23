@@ -154,6 +154,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			Msgf("🔵 scheduler hit session: %+v", session)
 
 		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+		c.sessionSummaryQueue = append(c.sessionSummaryQueue[:sessionIndex], c.sessionSummaryQueue[sessionIndex+1:]...)
 
 		if len(session.Interactions) == 0 {
 			return nil, fmt.Errorf("no interactions found")
@@ -177,13 +178,19 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 }
 
 func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		log.Error().Msgf("error adding scheduling decision: %s", err)
+		return
+	}
 	decision := &types.GlobalSchedulingDecision{
-		Created:   time.Now(),
-		RunnerID:  runnerID,
-		SessionID: session.ID,
-		Filter:    filter,
-		ModelName: session.ModelName,
-		Mode:      session.Mode,
+		Created:       time.Now(),
+		RunnerID:      runnerID,
+		SessionID:     session.ID,
+		InteractionID: systemInteraction.ID,
+		Filter:        filter,
+		ModelName:     session.ModelName,
+		Mode:          session.Mode,
 	}
 
 	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)
