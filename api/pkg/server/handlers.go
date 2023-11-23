@@ -334,7 +334,11 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 		return nil, err
 	}
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+		// admin can do anything
+		// this is used for the dashboard
+		if !apiServer.adminAuth.isUserAdmin(reqContext.Owner) {
+			return nil, fmt.Errorf("access denied")
+		}
 	}
 	return session, nil
 }

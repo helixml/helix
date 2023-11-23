@@ -1,11 +1,9 @@
 import React, { FC } from 'react'
-import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
-import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -30,12 +28,13 @@ export const SchedulingDecisionSummary: FC<{
     <Row>
       <Cell
         sx={{
-          width: '25px'
+          width: '30px'
         }}
       >
         <SessionBadge
           modelName={ decision.model_name }
           mode={ decision.mode }
+          reverse
         />
       </Cell>
       <Cell
@@ -52,15 +51,13 @@ export const SchedulingDecisionSummary: FC<{
           width: '130px'
         }}
       >
-        <ClickLink
-          onClick={ () => {
-            onViewSession(decision.session_id)
-          }}
+        <JsonWindowLink
+          data={ decision }
         >
           <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline' }}> 
             { shortID(decision.session_id) } : { shortID(decision.interaction_id) }
           </Typography>
-        </ClickLink>
+        </JsonWindowLink>
       </Cell>
       <Cell flexGrow={ 1 }>
         <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -68,13 +65,14 @@ export const SchedulingDecisionSummary: FC<{
         </Typography>
       </Cell>
       <Cell>
-        <JsonWindowLink
-          data={ decision }
+        <IconButton
+          color="primary"
+          onClick={ () => {
+            onViewSession(decision.session_id)
+          }}
         >
-          <IconButton color="primary">
-            <VisibilityIcon />
-          </IconButton>
-        </JsonWindowLink>
+          <VisibilityIcon />
+        </IconButton>
       </Cell>
     </Row>
   )
