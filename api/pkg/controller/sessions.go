@@ -99,24 +99,39 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 // we mark the session as "preparing" here to give text fine tuning
 // a chance to sort itself out in the background
 func (c *Controller) AddSessionToQueue(session *types.Session) {
+	sessionSummary, err := model.GetSessionSummary(session)
+	if err != nil {
+		log.Error().Msgf("error getting session summary: %s", err.Error())
+		return
+	}
+
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
 	existing := false
 	newQueue := []*types.Session{}
-	for _, existingSession := range c.sessionQueue {
+	newSummaryQueue := []*types.SessionSummary{}
+	for i, existingSession := range c.sessionQueue {
 		if existingSession.ID == session.ID {
+			// the session we are updating is already in the queue!
 			newQueue = append(newQueue, session)
+			newSummaryQueue = append(newSummaryQueue, sessionSummary)
 			existing = true
 		} else {
-			newQueue = append(newQueue, existingSession)
+			// this is another session we just want to copy it over
+			// we use the index to copy so it's the same for the summary and the actual session
+			newQueue = append(newQueue, c.sessionQueue[i])
+			newSummaryQueue = append(newSummaryQueue, c.sessionSummaryQueue[i])
 		}
 	}
 	if !existing {
+		// we did not find the session already in the queue
 		newQueue = append(newQueue, session)
+		newSummaryQueue = append(newSummaryQueue, sessionSummary)
 	}
 
 	c.sessionQueue = newQueue
+	c.sessionSummaryQueue = newSummaryQueue
 }
 
 func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.RunnerTaskResponse, error) {

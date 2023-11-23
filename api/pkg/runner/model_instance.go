@@ -77,7 +77,7 @@ type ModelInstance struct {
 	fileHandler *FileHandler
 
 	// a history of the session IDs
-	jobHistory []*types.ModelInstanceJob
+	jobHistory []*types.SessionSummary
 }
 
 func NewModelInstance(
@@ -135,6 +135,7 @@ func NewModelInstance(
 		runnerOptions:     runnerOptions,
 		httpClientOptions: httpClientOptions,
 		fileHandler:       NewFileHandler(runnerOptions.ID, httpClientOptions),
+		jobHistory:        []*types.SessionSummary{},
 	}, nil
 }
 
@@ -181,10 +182,8 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 		return
 	}
 
-	log.Debug().
-		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
+	err = instance.addJobToHistory(session)
 
-	interactionID, err := getLastInteractionID(preparedSession)
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
 		instance.queuedSession = nil
@@ -193,11 +192,8 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 		return
 	}
 
-	instance.jobHistory = append(instance.jobHistory, &types.ModelInstanceJob{
-		Created:       time.Now(),
-		SessionID:     session.ID,
-		InteractionID: interactionID,
-	})
+	log.Debug().
+		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
 
 	instance.queuedSession = nil
 	instance.nextSession = preparedSession
@@ -401,6 +397,21 @@ func (instance *ModelInstance) isStale() bool {
 		stale = true
 	}
 	return stale
+}
+
+func (instance *ModelInstance) addJobToHistory(session *types.Session) error {
+	summary, err := model.GetSessionSummary(session)
+	if err != nil {
+		return err
+	}
+
+	// put the job at the start of the array
+	instance.jobHistory = append([]*types.SessionSummary{summary}, instance.jobHistory...)
+	if len(instance.jobHistory) > instance.runnerOptions.JobHistoryBufferSize {
+		instance.jobHistory = instance.jobHistory[:len(instance.jobHistory)-1]
+	}
+
+	return nil
 }
 
 func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
