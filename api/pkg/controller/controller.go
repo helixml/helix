@@ -96,6 +96,7 @@ func NewController(
 		UserWebsocketEventChanWriter:   make(chan *types.WebsocketEvent),
 		RunnerWebsocketEventChanReader: make(chan *types.WebsocketEvent),
 		sessionQueue:                   []*types.Session{},
+		sessionSummaryQueue:            []*types.SessionSummary{},
 		models:                         models,
 		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
