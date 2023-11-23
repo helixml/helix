@@ -18,7 +18,7 @@ import SchedulingDecisionSummary from '../components/session/SchedulingDecisionS
 
 import {
   IDashboardData,
-  ISession,
+  ISessionSummary,
 } from '../types'
 
 const Dashboard: FC = () => {
@@ -124,7 +124,7 @@ const Dashboard: FC = () => {
         />
         {
           data?.runners.map((runner) => {
-            const allSessions = runner.model_instances.reduce<ISession[]>((allSessions, modelInstance) => {
+            const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
               return modelInstance.current_session ? [ ...allSessions, modelInstance.current_session ] : allSessions
             }, [])
             return allSessions.length > 0 ? (
@@ -133,7 +133,7 @@ const Dashboard: FC = () => {
                 {
                   allSessions.map(session => (
                     <SessionSummary
-                      key={ session.id }
+                      key={ session.session_id }
                       session={ session }
                     />
                   ))
@@ -151,7 +151,7 @@ const Dashboard: FC = () => {
           data.session_queue.map((session) => {
             return (
               <SessionSummary
-                key={ session.id }
+                key={ session.session_id }
                 session={ session }
               />
             )

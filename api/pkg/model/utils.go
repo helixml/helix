@@ -89,6 +89,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		SessionID:     session.ID,
 		InteractionID: systemInteraction.ID,
 		Mode:          session.Mode,
+		Type:          session.Type,
 		ModelName:     session.ModelName,
 		Owner:         session.Owner,
 		LoraDir:       session.LoraDir,

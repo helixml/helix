@@ -246,10 +246,11 @@ type SessionSummary struct {
 	InteractionID string      `json:"interaction_id"`
 	ModelName     ModelName   `json:"model_name"`
 	Mode          SessionMode `json:"mode"`
+	Type          SessionType `json:"type"`
 	Owner         string      `json:"owner"`
-	LoraDir       string      `json:"lora_dir"`
+	LoraDir       string      `json:"lora_dir,omitempty"`
 	// this is either the prompt or the summary of the training data
-	Summary string `json:"prompt"`
+	Summary string `json:"summary"`
 }
 
 type ModelInstanceState struct {
@@ -260,7 +261,7 @@ type ModelInstanceState struct {
 	InitialSessionID string      `json:"initial_session_id"`
 	// this is either the currently running session
 	// or the queued session that will be run next but is currently downloading
-	CurrentSession *Session          `json:"current_session"`
+	CurrentSession *SessionSummary   `json:"current_session"`
 	JobHistory     []*SessionSummary `json:"job_history"`
 	// how many seconds to wait before calling ourselves stale
 	Timeout int `json:"timeout"`

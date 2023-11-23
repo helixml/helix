@@ -1,5 +1,6 @@
 import {
   ISession,
+  ISessionSummary,
   ISessionType,
   ISessionMode,
   IInteraction,
@@ -73,28 +74,16 @@ export const getHeadline = (modelName: string, mode: ISessionMode): string => {
   return `${getModelName(modelName)} ${mode}`
 }
 
-export const getSessionHeadline = (session: ISession): string => {
-  return `${ getHeadline(session.model_name, session.mode) } : ${ shortID(session.id) } : ${ getTiming(session) }`
+export const getSessionHeadline = (session: ISessionSummary): string => {
+  return `${ getHeadline(session.model_name, session.mode) } : ${ shortID(session.session_id) } : ${ getTiming(session) }`
 }
 
 export const getModelInstanceNoSessionHeadline = (modelInstance: IModelInstanceState): string => {
   return `${getHeadline(modelInstance.model_name, modelInstance.mode)} : ${getModelInstanceIdleTime(modelInstance)}`
 }
 
-// for inference sessions
-// we just return the last prompt
-// for funetune sessions
-// we return some kind of summary of the files
-export const getSummaryCaption = (session: ISession): string => {
-  if(session.mode == SESSION_MODE_INFERENCE) {
-    const userInteraction = getUserInteraction(session)
-    if(!userInteraction) return 'no user interaction found'
-    return userInteraction.message
-  } else {
-    const userInteraction = getUserInteraction(session)
-    if(!userInteraction) return 'no user interaction found'
-    return `fine tuning on ${userInteraction.files.length} files`
-  }
+export const getSummaryCaption = (session: ISessionSummary): string => {
+  return session.summary
 }
 
 export const getModelInstanceIdleTime = (modelInstance: IModelInstanceState): string => {
@@ -108,14 +97,13 @@ export const shortID = (id: string): string => {
   return id.split('-').shift() || ''
 }
 
-export const getTiming = (session: ISession): string => {
-  const systemInteraction = getSystemInteraction(session)
-  if(hasDate(systemInteraction?.scheduled)) {
-    const runningFor = Date.now() - new Date(systemInteraction?.scheduled || '').getTime()
+export const getTiming = (session: ISessionSummary): string => {
+  if(hasDate(session?.scheduled)) {
+    const runningFor = Date.now() - new Date(session?.scheduled || '').getTime()
     const runningForSeconds = Math.floor(runningFor / 1000)
     return `${runningForSeconds} secs`
-  } else if(hasDate(systemInteraction?.created)){
-    const waitingFor = Date.now() - new Date(systemInteraction?.created || '').getTime()
+  } else if(hasDate(session?.created)){
+    const waitingFor = Date.now() - new Date(session?.created || '').getTime()
     const waitingForSeconds = Math.floor(waitingFor / 1000)
     return `${waitingForSeconds} secs`
   } else {
