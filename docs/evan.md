@@ -15,3 +15,11 @@ ssh -L 8081:localhost:8081 luke@node05.lukemarsden.net
 ```
 
 Now you can open http://localhost in your browser.
+
+If there are complaints about node modules in the top window - you need to rebuild:
+
+```bash
+./stack stop
+docker-compose build
+./stack start
+```
