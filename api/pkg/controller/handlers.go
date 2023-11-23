@@ -124,7 +124,7 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		return true
 	})
 	return &types.DashboardData{
-		SessionQueue:              c.sessionQueue,
+		// SessionQueue:              c.sessionQueue,
 		Runners:                   runners,
 		GlobalSchedulingDecisions: c.schedulingDecisions,
 	}, nil

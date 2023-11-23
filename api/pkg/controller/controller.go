@@ -52,8 +52,11 @@ type Controller struct {
 	RunnerWebsocketEventChanReader chan *types.WebsocketEvent
 
 	// the backlog of sessions that need a GPU
-	sessionQueue    []*types.Session
-	sessionQueueMtx sync.Mutex
+	sessionQueue []*types.Session
+	// we keep this managed to avoid having to lock the queue mutex
+	// whilst we calculate all the summaries
+	sessionSummaryQueue []*types.SessionSummary
+	sessionQueueMtx     sync.Mutex
 
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us

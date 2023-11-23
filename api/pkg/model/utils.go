@@ -68,6 +68,38 @@ func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater)
 	return session, nil
 }
 
+func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
+	systemInteraction, err := GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	userInteraction, err := GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	summary := ""
+	if session.Mode == types.SessionModeInference {
+		summary = userInteraction.Message
+	} else if session.Mode == types.SessionModeFinetune {
+		summary = fmt.Sprintf("fine tuning on %d files", len(userInteraction.Files))
+	} else {
+		return nil, fmt.Errorf("invalid session mode")
+	}
+	return &types.SessionSummary{
+		SessionID:     session.ID,
+		InteractionID: systemInteraction.ID,
+		Mode:          session.Mode,
+		ModelName:     session.ModelName,
+		Owner:         session.Owner,
+		LoraDir:       session.LoraDir,
+		Created:       systemInteraction.Created,
+		Updated:       systemInteraction.Updated,
+		Scheduled:     systemInteraction.Scheduled,
+		Completed:     systemInteraction.Completed,
+		Summary:       summary,
+	}, nil
+}
+
 // each model get's to decide what it's task looks like
 // but this is the vanilla "most models return this"
 // version - models call this and are free to override fields

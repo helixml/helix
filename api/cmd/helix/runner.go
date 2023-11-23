@@ -30,6 +30,7 @@ func NewRunnerOptions() *RunnerOptions {
 			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
+			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),

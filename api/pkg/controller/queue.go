@@ -93,6 +93,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	defer c.sessionQueueMtx.Unlock()
 
 	sessionQueue := []*types.Session{}
+	sessionSummaryQueue := []*types.SessionSummary{}
 
 	st := c.Options.Store
 
@@ -123,11 +124,18 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 			continue
 		}
 
+		summary, err := model.GetSessionSummary(session)
+		if err != nil {
+			return err
+		}
+
 		sessionQueue = append(sessionQueue, session)
+		sessionSummaryQueue = append(sessionSummaryQueue, summary)
 	}
 
 	// now we have the queue in oldest first order
 	c.sessionQueue = sessionQueue
+	c.sessionSummaryQueue = sessionSummaryQueue
 	return nil
 }
 

@@ -235,10 +235,21 @@ type UpdateSessionRequest struct {
 	UserInteraction Interaction
 }
 
-type ModelInstanceJob struct {
-	Created       time.Time `json:"created"`
-	SessionID     string    `json:"session_id"`
-	InteractionID string    `json:"interaction_id"`
+// a short version of a session that we keep for the dashboard
+type SessionSummary struct {
+	// these are all values of the last interaction
+	Created       time.Time   `json:"created"`
+	Updated       time.Time   `json:"updated"`
+	Scheduled     time.Time   `json:"scheduled"`
+	Completed     time.Time   `json:"completed"`
+	SessionID     string      `json:"session_id"`
+	InteractionID string      `json:"interaction_id"`
+	ModelName     ModelName   `json:"model_name"`
+	Mode          SessionMode `json:"mode"`
+	Owner         string      `json:"owner"`
+	LoraDir       string      `json:"lora_dir"`
+	// this is either the prompt or the summary of the training data
+	Summary string `json:"prompt"`
 }
 
 type ModelInstanceState struct {
@@ -249,8 +260,8 @@ type ModelInstanceState struct {
 	InitialSessionID string      `json:"initial_session_id"`
 	// this is either the currently running session
 	// or the queued session that will be run next but is currently downloading
-	CurrentSession *Session            `json:"current_session"`
-	JobHistory     []*ModelInstanceJob `json:"job_history"`
+	CurrentSession *Session          `json:"current_session"`
+	JobHistory     []*SessionSummary `json:"job_history"`
 	// how many seconds to wait before calling ourselves stale
 	Timeout int `json:"timeout"`
 	// when was the last activity seen on this instance
@@ -276,7 +287,7 @@ type RunnerState struct {
 }
 
 type DashboardData struct {
-	SessionQueue              []*Session                  `json:"session_queue"`
+	SessionQueue              []*SessionSummary           `json:"session_queue"`
 	Runners                   []*RunnerState              `json:"runners"`
 	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
 }

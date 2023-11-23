@@ -62,6 +62,7 @@ type RunnerOptions struct {
 	Labels map[string]string
 
 	SchedulingDecisionBufferSize int
+	JobHistoryBufferSize         int
 }
 
 type Runner struct {
