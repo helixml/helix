@@ -72,6 +72,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 		return
 	}
 	errorInteraction.State = types.InteractionStateError
+	errorInteraction.Completed = time.Now()
 	errorInteraction.Error = sessionErr.Error()
 	errorInteraction.Finished = true
 
@@ -87,6 +88,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	}
 
 	session.Interactions = newInteractions
+	session.Updated = time.Now()
 
 	c.WriteSession(session)
 }
@@ -97,24 +99,39 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 // we mark the session as "preparing" here to give text fine tuning
 // a chance to sort itself out in the background
 func (c *Controller) AddSessionToQueue(session *types.Session) {
+	sessionSummary, err := model.GetSessionSummary(session)
+	if err != nil {
+		log.Error().Msgf("error getting session summary: %s", err.Error())
+		return
+	}
+
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
 	existing := false
 	newQueue := []*types.Session{}
-	for _, existingSession := range c.sessionQueue {
+	newSummaryQueue := []*types.SessionSummary{}
+	for i, existingSession := range c.sessionQueue {
 		if existingSession.ID == session.ID {
+			// the session we are updating is already in the queue!
 			newQueue = append(newQueue, session)
+			newSummaryQueue = append(newSummaryQueue, sessionSummary)
 			existing = true
 		} else {
-			newQueue = append(newQueue, existingSession)
+			// this is another session we just want to copy it over
+			// we use the index to copy so it's the same for the summary and the actual session
+			newQueue = append(newQueue, c.sessionQueue[i])
+			newSummaryQueue = append(newSummaryQueue, c.sessionSummaryQueue[i])
 		}
 	}
 	if !existing {
+		// we did not find the session already in the queue
 		newQueue = append(newQueue, session)
+		newSummaryQueue = append(newSummaryQueue, sessionSummary)
 	}
 
 	c.sessionQueue = newQueue
+	c.sessionSummaryQueue = newSummaryQueue
 }
 
 func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.RunnerTaskResponse, error) {
@@ -132,71 +149,50 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return nil, fmt.Errorf("session not found: %s", taskResponse.SessionID)
 	}
 
-	// let's see if we are updating an existing interaction
-	// or appending a new one
-	targetInteraction, err := model.GetSystemInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	if targetInteraction == nil {
-		return nil, fmt.Errorf("interaction not found: %s", taskResponse.SessionID)
-	}
-
-	if targetInteraction.Creator == types.CreatorTypeUser {
-		return nil, fmt.Errorf("interaction is not a system interaction cannot update: %s -> %s", taskResponse.SessionID, targetInteraction.ID)
-	}
-
-	// mark the interaction as complete if we are a fully finished response
-	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-		targetInteraction.Finished = true
-		targetInteraction.State = types.InteractionStateComplete
-	}
-
-	// update the message if we've been given one
-	if taskResponse.Message != "" {
+	session, err = model.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+		// mark the interaction as complete if we are a fully finished response
 		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-			targetInteraction.Message = taskResponse.Message
-		} else if taskResponse.Type == types.WorkerTaskResponseTypeStream {
-			targetInteraction.Message += taskResponse.Message
+			targetInteraction.Finished = true
+			targetInteraction.Completed = time.Now()
+			targetInteraction.State = types.InteractionStateComplete
 		}
-	}
 
-	if taskResponse.Progress != 0 {
-		targetInteraction.Progress = taskResponse.Progress
-	}
-
-	if taskResponse.Status != "" {
-		targetInteraction.Status = taskResponse.Status
-	}
-
-	// update the files if there are some
-	if taskResponse.Files != nil {
-		targetInteraction.Files = taskResponse.Files
-	}
-
-	if taskResponse.Error != "" {
-		targetInteraction.Error = taskResponse.Error
-	}
-
-	if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && taskResponse.LoraDir != "" {
-		// we got some files back from a finetune
-		// so let's hoist the session into inference mode but with the finetune file attached
-		session.Mode = types.SessionModeInference
-		session.LoraDir = taskResponse.LoraDir
-		targetInteraction.LoraDir = taskResponse.LoraDir
-	}
-
-	newInteractions := []types.Interaction{}
-	for _, interaction := range session.Interactions {
-		if interaction.ID == targetInteraction.ID {
-			newInteractions = append(newInteractions, *targetInteraction)
-		} else {
-			newInteractions = append(newInteractions, interaction)
+		// update the message if we've been given one
+		if taskResponse.Message != "" {
+			if taskResponse.Type == types.WorkerTaskResponseTypeResult {
+				targetInteraction.Message = taskResponse.Message
+			} else if taskResponse.Type == types.WorkerTaskResponseTypeStream {
+				targetInteraction.Message += taskResponse.Message
+			}
 		}
-	}
 
-	session.Interactions = newInteractions
+		if taskResponse.Progress != 0 {
+			targetInteraction.Progress = taskResponse.Progress
+		}
+
+		if taskResponse.Status != "" {
+			targetInteraction.Status = taskResponse.Status
+		}
+
+		// update the files if there are some
+		if taskResponse.Files != nil {
+			targetInteraction.Files = taskResponse.Files
+		}
+
+		if taskResponse.Error != "" {
+			targetInteraction.Error = taskResponse.Error
+		}
+
+		if taskResponse.Type == types.WorkerTaskResponseTypeResult && session.Mode == types.SessionModeFinetune && taskResponse.LoraDir != "" {
+			// we got some files back from a finetune
+			// so let's hoist the session into inference mode but with the finetune file attached
+			session.Mode = types.SessionModeInference
+			session.LoraDir = taskResponse.LoraDir
+			targetInteraction.LoraDir = taskResponse.LoraDir
+		}
+
+		return targetInteraction, nil
+	})
 
 	c.WriteSession(session)
 
@@ -208,6 +204,7 @@ func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionR
 	systemInteraction := types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
+		Updated:  time.Now(),
 		Creator:  types.CreatorTypeSystem,
 		Message:  "",
 		Files:    []string{},
@@ -253,11 +250,13 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 	systemInteraction := types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
+		Updated:  time.Now(),
 		Creator:  types.CreatorTypeSystem,
 		Message:  "",
 		Files:    []string{},
 		State:    types.InteractionStateWaiting,
 		Finished: false,
+		Metadata: map[string]string{},
 	}
 	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
 	if err != nil {

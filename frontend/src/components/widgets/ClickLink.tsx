@@ -1,10 +1,11 @@
 import React, { FC, useCallback, MouseEvent } from 'react'
-
+import { SxProps } from '@mui/system'
 import Box from '@mui/material/Box'
 
 interface JobViewLinkProps {
   className?: string,
   textDecoration?: boolean,
+  sx?: SxProps,
   onClick: {
     (): void,
   },
@@ -13,6 +14,7 @@ interface JobViewLinkProps {
 const ClickLink: FC<React.PropsWithChildren<JobViewLinkProps>> = ({
   className,
   textDecoration = false,
+  sx = {},
   onClick,
   children,
 }) => {
@@ -35,6 +37,7 @@ const ClickLink: FC<React.PropsWithChildren<JobViewLinkProps>> = ({
       sx={{
         color: 'primary.main',
         textDecoration: textDecoration ? 'underline' : 'none',
+        ...sx
       }}
     >
       { children }

@@ -118,15 +118,14 @@ func (c *Controller) AddRunnerMetrics(ctx context.Context, metrics *types.Runner
 }
 
 func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData, error) {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
 	runners := []*types.RunnerState{}
 	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
 		runners = append(runners, metrics)
 		return true
 	})
 	return &types.DashboardData{
-		SessionQueue: c.sessionQueue,
-		Runners:      runners,
+		SessionQueue:              c.sessionSummaryQueue,
+		Runners:                   runners,
+		GlobalSchedulingDecisions: c.schedulingDecisions,
 	}, nil
 }

@@ -30,9 +30,12 @@ type Module struct {
 }
 
 type Interaction struct {
-	ID      string      `json:"id"`
-	Created time.Time   `json:"created"`
-	Creator CreatorType `json:"creator"` // e.g. User
+	ID        string      `json:"id"`
+	Created   time.Time   `json:"created"`
+	Updated   time.Time   `json:"updated"`
+	Scheduled time.Time   `json:"scheduled"`
+	Completed time.Time   `json:"completed"`
+	Creator   CreatorType `json:"creator"` // e.g. User
 	// the ID of the runner that processed this interaction
 	Runner   string            `json:"runner"`   // e.g. 0
 	Message  string            `json:"message"`  // e.g. Prove pythagoras
@@ -76,9 +79,9 @@ type Session struct {
 }
 
 type SessionFilterModel struct {
-	Mode         SessionMode `json:"mode"`
-	ModelName    ModelName   `json:"model_name"`
-	FinetuneFile string      `json:"finetune_file"`
+	Mode      SessionMode `json:"mode"`
+	ModelName ModelName   `json:"model_name"`
+	LoraDir   string      `json:"lora_dir"`
 }
 
 type Duration time.Duration
@@ -216,42 +219,6 @@ type ServerConfig struct {
 	FilestorePrefix string `json:"filestore_prefix"`
 }
 
-type ModelInstanceJob struct {
-	Created       time.Time `json:"created"`
-	SessionID     string    `json:"session_id"`
-	InteractionID string    `json:"interaction_id"`
-}
-
-type ModelInstanceState struct {
-	ID               string      `json:"id"`
-	ModelName        ModelName   `json:"model_name"`
-	Mode             SessionMode `json:"mode"`
-	LoraDir          string      `json:"lora_dir"`
-	InitialSessionID string      `json:"initial_session_id"`
-	// this is either the currently running session
-	// or the queued session that will be run next but is currently downloading
-	CurrentSession *Session            `json:"current_session"`
-	JobHistory     []*ModelInstanceJob `json:"job_history"`
-}
-
-// the basic struct reported by a runner when it connects
-// and keeps reporting it's status to the api server
-// we expire these records after a certain amount of time
-type RunnerState struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	// the URL that the runner will POST to to get a task
-	TotalMemory    uint64                `json:"total_memory"`
-	FreeMemory     uint64                `json:"free_memory"`
-	Labels         map[string]string     `json:"labels"`
-	ModelInstances []*ModelInstanceState `json:"model_instances"`
-}
-
-type DashboardData struct {
-	SessionQueue []*Session     `json:"session_queue"`
-	Runners      []*RunnerState `json:"runners"`
-}
-
 type CreateSessionRequest struct {
 	SessionID       string
 	SessionMode     SessionMode
@@ -266,4 +233,72 @@ type CreateSessionRequest struct {
 type UpdateSessionRequest struct {
 	SessionID       string
 	UserInteraction Interaction
+}
+
+// a short version of a session that we keep for the dashboard
+type SessionSummary struct {
+	// these are all values of the last interaction
+	Created       time.Time   `json:"created"`
+	Updated       time.Time   `json:"updated"`
+	Scheduled     time.Time   `json:"scheduled"`
+	Completed     time.Time   `json:"completed"`
+	SessionID     string      `json:"session_id"`
+	InteractionID string      `json:"interaction_id"`
+	ModelName     ModelName   `json:"model_name"`
+	Mode          SessionMode `json:"mode"`
+	Type          SessionType `json:"type"`
+	Owner         string      `json:"owner"`
+	LoraDir       string      `json:"lora_dir,omitempty"`
+	// this is either the prompt or the summary of the training data
+	Summary string `json:"summary"`
+}
+
+type ModelInstanceState struct {
+	ID               string      `json:"id"`
+	ModelName        ModelName   `json:"model_name"`
+	Mode             SessionMode `json:"mode"`
+	LoraDir          string      `json:"lora_dir"`
+	InitialSessionID string      `json:"initial_session_id"`
+	// this is either the currently running session
+	// or the queued session that will be run next but is currently downloading
+	CurrentSession *SessionSummary   `json:"current_session"`
+	JobHistory     []*SessionSummary `json:"job_history"`
+	// how many seconds to wait before calling ourselves stale
+	Timeout int `json:"timeout"`
+	// when was the last activity seen on this instance
+	LastActivity int `json:"last_activity"`
+	// we let the server tell us if it thinks this
+	// (even though we could work it out)
+	Stale       bool   `json:"stale"`
+	MemoryUsage uint64 `json:"memory"`
+}
+
+// the basic struct reported by a runner when it connects
+// and keeps reporting it's status to the api server
+// we expire these records after a certain amount of time
+type RunnerState struct {
+	ID      string    `json:"id"`
+	Created time.Time `json:"created"`
+	// the URL that the runner will POST to to get a task
+	TotalMemory         uint64                `json:"total_memory"`
+	FreeMemory          uint64                `json:"free_memory"`
+	Labels              map[string]string     `json:"labels"`
+	ModelInstances      []*ModelInstanceState `json:"model_instances"`
+	SchedulingDecisions []string              `json:"scheduling_decisions"`
+}
+
+type DashboardData struct {
+	SessionQueue              []*SessionSummary           `json:"session_queue"`
+	Runners                   []*RunnerState              `json:"runners"`
+	GlobalSchedulingDecisions []*GlobalSchedulingDecision `json:"global_scheduling_decisions"`
+}
+
+type GlobalSchedulingDecision struct {
+	Created       time.Time     `json:"created"`
+	RunnerID      string        `json:"runner_id"`
+	SessionID     string        `json:"session_id"`
+	InteractionID string        `json:"interaction_id"`
+	ModelName     ModelName     `json:"model_name"`
+	Mode          SessionMode   `json:"mode"`
+	Filter        SessionFilter `json:"filter"`
 }

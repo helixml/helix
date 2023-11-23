@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"path"
+	"time"
 	"unicode/utf8"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -31,6 +32,73 @@ func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
 		}
 	}
 	return nil, fmt.Errorf("no system interaction found")
+}
+
+// update the most recent system interaction
+
+type InteractionUpdater func(*types.Interaction) (*types.Interaction, error)
+
+func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if targetInteraction == nil {
+		return nil, fmt.Errorf("interaction not found: %s", session.ID)
+	}
+
+	targetInteraction.Updated = time.Now()
+	updatedInteraction, err := updater(targetInteraction)
+	if err != nil {
+		return nil, err
+	}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range session.Interactions {
+		if interaction.ID == targetInteraction.ID {
+			newInteractions = append(newInteractions, *updatedInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	session.Interactions = newInteractions
+	session.Updated = time.Now()
+
+	return session, nil
+}
+
+func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
+	systemInteraction, err := GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	userInteraction, err := GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	summary := ""
+	if session.Mode == types.SessionModeInference {
+		summary = userInteraction.Message
+	} else if session.Mode == types.SessionModeFinetune {
+		summary = fmt.Sprintf("fine tuning on %d files", len(userInteraction.Files))
+	} else {
+		return nil, fmt.Errorf("invalid session mode")
+	}
+	return &types.SessionSummary{
+		SessionID:     session.ID,
+		InteractionID: systemInteraction.ID,
+		Mode:          session.Mode,
+		Type:          session.Type,
+		ModelName:     session.ModelName,
+		Owner:         session.Owner,
+		LoraDir:       session.LoraDir,
+		Created:       systemInteraction.Created,
+		Updated:       systemInteraction.Updated,
+		Scheduled:     systemInteraction.Scheduled,
+		Completed:     systemInteraction.Completed,
+		Summary:       summary,
+	}, nil
 }
 
 // each model get's to decide what it's task looks like

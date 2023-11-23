@@ -55,7 +55,11 @@ const New: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
-  const {navigate} = useRouter()
+  const {
+    navigate,
+    params,
+    setParams,
+  } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
 
@@ -66,11 +70,26 @@ const New: FC = () => {
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
-  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
-  const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
+
+  const {
+    mode = SESSION_MODE_INFERENCE,
+    type = SESSION_TYPE_TEXT,
+  } = params
+
+  const setModel = useCallback((mode: ISessionMode, type: ISessionType) => {
+    console.log('--------------------------------------------')
+    console.dir({mode,type})
+    setParams({
+      mode,
+      type,
+    })
+  }, [])
+
+  const selectedMode = mode
+  const selectedType = type
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -221,8 +240,12 @@ const New: FC = () => {
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
-      onInference()
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        setInputValue(current => current + "\n")
+      } else {
+        onInference()
+      }
       event.preventDefault()
     }
   }
@@ -251,14 +274,20 @@ const New: FC = () => {
             <Grid item xs={2} md={2}>
             </Grid>
             <Grid item xs={4} md={4}>
-              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_INFERENCE)}>
+              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
                 Create
                 <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
                   <Select variant="standard"
                     labelId="create-type-select-label"
                     id="create-type-select"
                     value={selectedType}
-                    onChange={(event) => setSelectedType(event.target.value as ISessionType)}
+                    onMouseDown={ e => {
+                      e.stopPropagation()
+                    }}
+                    onClick={ e => {
+                      e.stopPropagation()
+                    }}
+                    onChange={(event) => setModel(SESSION_MODE_INFERENCE, event.target.value as ISessionType)}
                   >
                     <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
                     <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
@@ -267,14 +296,20 @@ const New: FC = () => {
               </Button>
             </Grid>
             <Grid item xs={4} md={4}>
-              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_FINETUNE)}>
+              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
                 Finetune
                 <FormControl sx={{minWidth: 120, marginLeft: 2}}>
                   <Select variant="standard"
                     labelId="fine-tune-type-select-label"
                     id="fine-tune-type-select"
                     value={selectedType}
-                    onChange={(event) => setSelectedType(event.target.value as ISessionType)}
+                    onMouseDown={ e => {
+                      e.stopPropagation()
+                    }}
+                    onClick={ e => {
+                      e.stopPropagation()
+                    }}
+                    onChange={(event) => setModel(SESSION_MODE_FINETUNE, event.target.value as ISessionType)}
                   >
                     <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
                     <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
@@ -681,7 +716,7 @@ const New: FC = () => {
                     selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT ? 
                       'Enter question-answer pairs to fine tune a language model' :
                       'Upload images and label them to fine tune an image model'
-                ) + " (shift+enter to send)"
+                ) + " (shift+enter to add a newline)"
               }
               value={inputValue}
               disabled={selectedMode == SESSION_MODE_FINETUNE}

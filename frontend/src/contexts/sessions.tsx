@@ -69,17 +69,17 @@ export const useSessionsContext = (): ISessionsContext => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
       // we have a session update message
       if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
-        console.log("got new session from backend over websocket!")
+        // console.log("got new session from backend over websocket!")
         const newSession: ISession = parsedData.session
-        console.log(JSON.stringify(newSession, null, 4))
+        // console.log(JSON.stringify(newSession, null, 4))
         setSessions(sessions => sessions.map(existingSession => {
           if(existingSession.id === newSession.id) return newSession
           return existingSession
         }))
       } else if(parsedData.type == WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
         const workerResponse = parsedData.worker_task_response
-        console.log("got new workerResponse from backend over websocket!")
-        console.log(JSON.stringify(workerResponse, null, 4))
+        // console.log("got new workerResponse from backend over websocket!")
+        // console.log(JSON.stringify(workerResponse, null, 4))
         if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_STREAM) {
           setSessions(sessions => sessions.map(existingSession => {
             if(existingSession.id != workerResponse.session_id) return existingSession

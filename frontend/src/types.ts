@@ -83,6 +83,10 @@ export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
 export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
 
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
+export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
+
 export interface IWorkerTaskResponse {
   type: IWorkerTaskResponseType,
   session_id: string,
@@ -96,7 +100,10 @@ export interface IWorkerTaskResponse {
 
 export interface IInteraction {
   id: string,
-  created: number,
+  created: string,
+  updated: string,
+  scheduled: string,
+  completed: string,
   creator: ISessionCreator,
   runner: string,
   message: string,
@@ -113,13 +120,12 @@ export interface IInteraction {
 export interface ISession {
   id: string,
   name: string,
-  created: number,
-  updated: number,
+  created: string,
+  updated: string,
   parent_session: string,
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
-  error: string,
   lora_dir: string,
   interactions: IInteraction[],
   owner: string,
@@ -151,4 +157,74 @@ export interface IQuestionAnswer {
   id: string,
   question: string,
   answer: string,
+}
+
+export interface IModelInstanceState {
+  id: string,
+  model_name: string,
+  mode: ISessionMode,
+  lora_dir: string,
+  initial_session_id: string,
+  current_session?: ISessionSummary,
+  job_history: ISessionSummary[],
+  timeout: number,
+  last_activity: number,
+  stale: boolean,
+  memory: number,
+}
+
+export interface IRunnerState {
+  id: string,
+  created: number,
+  total_memory: number,
+  free_memory: number,
+  labels: Record<string, string>,
+  model_instances: IModelInstanceState[],
+  scheduling_decisions: string[],
+}
+
+export interface ISessionFilterModel {
+  mode: ISessionMode,
+  model_name?: string,
+  lora_dir?: string,
+}
+export interface ISessionFilter {
+  mode?: ISessionMode,
+  type?: ISessionType,
+  model_name?: string,
+  lora_dir?: string,
+  memory?: number,
+  reject?: ISessionFilterModel[],
+  older?: number,
+}
+
+export interface  IGlobalSchedulingDecision {
+  created: string,
+  runner_id: string,
+  session_id: string,
+  interaction_id: string,
+  filter: ISessionFilter,
+  mode: ISessionMode,
+  model_name: string,
+}
+
+export interface IDashboardData {
+  session_queue: ISessionSummary[],
+  runners: IRunnerState[],
+  global_scheduling_decisions: IGlobalSchedulingDecision[],
+}
+
+export interface ISessionSummary {
+  created: string,
+  updated: string,
+  scheduled: string,
+  completed: string,
+  session_id: string,
+  interaction_id: string,
+  model_name: string,
+  mode: ISessionMode,
+  type: ISessionType,
+  owner: string,
+  lora_dir?: string,
+  summary: string,
 }

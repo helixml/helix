@@ -36,6 +36,9 @@ type ControllerOptions struct {
 
 	// the URL we post documents to so we can get the text back from them
 	TextExtractionURL string
+
+	// how many scheduler decisions to buffer before we start dropping them
+	SchedulingDecisionBufferSize int
 }
 
 type Controller struct {
@@ -49,8 +52,11 @@ type Controller struct {
 	RunnerWebsocketEventChanReader chan *types.WebsocketEvent
 
 	// the backlog of sessions that need a GPU
-	sessionQueue    []*types.Session
-	sessionQueueMtx sync.Mutex
+	sessionQueue []*types.Session
+	// we keep this managed to avoid having to lock the queue mutex
+	// whilst we calculate all the summaries
+	sessionSummaryQueue []*types.SessionSummary
+	sessionQueueMtx     sync.Mutex
 
 	// keep a map of instantiated models so we can ask it about memory
 	// the models package looks after instantiating this for us
@@ -59,6 +65,9 @@ type Controller struct {
 	// the map of model instances that we have loaded
 	// and are currently running
 	activeRunners *xsync.MapOf[string, *types.RunnerState]
+
+	// the current buffer of scheduling decisions
+	schedulingDecisions []*types.GlobalSchedulingDecision
 }
 
 func NewController(
@@ -87,8 +96,10 @@ func NewController(
 		UserWebsocketEventChanWriter:   make(chan *types.WebsocketEvent),
 		RunnerWebsocketEventChanReader: make(chan *types.WebsocketEvent),
 		sessionQueue:                   []*types.Session{},
+		sessionSummaryQueue:            []*types.SessionSummary{},
 		models:                         models,
 		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
+		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
 	}
 	return controller, nil
 }
@@ -105,9 +116,7 @@ func (c *Controller) Initialize() error {
 			case <-c.Ctx.Done():
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
-				go func() {
-					log.Trace().Msgf("Runner websocket event: %+v", *event)
-				}()
+				log.Trace().Msgf("Runner websocket event: %+v", *event)
 				_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
 				if err != nil {
 					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
