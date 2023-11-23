@@ -202,6 +202,7 @@ export interface  IGlobalSchedulingDecision {
   created: string,
   runner_id: string,
   session_id: string,
+  interaction_id: string,
   filter: ISessionFilter,
   mode: ISessionMode,
   model_name: string,

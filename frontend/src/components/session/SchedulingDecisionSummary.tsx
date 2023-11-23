@@ -30,7 +30,7 @@ export const SchedulingDecisionSummary: FC<{
     <Row>
       <Cell
         sx={{
-          width: '30px'
+          width: '25px'
         }}
       >
         <SessionBadge
@@ -40,7 +40,7 @@ export const SchedulingDecisionSummary: FC<{
       </Cell>
       <Cell
         sx={{
-          width: '70px'
+          width: '55px'
         }}
       >
         <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -49,7 +49,7 @@ export const SchedulingDecisionSummary: FC<{
       </Cell>
       <Cell
         sx={{
-          width: '70px'
+          width: '130px'
         }}
       >
         <ClickLink
@@ -57,8 +57,8 @@ export const SchedulingDecisionSummary: FC<{
             onViewSession(decision.session_id)
           }}
         >
-          <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline' }}>
-            { shortID(decision.session_id) }
+          <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline' }}> 
+            { shortID(decision.session_id) } : { shortID(decision.interaction_id) }
           </Typography>
         </ClickLink>
       </Cell>
