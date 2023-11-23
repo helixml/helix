@@ -27,11 +27,11 @@ func newAdminAuth(adminUserIDs []string) *adminAuth {
 }
 
 func (auth *adminAuth) isUserAdmin(user string) bool {
-	if auth.developmentMode {
-		return true
-	}
 	if user == "" {
 		return false
+	}
+	if auth.developmentMode {
+		return true
 	}
 	for _, id := range auth.adminUserIDs {
 		if id == user {

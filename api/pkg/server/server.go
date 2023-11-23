@@ -94,7 +94,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	runnerRouter.Use(apiServer.runnerAuth.middleware)
 
 	// admin auth
-	adminRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	adminRouter := authRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)

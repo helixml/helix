@@ -1,8 +1,11 @@
 import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import prettyBytes from 'pretty-bytes'
+import IconButton from '@mui/material/IconButton'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import Typography from '@mui/material/Typography'
 import SessionBadge from './SessionBadge'
+import JsonWindowLink from '../widgets/JsonWindowLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
@@ -22,8 +25,12 @@ import {
 
 export const ModelInstanceSummary: FC<{
   modelInstance: IModelInstanceState,
+  onViewSession: {
+    (id: string): void,
+  }
 }> = ({
   modelInstance,
+  onViewSession,
 }) => {
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
@@ -158,11 +165,27 @@ export const ModelInstanceSummary: FC<{
                   return (
                     <li key={ i }>
                       { job.created.split('T')[1].split('.')[0] }&nbsp;&nbsp;
-                      <ClickLink
-                        onClick={ () => setHistoryViewing(true) }
+                      <JsonWindowLink
+                        sx={{
+                          display: 'inline-block',
+                          width: '140px',
+                        }}
+                        data={ job }
                       >
                         { shortID(job.session_id) } : { shortID(job.interaction_id) }
-                      </ClickLink>
+                      </JsonWindowLink>
+                      <IconButton
+                        size="small"
+                        color="primary"
+                        sx={{
+                          p: 0,
+                        }}
+                        onClick={ () => {
+                          onViewSession(job.session_id)
+                        }}
+                      >
+                        <VisibilityIcon />
+                      </IconButton>
                     </li>
                   )
                 })

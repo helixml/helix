@@ -11,13 +11,17 @@ import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
 
+import Interaction from '../components/session/Interaction'
+import Window from '../components/widgets/Window'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
+import SessionHeader from '../components/session/Header'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 
 import {
   IDashboardData,
+  ISession,
   ISessionSummary,
 } from '../types'
 
@@ -27,14 +31,39 @@ const Dashboard: FC = () => {
   const api = useApi()
 
   const activeRef = useRef(true)
+
+  const [ viewingSession, setViewingSession ] = useState<ISession>()
   const [ active, setActive ] = useState(true)
   const [ data, setData ] = useState<IDashboardData>()
+
+  const {
+    session_id,
+  } = router.params
 
   const onViewSession = useCallback((session_id: string) => {
     router.setParams({
       session_id,
     })
   }, [])
+
+  const onCloseViewingSession = useCallback(() => {
+    setViewingSession(undefined)
+    router.removeParams(['session_id'])
+  }, [])
+
+  useEffect(() => {
+    if(!session_id) return
+    if(!account.user) return
+    const loadData = async () => {
+      const session = await api.get<ISession>(`/api/v1/sessions/${ session_id }`)
+      if(!session) return
+      setViewingSession(session)
+    }
+    loadData()
+  }, [
+    account.user,
+    session_id,
+  ])
 
   useEffect(() => {
     const loadData = async () => {
@@ -135,6 +164,7 @@ const Dashboard: FC = () => {
                     <SessionSummary
                       key={ session.session_id }
                       session={ session }
+                      onViewSession={ onViewSession }
                     />
                   ))
                 }
@@ -153,6 +183,7 @@ const Dashboard: FC = () => {
               <SessionSummary
                 key={ session.session_id }
                 session={ session }
+                onViewSession={ onViewSession }
               />
             )
           })
@@ -189,6 +220,7 @@ const Dashboard: FC = () => {
                 <Grid item key={ runner.id } xs={ 12 } md={ 6 }>
                   <RunnerSummary
                     runner={ runner }
+                    onViewSession={ onViewSession }
                   />
                 </Grid>
               )
@@ -196,6 +228,38 @@ const Dashboard: FC = () => {
           }
         </Grid>
       </Box>
+      {
+        viewingSession && (
+          <Window
+            open
+            size="lg"
+            background="#FAEFE0"
+            withCancel
+            cancelTitle="Close"
+            onCancel={ onCloseViewingSession }
+          >  
+            <SessionHeader
+              session={ viewingSession }
+            />
+            {
+              viewingSession.interactions.map((interaction: any, i: number) => {
+                return (
+                  <Interaction
+                    key={ i }
+                    session_id={ viewingSession.id }
+                    type={ viewingSession.type }
+                    mode={ viewingSession.mode }
+                    interaction={ interaction }
+                    error={ interaction.error }
+                    serverConfig={ account.serverConfig }
+                    isLast={ i === viewingSession.interactions.length - 1 }
+                  />
+                )   
+              })
+            }
+          </Window>
+        )
+      }
     </Box>
   )
 }

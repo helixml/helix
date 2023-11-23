@@ -13,8 +13,12 @@ import {
 
 export const RunnerSummary: FC<{
   runner: IRunnerState,
+  onViewSession: {
+    (id: string): void,
+  }
 }> = ({
   runner,
+  onViewSession,
 }) => {
   const using_memory = runner.total_memory - runner.free_memory
   return (
@@ -54,6 +58,7 @@ export const RunnerSummary: FC<{
             <ModelInstanceSummary
               key={ modelInstance.id }
               modelInstance={ modelInstance }
+              onViewSession={ onViewSession }
             />
           )
         })

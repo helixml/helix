@@ -2,17 +2,12 @@ import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 're
 
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
-import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
-import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
-import Link from '@mui/material/Link'
 import Interaction from '../components/session/Interaction'
 import useFilestore from '../hooks/useFilestore'
 import Disclaimer from '../components/widgets/Disclaimer'
-import Progress from '../components/widgets/Progress'
-import useSnackbar from '../hooks/useSnackbar'
+import SessionHeader from '../components/session/Header'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -24,9 +19,8 @@ import {
 
 const Session: FC = () => {
   const filestore = useFilestore()
-  const snackbar = useSnackbar()
   const api = useApi()
-  const {navigate, params} = useRouter()
+  const {params} = useRouter()
   const account = useAccount()
   const sessions = useSessions()
 
@@ -119,56 +113,29 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Box
-            sx={{
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "small",
-                color: "gray",
-                flexGrow: 1,
-              }}
-            >
-              Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
-              { session?.lora_dir ? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }...
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "small",
-                color: "gray",
-                flexGrow: 0,
-              }}
-            >
-              <Link href="/files?path=%2Fsessions" onClick={(e) => {
-                e.preventDefault()
-                navigate('files', {
-                  path: `/sessions/${session?.id}`
-                })
-              }}>View Files</Link>
-            </Typography>
-          </Box>
-          <br />
-            {
-              session?.interactions.map((interaction: any, i: number) => {
-                return (
-                  <Interaction
-                    key={ i }
-                    session_id={ session.id }
-                    type={ session.type }
-                    mode={ session.mode }
-                    interaction={ interaction }
-                    error={ interaction.error }
-                    serverConfig={ account.serverConfig }
-                    isLast={ i === session.interactions.length - 1 }
-                  />
-                )   
-              })
-            }
+          {
+            session && (
+              <SessionHeader
+                session={ session }
+              />
+            )
+          }
+          {
+            session?.interactions.map((interaction: any, i: number) => {
+              return (
+                <Interaction
+                  key={ i }
+                  session_id={ session.id }
+                  type={ session.type }
+                  mode={ session.mode }
+                  interaction={ interaction }
+                  error={ interaction.error }
+                  serverConfig={ account.serverConfig }
+                  isLast={ i === session.interactions.length - 1 }
+                />
+              )   
+            })
+          }
         </Container>
       </Box>
       <Box
