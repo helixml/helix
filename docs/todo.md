@@ -1,6 +1,7 @@
 ## kai 23rd Nov
 
  - [ ] finish and deploy dashboard
+ - [ ] logged out state when trying to do things - show a message "please register"
  - [ ] fix bug with "create image" dropdown etc not working
  - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
    - [ ] make it so user can see whole message from OpenAI
