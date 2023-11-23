@@ -7,7 +7,7 @@ import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 
 import {
-  ISession,
+  ISessionSummary,
 } from '../../types'
 
 import {
@@ -16,7 +16,7 @@ import {
 } from '../../utils/session'
 
 export const SessionSummary: FC<{
-  session: ISession,
+  session: ISessionSummary,
 }> = ({
   session,
 }) => {
@@ -63,7 +63,7 @@ export const SessionSummary: FC<{
         }}
       >
         <JsonWindowLink
-          data={ session }
+          data={ {} }
         >
           <IconButton color="primary">
             <VisibilityIcon />

@@ -159,20 +159,14 @@ export interface IQuestionAnswer {
   answer: string,
 }
 
-export interface IModelInstanceJob {
-  created: string,
-  session_id: string,
-  interaction_id: string,
-}
-
 export interface IModelInstanceState {
   id: string,
   model_name: string,
   mode: ISessionMode,
   lora_dir: string,
   initial_session_id: string,
-  current_session?: ISession,
-  job_history: IModelInstanceJob[],
+  current_session?: ISessionSummary,
+  job_history: ISessionSummary[],
   timeout: number,
   last_activity: number,
   stale: boolean,
@@ -214,7 +208,22 @@ export interface  IGlobalSchedulingDecision {
 }
 
 export interface IDashboardData {
-  session_queue: ISession[],
+  session_queue: ISessionSummary[],
   runners: IRunnerState[],
   global_scheduling_decisions: IGlobalSchedulingDecision[],
+}
+
+export interface ISessionSummary {
+  created: string,
+  updated: string,
+  scheduled: string,
+  completed: string,
+  session_id: string,
+  interaction_id: string,
+  model_name: string,
+  mode: ISessionMode,
+  type: ISessionType,
+  owner: string,
+  lora_dir?: string,
+  summary: string,
 }

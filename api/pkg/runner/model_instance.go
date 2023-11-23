@@ -427,13 +427,24 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if currentSession == nil {
 		currentSession = instance.nextSession
 	}
+
+	var sessionSummary *types.SessionSummary
+	var err error
+
+	if currentSession != nil {
+		sessionSummary, err = model.GetSessionSummary(currentSession)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &types.ModelInstanceState{
 		ID:               instance.id,
 		ModelName:        instance.initialSession.ModelName,
 		Mode:             instance.initialSession.Mode,
 		LoraDir:          instance.initialSession.LoraDir,
 		InitialSessionID: instance.initialSession.ID,
-		CurrentSession:   currentSession,
+		CurrentSession:   sessionSummary,
 		JobHistory:       instance.jobHistory,
 		Timeout:          int(instance.runnerOptions.ModelInstanceTimeoutSeconds),
 		LastActivity:     int(instance.lastActivityTimestamp),
