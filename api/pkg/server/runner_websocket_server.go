@@ -13,19 +13,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var runnerWebsocketUpgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
 type AuthenticateRequest func(r *http.Request) bool
 
 type RunnerConnectionWrapper struct {
 	conn   *websocket.Conn
-	mu     sync.Mutex
 	runner string
 }
 

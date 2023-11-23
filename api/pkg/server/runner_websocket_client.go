@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -9,13 +10,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var mu sync.Mutex
+
 // ConnectWebSocket establishes a new WebSocket connection
 func ConnectRunnerWebSocketClient(
 	url string,
 	websocketEventChan chan *types.WebsocketEvent,
 	ctx context.Context,
-) *websocket.Conn {
+) {
 	closed := false
+	finished := make(chan bool)
 
 	var conn *websocket.Conn
 
@@ -28,13 +32,18 @@ func ConnectRunnerWebSocketClient(
 				if conn != nil {
 					conn.Close()
 				}
-
+				return
+			case <-finished:
 				return
 			case ev := <-websocketEventChan:
 				if conn == nil {
 					continue
 				}
-				conn.WriteJSON(ev)
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					conn.WriteJSON(ev)
+				}()
 			}
 		}
 	}()
@@ -68,7 +77,8 @@ func ConnectRunnerWebSocketClient(
 					}
 					log.Error().Msgf("Read error: %s\nReconnecting in 2 seconds...", err)
 					time.Sleep(2 * time.Second)
-					conn = ConnectRunnerWebSocketClient(url, websocketEventChan, ctx)
+					finished <- true
+					ConnectRunnerWebSocketClient(url, websocketEventChan, ctx)
 					// exit this goroutine now, another one will be spawned if
 					// the recursive call to ConnectWebSocket succeeds. Not
 					// exiting this goroutine here will cause goroutines to pile
@@ -85,5 +95,4 @@ func ConnectRunnerWebSocketClient(
 			}
 		}()
 	}
-	return conn
 }

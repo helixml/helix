@@ -105,7 +105,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"bash", "runner/venv_command.sh",
 			"python", "-u", "-m",
 			"axolotl.cli.train",
-			"examples/mistral/qlora.yml",
+			"examples/mistral/qlora-instruct.yml",
 		)
 	}
 
