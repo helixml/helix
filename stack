@@ -47,12 +47,9 @@ function start() {
   tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
   tmux send-keys -t 2 'python3 src/main.py' C-m
 
-  tmux send-keys -t 3 'docker-compose exec unstructured bash' C-m
-  tmux send-keys -t 3 'python3 src/main.py' C-m
-
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 'sleep 10' C-m
-    tmux send-keys -t 4 'go run . runner --api-host http://localhost --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
+    tmux send-keys -t 3 'go run . runner --api-host http://localhost --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
   tmux -2 attach-session -t $TMUX_SESSION
