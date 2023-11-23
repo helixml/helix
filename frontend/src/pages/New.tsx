@@ -55,7 +55,11 @@ const New: FC = () => {
   const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
-  const {navigate} = useRouter()
+  const {
+    navigate,
+    params,
+    setParams,
+  } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
 
@@ -66,11 +70,25 @@ const New: FC = () => {
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
-  const [selectedMode, setSelectedMode] = useState(SESSION_MODE_INFERENCE)
-  const [selectedType, setSelectedType] = useState(SESSION_TYPE_TEXT)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
+
+  const {
+    mode = SESSION_MODE_INFERENCE,
+    type = SESSION_TYPE_TEXT,
+  } = params
+
+  const setSelectedMode = useCallback((mode: ISessionMode) => {
+    setParams({mode})
+  }, [])
+
+  const setSelectedType = useCallback((type: ISessionType) => {
+    setParams({type})
+  }, [])
+
+  const selectedMode = mode
+  const selectedType = type
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -221,8 +239,12 @@ const New: FC = () => {
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
-      onInference()
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        setInputValue(current => current + "\n")
+      } else {
+        onInference()
+      }
       event.preventDefault()
     }
   }
@@ -681,7 +703,7 @@ const New: FC = () => {
                     selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT ? 
                       'Enter question-answer pairs to fine tune a language model' :
                       'Upload images and label them to fine tune an image model'
-                ) + " (shift+enter to send)"
+                ) + " (shift+enter to add a newline)"
               }
               value={inputValue}
               disabled={selectedMode == SESSION_MODE_FINETUNE}

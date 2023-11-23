@@ -2,7 +2,15 @@ import { FC } from 'react'
 import Button from '@mui/material/Button'
 import { styled } from '@mui/system'
 
+import useRouter from '../hooks/useRouter'
 import Disclaimer from '../components/widgets/Disclaimer'
+
+import {
+  SESSION_MODE_INFERENCE,
+  SESSION_MODE_FINETUNE,
+  SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
+} from '../types'
 
 const XContainer = styled('div')({
     maxWidth: '1200px',
@@ -49,164 +57,190 @@ const LeftContent = styled('div')({
 });
 
 function OpenAIBlock() {
-    return (
-        <Block>
-            <LeftContent>
-                <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px"}} />
-                <h1>Open AI 😉</h1>
-                <p>Deploy the best open source models securely in your cloud</p>
-                <p>Or let us run them for you</p>
-            </LeftContent>
-            <RightMedia>
-                <video autoPlay loop muted style={{width:"500px", float: "right", marginRight: "-50px"}}>
-                    <source src="/img/typing.mp4" type="video/mp4"/>
-                </video>
-            </RightMedia>
-        </Block>
-    );
+  return (
+    <Block>
+      <LeftContent>
+        <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px"}} />
+        <h1>Open AI 😉</h1>
+        <p>Deploy the best open source models securely in your cloud</p>
+        <p>Or let us run them for you</p>
+      </LeftContent>
+      <RightMedia>
+        <video autoPlay loop muted style={{width:"500px", float: "right", marginRight: "-50px"}}>
+          <source src="/img/typing.mp4" type="video/mp4"/>
+        </video>
+      </RightMedia>
+    </Block>
+  )
 }
 
 function ImageModelsBlock() {
-    return (
-        <Block>
-            <LeftMedia>
-                <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{width:"500px"}} />
-            </LeftMedia>
-            <RightContent>
-                <h1>Image models</h1>
-                <p>Train your own SDXL customized to your brand or style</p>
-                {/* <Button
-                  variant="contained"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{mb:2, fontSize: "large"}}
-                >MAKE BEAUTIFUL IMAGES</Button>
-                <br />
-                <Button
-                  variant="outlined"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{fontSize: "large"}}
-                >FINE TUNE SDXL</Button> */}
-            </RightContent>
-        </Block>
-    );
+  const router = useRouter()
+  return (
+    <Block>
+      <LeftMedia>
+        <img src="/img/sdxl.png" alt="Stable Diffusion XL" style={{width:"500px"}} />
+      </LeftMedia>
+      <RightContent>
+        <h1>Image models</h1>
+        <p>Train your own SDXL customized to your brand or style</p>
+        <Button
+          variant="contained"
+          onClick={ () => {
+            router.navigate('new', {
+              mode: SESSION_MODE_INFERENCE,
+              type: SESSION_TYPE_IMAGE,
+            })
+          }}
+          sx={{mb:2, fontSize: "large"}}
+        >
+          MAKE BEAUTIFUL IMAGES
+        </Button>
+        <br />
+        <Button
+          variant="outlined"
+          onClick={ () => {
+            router.navigate('new', {
+              mode: SESSION_MODE_FINETUNE,
+              type: SESSION_TYPE_IMAGE,
+            })
+          }}
+          sx={{fontSize: "large"}}
+        >
+          FINE TUNE SDXL
+        </Button>
+      </RightContent>
+    </Block>
+  )
 }
 
 function LanguageModelsBlock() {
-    return (
-        <Block>
-            <LeftContent>
-                <h1>Language models</h1>
-                <p>Small open source LLMs are beating proprietary models</p>
-                {/* <Button
-                  variant="contained"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{fontSize: "large", mb:2}}
-                >CHAT TO MISTRAL</Button>
-                <br />
-                <Button
-                  variant="outlined"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{fontSize: "large"}}
-                >FINE TUNE MISTRAL-7B</Button> */}
-            </LeftContent>
-            <RightMedia>
-                <img src="/img/mistral.png" alt="Mistral-8B" style={{width:"500px", float: "right"}} />
-            </RightMedia>
-        </Block>
-    );
+  const router = useRouter()
+  return (
+    <Block>
+      <LeftContent>
+        <h1>Language models</h1>
+        <p>Small open source LLMs are beating proprietary models</p>
+        <Button
+          variant="contained"
+          onClick={ () => {
+            router.navigate('new', {
+              mode: SESSION_MODE_INFERENCE,
+              type: SESSION_TYPE_TEXT,
+            })
+          }}
+          sx={{fontSize: "large", mb:2}}
+        >
+          CHAT TO MISTRAL
+        </Button>
+        <br />
+        <Button
+          variant="outlined"
+          onClick={ () => {
+            router.navigate('new', {
+              mode: SESSION_MODE_FINETUNE,
+              type: SESSION_TYPE_TEXT,
+            })
+          }}
+          sx={{fontSize: "large"}}
+        >
+          FINE TUNE MISTRAL-7B
+        </Button>
+      </LeftContent>
+      <RightMedia>
+          <img src="/img/mistral.png" alt="Mistral-8B" style={{width:"500px", float: "right"}} />
+      </RightMedia>
+    </Block>
+  )
 }
 
 function DeploymentBlock() {
-    return (
-        <Block>
-            <LeftMedia>
-                <img src="/img/servers.png" alt="Servers in a data center" style={{width:"500px"}} />
-            </LeftMedia>
-            <RightContent>
-                <h1>Deployment</h1>
-                <ul style={{ listStyleType: 'none', padding: '0' }}>
-                    <li>GPU scheduler</li>
-                    <li>Smart runners</li>
-                    <li>Autoscaler</li>
-                </ul>
-                {/* <Button
-                  variant="contained"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{mb:2, fontSize: "large"}}
-                >CONNECT RUNNER</Button>
-                <br />
-                <Button
-                  variant="outlined"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{fontSize: "large"}}
-                >DEPLOY ON YOUR INFRA</Button> */}
-            </RightContent>
-        </Block>
-    );
+  return (
+    <Block>
+      <LeftMedia>
+        <img src="/img/servers.png" alt="Servers in a data center" style={{width:"500px"}} />
+      </LeftMedia>
+      <RightContent>
+        <h1>Deployment</h1>
+        <ul style={{ listStyleType: 'none', padding: '0' }}>
+            <li>GPU scheduler</li>
+            <li>Smart runners</li>
+            <li>Autoscaler</li>
+        </ul>
+        {/* <Button
+          variant="contained"
+          onClick={ () => {
+            // endIcon={<LoginIcon />}
+            // account.onLogin()
+          }}
+          sx={{mb:2, fontSize: "large"}}
+        >
+          CONNECT RUNNER
+        </Button>
+        <br />
+        <Button
+          variant="outlined"
+          onClick={ () => {
+            // endIcon={<LoginIcon />}
+            // account.onLogin()
+          }}
+          sx={{fontSize: "large"}}
+        >
+          DEPLOY ON YOUR INFRA
+        </Button> */}
+      </RightContent>
+    </Block>
+  )
 }
 
 function Footer() {
-    return (
-        <Block>
-            <LeftContent>
-                <h1>Clone us from GitHub</h1>
-                <p>Customize it for your DevOps &ndash; or add models &ndash; to the open stack</p>
-                {/* <Button
-                  variant="contained"
-                  onClick={ () => {
-                    // endIcon={<LoginIcon />}
-                    // account.onLogin()
-                  }}
-                  sx={{fontSize: "large"}}
-                >JOIN MLOPS.COMMUNITY SLACK</Button>
-                <br />
-                <Button
-                  variant="outlined"
-                  onClick={ () => {
-                  }}
-                  sx={{mt:2, fontSize: "large"}}
-                >GITHUB.COM/HELIX-ML/HELIX</Button> */}
-                <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px", marginTop: "4em"}} />
-            </LeftContent>
-            <RightMedia>
-                <img src="/img/github.png" alt="GitHub users collaborating" style={{width:"500px", float: "right"}} />
-            </RightMedia>
-        </Block>
-    );
+  return (
+    <Block>
+      <LeftContent>
+        <h1>Clone us from GitHub</h1>
+        <p>Customize it for your DevOps &ndash; or add models &ndash; to the open stack</p>
+        <Button
+          variant="contained"
+          onClick={ () => {
+            window.open('https://mlops.community')
+          }}
+          sx={{fontSize: "large"}}
+        >
+          JOIN MLOPS.COMMUNITY SLACK #HELIX
+        </Button>
+        <br />
+        <Button
+          variant="outlined"
+          onClick={ () => {
+            window.open('https://github.com/helixml/helix')
+          }}
+          sx={{mt:2, fontSize: "large"}}
+        >
+          GITHUB.COM/HELIXML/HELIX
+        </Button>
+        <img src="/img/helix-text-logo.png" alt="Helix Logo" style={{width:"250px", marginTop: "4em"}} />
+      </LeftContent>
+      <RightMedia>
+        <img src="/img/github.png" alt="GitHub users collaborating" style={{width:"500px", float: "right"}} />
+      </RightMedia>
+    </Block>
+  )
 }
 
 // export default App;
 const Home: FC = () => {
   return (
-      <XContainer>
-        <XContainer className="home">
-          <OpenAIBlock />
-          <ImageModelsBlock />
-          <LanguageModelsBlock />
-          <DeploymentBlock />
-          <Footer />
-        </XContainer>
-        <Disclaimer />
+    <XContainer>
+      <XContainer className="home">
+        <OpenAIBlock />
+        <ImageModelsBlock />
+        <LanguageModelsBlock />
+        <DeploymentBlock />
+        <Footer />
       </XContainer>
-  );
+      <Disclaimer />
+    </XContainer>
+  )
 }
 // TODO: replace iframe above with a gradio-embed javascript lib, otherwise it's
 // iframe-in-iframe, and scroll bars are undisablable

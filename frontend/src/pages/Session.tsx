@@ -44,6 +44,7 @@ const Session: FC = () => {
   const loading = useMemo(() => {
     if(!session || !session?.interactions || session?.interactions.length === 0) return false
     const interaction = session?.interactions[session?.interactions.length - 1]
+    if(!interaction.finished) return true
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session,
@@ -75,8 +76,12 @@ const Session: FC = () => {
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
-      onSend()
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        setInputValue(current => current + "\n")
+      } else {
+        onSend()
+      }
       event.preventDefault()
     }
   }
@@ -192,7 +197,7 @@ const Session: FC = () => {
               fullWidth
               label={(
                 session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
-                ) + " (shift+enter to send)"
+                ) + " (shift+enter to add a newline)"
               }
               value={inputValue}
               disabled={loading}

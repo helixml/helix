@@ -115,13 +115,11 @@ func (c *Controller) Initialize() error {
 			case <-c.Ctx.Done():
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
-				go func() {
-					log.Trace().Msgf("Runner websocket event: %+v", *event)
-					_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
-					if err != nil {
-						log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
-					}
-				}()
+				log.Trace().Msgf("Runner websocket event: %+v", *event)
+				_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
+				if err != nil {
+					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
+				}
 			}
 		}
 	}()
