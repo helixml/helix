@@ -1,73 +1,265 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useRef, useCallback } from 'react'
 import Box from '@mui/material/Box'
-import axios from 'axios'
+import Grid from '@mui/material/Grid'
 
+import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
-import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
+import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
-import List from '@mui/material/List'
-import ListItem from '@mui/material/ListItem'
-import ListItemText from '@mui/material/ListItemText'
-import IconButton from '@mui/material/IconButton'
-import DeleteIcon from '@mui/icons-material/Delete'
-import Grid from '@mui/material/Grid'
-import Container from '@mui/material/Container'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
 
-import {ISession} from '../types'
+import Interaction from '../components/session/Interaction'
+import Window from '../components/widgets/Window'
+import JsonWindowLink from '../components/widgets/JsonWindowLink'
+import SessionSummary from '../components/session/SessionSummary'
+import SessionHeader from '../components/session/Header'
+import RunnerSummary from '../components/session/RunnerSummary'
+import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
+
+import {
+  IDashboardData,
+  ISession,
+  ISessionSummary,
+} from '../types'
 
 const Dashboard: FC = () => {
   const account = useAccount()
+  const router = useRouter()
   const api = useApi()
 
-  const [ sessions, setSessions ] = useState<ISession[]>(
-    [{id: "Loading...",
-      name: "Loading...",
-      created: 0,
-      updated: 0,
-      mode: "inference",
-      type: "text",
-      model_name: "",
-      lora_dir: "",
-      interactions: [],
-      owner: "",
-      owner_type: "user",
-      parent_session: "",
-      error: "",
-    }]
-  )
+  const activeRef = useRef(true)
+
+  const [ viewingSession, setViewingSession ] = useState<ISession>()
+  const [ active, setActive ] = useState(true)
+  const [ data, setData ] = useState<IDashboardData>()
+
+  const {
+    session_id,
+  } = router.params
+
+  const onViewSession = useCallback((session_id: string) => {
+    router.setParams({
+      session_id,
+    })
+  }, [])
+
+  const onCloseViewingSession = useCallback(() => {
+    setViewingSession(undefined)
+    router.removeParams(['session_id'])
+  }, [])
 
   useEffect(() => {
-    const intervalId = setInterval(async () => {
-      const data = await api.get(`/api/v1/dashboard`)
-      console.log(JSON.stringify(data, null, 4))
-      // setSessions(response.data.sessions)
-    }, 1000)
+    if(!session_id) return
+    if(!account.user) return
+    const loadData = async () => {
+      const session = await api.get<ISession>(`/api/v1/sessions/${ session_id }`)
+      if(!session) return
+      setViewingSession(session)
+    }
+    loadData()
+  }, [
+    account.user,
+    session_id,
+  ])
+
+  useEffect(() => {
+    const loadData = async () => {
+      if(!activeRef.current) return
+      const data = await api.get<IDashboardData>(`/api/v1/dashboard`)
+      if(!data) return
+      setData(originalData => {
+        return JSON.stringify(data) == JSON.stringify(originalData) ? originalData : data
+      })
+    }
+    const intervalId = setInterval(loadData, 1000)
+    loadData()
     return () => {
       clearInterval(intervalId)
     }
-  })
+  }, [])
 
-  
   if(!account.user) return null
+  if(!data) return null
 
   return (
-    <Box sx={{mt:4}}>
-        <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start">
-            <Grid item xs={4} md={4}>
-              <Typography variant="h6">Session Queue</Typography>
-              <ul>
-              {sessions.map((session) => {
-                return (<li key={session.id}>{session.id}</li>)
-              })}
-              </ul>
-            </Grid>
-            <Grid item xs={8} md={8}>
-              <Typography variant="h6">Runners</Typography>
-            </Grid>
-          </Grid>
-        </Container>
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+      }}
+    >
+      <Box
+        sx={{
+          p: 2,
+          flexGrow: 0,
+          height: '100%',
+          width: '400px',
+          overflowY: 'auto',
+        }}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          <Box
+            sx={{
+              flexGrow: 0,
+            }}
+          >
+            <FormGroup>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={ active }
+                    onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                      activeRef.current = event.target.checked
+                      setActive(event.target.checked)
+                    }}
+                  />
+                }
+                label="Live Updates?"
+              />
+            </FormGroup>
+          </Box>
+          <Box
+            sx={{
+              flexGrow: 1,
+              textAlign: 'right',
+            }}
+          >
+            <JsonWindowLink
+              data={ data }
+            >
+              view data
+            </JsonWindowLink>
+          </Box>
+          
+        </Box>
+        <Divider
+          sx={{
+            mt: 1,
+            mb: 1,
+          }}
+        />
+        {
+          data?.runners.map((runner) => {
+            const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
+              return modelInstance.current_session ? [ ...allSessions, modelInstance.current_session ] : allSessions
+            }, [])
+            return allSessions.length > 0 ? (
+              <React.Fragment key={ runner.id }>
+                <Typography variant="h6">Running: { runner.id }</Typography>
+                {
+                  allSessions.map(session => (
+                    <SessionSummary
+                      key={ session.session_id }
+                      session={ session }
+                      onViewSession={ onViewSession }
+                    />
+                  ))
+                }
+              </React.Fragment>
+            ) : null
+          })
+        }
+        {
+          data.session_queue.length > 0 && (
+            <Typography variant="h6">Queued Jobs</Typography>
+          )
+        }
+        {
+          data.session_queue.map((session) => {
+            return (
+              <SessionSummary
+                key={ session.session_id }
+                session={ session }
+                onViewSession={ onViewSession }
+              />
+            )
+          })
+        }
+        {
+          data.global_scheduling_decisions.length > 0 && (
+            <Typography variant="h6">Global Scheduling</Typography>
+          )
+        }
+        {
+          data.global_scheduling_decisions.map((decision, i) => {
+            return (
+              <SchedulingDecisionSummary
+                key={ i }
+                decision={ decision }
+                onViewSession={ onViewSession }
+              />
+            )
+          })
+        }
+      </Box>
+      <Box
+        sx={{
+          flexGrow: 1,
+          p: 2,
+          height: '100%',
+          overflowY: 'auto',
+        }}
+      >
+        <Grid container spacing={ 2 }>
+          {
+            data.runners.map((runner) => {
+              return (
+                <Grid item key={ runner.id } xs={ 12 } md={ 6 }>
+                  <RunnerSummary
+                    runner={ runner }
+                    onViewSession={ onViewSession }
+                  />
+                </Grid>
+              )
+            })
+          }
+        </Grid>
+      </Box>
+      {
+        viewingSession && (
+          <Window
+            open
+            size="lg"
+            background="#FAEFE0"
+            withCancel
+            cancelTitle="Close"
+            onCancel={ onCloseViewingSession }
+          >  
+            <SessionHeader
+              session={ viewingSession }
+            />
+            {
+              viewingSession.interactions.map((interaction: any, i: number) => {
+                return (
+                  <Interaction
+                    key={ i }
+                    session_id={ viewingSession.id }
+                    type={ viewingSession.type }
+                    mode={ viewingSession.mode }
+                    interaction={ interaction }
+                    error={ interaction.error }
+                    serverConfig={ account.serverConfig }
+                    isLast={ i === viewingSession.interactions.length - 1 }
+                  />
+                )   
+              })
+            }
+          </Window>
+        )
+      }
     </Box>
   )
 }

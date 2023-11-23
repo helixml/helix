@@ -6,6 +6,7 @@ export interface IRouterContext {
   name: string,
   params: Record<string, string>,
   render: () => JSX.Element,
+  getToolbarElement?: () => JSX.Element,
   meta: Record<string, any>,
   navigate: {
     (name: string, params?: Record<string, any>): void,
@@ -33,6 +34,11 @@ export const useRouterContext = (): IRouterContext => {
   const appRoute = useApplicationRoute()
   const meta = useMemo(() => {
     return appRoute.meta
+  }, [
+    appRoute,
+  ])
+  const getToolbarElement = useMemo(() => {
+    return appRoute.getToolbarElement
   }, [
     appRoute,
   ])
@@ -70,6 +76,7 @@ export const useRouterContext = (): IRouterContext => {
     name: route.name,
     params: route.params,
     meta,
+    getToolbarElement,
     navigate,
     setParams,
     removeParams,
@@ -78,6 +85,7 @@ export const useRouterContext = (): IRouterContext => {
     route.name,
     route.params,
     meta,
+    getToolbarElement,
     navigate,
     setParams,
     removeParams,

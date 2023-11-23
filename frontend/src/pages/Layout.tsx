@@ -113,7 +113,8 @@ const Layout: FC = ({
   const {
     meta,
     navigate,
-    params
+    params,
+    getToolbarElement,
   } = useRouter()
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
@@ -421,25 +422,47 @@ const Layout: FC = ({
             backgroundColor: '#fff',
             height: '100%',
             borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            width: '100%',
           }}
         >
           {
             bigScreen ? (
-              <Typography
-                component="h1"
-                variant="h6"
-                color="inherit"
-                noWrap
+              <Box
                 sx={{
-                  flexGrow: 1,
-                  ml: 1,
-                  color: 'text.primary',
+                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}
               >
-                { meta.title || '' }
-              </Typography>
+                <Typography
+                  component="h1"
+                  variant="h6"
+                  color="inherit"
+                  noWrap
+                  sx={{
+                    flexGrow: 1,
+                    ml: 1,
+                    color: 'text.primary',
+                  }}
+                >
+                  { meta.title || '' }
+                </Typography>
+                
+              </Box>
+              
             ) : (
-              <>
+              <Box
+                sx={{
+                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
                 <IconButton
                   color="inherit"
                   aria-label="open drawer"
@@ -453,24 +476,33 @@ const Layout: FC = ({
                   <MenuIcon />
                 </IconButton>
                 { themeConfig.logo() }
-                <div style={{flex: 1}}></div>
-              </>
+              </Box>
             )
           }
-          {
-            account.user ? null : (
-              <Button
-                variant="contained"
-                color="secondary"
-                endIcon={<LoginIcon />}
-                onClick={ () => {
-                  account.onLogin()
-                }}
-              >
-                Login / Register
-              </Button>
-            )
-          }
+          <Box
+            sx={{
+              flexGrow: 1,
+              textAlign: 'right',
+            }}
+          >
+            {
+              bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
+            }
+            {
+              account.user ? null : (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  endIcon={<LoginIcon />}
+                  onClick={ () => {
+                    account.onLogin()
+                  }}
+                >
+                  Login / Register
+                </Button>
+              )
+            }
+          </Box>
         </Toolbar>
       </AppBar>
       <MuiDrawer
@@ -513,10 +545,12 @@ const Layout: FC = ({
       <Box
         component="main"
         sx={{
-          backgroundColor: (theme) =>
-            theme.palette.mode === 'light'
+          backgroundColor: (theme) => {
+            if(meta.background) return meta.background
+            return theme.palette.mode === 'light'
               ? "#FAEFE0" 
-              : theme.palette.grey[900],
+              : theme.palette.grey[900]
+          },
           flexGrow: 1,
           height: '100vh',
           display: 'flex',

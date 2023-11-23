@@ -37,10 +37,11 @@ func NewServeOptions() *ServeOptions {
 			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 50),
 		},
 		ControllerOptions: controller.ControllerOptions{
-			FilePrefixGlobal:  getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
-			FilePrefixUser:    getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
-			FilePrefixResults: getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
-			TextExtractionURL: getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
+			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
+			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
+			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
+			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
+			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
@@ -122,6 +123,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ControllerOptions.FilePrefixResults, "file-prefix-results", allOptions.ControllerOptions.FilePrefixResults,
 		`The go template that produces the prefix path for a user.`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.ControllerOptions.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.ControllerOptions.SchedulingDecisionBufferSize,
+		`How many scheduling decisions to buffer before we start dropping them.`,
 	)
 
 	// FileStoreOptions

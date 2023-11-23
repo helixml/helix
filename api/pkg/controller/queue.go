@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -70,8 +71,8 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		reject := false
 		for _, rejectEntry := range filter.Reject {
 			if rejectEntry.ModelName == session.ModelName && rejectEntry.Mode == session.Mode &&
-				((rejectEntry.FinetuneFile == types.LORA_DIR_NONE && session.LoraDir == "") ||
-					(rejectEntry.FinetuneFile != "" && rejectEntry.FinetuneFile == session.LoraDir)) {
+				((rejectEntry.LoraDir == types.LORA_DIR_NONE && session.LoraDir == "") ||
+					(rejectEntry.LoraDir != "" && rejectEntry.LoraDir == session.LoraDir)) {
 				reject = true
 			}
 		}
@@ -92,6 +93,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	defer c.sessionQueueMtx.Unlock()
 
 	sessionQueue := []*types.Session{}
+	sessionSummaryQueue := []*types.SessionSummary{}
 
 	st := c.Options.Store
 
@@ -122,17 +124,21 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 			continue
 		}
 
+		summary, err := model.GetSessionSummary(session)
+		if err != nil {
+			return err
+		}
+
 		sessionQueue = append(sessionQueue, session)
+		sessionSummaryQueue = append(sessionSummaryQueue, summary)
 	}
 
 	// now we have the queue in oldest first order
 	c.sessionQueue = sessionQueue
+	c.sessionSummaryQueue = sessionSummaryQueue
 	return nil
 }
 
-// the core function - decide which task to give to a worker
-// TODO: keep track of the previous tasks run by this worker (and therefore we know which weights are loaded into RAM)
-// try to send similar tasks to the same worker
 func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
@@ -148,31 +154,48 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			Msgf("🔵 scheduler hit session: %+v", session)
 
 		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
+		c.sessionSummaryQueue = append(c.sessionSummaryQueue[:sessionIndex], c.sessionSummaryQueue[sessionIndex+1:]...)
 
 		if len(session.Interactions) == 0 {
 			return nil, fmt.Errorf("no interactions found")
 		}
 
+		session, err := model.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+			targetInteraction.Scheduled = time.Now()
+			return targetInteraction, nil
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		c.addSchedulingDecision(filter, runnerID, session)
+		c.WriteSession(session)
 		return session, nil
 	}
 
 	return nil, nil
 }
 
-func (c *Controller) RemoveSessionFromQueue(ctx context.Context, id string) error {
-	c.sessionQueueMtx.Lock()
-	defer c.sessionQueueMtx.Unlock()
-
-	sessionQueue := []*types.Session{}
-
-	for _, session := range c.sessionQueue {
-		if session.ID == id {
-			continue
-		}
-		sessionQueue = append(sessionQueue, session)
+func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		log.Error().Msgf("error adding scheduling decision: %s", err)
+		return
+	}
+	decision := &types.GlobalSchedulingDecision{
+		Created:       time.Now(),
+		RunnerID:      runnerID,
+		SessionID:     session.ID,
+		InteractionID: systemInteraction.ID,
+		Filter:        filter,
+		ModelName:     session.ModelName,
+		Mode:          session.Mode,
 	}
 
-	c.sessionQueue = sessionQueue
+	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)
 
-	return nil
+	if len(c.schedulingDecisions) > c.Options.SchedulingDecisionBufferSize {
+		c.schedulingDecisions = c.schedulingDecisions[:len(c.schedulingDecisions)-1]
+	}
 }

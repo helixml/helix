@@ -74,6 +74,7 @@ func NewServer(
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 	router.Use(apiServer.corsMiddleware)
+	router.Use(errorLoggingMiddleware)
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
 
@@ -93,7 +94,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	runnerRouter.Use(apiServer.runnerAuth.middleware)
 
 	// admin auth
-	adminRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	adminRouter := authRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)
@@ -135,9 +136,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	adminRouter.HandleFunc("/dashboard", Wrapper(apiServer.dashboard)).Methods("GET")
 
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", WrapperWithConfig(apiServer.getNextRunnerSession, WrapperConfig{
-		SilenceErrors: true,
-	})).Methods("GET")
+	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", Wrapper(apiServer.getNextRunnerSession)).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/response", Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/state", Wrapper(apiServer.handleRunnerMetrics)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")

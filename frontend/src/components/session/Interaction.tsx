@@ -4,18 +4,15 @@ import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
 import Progress from '../widgets/Progress'
-import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
 import ConversationEditor from './ConversationEditor'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
@@ -96,8 +93,6 @@ export const Interaction: FC<{
     }
   }
 
-  console.dir(interaction)
-  
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (

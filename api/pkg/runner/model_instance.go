@@ -77,7 +77,7 @@ type ModelInstance struct {
 	fileHandler *FileHandler
 
 	// a history of the session IDs
-	jobHistory []*types.ModelInstanceJob
+	jobHistory []*types.SessionSummary
 }
 
 func NewModelInstance(
@@ -135,6 +135,7 @@ func NewModelInstance(
 		runnerOptions:     runnerOptions,
 		httpClientOptions: httpClientOptions,
 		fileHandler:       NewFileHandler(runnerOptions.ID, httpClientOptions),
+		jobHistory:        []*types.SessionSummary{},
 	}, nil
 }
 
@@ -181,10 +182,8 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 		return
 	}
 
-	log.Debug().
-		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
+	err = instance.addJobToHistory(session)
 
-	interactionID, err := getLastInteractionID(preparedSession)
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
 		instance.queuedSession = nil
@@ -193,11 +192,8 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 		return
 	}
 
-	instance.jobHistory = append(instance.jobHistory, &types.ModelInstanceJob{
-		Created:       time.Now(),
-		SessionID:     session.ID,
-		InteractionID: interactionID,
-	})
+	log.Debug().
+		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
 
 	instance.queuedSession = nil
 	instance.nextSession = preparedSession
@@ -393,6 +389,31 @@ func (instance *ModelInstance) stopProcess() error {
 	return nil
 }
 
+func (instance *ModelInstance) isStale() bool {
+	stale := false
+	if instance.lastActivityTimestamp == 0 {
+		stale = false
+	} else if instance.lastActivityTimestamp+int64(instance.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
+		stale = true
+	}
+	return stale
+}
+
+func (instance *ModelInstance) addJobToHistory(session *types.Session) error {
+	summary, err := model.GetSessionSummary(session)
+	if err != nil {
+		return err
+	}
+
+	// put the job at the start of the array
+	instance.jobHistory = append([]*types.SessionSummary{summary}, instance.jobHistory...)
+	if len(instance.jobHistory) > instance.runnerOptions.JobHistoryBufferSize {
+		instance.jobHistory = instance.jobHistory[:len(instance.jobHistory)-1]
+	}
+
+	return nil
+}
+
 func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if instance.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
@@ -401,13 +422,33 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	if currentSession == nil {
 		currentSession = instance.queuedSession
 	}
+	// this can happen when the session has downloaded and is ready
+	// but the python is still booting up
+	if currentSession == nil {
+		currentSession = instance.nextSession
+	}
+
+	var sessionSummary *types.SessionSummary
+	var err error
+
+	if currentSession != nil {
+		sessionSummary, err = model.GetSessionSummary(currentSession)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &types.ModelInstanceState{
 		ID:               instance.id,
 		ModelName:        instance.initialSession.ModelName,
 		Mode:             instance.initialSession.Mode,
 		LoraDir:          instance.initialSession.LoraDir,
 		InitialSessionID: instance.initialSession.ID,
-		CurrentSession:   currentSession,
+		CurrentSession:   sessionSummary,
 		JobHistory:       instance.jobHistory,
+		Timeout:          int(instance.runnerOptions.ModelInstanceTimeoutSeconds),
+		LastActivity:     int(instance.lastActivityTimestamp),
+		Stale:            instance.isStale(),
+		MemoryUsage:      instance.model.GetMemoryRequirements(instance.initialSession.Mode),
 	}, nil
 }

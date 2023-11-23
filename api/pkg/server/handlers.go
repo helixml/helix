@@ -334,7 +334,11 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 		return nil, err
 	}
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+		// admin can do anything
+		// this is used for the dashboard
+		if !apiServer.adminAuth.isUserAdmin(reqContext.Owner) {
+			return nil, fmt.Errorf("access denied")
+		}
 	}
 	return session, nil
 }
@@ -497,14 +501,17 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}
 
 	return &types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeUser,
-		Message:  message,
-		Files:    filePaths,
-		State:    types.InteractionStateComplete,
-		Finished: true,
-		Metadata: metadata,
+		ID:        system.GenerateUUID(),
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Scheduled: time.Now(),
+		Completed: time.Now(),
+		Creator:   types.CreatorTypeUser,
+		Message:   message,
+		Files:     filePaths,
+		State:     types.InteractionStateComplete,
+		Finished:  true,
+		Metadata:  metadata,
 	}, nil
 }
 
@@ -699,11 +706,11 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			if err != nil {
 				return nil, err
 			}
-			rejectFinetuneFile := triple[2]
+			rejectLoraDir := triple[2]
 			reject = append(reject, types.SessionFilterModel{
-				ModelName:    rejectModelName,
-				Mode:         rejectModelMode,
-				FinetuneFile: rejectFinetuneFile,
+				ModelName: rejectModelName,
+				Mode:      rejectModelMode,
+				LoraDir:   rejectLoraDir,
 			})
 		}
 	}
@@ -735,12 +742,8 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	// IMPORTANT: we need to throw an error here (i.e. non 200 http code) because
-	// that is how the workers will know to wait before asking again
-	if nextSession == nil {
-		return nil, fmt.Errorf("no task found")
-	}
-
+	// if nextSession is nil - we will write null to the runner and it is setup
+	// to regard that as an error (this means we don't need to write http error codes anymore)
 	return nextSession, nil
 }
 
