@@ -79,12 +79,13 @@ const New: FC = () => {
     type = SESSION_TYPE_TEXT,
   } = params
 
-  const setSelectedMode = useCallback((mode: ISessionMode) => {
-    setParams({mode})
-  }, [])
-
-  const setSelectedType = useCallback((type: ISessionType) => {
-    setParams({type})
+  const setModel = useCallback((mode: ISessionMode, type: ISessionType) => {
+    console.log('--------------------------------------------')
+    console.dir({mode,type})
+    setParams({
+      mode,
+      type,
+    })
   }, [])
 
   const selectedMode = mode
@@ -273,14 +274,20 @@ const New: FC = () => {
             <Grid item xs={2} md={2}>
             </Grid>
             <Grid item xs={4} md={4}>
-              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_INFERENCE)}>
+              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
                 Create
                 <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
                   <Select variant="standard"
                     labelId="create-type-select-label"
                     id="create-type-select"
                     value={selectedType}
-                    onChange={(event) => setSelectedType(event.target.value as ISessionType)}
+                    onMouseDown={ e => {
+                      e.stopPropagation()
+                    }}
+                    onClick={ e => {
+                      e.stopPropagation()
+                    }}
+                    onChange={(event) => setModel(SESSION_MODE_INFERENCE, event.target.value as ISessionType)}
                   >
                     <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
                     <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
@@ -289,14 +296,20 @@ const New: FC = () => {
               </Button>
             </Grid>
             <Grid item xs={4} md={4}>
-              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setSelectedMode(SESSION_MODE_FINETUNE)}>
+              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
                 Finetune
                 <FormControl sx={{minWidth: 120, marginLeft: 2}}>
                   <Select variant="standard"
                     labelId="fine-tune-type-select-label"
                     id="fine-tune-type-select"
                     value={selectedType}
-                    onChange={(event) => setSelectedType(event.target.value as ISessionType)}
+                    onMouseDown={ e => {
+                      e.stopPropagation()
+                    }}
+                    onClick={ e => {
+                      e.stopPropagation()
+                    }}
+                    onChange={(event) => setModel(SESSION_MODE_FINETUNE, event.target.value as ISessionType)}
                   >
                     <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
                     <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
