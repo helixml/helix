@@ -140,6 +140,7 @@ func NewRunner(
 		localSessions:         xsync.NewMapOf[string, *types.Session](),
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
+		schedulingDecisions:   []string{},
 	}
 	return runner, nil
 }
