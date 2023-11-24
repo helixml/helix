@@ -165,7 +165,7 @@ export interface IModelInstanceState {
   mode: ISessionMode,
   lora_dir: string,
   initial_session_id: string,
-  current_session?: ISessionSummary,
+  current_session?: ISessionSummary | null,
   job_history: ISessionSummary[],
   timeout: number,
   last_activity: number,
@@ -175,7 +175,7 @@ export interface IModelInstanceState {
 
 export interface IRunnerState {
   id: string,
-  created: number,
+  created: string,
   total_memory: number,
   free_memory: number,
   labels: Record<string, string>,
@@ -189,13 +189,13 @@ export interface ISessionFilterModel {
   lora_dir?: string,
 }
 export interface ISessionFilter {
-  mode?: ISessionMode,
-  type?: ISessionType,
+  mode?: ISessionMode | "",
+  type?: ISessionType | "",
   model_name?: string,
   lora_dir?: string,
   memory?: number,
   reject?: ISessionFilterModel[],
-  older?: number,
+  older?: string,
 }
 
 export interface  IGlobalSchedulingDecision {

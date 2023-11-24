@@ -333,6 +333,9 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 	if err != nil {
 		return nil, err
 	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %s", id)
+	}
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		// admin can do anything
 		// this is used for the dashboard
