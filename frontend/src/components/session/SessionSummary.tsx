@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SessionBadge from './SessionBadge'
 import JsonWindowLink from '../widgets/JsonWindowLink'
+import Caption from '../widgets/Caption'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -45,12 +46,12 @@ export const SessionSummary: FC<{
         />
       </Cell>
       <Cell flexGrow={ 1 }>
-        <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Caption>
           { getHeadline(session.model_name, session.mode) } : <JsonWindowLink data={ session }>{ shortID(session.session_id) }</JsonWindowLink> : { getTiming(session) }
-        </Typography>
-        <Typography component="div" variant="caption" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#999' }}>
+        </Caption>
+        <Caption sx={{ color: '#999' }}>
           { getSummaryCaption(session) }
-        </Typography>
+        </Caption>
       </Cell>
       <Cell>
         <IconButton

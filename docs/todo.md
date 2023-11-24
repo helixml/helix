@@ -6,11 +6,11 @@
  - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
    - [ ] make it so user can see whole message from OpenAI
  - [ ] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
- - [ ] obvious buttons (on fine tuning)
-   - [ ] in default starting state - make both buttons (add docs / text) - blue and outlined
-   - [ ] the the default starting state - make the files button say "or choose files"
-   - [ ] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
-   - [ ] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
+ - [x] obvious buttons (on fine tuning)
+   - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
+   - [x] the the default starting state - make the files button say "or choose files"
+   - [x] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
+   - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
  - [ ] progress bars on text fine tuning
  - [ ] performance on text fine tuning (add concurrency to openAI calls)
  - [ ] pdfs are broken in production
@@ -18,7 +18,8 @@
    - [ ] where it currently says "Session ...." - put the session title
    - [ ] put a link next to "View Files" called "Info" that will open a model window with more session details
    - [ ] e.g. we put the text summary above in the model along with the ID and other things we want to show
-   - [ ] in the text box say "Chat with Helix" <- for txt models
+   - [x] in the text box say "Chat with Helix" <- for txt models
+   - [x] in the text box say "Make images with Helix" <- for image models
  - [ ] react is rendering streaming updates to the sessions slowly
  - [ ] URL to fetch text for text fine tuning
  - [ ] edit session name (pencil icon to left of bin icon)

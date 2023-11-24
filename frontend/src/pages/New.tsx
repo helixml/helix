@@ -1,5 +1,6 @@
 import React, { FC, useState, useCallback, useEffect } from 'react'
 import bluebird from 'bluebird'
+import prettyBytes from 'pretty-bytes'
 import ldb from 'localdata'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -17,10 +18,12 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Interaction from '../components/session/Interaction'
 import Progress from '../components/widgets/Progress'
 import CircularProgress from '@mui/material/CircularProgress'
+import Caption from '../components/widgets/Caption'
 
-import useFilestore from '../hooks/useFilestore'
 import FileUpload from '../components/widgets/FileUpload'
 import Window from '../components/widgets/Window'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 
 import Disclaimer from '../components/widgets/Disclaimer'
 import useSnackbar from '../hooks/useSnackbar'
@@ -28,7 +31,6 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSessions from '../hooks/useSessions'
-import useLoading from '../hooks/useLoading'
 
 import {
   ISessionMode,
@@ -37,7 +39,6 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  SESSION_CREATOR_SYSTEM,
 } from '../types'
 
 import {
@@ -50,7 +51,6 @@ import {
 
 import {
   getFileExtension,
-  isImage,
   ISerlializedFile,
   serializeFile,
   deserializeFile,
@@ -67,8 +67,26 @@ interface ISerializedPage {
   inputValue: string,
 }
 
+type IButtonStateColor = 'primary' | 'secondary'
+interface IButtonStates {
+  addTextColor: IButtonStateColor,
+  addTextLabel: string,
+  addUrlColor: IButtonStateColor,
+  addUrlLabel: string,
+  uploadFilesColor: IButtonStateColor,
+  uploadFilesLabel: string,
+}
+
+const buttonStates: IButtonStates = {
+  addUrlColor: 'primary',
+  addUrlLabel: 'Add URL',
+  addTextColor: 'primary',
+  addTextLabel: 'Add Text',
+  uploadFilesColor: 'primary',
+  uploadFilesLabel: 'Or Choose Files',
+}
+
 const New: FC = () => {
-  const filestore = useFilestore()
   const snackbar = useSnackbar()
   const api = useApi()
   const {
@@ -84,6 +102,7 @@ const New: FC = () => {
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [manualTextFile, setManualTextFile] = useState('')
+  const [manualURL, setManualURL] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
@@ -189,6 +208,24 @@ const New: FC = () => {
   }, [
     manualTextFile,
     manualTextFileCounter,
+    files,
+  ])
+
+  const onAddURL = useCallback(() => {
+    if(!manualURL.match(/^https?:\/\//i)) {
+      snackbar.error(`Please enter a valid URL`)
+      return
+    }
+    let fileTitle = manualURL
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./i, '')
+    const file = new File([
+      new Blob([manualURL], { type: 'text/html' })
+    ], `${fileTitle}.html`)
+    setFiles(files.concat(file))
+    setManualURL('')
+  }, [
+    manualURL,
     files,
   ])
 
@@ -415,10 +452,10 @@ const New: FC = () => {
                       width: '100%',
                     }}
                     variant="contained"
-                    color={ files.length > 0 ? "primary" : "secondary" }
+                    color={ buttonStates.uploadFilesColor }
                     endIcon={<CloudUploadIcon />}
                   >
-                    Upload { files.length > 0 ? ' More' : '' } Files
+                    { buttonStates.uploadFilesLabel }
                   </Button>
                   <Box
                     sx={{
@@ -441,7 +478,7 @@ const New: FC = () => {
                           }}
                           variant="caption"
                         >
-                          drop files here to upload them ...
+                          click or drop files here to upload them ...
                         </Typography>
                       )
                     }
@@ -520,21 +557,19 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
-                    interaction={ getSystemMessage('Firstly, paste some text or upload some documents you want your model to learn from:') }
+                    interaction={ getSystemMessage('Firstly, add URLs, paste some text or upload some files you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }
                     serverConfig={ account.serverConfig }
                   />
                 </Box>
-                <Box
+                <Row
                   sx={{
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'row',
+                    mb: 2,
                     alignItems: 'flex-start',
                   }}
                 >
-                  <Box
+                  <Cell
                     sx={{
                       flexGrow: 1,
                       pr: 2,
@@ -542,62 +577,111 @@ const New: FC = () => {
                   >
                     <TextField
                       fullWidth
+                      value={ manualURL }
+                      onChange={ (e) => {
+                        setManualURL(e.target.value)
+                      }}
+                    />
+                  </Cell>
+                  <Cell
+                    sx={{
+                      width: '240px',
+                      minWidth: '240px',
+                    }}
+                  >
+                    <Button
+                      sx={{
+                        width: '100%',
+                      }}
+                      variant="outlined"
+                      color={ buttonStates.addUrlColor }
+                      endIcon={<AddCircleIcon />}
+                      onClick={ onAddURL }
+                    >
+                      { buttonStates.addUrlLabel }
+                    </Button>
+                  </Cell>
+                  
+                </Row>
+                <Row
+                  sx={{
+                    mb: 2,
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Cell
+                    sx={{
+                      flexGrow: 1,
+                      pr: 2,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <TextField
+                      fullWidth
                       value={ manualTextFile }
                       multiline
-                      rows={ 10 }
+                      rows={ 3 }
                       onChange={ (e) => {
                         setManualTextFile(e.target.value)
                       }}
                     />
-                  </Box>
-                  <Box
+                  </Cell>
+                  <Cell
                     sx={{
                       flexGrow: 0,
+                      width: '240px',
+                      minWidth: '240px',
                     }}
                   >
                     <Button
+                      sx={{
+                        width: '100%',
+                      }}
                       variant="outlined"
-                      color={ "primary" }
+                      color={ buttonStates.addTextColor }
                       endIcon={<AddCircleIcon />}
                       onClick={ onAddTextFile }
                     >
-                      Add Text
+                      { buttonStates.addTextLabel }
                     </Button>
-                  </Box>
+                  </Cell>
                   
-                </Box>
+                </Row>
+
+
                 <FileUpload
                   sx={{
                     width: '100%',
-                    mt: 2,
                   }}
                   onlyDocuments
                   onUpload={ onDropFiles }
                 >
-                  <Button
+                  <Row
                     sx={{
-                      width: '100%',
-                    }}
-                    variant="contained"
-                    color={ files.length > 0 ? "primary" : "secondary" }
-                    endIcon={<CloudUploadIcon />}
-                  >
-                    Choose { files.length > 0 ? ' More' : '' } Files
-                  </Button>
-                  <Box
-                    sx={{
-                      border: '1px dashed #ccc',
-                      p: 2,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'flex-start',
-                      minHeight: '100px',
-                      cursor: 'pointer',
+                      alignItems: 'flex-start',
                     }}
                   >
-                    {
-                      files.length <= 0 && (
+                    <Cell
+                      sx={{
+                        flexGrow: 1,
+                        pr: 2,
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          border: '1px solid #C0B8AC',
+                          borderRadius: '4px',
+                          p: 2,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'flex-start',
+                          height: '120px',
+                          minHeight: '120px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        
                         <Typography
                           sx={{
                             color: '#999',
@@ -607,38 +691,68 @@ const New: FC = () => {
                         >
                           drop files here to upload them ...
                         </Typography>
-                      )
-                    }
-                    <Grid container spacing={3} direction="row" justifyContent="flex-start">
-                      {
-                        files.length > 0 && files.map((file) => {
-                          return (
-                            <Grid item xs={4} md={4} key={file.name}>
-                              <Box
-                                sx={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: '#999'
-                                }}
-                              >
-                                <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(file.name)}`}></span>
-                                <Typography variant="caption">
-                                  {file.name}
-                                </Typography>
-                                <Typography variant="caption">
-                                  ({file.size} bytes)
-                                </Typography>
-                              </Box>
-                            </Grid>
-                          )
-                        })
-                          
-                      }
-                    </Grid>
-                  </Box>
+                        
+                      </Box>
+                    </Cell>
+                    <Cell
+                      sx={{
+                        flexGrow: 0,
+                        width: '240px',
+                        minWidth: '240px',
+                      }}
+                    >
+                      <Button
+                        sx={{
+                          width: '100%',
+                        }}
+                        variant="outlined"
+                        color={ buttonStates.uploadFilesColor }
+                        endIcon={<CloudUploadIcon />}
+                      >
+                        { buttonStates.uploadFilesLabel }
+                      </Button>
+                    </Cell>
+                    
+                  </Row>
+
+                  
                 </FileUpload>
+
+                <Box
+                  sx={{
+                    mt: 2,
+                    mb: 2,
+                  }}
+                >
+                  <Grid container spacing={3} direction="row" justifyContent="flex-start">
+                    {
+                      files.length > 0 && files.map((file) => {
+                        return (
+                          <Grid item xs={12} md={2} key={file.name}>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#999'
+                              }}
+                            >
+                              <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(file.name)}`}></span>
+                              <Caption sx={{ maxWidth: '100%'}}>
+                                {file.name}
+                              </Caption>
+                              <Caption>
+                                ({prettyBytes(file.size)})
+                              </Caption>
+                            </Box>
+                          </Grid>
+                        )
+                      })
+                        
+                    }
+                  </Grid>
+                </Box>
                 {
                   files.length > 0 && (
                     <Button
@@ -652,7 +766,7 @@ const New: FC = () => {
                         onUploadDocuments()
                       }}
                     >
-                      Upload Documents
+                      Next Step
                     </Button>
                   )
                 }
@@ -771,15 +885,12 @@ const New: FC = () => {
             <TextField
               fullWidth
               label={(
-                selectedMode === SESSION_MODE_INFERENCE && selectedType === SESSION_TYPE_TEXT ? 
-                  'Start a chat with a base Mistral-7B-Instruct model' : 
-                  selectedMode === SESSION_MODE_INFERENCE && selectedType === SESSION_TYPE_IMAGE ? 
-                    'Describe an image to create it with a base SDXL model' : 
-                    selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT ? 
-                      'Enter question-answer pairs to fine tune a language model' :
-                      'Upload images and label them to fine tune an image model'
+                (
+                  SESSION_TYPE_TEXT ?
+                    'Chat with Helix...' :
+                    'Make images with Helix...'
                 ) + " (shift+enter to add a newline)"
-              }
+              )}
               value={inputValue}
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onChange={handleInputChange}
