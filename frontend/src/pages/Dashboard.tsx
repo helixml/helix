@@ -25,15 +25,17 @@ import {
   ISessionSummary,
 } from '../types'
 
+const START_ACTIVE = true
+
 const Dashboard: FC = () => {
   const account = useAccount()
   const router = useRouter()
   const api = useApi()
 
-  const activeRef = useRef(true)
+  const activeRef = useRef(START_ACTIVE)
 
   const [ viewingSession, setViewingSession ] = useState<ISession>()
-  const [ active, setActive ] = useState(true)
+  const [ active, setActive ] = useState(START_ACTIVE)
   const [ data, setData ] = useState<IDashboardData>()
 
   const {
@@ -54,19 +56,19 @@ const Dashboard: FC = () => {
   useEffect(() => {
     if(!session_id) return
     if(!account.user) return
-    const loadData = async () => {
+    const loadSession = async () => {
       const session = await api.get<ISession>(`/api/v1/sessions/${ session_id }`)
       if(!session) return
       setViewingSession(session)
     }
-    loadData()
+    loadSession()
   }, [
     account.user,
     session_id,
   ])
 
   useEffect(() => {
-    const loadData = async () => {
+    const loadDashboard = async () => {
       if(!activeRef.current) return
       const data = await api.get<IDashboardData>(`/api/v1/dashboard`)
       if(!data) return
@@ -74,8 +76,8 @@ const Dashboard: FC = () => {
         return JSON.stringify(data) == JSON.stringify(originalData) ? originalData : data
       })
     }
-    const intervalId = setInterval(loadData, 1000)
-    loadData()
+    const intervalId = setInterval(loadDashboard, 1000)
+    if(activeRef.current) loadDashboard()
     return () => {
       clearInterval(intervalId)
     }
@@ -101,6 +103,7 @@ const Dashboard: FC = () => {
           flexGrow: 0,
           height: '100%',
           width: '400px',
+          minWidth: '400px',
           overflowY: 'auto',
         }}
       >

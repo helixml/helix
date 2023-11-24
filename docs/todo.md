@@ -3,28 +3,40 @@
  - [x] finish and deploy dashboard
  - [x] logged out state when trying to do things - show a message "please register"
  - [x] fix bug with "create image" dropdown etc not working
- - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
-   - [ ] make it so user can see whole message from OpenAI
- - [ ] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
- - [x] obvious buttons (on fine tuning)
-   - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
-   - [x] the the default starting state - make the files button say "or choose files"
-   - [x] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
-   - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
- - [ ] progress bars on text fine tuning
- - [ ] performance on text fine tuning (add concurrency to openAI calls)
- - [ ] pdfs are broken in production
+ - [x] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
+   - [x] make it so user can see whole message from OpenAI
+ - [x] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
+ - [x] there is a dashboard bug where where runner model job history reverses itself
+ - [x] you lose keyboard focus when the chat box disables and re-enables
+ - [x] make the chatbox have keyboard focus the first time you load the page
+ - [x] pasting a long chunk of text into training text box makes the box go taller than the screen and you cannot scroll
+ - [x] create images says “chat with helix” should say “describe what you want to see in an image”
+ - [x] enforce min-width on left sidebar
+ - [x] the event cancel handler on drop downs is not letting you click the same mode
  - [ ] hide technical details behind "technical details" button ?
    - [ ] where it currently says "Session ...." - put the session title
    - [ ] put a link next to "View Files" called "Info" that will open a model window with more session details
    - [ ] e.g. we put the text summary above in the model along with the ID and other things we want to show
    - [x] in the text box say "Chat with Helix" <- for txt models
    - [x] in the text box say "Make images with Helix" <- for image models
- - [ ] react is rendering streaming updates to the sessions slowly
- - [x] URL to fetch text for text fine tuning
  - [ ] edit session name (pencil icon to left of bin icon)
+ - [ ] render markdown
+ - [ ] react is rendering streaming updates to the sessions slowly
+ - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
+ - [ ] timestamps on the log events for runner scheduling decisions
+ - [ ] show a dot next to sessions that are currently active or have new replies
+ - [x] obvious buttons (on fine tuning)
+   - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
+   - [x] the the default starting state - make the files button say "or choose files"
+   - [x] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
+   - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
+ - [ ] progress bars on text fine tuning
+ - [x] performance on text fine tuning (add concurrency to openAI calls)
  - [ ] retry button for errors
  - [ ] fork session (fork from an interaction)
+ - [ ] pdfs are broken in production
+ - [x] URL to fetch text for text fine tuning
+ - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
  - [ ] multiple SDXL at the same time causes error
    - [ ] this could be in same session or not
    - [ ] we need a test stack
@@ -33,6 +45,7 @@
  - [ ] reliable and fast, scale to 5 concurrent users (Luke)
    - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io
  - [ ] show API calls to replicate many actions (e.g. text & image inference to start with)
+ - [ ] kill any pid that shows up in nvidia-smi that it doesn’t own
  - [ ] the data prep needs to be in a job queue (later, unless we do everything ourselves)
    - [ ] the same job queue would be used for fetching data from URLs
 

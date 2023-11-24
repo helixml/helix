@@ -10,6 +10,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
@@ -633,15 +634,40 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 	systemInteraction.Status = fmt.Sprintf("converted 0 of %d chunks into training data", len(chunks))
 	c.WriteInteraction(session, systemInteraction)
 
-	for i, chunk := range chunks {
-		conversations, err := dataprep.ConvertChunk(chunk)
-		if err != nil {
-			return nil, err
-		}
-		allConversations = append(allConversations, conversations...)
-		systemInteraction.Progress = int(float64(i+1) / float64(len(chunks)) * 100)
-		systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", i+1, len(chunks))
-		c.WriteInteraction(session, systemInteraction)
+	var completedCounter int64
+	var dataPrepError error
+
+	system.ForEachConcurrently[string](
+		chunks,
+		c.Options.DataPrepConcurrency,
+		func(chunk string, i int) {
+			if dataPrepError != nil {
+				return
+			}
+			// a rough rate limiter
+			time.Sleep(1 * time.Second * time.Duration(i%c.Options.DataPrepConcurrency))
+
+			conversations, err := dataprep.ConvertChunk(chunk)
+			if err != nil {
+				if dataPrepError == nil {
+					dataPrepError = err
+					c.ErrorSession(session, err)
+				}
+				return
+			} else if dataPrepError != nil {
+				return
+			}
+
+			allConversations = append(allConversations, conversations...)
+			atomic.AddInt64(&completedCounter, 1)
+			systemInteraction.Progress = int(float64(completedCounter) / float64(len(chunks)) * 100)
+			systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", completedCounter, len(chunks))
+
+			c.WriteInteraction(session, systemInteraction)
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// now we have allConversations we convert into jsonL data

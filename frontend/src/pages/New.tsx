@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import bluebird from 'bluebird'
 import prettyBytes from 'pretty-bytes'
 import ldb from 'localdata'
@@ -96,6 +96,7 @@ const New: FC = () => {
   } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
+  const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [inputValue, setInputValue] = useState('')
@@ -349,6 +350,13 @@ const New: FC = () => {
     }
   }
 
+  useEffect(() => {
+    if(mode != SESSION_MODE_INFERENCE) return
+    textFieldRef.current?.focus()
+  }, [
+    type,
+  ])
+
   return (
     <Box
       sx={{
@@ -381,6 +389,7 @@ const New: FC = () => {
                     id="create-type-select"
                     value={selectedType}
                     onMouseDown={ e => {
+                      setModel(SESSION_MODE_INFERENCE, type as ISessionType)
                       e.stopPropagation()
                     }}
                     onClick={ e => {
@@ -403,6 +412,7 @@ const New: FC = () => {
                     id="fine-tune-type-select"
                     value={selectedType}
                     onMouseDown={ e => {
+                      setModel(SESSION_MODE_FINETUNE, type as ISessionType)
                       e.stopPropagation()
                     }}
                     onClick={ e => {
@@ -618,6 +628,10 @@ const New: FC = () => {
                     }}
                   >
                     <TextField
+                      sx={{
+                        height: '100px',
+                        maxHeight: '100px'
+                      }}
                       fullWidth
                       label="or paste some text here"
                       value={ manualTextFile }
@@ -885,11 +899,13 @@ const New: FC = () => {
           >
             <TextField
               fullWidth
+              inputRef={textFieldRef}
+              autoFocus
               label={(
                 (
-                  SESSION_TYPE_TEXT ?
+                  type == SESSION_TYPE_TEXT ?
                     'Chat with Helix...' :
-                    'Make images with Helix...'
+                    'Describe what you want to see in an image...'
                 ) + " (shift+enter to add a newline)"
               )}
               value={inputValue}
