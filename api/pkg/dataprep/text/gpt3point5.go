@@ -7,7 +7,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
+func NewDataPrepTextGPT3Point5(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
@@ -55,7 +55,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 
 	return NewDataOpenAIGPT(
 		options,
-		openai.GPT4TurboPreview,
+		openai.GPT3Dot5Turbo,
 		getSystemPromptFn,
 		getUserPromptFn,
 		parseResponseFn,

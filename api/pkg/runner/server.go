@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"gopkg.in/yaml.v3"
@@ -40,10 +39,10 @@ func NewRunnerServer(
 func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
 
-	subrouter := router.PathPrefix(server.API_SUB_PATH).Subrouter()
+	subrouter := router.PathPrefix(system.API_SUB_PATH).Subrouter()
 
 	// pull the next task for an already running wrapper
-	subrouter.HandleFunc("/worker/task/{instanceid}", server.WrapperWithConfig(runnerServer.getWorkerTask, server.WrapperConfig{
+	subrouter.HandleFunc("/worker/task/{instanceid}", system.WrapperWithConfig(runnerServer.getWorkerTask, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
@@ -51,17 +50,17 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 	// queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
 	// but it gives the python code a chance to wait for Lora weights to download before loading them
 	// into GPU memory - at which point it would start pulling from the queue as normal
-	subrouter.HandleFunc("/worker/initial_session/{instanceid}", server.WrapperWithConfig(runnerServer.readInitialWorkerSession, server.WrapperConfig{
+	subrouter.HandleFunc("/worker/initial_session/{instanceid}", system.WrapperWithConfig(runnerServer.readInitialWorkerSession, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
 	if runnerServer.Controller.Options.LocalMode {
 		// TODO: record worker response state locally, _in memory_ if we are in "local only mode"
 		// an endpoint to add our next session
-		subrouter.HandleFunc("/worker/session", server.Wrapper(runnerServer.setNextLocalSession)).Methods("POST")
+		subrouter.HandleFunc("/worker/session", system.Wrapper(runnerServer.setNextLocalSession)).Methods("POST")
 
 		// an endpoint to query the local state
-		subrouter.HandleFunc("/worker/state", server.Wrapper(runnerServer.state)).Methods("GET")
+		subrouter.HandleFunc("/worker/state", system.Wrapper(runnerServer.state)).Methods("GET")
 	}
 
 	srv := &http.Server{

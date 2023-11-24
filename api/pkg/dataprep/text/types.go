@@ -6,13 +6,15 @@ type DataPrepModule string
 
 const (
 	DataPrepModule_None         DataPrepModule = ""
-	DataPrepModule_GPT35Turbo   DataPrepModule = "gpt35_turbo"
+	DataPrepModule_GPT3Point5   DataPrepModule = "gpt3.5"
 	DataPrepModule_GPT4         DataPrepModule = "gpt4"
 	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
 )
 
 func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule, error) {
 	switch moduleName {
+	case string(DataPrepModule_GPT3Point5):
+		return DataPrepModule_GPT3Point5, nil
 	case string(DataPrepModule_GPT4):
 		return DataPrepModule_GPT4, nil
 	case string(DataPrepModule_HelixMistral):
@@ -35,6 +37,7 @@ type DataPrepTextOptions struct {
 	ChunkSize         int
 	OverflowSize      int
 	QuestionsPerChunk int
+	Temperature       float32
 }
 
 type DataPrepTextConversation struct {

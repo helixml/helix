@@ -16,6 +16,7 @@ import (
 	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
@@ -69,7 +70,7 @@ type Runner struct {
 	Ctx     context.Context
 	Options RunnerOptions
 
-	httpClientOptions server.ClientOptions
+	httpClientOptions system.ClientOptions
 
 	// the map of model instances that we have loaded
 	// and are currently running
@@ -133,7 +134,7 @@ func NewRunner(
 		Ctx:                     ctx,
 		Options:                 options,
 		lowestMemoryRequirement: lowestMemoryRequirement,
-		httpClientOptions: server.ClientOptions{
+		httpClientOptions: system.ClientOptions{
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
@@ -149,7 +150,7 @@ func NewRunner(
 func (r *Runner) Initialize(ctx context.Context) error {
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
-	parsedURL, err := url.Parse(server.WSURL(r.httpClientOptions, "/ws/runner"))
+	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, "/ws/runner"))
 	if err != nil {
 		return err
 	}
@@ -242,9 +243,9 @@ func (r *Runner) reportStateLoop(ctx context.Context) error {
 		return err
 	}
 	log.Trace().Msgf("🟠 Sending runner state %s %+v", r.Options.ID, state)
-	_, err = server.PostRequest[*types.RunnerState, *types.RunnerState](
+	_, err = system.PostRequest[*types.RunnerState, *types.RunnerState](
 		r.httpClientOptions,
-		fmt.Sprintf("/runner/%s/state", r.Options.ID),
+		system.GetApiPath(fmt.Sprintf("/runner/%s/state", r.Options.ID)),
 		state,
 	)
 	if err != nil {
@@ -616,7 +617,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
-	parsedURL, err := url.Parse(server.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +628,7 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
-	server.AddAutheaders(req, r.httpClientOptions.Token)
+	system.AddAutheaders(req, r.httpClientOptions.Token)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -727,9 +728,9 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 	// and replace it's message property - this is the text streaming case
 	// if the model does not return a text stream - then all we will hear is a WorkerTaskResponseTypeResult
 	// and the api server is just appending to the session
-	_, err := server.PostRequest[*types.RunnerTaskResponse, *types.RunnerTaskResponse](
+	_, err := system.PostRequest[*types.RunnerTaskResponse, *types.RunnerTaskResponse](
 		r.httpClientOptions,
-		fmt.Sprintf("/runner/%s/response", r.Options.ID),
+		system.GetApiPath(fmt.Sprintf("/runner/%s/response", r.Options.ID)),
 		res,
 	)
 	if err != nil {

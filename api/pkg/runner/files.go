@@ -16,7 +16,6 @@ import (
 
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -24,12 +23,12 @@ import (
 
 type FileHandler struct {
 	runnerID          string
-	httpClientOptions server.ClientOptions
+	httpClientOptions system.ClientOptions
 }
 
 func NewFileHandler(
 	runnerID string,
-	clientOptions server.ClientOptions,
+	clientOptions system.ClientOptions,
 ) *FileHandler {
 	return &FileHandler{
 		runnerID:          runnerID,
@@ -140,7 +139,7 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 		return finalPath, nil
 	}
 
-	url := server.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID))
+	url := system.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", filepath)
 
@@ -153,7 +152,7 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 	if err != nil {
 		return "", err
 	}
-	server.AddAutheaders(req, handler.httpClientOptions.Token)
+	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -194,7 +193,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
 		return "", fmt.Errorf("failed to create folder: %w", err)
 	}
-	url := server.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download/folder", handler.runnerID, sessionID))
+	url := system.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/download/folder", handler.runnerID, sessionID))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", filepath)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
@@ -206,7 +205,7 @@ func (handler *FileHandler) downloadFolder(sessionID string, localFolder string,
 	if err != nil {
 		return "", err
 	}
-	server.AddAutheaders(req, handler.httpClientOptions.Token)
+	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -275,7 +274,7 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, err
 	}
 
-	url := server.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload/files", handler.runnerID, sessionID))
+	url := system.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload/files", handler.runnerID, sessionID))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remoteFolder)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
@@ -288,7 +287,7 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 		return nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	server.AddAutheaders(req, handler.httpClientOptions.Token)
+	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	// send the request
 	client := &http.Client{}
@@ -370,7 +369,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", err
 	}
 
-	url := server.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload/folder", handler.runnerID, sessionID))
+	url := system.URL(handler.httpClientOptions, fmt.Sprintf("/runner/%s/session/%s/upload/folder", handler.runnerID, sessionID))
 	urlValues := urllib.Values{}
 	urlValues.Add("path", remoteFolder)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
@@ -383,7 +382,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		return "", err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	server.AddAutheaders(req, handler.httpClientOptions.Token)
+	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	// send the request
 	client := &http.Client{}

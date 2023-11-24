@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -30,7 +29,7 @@ type ModelInstance struct {
 	finishChan chan bool
 
 	runnerOptions     RunnerOptions
-	httpClientOptions server.ClientOptions
+	httpClientOptions system.ClientOptions
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
@@ -112,7 +111,7 @@ func NewModelInstance(
 		useLoraDir = types.LORA_DIR_NONE
 	}
 
-	httpClientOptions := server.ClientOptions{
+	httpClientOptions := system.ClientOptions{
 		Host:  runnerOptions.ApiHost,
 		Token: runnerOptions.ApiToken,
 	}

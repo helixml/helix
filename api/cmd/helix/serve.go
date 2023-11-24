@@ -30,11 +30,12 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
-			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", "gpt4")),
+			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT3Point5))),
 			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 50),
+			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
@@ -109,6 +110,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.DataPrepTextOptions.QuestionsPerChunk, "dataprep-questions-per-chunk", allOptions.DataPrepTextOptions.QuestionsPerChunk,
 		`The questions per chunk for the text data prep`,
+	)
+
+	serveCmd.PersistentFlags().Float32Var(
+		&allOptions.DataPrepTextOptions.Temperature, "dataprep-temperature", allOptions.DataPrepTextOptions.Temperature,
+		`The temperature for the text data prep prompt`,
 	)
 
 	// ControllerOptions
@@ -321,8 +327,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		// otherwise - we use our own mistral plugin
 		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
 			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
-		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT35Turbo {
-			return text.NewDataPrepTextGPT35Turbo(options.DataPrepTextOptions)
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT3Point5 {
+			return text.NewDataPrepTextGPT3Point5(options.DataPrepTextOptions)
 		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
 			return text.NewDataPrepTextHelixMistral(
