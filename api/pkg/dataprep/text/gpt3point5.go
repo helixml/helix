@@ -16,11 +16,11 @@ You MUST obey the following criteria:
 	- Restrict the question to the context information provided.
 	- Do NOT create a question that cannot be answered from the context.
 	- Phrase the question so that it does NOT refer to specific context. For instance, do NOT put phrases like given provided context or in this work in the question, because if the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
-	
+
 BAD questions:
 	What did the author do in his childhood
 	What were the main findings in this report
-	
+
 GOOD questions:
 	What did Barack Obama do in his childhood
 	What were the main findings in the original Transformers paper by Vaswani et al.
@@ -28,7 +28,7 @@ GOOD questions:
 The user will provide the context you should summarize into %d questions.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
-`, options.QuestionsPerChunk, options.QuestionsPerChunk)
+		`, options.QuestionsPerChunk, options.QuestionsPerChunk)
 	}
 
 	getUserPromptFn := func(chunk string, options DataPrepTextOptions) string {
@@ -48,7 +48,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		var res []DataPrepTextConversation
 		err := json.Unmarshal([]byte(answer), &res)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse response: %s", answer)
+			return nil, fmt.Errorf("error parsing JSON:\n\n%s", answer)
 		}
 		return res, nil
 	}
