@@ -350,7 +350,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		if requiredMemoryFreed > 0 {
 			r.addSchedulingDecision(fmt.Sprintf(
 				"Killing stale model instance %s to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
-				m.id, GiB(newSessionMemory), GiB(requiredMemoryFreed), GiB(requiredMemoryFreed)),
+				m.id, GiB(newSessionMemory), GiB(requiredMemoryFreed), GiB(currentlyAvailableMemory)),
 			)
 			log.Info().Msgf("Killing stale model instance %s", m.id)
 			err := m.stopProcess()
