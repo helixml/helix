@@ -289,7 +289,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	return nil
 }
 
-func GiB(bytes uint64) float32 {
+func GiB(bytes int64) float32 {
 	return float32(bytes) / 1024 / 1024 / 1024
 }
 
@@ -339,7 +339,8 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 
 	// for this session
 	newSessionMemory := modelInstance.model.GetMemoryRequirements(newSession.Mode)
-	requiredMemoryFreed := newSessionMemory - currentlyAvailableMemory
+	// this can go negative, so it needs to be a signed integer!
+	requiredMemoryFreed := int64(newSessionMemory) - int64(currentlyAvailableMemory)
 
 	if requiredMemoryFreed <= 0 {
 		r.addSchedulingDecision("Didn't need to kill any stale sessions because required memory <= 0")
@@ -350,7 +351,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		if requiredMemoryFreed > 0 {
 			r.addSchedulingDecision(fmt.Sprintf(
 				"Killing stale model instance %s to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
-				m.id, GiB(newSessionMemory), GiB(requiredMemoryFreed), GiB(currentlyAvailableMemory)),
+				m.id, GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
 			)
 			log.Info().Msgf("Killing stale model instance %s", m.id)
 			err := m.stopProcess()
@@ -358,7 +359,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
 			}
 			r.activeModelInstances.Delete(m.id)
-			requiredMemoryFreed -= m.model.GetMemoryRequirements(m.filter.Mode)
+			requiredMemoryFreed -= int64(m.model.GetMemoryRequirements(m.filter.Mode))
 		} else {
 			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
 			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
