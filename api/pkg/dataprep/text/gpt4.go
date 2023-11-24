@@ -3,6 +3,7 @@ package text
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -45,6 +46,8 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	}
 
 	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]DataPrepTextConversation, error) {
+		answer = strings.TrimPrefix(answer, "```json")
+		answer = strings.TrimSuffix(answer, "```")
 		var res []DataPrepTextConversation
 		err := json.Unmarshal([]byte(answer), &res)
 		if err != nil {
