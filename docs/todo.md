@@ -1,8 +1,8 @@
 ## kai 23rd Nov
 
- - [ ] finish and deploy dashboard
- - [ ] logged out state when trying to do things - show a message "please register"
- - [ ] fix bug with "create image" dropdown etc not working
+ - [x] finish and deploy dashboard
+ - [x] logged out state when trying to do things - show a message "please register"
+ - [x] fix bug with "create image" dropdown etc not working
  - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
    - [ ] make it so user can see whole message from OpenAI
  - [ ] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
@@ -12,7 +12,7 @@
    - [ ] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
    - [ ] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
  - [ ] progress bars on text fine tuning
- - [ ] performance on text fine tuning
+ - [ ] performance on text fine tuning (add concurrency to openAI calls)
  - [ ] pdfs are broken in production
  - [ ] hide technical details behind "technical details" button ?
    - [ ] where it currently says "Session ...." - put the session title

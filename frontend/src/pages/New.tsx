@@ -1,5 +1,6 @@
-import React, { FC, useState, useCallback } from 'react'
-import axios from 'axios'
+import React, { FC, useState, useCallback, useEffect } from 'react'
+import bluebird from 'bluebird'
+import ldb from 'localdata'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Switch from '@mui/material/Switch'
@@ -19,6 +20,7 @@ import CircularProgress from '@mui/material/CircularProgress'
 
 import useFilestore from '../hooks/useFilestore'
 import FileUpload from '../components/widgets/FileUpload'
+import Window from '../components/widgets/Window'
 
 import Disclaimer from '../components/widgets/Disclaimer'
 import useSnackbar from '../hooks/useSnackbar'
@@ -49,7 +51,21 @@ import {
 import {
   getFileExtension,
   isImage,
+  ISerlializedFile,
+  serializeFile,
+  deserializeFile,
+  saveFile,
+  loadFile,
+  deleteFile,
 } from '../utils/filestore'
+
+interface ISerializedPage {
+  files: ISerlializedFile[],
+  labels: Record<string, string>,
+  fineTuneStep: number,
+  manualTextFileCounter: number,
+  inputValue: string,
+}
 
 const New: FC = () => {
   const filestore = useFilestore()
@@ -63,10 +79,9 @@ const New: FC = () => {
   const account = useAccount()
   const sessions = useSessions()
 
-  const [ uploadProgress, setUploadProgress ] = useState<IFilestoreUploadProgress>()
-
+  const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [inputValue, setInputValue] = useState('')
-  
+  const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [fineTuneStep, setFineTuneStep] = useState(0)
@@ -80,8 +95,6 @@ const New: FC = () => {
   } = params
 
   const setModel = useCallback((mode: ISessionMode, type: ISessionType) => {
-    console.log('--------------------------------------------')
-    console.dir({mode,type})
     setParams({
       mode,
       type,
@@ -95,10 +108,59 @@ const New: FC = () => {
     setInputValue(event.target.value)
   }
 
+  const serializePage = async () => {
+    const serializedFiles = await bluebird.map(files, async (file) => {
+      const serializedFile = await serializeFile(file)
+      await saveFile(serializedFile)
+      serializedFile.content = ''
+      return serializedFile
+    })
+    const data: ISerializedPage = {
+      files: serializedFiles,
+      labels,
+      fineTuneStep,
+      manualTextFileCounter,
+      inputValue,
+    }
+    localStorage.setItem('new-page', JSON.stringify(data))
+  }
+
+  const proceedToLogin = async () => {
+    await serializePage()
+    account.onLogin()
+  }
+
+  useEffect(() => {
+    const loadData = async () => {
+      const dataString = localStorage.getItem('new-page')
+      if(!dataString) return
+      localStorage.removeItem('new-page')
+      const data: ISerializedPage = JSON.parse(dataString)
+      // map over the empty content files
+      // load their content from the individual file key
+      // turn into native File
+      const loadedFiles = await bluebird.map(data.files, async file => {
+        const loadedFile = await loadFile(file)
+        await deleteFile(file)
+        return deserializeFile(loadedFile)
+      })
+      setFiles(loadedFiles)
+      setLabels(data.labels)
+      setFineTuneStep(data.fineTuneStep)
+      setManualTextFileCounter(data.manualTextFileCounter)
+      setInputValue(data.inputValue)
+    }
+    loadData()
+  }, [])
+
   // this is for inference in both modes
   const onInference = async () => {
     if(selectedMode == SESSION_MODE_FINETUNE) {
       snackbar.error('Please complete the fine-tuning process before trying to talk with your model')
+      return
+    }
+    if(!account.user) {
+      setShowLoginWindow(true)
       return
     }
     const formData = new FormData()
@@ -142,7 +204,11 @@ const New: FC = () => {
   ])
 
   // this is for text finetune
-  const onUploadDocuments = useCallback(async () => {
+  const onUploadDocuments = async () => {
+    if(!account.user) {
+      setShowLoginWindow(true)
+      return
+    }
     setUploadProgress({
       percent: 0,
       totalBytes: 0,
@@ -179,14 +245,15 @@ const New: FC = () => {
     } catch(e: any) {}
 
     setUploadProgress(undefined)
-  }, [
-    selectedMode,
-    selectedType,
-    files,
-  ])
+  }
 
   // this is for image finetune
-  const onUploadImages = useCallback(async () => {
+  const onUploadImages = async () => {
+    if(!account.user) {
+      setShowLoginWindow(true)
+      return
+    }
+
     const errorFiles = files.filter(file => labels[file.name] ? false : true)
     if(errorFiles.length > 0) {
       setShowImageLabelErrors(true)
@@ -232,12 +299,7 @@ const New: FC = () => {
     } catch(e: any) {}
 
     setUploadProgress(undefined)
-  }, [
-    selectedMode,
-    selectedType,
-    files,
-    labels,
-  ])
+  }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -804,7 +866,31 @@ const New: FC = () => {
           </Box>
         )
       }
-
+      {
+        showLoginWindow && (
+          <Window
+            open
+            size="md"
+            title="Please login to continue"
+            onCancel={ () => {
+              setShowLoginWindow(false)
+            }}
+            onSubmit={ () => {
+              proceedToLogin()
+            }}
+            withCancel
+            cancelTitle="Cancel"
+            submitTitle="Login / Register"
+          >
+            <Typography gutterBottom>
+              You can login with your Google account or with your email address.
+            </Typography>
+            <Typography>
+              We will keep what you've done here for you, so you can continue where you left off.
+            </Typography>
+          </Window>
+        )
+      }
     </Box>
   )
 
