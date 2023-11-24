@@ -30,11 +30,12 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
-			Module:            text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT3Point5))),
-			APIKey:            getDefaultServeOptionString("OPENAI_API_KEY", ""),
-			ChunkSize:         getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
-			OverflowSize:      getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
-			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 50),
+			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT4))),
+			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
+			ChunkSize:    getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
+			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
+			// we are exceeding openAI window size at > 30 questions
+			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 30),
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
@@ -42,6 +43,7 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
+			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 5),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
@@ -134,6 +136,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.ControllerOptions.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.ControllerOptions.SchedulingDecisionBufferSize,
 		`How many scheduling decisions to buffer before we start dropping them.`,
+	)
+
+	serveCmd.PersistentFlags().IntVar(
+		&allOptions.ControllerOptions.DataPrepConcurrency, "dataprep-concurrency", allOptions.ControllerOptions.DataPrepConcurrency,
+		`How many data prep steps to run concurrently per user`,
 	)
 
 	// FileStoreOptions
