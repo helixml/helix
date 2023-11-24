@@ -288,6 +288,10 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	return nil
 }
 
+func GiB(bytes uint64) float32 {
+	return float32(bytes) / 1024 / 1024 / 1024
+}
+
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
 func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
@@ -333,15 +337,20 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	currentlyAvailableMemory := r.getFreeMemory()
 
 	// for this session
-	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode) - currentlyAvailableMemory
+	newSessionMemory := modelInstance.model.GetMemoryRequirements(newSession.Mode)
+	requiredMemoryFreed := newSessionMemory - currentlyAvailableMemory
 
 	if requiredMemoryFreed <= 0 {
+		r.addSchedulingDecision("Didn't need to kill any stale sessions because required memory <= 0")
 		return nil
 	}
 
 	for _, m := range stales {
 		if requiredMemoryFreed > 0 {
-			r.addSchedulingDecision(fmt.Sprintf("Killing stale model instance %s", m.id))
+			r.addSchedulingDecision(fmt.Sprintf(
+				"Killing stale model instance %s to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
+				m.id, GiB(newSessionMemory), GiB(requiredMemoryFreed), GiB(requiredMemoryFreed)),
+			)
 			log.Info().Msgf("Killing stale model instance %s", m.id)
 			err := m.stopProcess()
 			if err != nil {
@@ -350,7 +359,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 			r.activeModelInstances.Delete(m.id)
 			requiredMemoryFreed -= m.model.GetMemoryRequirements(m.filter.Mode)
 		} else {
-			log.Info().Msgf("cleared up enough model memory, overshot by %d bytes", requiredMemoryFreed)
+			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
+			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
+			break
 		}
 	}
 	return nil
