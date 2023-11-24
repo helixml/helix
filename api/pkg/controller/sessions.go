@@ -660,7 +660,7 @@ func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types
 
 			allConversations = append(allConversations, conversations...)
 			atomic.AddInt64(&completedCounter, 1)
-			systemInteraction.Progress = int(float64(i+1) / float64(len(chunks)) * 100)
+			systemInteraction.Progress = int(float64(completedCounter) / float64(len(chunks)) * 100)
 			systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", completedCounter, len(chunks))
 
 			c.WriteInteraction(session, systemInteraction)
