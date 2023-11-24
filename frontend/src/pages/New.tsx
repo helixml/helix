@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import bluebird from 'bluebird'
 import prettyBytes from 'pretty-bytes'
 import ldb from 'localdata'
@@ -96,6 +96,7 @@ const New: FC = () => {
   } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
+  const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [inputValue, setInputValue] = useState('')
@@ -348,6 +349,13 @@ const New: FC = () => {
       event.preventDefault()
     }
   }
+
+  useEffect(() => {
+    if(mode != SESSION_MODE_INFERENCE) return
+    textFieldRef.current?.focus()
+  }, [
+    type,
+  ])
 
   return (
     <Box
@@ -620,6 +628,10 @@ const New: FC = () => {
                     }}
                   >
                     <TextField
+                      sx={{
+                        height: '100px',
+                        maxHeight: '100px'
+                      }}
                       fullWidth
                       label="or paste some text here"
                       value={ manualTextFile }
@@ -887,6 +899,8 @@ const New: FC = () => {
           >
             <TextField
               fullWidth
+              inputRef={textFieldRef}
+              autoFocus
               label={(
                 (
                   type == SESSION_TYPE_TEXT ?

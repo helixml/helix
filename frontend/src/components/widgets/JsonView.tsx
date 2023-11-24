@@ -11,9 +11,9 @@ const useStyles = makeStyles(theme => ({
     background: '#000000',
     color: '#FFFFFF',
     fontFamily: 'Courier New',
-    width: '100%',
+    minWidth: 'min-content',
     height: '100%',
-    overflow: scrolling ? 'auto' : 'visible',
+    overflowY: scrolling ? 'auto' : 'visible',
   }),
 }))
 

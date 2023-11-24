@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
+import JsonWindowLink from '../widgets/JsonWindowLink'
 
 import {
   ISession,
@@ -33,8 +34,7 @@ export const SessionHeader: FC<{
           flexGrow: 1,
         }}
       >
-        Session {session?.name} in which we {session?.mode.toLowerCase()} {session?.type.toLowerCase()} with {session?.model_name} 
-        { session?.lora_dir ? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }...
+        {session?.name}
       </Typography>
       <Typography
         sx={{
@@ -43,13 +43,41 @@ export const SessionHeader: FC<{
           flexGrow: 0,
         }}
       >
-        <Link href="/files?path=%2Fsessions" onClick={(e) => {
-          e.preventDefault()
-          navigate('files', {
-            path: `/sessions/${session?.id}`
-          })
-        }}>View Files</Link>
+        <Link href="/files?path=%2Fsessions"
+          onClick={(e) => {
+            e.preventDefault()
+            navigate('files', {
+              path: `/sessions/${session?.id}`
+            })
+          }}
+        >
+          View Files
+        </Link>
       </Typography>
+      <Typography
+        sx={{
+          fontSize: "small",
+          color: "gray",
+          flexGrow: 0,
+          pl: 1,
+          pr: 1,
+        }}
+      >
+        |
+      </Typography>
+      <JsonWindowLink
+        data={ session } 
+      >
+        <Typography
+          sx={{
+            fontSize: "small",
+            flexGrow: 0,
+            textDecoration: 'underline',
+          }}
+        >
+          Info
+        </Typography>
+      </JsonWindowLink>
     </Box>
   )
 }
