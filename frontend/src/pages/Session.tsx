@@ -1,11 +1,10 @@
-import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import React, { FC, useState, useEffect, useRef, useMemo } from 'react'
 
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import Interaction from '../components/session/Interaction'
-import useFilestore from '../hooks/useFilestore'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
 import useApi from '../hooks/useApi'
@@ -15,14 +14,16 @@ import useSessions from '../hooks/useSessions'
 
 import {
   INTERACTION_STATE_EDITING,
+  SESSION_TYPE_TEXT,
+  SESSION_MODE_FINETUNE,
 } from '../types'
 
 const Session: FC = () => {
-  const filestore = useFilestore()
   const api = useApi()
   const {params} = useRouter()
   const account = useAccount()
   const sessions = useSessions()
+  const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const divRef = useRef<HTMLDivElement>()
 
@@ -34,6 +35,8 @@ const Session: FC = () => {
   }
 
   const session = sessions.sessions?.find(session => session.id === params["session_id"])
+
+  const sessionID = session?.id
 
   const loading = useMemo(() => {
     if(!session || !session?.interactions || session?.interactions.length === 0) return false
@@ -62,23 +65,31 @@ const Session: FC = () => {
     setInputValue("")
   }
 
-  const onUpload = useCallback(async (files: File[]) => {
-    console.log(files)
-    setFiles(files)
-  }, [
-    filestore.path,
-  ])
-
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
         setInputValue(current => current + "\n")
       } else {
-        onSend()
+        if(!loading) {
+          onSend()
+        }
       }
       event.preventDefault()
     }
   }
+
+  useEffect(() => {
+    if(loading) return
+    textFieldRef.current?.focus()
+  }, [
+    loading,
+  ])
+
+  useEffect(() => {
+    textFieldRef.current?.focus()
+  }, [
+    sessionID,
+  ])
 
   useEffect(() => {
     if(!session) return
@@ -162,12 +173,16 @@ const Session: FC = () => {
           >
             <TextField
               fullWidth
+              inputRef={textFieldRef}
               label={(
-                session?.mode === 'inference' && session?.type === 'text' ? `Chat with base Mistral-7B-Instruct model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'inference' && session?.type === 'image' ? `Describe an image to create it with a base SDXL model${ session?.lora_dir? ` finetuned on ${session?.lora_dir.split('/').pop()}` : '' }` : session?.mode === 'finetune' && session?.type === 'text' ? 'Enter question-answer pairs to fine tune a language model' : 'Upload images and label them to fine tune an image model'
+                (
+                  session?.type == SESSION_TYPE_TEXT ?
+                    'Chat with Helix...' :
+                    'Describe what you want to see in an image...'
                 ) + " (shift+enter to add a newline)"
-              }
+              )}
               value={inputValue}
-              disabled={loading}
+              disabled={session?.mode == SESSION_MODE_FINETUNE}
               onChange={handleInputChange}
               name="ai_submit"
               multiline={true}
