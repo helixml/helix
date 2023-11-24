@@ -381,6 +381,7 @@ const New: FC = () => {
                     id="create-type-select"
                     value={selectedType}
                     onMouseDown={ e => {
+                      setModel(SESSION_MODE_INFERENCE, type as ISessionType)
                       e.stopPropagation()
                     }}
                     onClick={ e => {
@@ -403,6 +404,7 @@ const New: FC = () => {
                     id="fine-tune-type-select"
                     value={selectedType}
                     onMouseDown={ e => {
+                      setModel(SESSION_MODE_FINETUNE, type as ISessionType)
                       e.stopPropagation()
                     }}
                     onClick={ e => {
