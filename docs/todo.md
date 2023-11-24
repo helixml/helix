@@ -21,7 +21,7 @@
    - [x] in the text box say "Chat with Helix" <- for txt models
    - [x] in the text box say "Make images with Helix" <- for image models
  - [ ] react is rendering streaming updates to the sessions slowly
- - [ ] URL to fetch text for text fine tuning
+ - [x] URL to fetch text for text fine tuning
  - [ ] edit session name (pencil icon to left of bin icon)
  - [ ] retry button for errors
  - [ ] fork session (fork from an interaction)
