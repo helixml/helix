@@ -120,6 +120,7 @@ func NewRunner(
 		if err != nil {
 			return nil, err
 		}
+		log.Info().Msgf("Setting memoryBytes = %d", uint64(bytes))
 		options.MemoryBytes = uint64(bytes)
 	}
 	if options.MemoryBytes == 0 {
