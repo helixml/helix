@@ -48,7 +48,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		var res []DataPrepTextConversation
 		err := json.Unmarshal([]byte(answer), &res)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse response: %s", answer)
+			return nil, fmt.Errorf("error parsing JSON:\n\n%s", answer)
 		}
 		return res, nil
 	}

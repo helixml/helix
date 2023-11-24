@@ -1,10 +1,10 @@
 package text
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/rs/zerolog/log"
@@ -63,6 +63,11 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 		},
 	}
 
+	clientOptions := system.ClientOptions{
+		Host:  "https://api.openai.com",
+		Token: gpt.Options.APIKey,
+	}
+
 	postData := openai.ChatCompletionRequest{
 		Model:       gpt.model,
 		Messages:    messages,
@@ -72,15 +77,16 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 	log.Debug().
 		Msgf("🔴🔴🔴 GPT Question: %+v", postData)
 
-	clientOptions := system.ClientOptions{
-		Host:  "https://api.openai.com",
-		Token: gpt.Options.APIKey,
+	dataBytes, err := json.Marshal(postData)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing JSON: %s", err.Error())
 	}
 
-	req, err := retryablehttp.NewRequest("POST", system.URL(clientOptions, "/v1/chat/completions"), postData)
+	req, err := retryablehttp.NewRequest("POST", system.URL(clientOptions, "/v1/chat/completions"), dataBytes)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Add("Content-type", "application/json")
 	err = system.AddAuthHeadersRetryable(req, clientOptions.Token)
 	if err != nil {
 		return nil, err
@@ -98,16 +104,20 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 		return nil, err
 	}
 
+	log.Debug().
+		Msgf("🔴🔴🔴 GPT Answer (%d): %+v", resp.StatusCode, string(body))
+
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf(string(body))
 	}
 
+	var openAIResponse openai.ChatCompletionResponse
+	err = json.Unmarshal(body, &openAIResponse)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error parsing JSON: %s", err.Error())
 	}
-	fmt.Printf("resp --------------------------------------\n")
-	spew.Dump(resp)
-	conversation, err := gpt.parseResponseFn(resp.Choices[0].Message.Content, gpt.Options)
+
+	conversation, err := gpt.parseResponseFn(openAIResponse.Choices[0].Message.Content, gpt.Options)
 	if err != nil {
 		return nil, err
 	}
