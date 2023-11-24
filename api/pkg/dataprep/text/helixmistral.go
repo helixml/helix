@@ -51,8 +51,7 @@ func (helixMistral *DataPrepTextHelixMistral) GetChunks() ([]string, error) {
 func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
 	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
-Using the provided context, formulate exactly %d question and answer pairs that
-captures an important fact from the context.
+Using the provided context, formulate exactly %d question and answer pairs that captures an important fact from the context.
 You MUST obey the following criteria:
 	- Restrict the question to the context information provided.
 	- Do NOT create a question that cannot be answered from the context.
