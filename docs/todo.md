@@ -3,16 +3,15 @@
  - [x] finish and deploy dashboard
  - [x] logged out state when trying to do things - show a message "please register"
  - [x] fix bug with "create image" dropdown etc not working
- - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
-   - [ ] make it so user can see whole message from OpenAI
- - [ ] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
+ - [x] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
+   - [x] make it so user can see whole message from OpenAI
+ - [x] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
  - [ ] there is a dashboard bug where where runner model job history reverses itself
  - [ ] you lose keyboard focus when the chat box disables and re-enables
  - [ ] make the chatbox have keyboard focus the first time you load the page
  - [ ] pasting a long chunk of text into training text box makes the box go taller than the screen and you cannot scroll
- - [ ] create images says “chat with helix” should say “describe what you want to see in an image”
- - [ ] enforce min-width on left sidebar
- - [ ] on dashboard hide the left sessions bar (and put the menu somewhere)
+ - [x] create images says “chat with helix” should say “describe what you want to see in an image”
+ - [x] enforce min-width on left sidebar
  - [ ] render markdown
  - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
  - [ ] timestamps on the log events for runner scheduling decisions
@@ -23,7 +22,7 @@
    - [x] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
    - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
  - [ ] progress bars on text fine tuning
- - [ ] performance on text fine tuning (add concurrency to openAI calls)
+ - [x] performance on text fine tuning (add concurrency to openAI calls)
  - [ ] kill any pid that shows up in nvidia-smi that it doesn’t own
  - [ ] pdfs are broken in production
  - [ ] the event cancel handler on drop downs is not letting you click the same mode

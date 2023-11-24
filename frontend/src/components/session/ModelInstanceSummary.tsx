@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useMemo } from 'react'
 import Box from '@mui/material/Box'
 import prettyBytes from 'pretty-bytes'
 import IconButton from '@mui/material/IconButton'
@@ -12,6 +12,7 @@ import ClickLink from '../widgets/ClickLink'
 
 import {
   IModelInstanceState,
+  ISessionSummary,
 } from '../../types'
 
 import {
@@ -35,6 +36,14 @@ export const ModelInstanceSummary: FC<{
 
   const [ historyViewing, setHistoryViewing ] = useState(false)
   const activeColor = getColor(modelInstance.model_name, modelInstance.mode)
+
+  const jobHistory = useMemo(() => {
+    const history = [...modelInstance.job_history]
+    history.reverse()
+    return history
+  }, [
+    modelInstance,
+  ])
 
   return (
     <Box
@@ -161,7 +170,7 @@ export const ModelInstanceSummary: FC<{
           >
             <Typography component="ul" variant="caption" gutterBottom>
               {
-                modelInstance.job_history.reverse().map((job, i) => {
+                jobHistory.map((job, i) => {
                   return (
                     <li key={ i }>
                       { job.created.split('T')[1].split('.')[0] }&nbsp;&nbsp;
