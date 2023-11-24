@@ -9,6 +9,7 @@ import Link from '@mui/material/Link'
 import Progress from '../widgets/Progress'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
+import LoadingSpinner from '../widgets/LoadingSpinner'
 import ConversationEditor from './ConversationEditor'
 import {
   SESSION_TYPE_TEXT,
@@ -52,7 +53,7 @@ export const Interaction: FC<{
 }) => {
 
   const [ viewingError, setViewingError ] = useState(false)
-  let displayMessage = ''
+  let displayMessage: string | React.ReactElement = ''
   let progress = 0
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
@@ -68,7 +69,7 @@ export const Interaction: FC<{
       if(interaction.progress > 0) {
         progress = interaction.progress
       } else if (interaction.state != INTERACTION_STATE_EDITING) {
-        displayMessage = '🤔'
+        displayMessage = <LoadingSpinner />
       }
     }
     if(interaction.lora_dir) {
@@ -83,7 +84,7 @@ export const Interaction: FC<{
         if(interaction.progress > 0) {
           progress = interaction.progress
         } else {
-          displayMessage = '🤔'
+          displayMessage = <LoadingSpinner />
         }
       } else if(interaction.lora_dir) {
         displayMessage = 'Fine tuning complete - you can now ask the model to create images...'
@@ -199,9 +200,9 @@ export const Interaction: FC<{
           )
         }
         {
-          displayMessage && (
-            <Typography dangerouslySetInnerHTML={{__html: displayMessage.replace(/\n/g, '<br/>')}}></Typography>
-          )
+          typeof(displayMessage) === 'string' ? (
+            <Typography>{ displayMessage }</Typography>
+          ) : displayMessage
         }
         {
           interaction.status && !useErrorText && !isEditingConversations && (

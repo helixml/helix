@@ -889,9 +889,9 @@ const New: FC = () => {
               fullWidth
               label={(
                 (
-                  SESSION_TYPE_TEXT ?
+                  type == SESSION_TYPE_TEXT ?
                     'Chat with Helix...' :
-                    'Make images with Helix...'
+                    'Describe what you want to see in an image...'
                 ) + " (shift+enter to add a newline)"
               )}
               value={inputValue}
