@@ -21,6 +21,7 @@ require (
 )
 
 require (
+	github.com/davecgh/go-spew v1.1.1
 	github.com/sashabaranov/go-openai v1.17.3
 	jaytaylor.com/html2text v0.0.0-20230321000545-74c2419ad056
 )

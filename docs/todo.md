@@ -9,8 +9,13 @@
  - [ ] there is a dashboard bug where where runner model job history reverses itself
  - [ ] you lose keyboard focus when the chat box disables and re-enables
  - [ ] make the chatbox have keyboard focus the first time you load the page
+ - [ ] pasting a long chunk of text into training text box makes the box go taller than the screen and you cannot scroll
  - [ ] create images says “chat with helix” should say “describe what you want to see in an image”
+ - [ ] enforce min-width on left sidebar
+ - [ ] on dashboard hide the left sessions bar (and put the menu somewhere)
  - [ ] render markdown
+ - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
+ - [ ] timestamps on the log events for runner scheduling decisions
  - [ ] show a dot next to sessions that are currently active or have new replies
  - [x] obvious buttons (on fine tuning)
    - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
@@ -19,7 +24,9 @@
    - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
  - [ ] progress bars on text fine tuning
  - [ ] performance on text fine tuning (add concurrency to openAI calls)
+ - [ ] kill any pid that shows up in nvidia-smi that it doesn’t own
  - [ ] pdfs are broken in production
+ - [ ] the event cancel handler on drop downs is not letting you click the same mode
  - [ ] hide technical details behind "technical details" button ?
    - [ ] where it currently says "Session ...." - put the session title
    - [ ] put a link next to "View Files" called "Info" that will open a model window with more session details
@@ -31,6 +38,7 @@
  - [ ] edit session name (pencil icon to left of bin icon)
  - [ ] retry button for errors
  - [ ] fork session (fork from an interaction)
+ - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
  - [ ] multiple SDXL at the same time causes error
    - [ ] this could be in same session or not
    - [ ] we need a test stack
