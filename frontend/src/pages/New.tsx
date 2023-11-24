@@ -577,6 +577,7 @@ const New: FC = () => {
                   >
                     <TextField
                       fullWidth
+                      label="Add link, for example https://google.com"
                       value={ manualURL }
                       onChange={ (e) => {
                         setManualURL(e.target.value)
@@ -618,6 +619,7 @@ const New: FC = () => {
                   >
                     <TextField
                       fullWidth
+                      label="or paste some text here"
                       value={ manualTextFile }
                       multiline
                       rows={ 3 }
@@ -684,10 +686,9 @@ const New: FC = () => {
                         
                         <Typography
                           sx={{
-                            color: '#999',
+                            color: '#666',
                             width: '100%',
                           }}
-                          variant="caption"
                         >
                           drop files here to upload them ...
                         </Typography>
