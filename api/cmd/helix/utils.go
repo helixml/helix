@@ -40,6 +40,17 @@ func getDefaultServeOptionInt(envName string, defaultValue int) int {
 	return defaultValue
 }
 
+func getDefaultServeOptionFloat(envName string, defaultValue float32) float32 {
+	envValue := os.Getenv(envName)
+	if envValue != "" {
+		f, err := strconv.ParseFloat(envValue, 32)
+		if err == nil {
+			return float32(f)
+		}
+	}
+	return defaultValue
+}
+
 // comma separated strings
 func getDefaultServeOptionStringArray(envName string, defaultValue []string) []string {
 	envValue := os.Getenv(envName)
