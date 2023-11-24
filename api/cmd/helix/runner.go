@@ -23,7 +23,7 @@ func NewRunnerOptions() *RunnerOptions {
 			ApiHost:                      getDefaultServeOptionString("API_HOST", ""),
 			ApiToken:                     getDefaultServeOptionString("API_TOKEN", ""),
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
-			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING_", ""),
+			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
 			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
 			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
