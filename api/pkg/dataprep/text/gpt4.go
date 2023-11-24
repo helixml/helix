@@ -86,7 +86,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	resp, err := gpt.client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model:    openai.GPT40613,
+			Model:    openai.GPT4TurboPreview,
 			Messages: messages,
 		},
 	)
