@@ -1,4 +1,4 @@
-## kai 23rd Nov
+## kai
 
  - [x] finish and deploy dashboard
  - [x] logged out state when trying to do things - show a message "please register"
@@ -13,10 +13,10 @@
  - [x] create images says “chat with helix” should say “describe what you want to see in an image”
  - [x] enforce min-width on left sidebar
  - [x] the event cancel handler on drop downs is not letting you click the same mode
- - [ ] hide technical details behind "technical details" button ?
-   - [ ] where it currently says "Session ...." - put the session title
-   - [ ] put a link next to "View Files" called "Info" that will open a model window with more session details
-   - [ ] e.g. we put the text summary above in the model along with the ID and other things we want to show
+ - [x] hide technical details behind "technical details" button ?
+   - [x] where it currently says "Session ...." - put the session title
+   - [x] put a link next to "View Files" called "Info" that will open a model window with more session details
+   - [x] e.g. we put the text summary above in the model along with the ID and other things we want to show
    - [x] in the text box say "Chat with Helix" <- for txt models
    - [x] in the text box say "Make images with Helix" <- for image models
  - [ ] edit session name (pencil icon to left of bin icon)
