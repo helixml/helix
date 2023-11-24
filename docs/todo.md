@@ -6,6 +6,12 @@
  - [ ] fix bug with openAI responding with "GPT 4 Answer: Without providing a valid context, I am unable to generate 50 question and answer pairs as requested"
    - [ ] make it so user can see whole message from OpenAI
  - [ ] replace the thinking face with a spinning progress (small horizontal bouncing three dots)
+ - [ ] there is a dashboard bug where where runner model job history reverses itself
+ - [ ] you lose keyboard focus when the chat box disables and re-enables
+ - [ ] make the chatbox have keyboard focus the first time you load the page
+ - [ ] create images says “chat with helix” should say “describe what you want to see in an image”
+ - [ ] render markdown
+ - [ ] show a dot next to sessions that are currently active or have new replies
  - [x] obvious buttons (on fine tuning)
    - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
    - [x] the the default starting state - make the files button say "or choose files"
