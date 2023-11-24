@@ -465,12 +465,58 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	newFiles := []string{}
 	for _, file := range userInteraction.Files {
-
+		// we will always add the original file to the list
+		// the question is do we need to add another file next to it
+		// that is the text equivalent of that file
 		newFiles = append(newFiles, file)
 
-		// if file is not a text file
-		// then we need to convert it
-		if !strings.HasSuffix(file, ".txt") {
+		if strings.HasSuffix(file, ".txt") {
+			// it is already converted - nothing to do
+		} else if strings.HasSuffix(file, ".html") {
+			// we need to see if this is an actual HTML document
+			// or if it's a text document with a URL that we need to turn into plain text
+			systemInteraction.Status = fmt.Sprintf("converting file: %s", path.Base(file))
+			c.WriteInteraction(session, systemInteraction)
+
+			log.Debug().
+				Msgf("🔵 converting file: %s", file)
+			reader, err := c.Options.Filestore.Download(c.Ctx, file)
+			if err != nil {
+				return nil, err
+			}
+
+			textString := ""
+
+			bytes, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, err
+			}
+
+			htmlString := string(bytes)
+
+			if strings.HasPrefix(htmlString, "http") {
+				// we assume this is a URL and convert it
+				textString, err = system.ExtractTextFromURL(htmlString)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				// it's not a URL - so we assume it's HTML
+				textString, err = system.ExtractTextFromHTML(htmlString)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
+
+			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(textString))
+			if err != nil {
+				return nil, err
+			}
+
+			newFiles = append(newFiles, newFilepath)
+		} else {
 			systemInteraction.Status = fmt.Sprintf("converting file: %s", path.Base(file))
 			c.WriteInteraction(session, systemInteraction)
 
