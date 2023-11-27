@@ -630,7 +630,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
-	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
 	}
@@ -641,6 +641,10 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
+	log.Trace().
+		Str(req.Method, req.URL.String()).
+		Msgf("")
+
 	system.AddAutheaders(req, r.httpClientOptions.Token)
 
 	client := &http.Client{}
@@ -650,14 +654,15 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, nil
-	}
-
 	var buffer bytes.Buffer
 	_, err = io.Copy(&buffer, resp.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().Msgf("error from runner getNextApiSession: %s", buffer.String())
+		return nil, nil
 	}
 
 	var session *types.Session
