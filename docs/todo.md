@@ -25,6 +25,7 @@
  - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
  - [ ] timestamps on the log events for runner scheduling decisions
  - [ ] show a dot next to sessions that are currently active or have new replies
+ - [ ] when pasting the link into text fine tuning https://techycompany.com/ the text file has no name
  - [x] obvious buttons (on fine tuning)
    - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
    - [x] the the default starting state - make the files button say "or choose files"
@@ -41,6 +42,7 @@
    - [ ] this could be in same session or not
    - [ ] we need a test stack
  - [ ] place in the queue indiciation if it's more than 5 seconds
+ - [ ] add your own runner (i.e. a runner that will only process jobs from your account)
  - [x] homepage uncomment buttons
  - [ ] reliable and fast, scale to 5 concurrent users (Luke)
    - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io

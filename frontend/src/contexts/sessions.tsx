@@ -20,6 +20,8 @@ export interface ISessionsContext {
   sessions: ISession[],
   loadSessions: () => void,
   addSesssion: (session: ISession) => void,
+  deleteSession: (id: string) => Promise<boolean>,
+  renameSession: (id: string, name: string) => Promise<boolean>,
 }
 
 export const SessionsContext = createContext<ISessionsContext>({
@@ -27,6 +29,8 @@ export const SessionsContext = createContext<ISessionsContext>({
   sessions: [],
   loadSessions: () => {},
   addSesssion: (session: ISession) => {},
+  deleteSession: (id: string) => Promise.resolve(false),
+  renameSession: (id: string, name: string) => Promise.resolve(false),
 })
 
 export const useSessionsContext = (): ISessionsContext => {
@@ -39,6 +43,22 @@ export const useSessionsContext = (): ISessionsContext => {
     const result = await api.get<ISession[]>('/api/v1/sessions')
     if(!result) return
     setSessions(result)
+  }, [])
+
+  const deleteSession = useCallback(async (id: string): Promise<boolean> => {
+    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`)
+    if(!result) return false
+    await loadSessions()
+    return true
+  }, [])
+
+  const renameSession = useCallback(async (id: string, name: string): Promise<boolean> => {
+    const result = await api.put<Partial<ISession>, ISession>(`/api/v1/sessions/${id}`, {
+      name,
+    })
+    if(!result) return false
+    await loadSessions()
+    return true
   }, [])
 
   const addSesssion = useCallback((session: ISession) => {
@@ -116,7 +136,6 @@ export const useSessionsContext = (): ISessionsContext => {
             return updatedSession
           }))
         }
-
       }
     })
     rws.addEventListener('open', () => {
@@ -132,11 +151,15 @@ export const useSessionsContext = (): ISessionsContext => {
     sessions,
     loadSessions,
     addSesssion,
+    deleteSession,
+    renameSession,
   }), [
     initialized,
     sessions,
     loadSessions,
     addSesssion,
+    deleteSession,
+    renameSession,
   ])
 
   return contextValue
