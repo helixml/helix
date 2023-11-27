@@ -50,15 +50,14 @@ export const SessionsMenu: FC<{
 
   const [deletingSession, setDeletingSession] = useState<ISession>()
   const [editingSession, setEditingSession] = useState<ISession>()
+  const [menuSession, setMenuSession] = useState<ISession>()
 
   const [anchorEl, setAnchorEl] = useState(null)
   const open = Boolean(anchorEl)
-  const handleClick = (event: any) => {
-    setAnchorEl(event.currentTarget)
-  };
 
   const handleClose = () => {
     setAnchorEl(null)
+    setMenuSession(undefined)
   }
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
@@ -105,11 +104,13 @@ export const SessionsMenu: FC<{
                 />
               </ListItemButton>
               <ListItemSecondaryAction>
-                
                 <IconButton
                   edge="end"
                   size="small"
-                  onClick={handleClick}
+                  onClick={ (event: any) => {
+                    setMenuSession(session)
+                    setAnchorEl(event.currentTarget)
+                  }}
                 >
                   <MoreVertIcon
                     sx={{
@@ -118,7 +119,6 @@ export const SessionsMenu: FC<{
                     fontSize="small"
                   />
                 </IconButton>
-                
               </ListItemSecondaryAction>
             </ListItem>
           )
@@ -130,7 +130,14 @@ export const SessionsMenu: FC<{
         open={open}
         onClose={handleClose}
       >
-        <MenuItem onClick={handleClose}>
+        <MenuItem
+          onClick={ () => {
+            if(!menuSession) return
+            navigate("session", {session_id: menuSession.id})
+            setEditingSession(menuSession)
+            handleClose()
+          }}
+        >
           <ListItemIcon>
             <EditIcon
               sx={{
@@ -147,7 +154,14 @@ export const SessionsMenu: FC<{
             Edit Name
           </ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleClose}>
+        <MenuItem
+          onClick={ () => {
+            if(!menuSession) return
+            navigate("session", {session_id: menuSession.id})
+            setDeletingSession(menuSession)
+            handleClose()
+          }}
+        >
           <ListItemIcon>
             <DeleteIcon
               sx={{
@@ -168,10 +182,27 @@ export const SessionsMenu: FC<{
       {
         deletingSession && (
           <DeleteConfirmWindow
-            title="this session"
-            onCancel={ () => setDeletingSession(undefined) }
+            title={`session ${deletingSession.name}?`}
+            onCancel={ () => {
+              setDeletingSession(undefined) 
+              setMenuSession(undefined) 
+            }}
             onSubmit={ () => {
               onDeleteSessionConfirm(deletingSession.id)
+            }}
+          />
+        )
+      }
+      {
+        editingSession && (
+          <EditTextWindow
+            title={`Edit session name`}
+            onCancel={ () => {
+              setEditingSession(undefined) 
+              setMenuSession(undefined) 
+            }}
+            onSubmit={ (value) => {
+              onSubmitSessionName(editingSession.id, value)
             }}
           />
         )
