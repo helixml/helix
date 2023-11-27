@@ -121,6 +121,7 @@ func NewRunner(
 		if err != nil {
 			return nil, err
 		}
+		log.Info().Msgf("Setting memoryBytes = %d", uint64(bytes))
 		options.MemoryBytes = uint64(bytes)
 	}
 	if options.MemoryBytes == 0 {
@@ -289,6 +290,10 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 	return nil
 }
 
+func GiB(bytes int64) float32 {
+	return float32(bytes) / 1024 / 1024 / 1024
+}
+
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
 func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
@@ -334,24 +339,32 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	currentlyAvailableMemory := r.getFreeMemory()
 
 	// for this session
-	requiredMemoryFreed := modelInstance.model.GetMemoryRequirements(newSession.Mode) - currentlyAvailableMemory
+	newSessionMemory := modelInstance.model.GetMemoryRequirements(newSession.Mode)
+	// this can go negative, so it needs to be a signed integer!
+	requiredMemoryFreed := int64(newSessionMemory) - int64(currentlyAvailableMemory)
 
 	if requiredMemoryFreed <= 0 {
+		r.addSchedulingDecision("Didn't need to kill any stale sessions because required memory <= 0")
 		return nil
 	}
 
 	for _, m := range stales {
 		if requiredMemoryFreed > 0 {
-			r.addSchedulingDecision(fmt.Sprintf("Killing stale model instance %s", m.id))
+			r.addSchedulingDecision(fmt.Sprintf(
+				"Killing stale model instance %s to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
+				m.id, GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
+			)
 			log.Info().Msgf("Killing stale model instance %s", m.id)
 			err := m.stopProcess()
 			if err != nil {
 				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
 			}
 			r.activeModelInstances.Delete(m.id)
-			requiredMemoryFreed -= m.model.GetMemoryRequirements(m.filter.Mode)
+			requiredMemoryFreed -= int64(m.model.GetMemoryRequirements(m.filter.Mode))
 		} else {
-			log.Info().Msgf("cleared up enough model memory, overshot by %d bytes", requiredMemoryFreed)
+			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
+			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
+			break
 		}
 	}
 	return nil
@@ -617,7 +630,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
-	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, fmt.Sprintf("/runner/%s/nextsession", r.Options.ID)))
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
 	}
@@ -628,6 +641,10 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
+	log.Trace().
+		Str(req.Method, req.URL.String()).
+		Msgf("")
+
 	system.AddAutheaders(req, r.httpClientOptions.Token)
 
 	client := &http.Client{}
@@ -637,14 +654,15 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, nil
-	}
-
 	var buffer bytes.Buffer
 	_, err = io.Copy(&buffer, resp.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().Msgf("error from runner getNextApiSession: %s", buffer.String())
+		return nil, nil
 	}
 
 	var session *types.Session
