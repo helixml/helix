@@ -1,5 +1,32 @@
 ## kai
 
+ - [ ] retry button for errors
+ - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
+ - [ ] render markdown
+ - [ ] react is rendering streaming updates to the sessions slowly
+ - [ ] if you put a URL to a file in the URL box - detect the bloody mime type so we don't split docs that are downloaded
+   - [ ] the URL box should download files first
+ - [ ] when pasting the link into text fine tuning https://techycompany.com/ the text file has no name
+ - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
+ - [ ] timestamps on the log events for runner scheduling decisions
+ - [ ] show a dot next to sessions that are currently active or have new replies
+ - [ ] progress bars on text fine tuning
+ - [ ] fork session (fork from an interaction)
+ - [ ] pdfs are broken in production
+ - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
+ - [ ] multiple SDXL at the same time causes error
+   - [ ] this could be in same session or not
+   - [ ] we need a test stack
+ - [ ] place in the queue indiciation if it's more than 5 seconds
+ - [ ] add your own runner
+ - [ ] reliable and fast, scale to 5 concurrent users (Luke)
+   - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io
+ - [ ] show API calls to replicate many actions (e.g. text & image inference to start with)
+ - [ ] kill any pid that shows up in nvidia-smi that it doesn't own
+ - [ ] the data prep needs to be in a job queue (later, unless we do everything ourselves)
+   - [ ] the same job queue would be used for fetching data from URLs
+
+
  - [x] finish and deploy dashboard
  - [x] logged out state when trying to do things - show a message "please register"
  - [x] fix bug with "create image" dropdown etc not working
@@ -20,35 +47,12 @@
    - [x] in the text box say "Chat with Helix" <- for txt models
    - [x] in the text box say "Make images with Helix" <- for image models
  - [x] edit session name (pencil icon to left of bin icon)
- - [ ] render markdown
- - [ ] react is rendering streaming updates to the sessions slowly
- - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
- - [ ] timestamps on the log events for runner scheduling decisions
- - [ ] show a dot next to sessions that are currently active or have new replies
- - [ ] when pasting the link into text fine tuning https://techycompany.com/ the text file has no name
  - [x] obvious buttons (on fine tuning)
    - [x] in default starting state - make both buttons (add docs / text) - blue and outlined
    - [x] the the default starting state - make the files button say "or choose files"
    - [x] when you start typing in the box make the "Add Text" button pink and make the upload files not pink
    - [x] once there are > 0 files - make the "choose more files" button outlined so the "upload docs" is the main button
- - [ ] progress bars on text fine tuning
  - [x] performance on text fine tuning (add concurrency to openAI calls)
- - [ ] retry button for errors
- - [ ] fork session (fork from an interaction)
- - [ ] pdfs are broken in production
  - [x] URL to fetch text for text fine tuning
- - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
- - [ ] multiple SDXL at the same time causes error
-   - [ ] this could be in same session or not
-   - [ ] we need a test stack
- - [ ] place in the queue indiciation if it's more than 5 seconds
- - [ ] add your own runner (i.e. a runner that will only process jobs from your account)
  - [x] homepage uncomment buttons
- - [ ] reliable and fast, scale to 5 concurrent users (Luke)
-   - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io
- - [ ] show API calls to replicate many actions (e.g. text & image inference to start with)
- - [ ] kill any pid that shows up in nvidia-smi that it doesn’t own
- - [ ] the data prep needs to be in a job queue (later, unless we do everything ourselves)
-   - [ ] the same job queue would be used for fetching data from URLs
-
  
