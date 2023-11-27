@@ -220,6 +220,7 @@ export interface ISessionSummary {
   scheduled: string,
   completed: string,
   session_id: string,
+  name: string,
   interaction_id: string,
   model_name: string,
   mode: ISessionMode,

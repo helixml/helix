@@ -253,6 +253,7 @@ type SessionSummary struct {
 	Scheduled     time.Time   `json:"scheduled"`
 	Completed     time.Time   `json:"completed"`
 	SessionID     string      `json:"session_id"`
+	Name          string      `json:"name"`
 	InteractionID string      `json:"interaction_id"`
 	ModelName     ModelName   `json:"model_name"`
 	Mode          SessionMode `json:"mode"`

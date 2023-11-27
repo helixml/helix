@@ -11,18 +11,20 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSessions from '../hooks/useSessions'
+import useSession from '../hooks/useSession'
 
 import {
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
+  SESSION_MODE_INFERENCE,
 } from '../types'
 
 const Session: FC = () => {
   const api = useApi()
-  const {params} = useRouter()
+  const router = useRouter()
   const account = useAccount()
-  const sessions = useSessions()
+  const session = useSession()
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const divRef = useRef<HTMLDivElement>()
@@ -34,17 +36,15 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
 
-  const session = sessions.sessions?.find(session => session.id === params["session_id"])
-
   const sessionID = session?.id
 
   const loading = useMemo(() => {
-    if(!session || !session?.interactions || session?.interactions.length === 0) return false
-    const interaction = session?.interactions[session?.interactions.length - 1]
+    if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
+    const interaction = session.data?.interactions[session.data?.interactions.length - 1]
     if(!interaction.finished) return true
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
-    session,
+    session.data,
   ])
 
   const onSend = async () => {
@@ -59,7 +59,7 @@ const Session: FC = () => {
 
     const newSession = await api.put(`/api/v1/sessions/${session.id}`, formData)
     if(!newSession) return
-    sessions.loadSessions()
+    session.reload()
 
     setFiles([])
     setInputValue("")
@@ -77,6 +77,13 @@ const Session: FC = () => {
       event.preventDefault()
     }
   }
+
+  useEffect(() => {
+    session.setID(router.params.session_id)
+  }, [
+    router.params.session_id,
+  ])
+
 
   useEffect(() => {
     if(loading) return
@@ -103,6 +110,8 @@ const Session: FC = () => {
     session,
   ])
 
+  if(!session.data) return null
+
   return (    
     <Box
       sx={{
@@ -125,27 +134,30 @@ const Session: FC = () => {
       >
         <Container maxWidth="lg">
           {
-            session && (
-              <SessionHeader
-                session={ session }
-              />
-            )
-          }
-          {
-            session?.interactions.map((interaction: any, i: number) => {
-              return (
-                <Interaction
-                  key={ i }
-                  session_id={ session.id }
-                  type={ session.type }
-                  mode={ session.mode }
-                  interaction={ interaction }
-                  error={ interaction.error }
-                  serverConfig={ account.serverConfig }
-                  isLast={ i === session.interactions.length - 1 }
+            session.data && (
+              <>
+                <SessionHeader
+                  session={ session.data }
                 />
-              )   
-            })
+                {
+                  session.data?.interactions.map((interaction: any, i: number) => {
+                    const interactionsLength = session.data?.interactions.length || 0
+                    return (
+                      <Interaction
+                        key={ i }
+                        session_id={ session.id }
+                        type={ session.data?.type || SESSION_TYPE_TEXT}
+                        mode={ session.data?.mode || SESSION_MODE_INFERENCE }
+                        interaction={ interaction }
+                        error={ interaction.error }
+                        serverConfig={ account.serverConfig }
+                        isLast={ i === interactionsLength - 1 }
+                      />
+                    )   
+                  })
+                }
+              </>    
+            )
           }
         </Container>
       </Box>
@@ -176,13 +188,13 @@ const Session: FC = () => {
               inputRef={textFieldRef}
               label={(
                 (
-                  session?.type == SESSION_TYPE_TEXT ?
+                  session.data?.type == SESSION_TYPE_TEXT ?
                     'Chat with Helix...' :
                     'Describe what you want to see in an image...'
                 ) + " (shift+enter to add a newline)"
               )}
               value={inputValue}
-              disabled={session?.mode == SESSION_MODE_FINETUNE}
+              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
               onChange={handleInputChange}
               name="ai_submit"
               multiline={true}
