@@ -24,9 +24,7 @@ const Session: FC = () => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
-  const session = useSession({
-    id: router.params.session_id,
-  })
+  const session = useSession(router.params.session_id)
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const divRef = useRef<HTMLDivElement>()
