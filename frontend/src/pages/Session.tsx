@@ -24,7 +24,9 @@ const Session: FC = () => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
-  const session = useSession()
+  const session = useSession({
+    id: router.params.session_id,
+  })
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const divRef = useRef<HTMLDivElement>()
@@ -35,8 +37,6 @@ const Session: FC = () => {
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-
-  const sessionID = session?.id
 
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
@@ -57,7 +57,7 @@ const Session: FC = () => {
 
     formData.set('input', inputValue)
 
-    const newSession = await api.put(`/api/v1/sessions/${session.id}`, formData)
+    const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     if(!newSession) return
     session.reload()
 
@@ -79,13 +79,6 @@ const Session: FC = () => {
   }
 
   useEffect(() => {
-    session.setID(router.params.session_id)
-  }, [
-    router.params.session_id,
-  ])
-
-
-  useEffect(() => {
     if(loading) return
     textFieldRef.current?.focus()
   }, [
@@ -95,7 +88,7 @@ const Session: FC = () => {
   useEffect(() => {
     textFieldRef.current?.focus()
   }, [
-    sessionID,
+    router.params.session_id,
   ])
 
   useEffect(() => {
@@ -145,7 +138,7 @@ const Session: FC = () => {
                     return (
                       <Interaction
                         key={ i }
-                        session_id={ session.id }
+                        session_id={ session.data?.id }
                         type={ session.data?.type || SESSION_TYPE_TEXT}
                         mode={ session.data?.mode || SESSION_MODE_INFERENCE }
                         interaction={ interaction }

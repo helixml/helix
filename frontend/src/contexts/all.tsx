@@ -26,10 +26,6 @@ import {
   SessionsContextProvider,
 } from './sessions'
 
-import {
-  SessionContextProvider,
-} from './session'
-
 const AllContextProvider: FC = ({ children }) => {
   return (
     <RouterContextProvider>
@@ -38,9 +34,7 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
-                <SessionContextProvider>
-                  { children }
-                </SessionContextProvider>
+                { children }
               </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
