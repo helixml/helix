@@ -31,6 +31,7 @@ import {
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
   ISession,
+  ISessionSummary,
 } from '../../types'
 
 export const SessionsMenu: FC<{
@@ -47,9 +48,9 @@ export const SessionsMenu: FC<{
     params,
   } = useRouter()
 
-  const [deletingSession, setDeletingSession] = useState<ISession>()
-  const [editingSession, setEditingSession] = useState<ISession>()
-  const [menuSession, setMenuSession] = useState<ISession>()
+  const [deletingSession, setDeletingSession] = useState<ISessionSummary>()
+  const [editingSession, setEditingSession] = useState<ISessionSummary>()
+  const [menuSession, setMenuSession] = useState<ISessionSummary>()
 
   const [anchorEl, setAnchorEl] = useState(null)
   const open = Boolean(anchorEl)
@@ -81,14 +82,14 @@ export const SessionsMenu: FC<{
           return (
             <ListItem
               disablePadding
-              key={ session.id }
+              key={ session.session_id }
               onClick={ () => {
-                navigate("session", {session_id: session.id})
+                navigate("session", {session_id: session.session_id})
                 onOpenSession()
               }}
             >
               <ListItemButton
-                selected={ session.id == params["session_id"] }
+                selected={ session.session_id == params["session_id"] }
               >
                 <ListItemIcon>
                   { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
@@ -100,7 +101,7 @@ export const SessionsMenu: FC<{
                   sx={{marginLeft: "-15px"}}
                   primaryTypographyProps={{ fontSize: 'small', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                   primary={ session.name }
-                  id={ session.id }
+                  id={ session.session_id }
                 />
               </ListItemButton>
               <ListItemSecondaryAction>
@@ -133,7 +134,7 @@ export const SessionsMenu: FC<{
         <MenuItem
           onClick={ () => {
             if(!menuSession) return
-            navigate("session", {session_id: menuSession.id})
+            navigate("session", {session_id: menuSession.session_id})
             setEditingSession(menuSession)
             handleClose()
           }}
@@ -157,7 +158,7 @@ export const SessionsMenu: FC<{
         <MenuItem
           onClick={ () => {
             if(!menuSession) return
-            navigate("session", {session_id: menuSession.id})
+            navigate("session", {session_id: menuSession.session_id})
             setDeletingSession(menuSession)
             handleClose()
           }}
@@ -188,7 +189,7 @@ export const SessionsMenu: FC<{
               setMenuSession(undefined) 
             }}
             onSubmit={ () => {
-              onDeleteSessionConfirm(deletingSession.id)
+              onDeleteSessionConfirm(deletingSession.session_id)
             }}
           />
         )
@@ -203,7 +204,7 @@ export const SessionsMenu: FC<{
               setMenuSession(undefined) 
             }}
             onSubmit={ (value) => {
-              onSubmitSessionName(editingSession.id, value)
+              onSubmitSessionName(editingSession.session_id, value)
             }}
           />
         )

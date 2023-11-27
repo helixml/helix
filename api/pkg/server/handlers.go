@@ -343,12 +343,24 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 	return session, nil
 }
 
-func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.Session, error) {
+func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {
 	reqContext := apiServer.getRequestContext(req)
 	query := store.GetSessionsQuery{}
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
-	return apiServer.Store.GetSessions(reqContext.Ctx, query)
+	sessions, err := apiServer.Store.GetSessions(reqContext.Ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	ret := []*types.SessionSummary{}
+	for _, session := range sessions {
+		summary, err := model.GetSessionSummary(session)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, summary)
+	}
+	return ret, nil
 }
 
 func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {

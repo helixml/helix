@@ -19,7 +19,7 @@
    - [x] e.g. we put the text summary above in the model along with the ID and other things we want to show
    - [x] in the text box say "Chat with Helix" <- for txt models
    - [x] in the text box say "Make images with Helix" <- for image models
- - [ ] edit session name (pencil icon to left of bin icon)
+ - [x] edit session name (pencil icon to left of bin icon)
  - [ ] render markdown
  - [ ] react is rendering streaming updates to the sessions slowly
  - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
