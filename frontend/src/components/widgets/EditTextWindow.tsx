@@ -54,6 +54,7 @@ const EditTextWindow: FC<React.PropsWithChildren<EditTextWindowProps>> = ({
           }}
         >
           <TextField
+            autoFocus
             label={ label }
             value={ currentValue }
             fullWidth

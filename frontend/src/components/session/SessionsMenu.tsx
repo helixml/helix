@@ -42,7 +42,6 @@ export const SessionsMenu: FC<{
 }) => {
   const snackbar = useSnackbar()
   const sessions = useSessions()
-  const api = useApi()
   const {
     navigate,
     params,
@@ -65,6 +64,7 @@ export const SessionsMenu: FC<{
     if(!result) return
     setDeletingSession(undefined)
     snackbar.success(`Session deleted`)
+    navigate('home')
   }, [])
 
   const onSubmitSessionName = useCallback(async (session_id: string, name: string) => {
@@ -197,6 +197,7 @@ export const SessionsMenu: FC<{
         editingSession && (
           <EditTextWindow
             title={`Edit session name`}
+            value={ editingSession.name }
             onCancel={ () => {
               setEditingSession(undefined) 
               setMenuSession(undefined) 
