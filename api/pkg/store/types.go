@@ -32,6 +32,7 @@ type Store interface {
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
+	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
 	// balance transfers

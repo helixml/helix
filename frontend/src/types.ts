@@ -228,3 +228,10 @@ export interface ISessionSummary {
   lora_dir?: string,
   summary: string,
 }
+
+export interface ISessionMetaUpdate {
+  id: string,
+  name: string,
+  owner?: string,
+  owner_type?: string,
+}

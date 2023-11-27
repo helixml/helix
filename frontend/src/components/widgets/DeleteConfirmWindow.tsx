@@ -70,6 +70,7 @@ const DeleteConfirmWindow: FC<React.PropsWithChildren<DeleteConfirmWindowProps>>
           }}
         >
           <TextField
+            autoFocus
             label={ `enter the word ${confirmString}` }
             value={ confirmValue }
             fullWidth

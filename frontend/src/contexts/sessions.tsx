@@ -5,13 +5,12 @@ import useAccount from '../hooks/useAccount'
 
 import {
   ISession,
-  IInteraction,
+  ISessionMetaUpdate,
   IWebsocketEvent,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE,
   WORKER_TASK_RESPONSE_TYPE_PROGRESS,
   WORKER_TASK_RESPONSE_TYPE_STREAM,
-  WORKER_TASK_RESPONSE_TYPE_RESULT,
   SESSION_CREATOR_SYSTEM,
 } from '../types'
 
@@ -46,15 +45,20 @@ export const useSessionsContext = (): ISessionsContext => {
   }, [])
 
   const deleteSession = useCallback(async (id: string): Promise<boolean> => {
-    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`)
+    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`, {}, {
+      loading: true,
+    })
     if(!result) return false
     await loadSessions()
     return true
   }, [])
 
   const renameSession = useCallback(async (id: string, name: string): Promise<boolean> => {
-    const result = await api.put<Partial<ISession>, ISession>(`/api/v1/sessions/${id}`, {
+    const result = await api.put<ISessionMetaUpdate, ISession>(`/api/v1/sessions/${id}/meta`, {
+      id,
       name,
+    }, {}, {
+      loading: true,
     })
     if(!result) return false
     await loadSessions()

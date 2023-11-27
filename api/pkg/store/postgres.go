@@ -14,7 +14,6 @@ import (
 
 	_ "github.com/lib/pq"
 
-	sync "github.com/bacalhau-project/golang-mutex-tracer"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -22,7 +21,6 @@ import (
 )
 
 type PostgresStore struct {
-	mtx              sync.RWMutex
 	options          StoreOptions
 	connectionString string
 	db               *sql.DB
@@ -48,10 +46,6 @@ func NewPostgresStore(
 		options:          options,
 		db:               db,
 	}
-	store.mtx.EnableTracerWithOpts(sync.Opts{
-		Threshold: 10 * time.Millisecond,
-		Id:        "PostgresStore.mtx",
-	})
 	if options.AutoMigrate {
 		err = store.MigrateUp()
 		if err != nil {
@@ -69,9 +63,6 @@ func (d *PostgresStore) DeleteSession(
 	if err != nil {
 		return nil, err
 	}
-
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
 	_, err = d.db.Exec(`
 		DELETE FROM session WHERE id = $1
 	`, sessionID)
@@ -86,9 +77,6 @@ func (d *PostgresStore) GetSession(
 	ctx context.Context,
 	sessionID string,
 ) (*types.Session, error) {
-	d.mtx.RLock()
-	defer d.mtx.RUnlock()
-
 	if sessionID == "" {
 		return nil, fmt.Errorf("sessionID cannot be empty")
 	}
@@ -118,9 +106,6 @@ func (d *PostgresStore) GetSessions(
 	ctx context.Context,
 	query GetSessionsQuery,
 ) ([]*types.Session, error) {
-	d.mtx.RLock()
-	defer d.mtx.RUnlock()
-
 	var rows *sql.Rows
 	var err error
 
@@ -188,9 +173,6 @@ func (d *PostgresStore) CreateSession(
 	ctx context.Context,
 	session types.Session,
 ) (*types.Session, error) {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
 	interactions, err := json.Marshal(session.Interactions)
 	if err != nil {
 		return nil, err
@@ -215,10 +197,6 @@ func (d *PostgresStore) UpdateSession(
 	ctx context.Context,
 	session types.Session,
 ) (*types.Session, error) {
-	// TODO: think about which of these fields are meant to be mutable
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
 	interactions, err := json.Marshal(session.Interactions)
 	if err != nil {
 		return nil, err
@@ -246,13 +224,39 @@ func (d *PostgresStore) UpdateSession(
 	return &session, nil
 }
 
+func (d *PostgresStore) UpdateSessionMeta(
+	ctx context.Context,
+	data types.SessionMetaUpdate,
+) (*types.Session, error) {
+	if data.Owner != "" {
+		_, err := d.db.Exec(`
+		UPDATE session SET
+			name = $2,
+			owner = $3,
+			owner_type = $4
+		WHERE id = $1
+	`, data.ID, data.Name, data.Owner, data.OwnerType)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		_, err := d.db.Exec(`
+		UPDATE session SET
+			name = $2
+		WHERE id = $1
+	`, data.ID, data.Name)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return d.GetSession(ctx, data.ID)
+}
+
 func (d *PostgresStore) GetBalanceTransfers(
 	ctx context.Context,
 	query OwnerQuery,
 ) ([]*types.BalanceTransfer, error) {
-	d.mtx.RLock()
-	defer d.mtx.RUnlock()
-
 	var transfers []*types.BalanceTransfer
 	var rows *sql.Rows
 	var err error
@@ -318,8 +322,6 @@ func (d *PostgresStore) CreateBalanceTransfer(
 	ctx context.Context,
 	transfer types.BalanceTransfer,
 ) error {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
 	transferData, err := json.Marshal(transfer.Data)
 	if err != nil {
 		return err
@@ -351,9 +353,6 @@ values ($1, $2, $3, $4, $5, $6)`
 }
 
 func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
-
 	// Generate a new API key
 	key, err := generateAPIKey()
 	if err != nil {
@@ -391,8 +390,6 @@ func generateAPIKey() (string, error) {
 }
 
 func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
-	d.mtx.RLock()
-	defer d.mtx.RUnlock()
 	var apiKeys []*types.ApiKey
 	sqlStatement := `
 select
@@ -433,8 +430,6 @@ where
 }
 
 func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error {
-	d.mtx.Lock()
-	defer d.mtx.Unlock()
 	sqlStatement := `
 delete from api_key where key = $1 and owner = $2 and owner_type = $3
 `
@@ -448,8 +443,6 @@ delete from api_key where key = $1 and owner = $2 and owner_type = $3
 }
 
 func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	d.mtx.RLock()
-	defer d.mtx.RUnlock()
 	var key types.ApiKey
 	sqlStatement := `
 select
