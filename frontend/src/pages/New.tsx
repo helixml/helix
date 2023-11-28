@@ -217,7 +217,8 @@ const New: FC = () => {
       snackbar.error(`Please enter a valid URL`)
       return
     }
-    let fileTitle = manualURL
+    const useUrl = manualURL.replace(/\/$/i, '')
+    let fileTitle = useUrl
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
     const file = new File([
