@@ -216,7 +216,7 @@ export const ConversationEditor: FC<{
                 endIcon={<NavigateNextIcon />}
                 onClick={ submitData }
               >
-                Save Questions
+                Start Training
               </Button>
             ) : (
               <>
@@ -246,7 +246,7 @@ export const ConversationEditor: FC<{
 
       </Box>
            
-      <Box sx={{ height: 600, width: '100%' }}>
+      <Box sx={{ height: editMode ? 600 : 0, width: '100%' }}>
         {
           editMode && (
             <DataGrid2

@@ -88,7 +88,7 @@ const DeleteConfirmWindow: FC<React.PropsWithChildren<DeleteConfirmWindowProps>>
             value={ confirmValue }
             fullWidth
             onChange={ (e) => setConfirmValue(e.target.value) }
-            onKeyDown={handleKeyDown}
+            onKeyDown={ handleKeyDown }
           />
         </Box>
       </Box>
