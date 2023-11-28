@@ -83,24 +83,6 @@ services:
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
-  gradio:
-    ports:
-      - 7860:7860
-    build:
-      context: gradio
-      dockerfile: Dockerfile
-    restart: always
-    # TODO: in production, maybre remove --reload?
-    entrypoint: uvicorn main:app --reload --host 0.0.0.0 --port 7860
-    # uvicorn will auto-reload, or you can docker-compose restart gradio when
-    # changing the code
-    # (you'll still need to docker-compose build gradio when changing the
-    # requirements, or do things with exec/pip)
-    volumes:
-      - ./gradio:/app
-
-    # TODO: mount the same data directory api server is using for filestore to
-    # gradio so it can just read files from there, including results...
 
   unstructured:
     ports:
