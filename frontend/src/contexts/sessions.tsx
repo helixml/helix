@@ -50,9 +50,7 @@ export const useSessionsContext = (): ISessionsContext => {
   }, [])
 
   const deleteSession = useCallback(async (id: string): Promise<boolean> => {
-    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`, {}, {
-      loading: true,
-    })
+    const result = await api.delete<ISession>(`/api/v1/sessions/${id}`)
     if(!result) return false
     await loadSessions()
     return true
@@ -62,8 +60,6 @@ export const useSessionsContext = (): ISessionsContext => {
     const result = await api.put<ISessionMetaUpdate, ISession>(`/api/v1/sessions/${id}/meta`, {
       id,
       name,
-    }, {}, {
-      loading: true,
     })
     if(!result) return false
     await loadSessions()

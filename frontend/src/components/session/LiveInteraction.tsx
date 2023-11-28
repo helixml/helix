@@ -17,9 +17,6 @@ export const LiveInteraction: FC<{
     status,
   } = useLiveInteraction(session_id || '')
   
-  console.log('--------------------------------------------')
-  console.log('we are in live')
-
   return (
     <>
       {
