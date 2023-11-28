@@ -23,7 +23,7 @@ import EditTextWindow from '../widgets/EditTextWindow'
 import useSnackbar from '../../hooks/useSnackbar'
 import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
-import useApi from '../../hooks/useApi'
+import useLoading from '../../hooks/useLoading'
 
 import {
   SESSION_MODE_FINETUNE,
@@ -43,6 +43,7 @@ export const SessionsMenu: FC<{
 }) => {
   const snackbar = useSnackbar()
   const sessions = useSessions()
+  const loading = useLoading()
   const {
     navigate,
     params,
@@ -61,18 +62,26 @@ export const SessionsMenu: FC<{
   }
 
   const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
-    const result = await sessions.deleteSession(session_id)
-    if(!result) return
-    setDeletingSession(undefined)
-    snackbar.success(`Session deleted`)
-    navigate('home')
+    loading.setLoading(true)
+    try {
+      const result = await sessions.deleteSession(session_id)
+      if(!result) return
+      setDeletingSession(undefined)
+      snackbar.success(`Session deleted`)
+      navigate('home')
+    } catch(e) {}
+    loading.setLoading(false)
   }, [])
 
   const onSubmitSessionName = useCallback(async (session_id: string, name: string) => {
-    const result = await sessions.renameSession(session_id, name)
-    if(!result) return
-    setEditingSession(undefined)
-    snackbar.success(`Session updated`)
+    loading.setLoading(true)
+    try {
+      const result = await sessions.renameSession(session_id, name)
+      if(!result) return
+      setEditingSession(undefined)
+      snackbar.success(`Session updated`)
+    } catch(e) {}
+    loading.setLoading(false)
   }, [])
 
   return (
