@@ -1,13 +1,10 @@
 import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
 import bluebird from 'bluebird'
 import Keycloak from 'keycloak-js'
-import ReconnectingWebSocket from 'reconnecting-websocket'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
-import { useRoute } from 'react-router5'
-import router from '../router'
 
 import {
   IUser,
@@ -50,7 +47,6 @@ export const useAccountContext = (): IAccountContext => {
   const api = useApi()
   const snackbar = useSnackbar()
   const loading = useLoading()
-  const { route } = useRoute()
   const [ admin, setAdmin ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IUser>()

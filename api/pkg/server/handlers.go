@@ -336,22 +336,31 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 	if session == nil {
 		return nil, fmt.Errorf("no session found with id %s", id)
 	}
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		// admin can do anything
-		// this is used for the dashboard
-		if !apiServer.adminAuth.isUserAdmin(reqContext.Owner) {
-			return nil, fmt.Errorf("access denied")
-		}
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	return session, nil
 }
 
-func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.Session, error) {
+func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {
 	reqContext := apiServer.getRequestContext(req)
 	query := store.GetSessionsQuery{}
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
-	return apiServer.Store.GetSessions(reqContext.Ctx, query)
+	sessions, err := apiServer.Store.GetSessions(reqContext.Ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	ret := []*types.SessionSummary{}
+	for _, session := range sessions {
+		summary, err := model.GetSessionSummary(session)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, summary)
+	}
+	return ret, nil
 }
 
 func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
@@ -589,8 +598,9 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no session found with id %v", sessionID)
 	}
 
-	if session.Owner != reqContext.Owner || session.OwnerType != reqContext.OwnerType {
-		return nil, fmt.Errorf("access denied")
+	canEdit := apiServer.canEditSession(reqContext, session)
+	if !canEdit {
+		return nil, fmt.Errorf("access dened for session id %s", session.ID)
 	}
 
 	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
@@ -607,6 +617,36 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	})
 
 	return sessionData, nil
+}
+
+func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+	if sessionID == "" {
+		return nil, fmt.Errorf("cannot update session without id")
+	}
+
+	reqContext := apiServer.getRequestContext(req)
+	update := &types.SessionMetaUpdate{}
+	err := json.NewDecoder(req.Body).Decode(update)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", sessionID)
+	}
+
+	canEdit := apiServer.canEditSession(reqContext, session)
+	if !canEdit {
+		return nil, fmt.Errorf("access dened for session id %s", session.ID)
+	}
+
+	return apiServer.Store.UpdateSessionMeta(reqContext.Ctx, *update)
 }
 
 func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
@@ -650,9 +690,9 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	if session == nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
-	log.Printf("session %+v %+v", session, reqContext)
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+	canEdit := apiServer.canEditSession(reqContext, session)
+	if !canEdit {
+		return nil, fmt.Errorf("access dened for session id %s", session.ID)
 	}
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
 }

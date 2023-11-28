@@ -151,7 +151,7 @@ func NewRunner(
 func (r *Runner) Initialize(ctx context.Context) error {
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
-	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, "/ws/runner"))
+	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
 	if err != nil {
 		return err
 	}

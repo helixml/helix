@@ -79,6 +79,7 @@ func StartRunnerWebSocketServer(
 		// the connection and remove it from our map
 		for {
 			messageType, messageBytes, err := conn.ReadMessage()
+			log.Trace().Msgf("User websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
 				log.Debug().
 					Str("action", "🟠 runner ws DISCONNECT").

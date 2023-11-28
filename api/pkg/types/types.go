@@ -78,6 +78,16 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
+// things we can change about a session that are not interaction related
+type SessionMetaUpdate struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// uuid of owner entity
+	Owner string `json:"owner"`
+	// e.g. user, system, org
+	OwnerType OwnerType `json:"owner_type"`
+}
+
 type SessionFilterModel struct {
 	Mode      SessionMode `json:"mode"`
 	ModelName ModelName   `json:"model_name"`
@@ -243,6 +253,7 @@ type SessionSummary struct {
 	Scheduled     time.Time   `json:"scheduled"`
 	Completed     time.Time   `json:"completed"`
 	SessionID     string      `json:"session_id"`
+	Name          string      `json:"name"`
 	InteractionID string      `json:"interaction_id"`
 	ModelName     ModelName   `json:"model_name"`
 	Mode          SessionMode `json:"mode"`

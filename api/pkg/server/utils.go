@@ -27,6 +27,17 @@ func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.Requ
 	}
 }
 
+func (apiServer *HelixAPIServer) canSeeSession(reqContext types.RequestContext, session *types.Session) bool {
+	if session.OwnerType == reqContext.OwnerType && session.Owner == reqContext.Owner {
+		return true
+	}
+	return apiServer.adminAuth.isUserAdmin(reqContext.Owner)
+}
+
+func (apiServer *HelixAPIServer) canEditSession(reqContext types.RequestContext, session *types.Session) bool {
+	return apiServer.canSeeSession(reqContext, session)
+}
+
 type LoggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int

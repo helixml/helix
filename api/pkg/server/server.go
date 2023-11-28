@@ -132,6 +132,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")
+	// this is like update session but with meta rather than an entire interaction to add
+	authRouter.HandleFunc("/sessions/{id}/meta", system.Wrapper(apiServer.updateSessionMeta)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
 	adminRouter.HandleFunc("/dashboard", system.Wrapper(apiServer.dashboard)).Methods("GET")
