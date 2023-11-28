@@ -1,5 +1,4 @@
 import React, { FC, useState } from 'react'
-import axios from 'axios'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -10,24 +9,16 @@ import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
 import Divider from '@mui/material/Divider'
-import Container from '@mui/material/Container'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
-import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 
-import DeleteIcon from '@mui/icons-material/Delete'
-import ImageIcon from '@mui/icons-material/Image'
-import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
-import DescriptionIcon from '@mui/icons-material/Description'
-import PermMediaIcon from '@mui/icons-material/PermMedia'
 import HomeIcon from '@mui/icons-material/Home'
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -37,22 +28,13 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import MenuIcon from '@mui/icons-material/Menu'
 import AccountCircle from '@mui/icons-material/AccountCircle'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
-import ListIcon from '@mui/icons-material/List'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import useSessions from '../hooks/useSessions'
 import Snackbar from '../components/system/Snackbar'
+import SessionsMenu from '../components/session/SessionsMenu'
 import GlobalLoading from '../components/system/GlobalLoading'
 import useThemeConfig from '../hooks/useThemeConfig'
-import { SensorsOutlined } from '@mui/icons-material'
-
-import {
-  SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
-  SESSION_TYPE_IMAGE,
-  SESSION_TYPE_TEXT,
-} from '../types'
 
 const drawerWidth: number = 280
 
@@ -109,11 +91,9 @@ const Layout: FC = ({
   children,
 }) => {
   const account = useAccount()
-  const sessions = useSessions()
   const {
     meta,
     navigate,
-    params,
     getToolbarElement,
   } = useRouter()
   
@@ -134,23 +114,6 @@ const Layout: FC = ({
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
-  }
-
-  const handleDeleteSession = (sessionId: string) => {
-    if (window.confirm("Are you sure?")) {
-      axios.delete(`/api/v1/sessions/${sessionId}`)
-        .then(response => {
-          if (response.status != 200) {
-            throw new Error('Failed to delete session')
-          }
-
-          sessions.loadSessions()
-        })
-        .catch(error => {
-          console.error(error)
-          // handle error
-        })
-    }
   }
 
   const drawer = (
@@ -220,44 +183,11 @@ const Layout: FC = ({
           overflowY: 'auto',
         }}
       >
-        <List disablePadding>
-          {
-            sessions.sessions.map((session, i) => {
-              return (
-                <ListItem
-                  disablePadding
-                  key={ session.id }
-                  onClick={ () => {
-                    navigate("session", {session_id: session.id})
-                    setMobileOpen(false)
-                  }}
-                >
-                  <ListItemButton
-                    selected={ session.id == params["session_id"] }
-                  >
-                    <ListItemIcon>
-                      { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
-                      { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DescriptionIcon color="primary" /> }
-                      { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
-                      { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
-                    </ListItemIcon>
-                    <ListItemText
-                      sx={{marginLeft: "-15px"}}
-                      primaryTypographyProps={{ fontSize: 'small', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      primary={ session.name }
-                      id={ session.id }
-                    />
-                  </ListItemButton>
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteSession(session.id)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </ListItemSecondaryAction>
-                </ListItem>
-              )
-            })
-          }
-        </List>
+        <SessionsMenu
+          onOpenSession={ () => {
+            setMobileOpen(false)
+          }}
+        />
       </Box>
       <Box
         sx={{

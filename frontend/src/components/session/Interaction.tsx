@@ -6,11 +6,10 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
-import Progress from '../widgets/Progress'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
-import LoadingSpinner from '../widgets/LoadingSpinner'
 import ConversationEditor from './ConversationEditor'
+import LiveInteraction from './LiveInteraction'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -53,47 +52,40 @@ export const Interaction: FC<{
 }) => {
 
   const [ viewingError, setViewingError ] = useState(false)
-  let displayMessage: string | React.ReactElement = ''
+  let displayMessage: string = ''
   let progress = 0
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+  
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
 
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
 
-  if(type == SESSION_TYPE_TEXT) {
-    displayMessage = interaction.message
-    if(!displayMessage && isLoading) {
-      if(interaction.progress > 0) {
-        progress = interaction.progress
-      } else if (interaction.state != INTERACTION_STATE_EDITING) {
-        displayMessage = <LoadingSpinner />
-      }
-    }
-    if(interaction.lora_dir) {
-      displayMessage = 'Fine tuning complete - you can now ask the model questions...'
-    }
-  } else if(type == SESSION_TYPE_IMAGE) {
-    if(interaction.creator == SESSION_CREATOR_USER) {
+  if(isLoading) {
+    // we don't display the message here - we render a LiveInteraction which handles the websockets
+    // without reloading the entire app
+  } else {
+    if(type == SESSION_TYPE_TEXT) {
       displayMessage = interaction.message
-    }
-    else {
-      if(isLoading) {
-        if(interaction.progress > 0) {
-          progress = interaction.progress
-        } else {
-          displayMessage = <LoadingSpinner />
+      if(interaction.lora_dir) {
+        displayMessage = 'Fine tuning complete - you can now ask the model questions...'
+      }
+    } else if(type == SESSION_TYPE_IMAGE) {
+      if(interaction.creator == SESSION_CREATOR_USER) {
+        displayMessage = interaction.message
+      }
+      else {
+        if(interaction.lora_dir) {
+          displayMessage = 'Fine tuning complete - you can now ask the model to create images...'
+        } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
+          imageURLs = interaction.files.filter(isImage)
         }
-      } else if(interaction.lora_dir) {
-        displayMessage = 'Fine tuning complete - you can now ask the model to create images...'
-      } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
-        imageURLs = interaction.files.filter(isImage)
       }
     }
   }
-
+  
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
@@ -200,14 +192,23 @@ export const Interaction: FC<{
           )
         }
         {
-          typeof(displayMessage) === 'string' ? (
-            <Typography>{ displayMessage }</Typography>
-          ) : displayMessage
+          isLoading && (
+            <LiveInteraction
+              session_id={ session_id }
+            />
+          )
         }
         {
-          interaction.status && !useErrorText && !isEditingConversations && (
-            <Typography variant="caption" dangerouslySetInnerHTML={{__html: interaction.status.replace(/\n/g, '<br/>')}}></Typography>
+          displayMessage && (
+            <Typography>{ displayMessage }</Typography>
           )
+        }
+        {
+          useErrorText && (
+            <Alert severity="error">The system has encountered an error - <ClickLink onClick={ () => {
+              setViewingError(true)
+            }}>click here</ClickLink> to view the details.</Alert>
+          ) 
         }
         {
           isEditingConversations && session_id && (
@@ -222,13 +223,7 @@ export const Interaction: FC<{
             </Box>
           )
         }
-        {
-          progress > 0 && (
-            <Progress
-              progress={ progress }
-            />
-          )
-        }
+        
         {
           imageURLs.map((imageURL: string) => {
             const useURL = `${serverConfig.filestore_prefix}/${imageURL}`
@@ -258,13 +253,6 @@ export const Interaction: FC<{
             )
             
           })
-        }
-        {
-          useErrorText && (
-            <Alert severity="error">The system has encountered an error - <ClickLink onClick={ () => {
-              setViewingError(true)
-            }}>click here</ClickLink> to view the details.</Alert>
-          ) 
         }
         {
           viewingError && (

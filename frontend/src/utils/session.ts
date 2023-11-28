@@ -110,3 +110,29 @@ export const getTiming = (session: ISessionSummary): string => {
     return ''
   }
 }
+
+export const getSessionSummary = (session: ISession): ISessionSummary => {
+  const systemInteraction = getSystemInteraction(session)
+  const userInteraction = getUserInteraction(session)
+  let summary = ''
+  if (session.mode == SESSION_MODE_INFERENCE) {
+    summary = userInteraction?.message || ''
+  } else if (session.mode == SESSION_MODE_FINETUNE) {
+    summary = `fine tuning on ${userInteraction?.files.length || 0}`
+  }
+  return {
+    session_id: session.id,
+    name: session.name,
+    interaction_id: systemInteraction?.id || '',
+    mode: session.mode,
+    type: session.type,
+    model_name: session.model_name,
+    owner: session.owner,
+    lora_dir: session.lora_dir,
+    created: systemInteraction?.created || '',
+    updated: systemInteraction?.updated || '',
+    scheduled: systemInteraction?.scheduled || '',
+    completed: systemInteraction?.completed || '',
+    summary,
+  }
+}

@@ -87,6 +87,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	}
 	return &types.SessionSummary{
 		SessionID:     session.ID,
+		Name:          session.Name,
 		InteractionID: systemInteraction.ID,
 		Mode:          session.Mode,
 		Type:          session.Type,

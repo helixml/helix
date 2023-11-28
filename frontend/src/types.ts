@@ -220,6 +220,7 @@ export interface ISessionSummary {
   scheduled: string,
   completed: string,
   session_id: string,
+  name: string,
   interaction_id: string,
   model_name: string,
   mode: ISessionMode,
@@ -227,4 +228,11 @@ export interface ISessionSummary {
   owner: string,
   lora_dir?: string,
   summary: string,
+}
+
+export interface ISessionMetaUpdate {
+  id: string,
+  name: string,
+  owner?: string,
+  owner_type?: string,
 }
