@@ -3,7 +3,7 @@
  - [ ] retry button for errors
  - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
  - [ ] render markdown
- - [ ] react is rendering streaming updates to the sessions slowly
+ - [x] react is rendering streaming updates to the sessions slowly
  - [ ] if you put a URL to a file in the URL box - detect the bloody mime type so we don't split docs that are downloaded
    - [ ] the URL box should download files first
  - [ ] when pasting the link into text fine tuning https://techycompany.com/ the text file has no name
