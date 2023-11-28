@@ -14,7 +14,6 @@ export const useLiveInteraction = (session_id: string) => {
 
   useWebsocket(session_id, (parsedData) => {
     if(!session_id) return
-    if(parsedData.session_id != session_id) return
     if(parsedData.type == WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE && parsedData.worker_task_response) {
       const workerResponse = parsedData.worker_task_response
       if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_STREAM && workerResponse.message) {

@@ -50,7 +50,8 @@ import {
 } from '../utils/session'
 
 import {
-  getFileExtension,
+  mapFileExtension,
+  getURLFileExtension,
   ISerlializedFile,
   serializeFile,
   deserializeFile,
@@ -223,7 +224,7 @@ const New: FC = () => {
       .replace(/^www\./i, '')
     const file = new File([
       new Blob([manualURL], { type: 'text/html' })
-    ], `${fileTitle}.html`)
+    ], `${fileTitle}.url.${getURLFileExtension(useUrl)}`)
     setFiles(files.concat(file))
     setManualURL('')
   }, [
@@ -754,7 +755,7 @@ const New: FC = () => {
                                 color: '#999'
                               }}
                             >
-                              <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(file.name)}`}></span>
+                              <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(file.name)}`}></span>
                               <Caption sx={{ maxWidth: '100%'}}>
                                 {file.name}
                               </Caption>

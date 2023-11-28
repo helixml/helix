@@ -24,9 +24,10 @@ var userWebsocketUpgrader = websocket.Upgrader{
 type GetUserIDFromRequest func(r *http.Request) (string, error)
 
 type UserConnectionWrapper struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
-	user string
+	conn    *websocket.Conn
+	mu      sync.Mutex
+	user    string
+	session string
 }
 
 // StartUserWebSocketServer starts a WebSocket server
@@ -42,12 +43,15 @@ func StartUserWebSocketServer(
 
 	connections := map[*websocket.Conn]*UserConnectionWrapper{}
 
-	addConnection := func(conn *websocket.Conn, user string) {
+	// TODO: make this more efficient so we don't need to loop over all connections every time
+	// we should have a list of connections per sessionID
+	addConnection := func(conn *websocket.Conn, user string, sessionID string) {
 		mutex.Lock()
 		defer mutex.Unlock()
 		connections[conn] = &UserConnectionWrapper{
-			conn: conn,
-			user: user,
+			conn:    conn,
+			user:    user,
+			session: sessionID,
 		}
 	}
 
@@ -79,7 +83,8 @@ func StartUserWebSocketServer(
 					mutex.Lock()
 					defer mutex.Unlock()
 					for _, connWrapper := range connections {
-						if connWrapper.user != event.Owner {
+						// each user websocket connection is only interested in a single session
+						if connWrapper.user != event.Owner || connWrapper.session != event.SessionID {
 							continue
 						}
 						// wrap in a func so that we can defer the unlock so we can
@@ -108,6 +113,13 @@ func StartUserWebSocketServer(
 			return
 		}
 
+		sessionID := r.URL.Query().Get("session_id")
+		if sessionID == "" {
+			log.Error().Msgf("No session_id supplied")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
@@ -117,11 +129,11 @@ func StartUserWebSocketServer(
 
 		defer conn.Close()
 		defer removeConnection(conn)
-		addConnection(conn, userID)
+		addConnection(conn, userID, sessionID)
 
-		log.Debug().
+		log.Trace().
 			Str("action", "⚪ user ws CONNECT").
-			Msgf("connected user websocket: %s\n", userID)
+			Msgf("connected user websocket: %s for session: %s\n", userID, sessionID)
 
 		// we block on reading messages from the client
 		// if we get any errors then we break and this will close

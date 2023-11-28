@@ -27,7 +27,7 @@ import {
 } from '../../types'
 
 import {
-  getFileExtension,
+  mapFileExtension,
   isImage,
 } from '../../utils/filestore'
 
@@ -53,7 +53,6 @@ export const Interaction: FC<{
 
   const [ viewingError, setViewingError ] = useState(false)
   let displayMessage: string = ''
-  let progress = 0
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
   
@@ -62,6 +61,11 @@ export const Interaction: FC<{
 
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
+
+  // in this state the last interaction is not yet "finished"
+  if(isEditingConversations) {
+    isLoading = false
+  }
 
   if(isLoading) {
     // we don't display the message here - we render a LiveInteraction which handles the websockets
@@ -85,7 +89,7 @@ export const Interaction: FC<{
       }
     }
   }
-  
+
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
@@ -175,7 +179,7 @@ export const Interaction: FC<{
                               window.open(useURL)
                             }}
                           >
-                            <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(filename)}`}></span>
+                            <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
                             <Typography variant="caption" sx={{
                               textAlign: 'center',
                               color: 'blue',
