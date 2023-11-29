@@ -1,10 +1,16 @@
 package text
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -35,90 +41,96 @@ func NewDataOpenAIGPT(
 	}, nil
 }
 
+func (gpt *DataOpenAIGPT) GetConcurrency() int {
+	return 5
+}
+
 func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
-	time.Sleep(time.Second * 1)
-	return nil, fmt.Errorf("not implemented")
-	// systemPrompt := gpt.getSystemPromptFn(chunk, gpt.Options)
-	// userPrompt := gpt.getUserPromptFn(chunk, gpt.Options)
+	// use the data prep module to convert raw text into QA pairs
+	// a rough rate limiter
+	time.Sleep(2 * time.Second * time.Duration(index%gpt.Options.Concurrency))
 
-	// messages := []openai.ChatCompletionMessage{
-	// 	{
-	// 		Role:    openai.ChatMessageRoleSystem,
-	// 		Content: systemPrompt,
-	// 	},
-	// 	{
-	// 		Role:    openai.ChatMessageRoleUser,
-	// 		Content: userPrompt,
-	// 	},
-	// }
+	systemPrompt := gpt.getSystemPromptFn(chunk, gpt.Options)
+	userPrompt := gpt.getUserPromptFn(chunk, gpt.Options)
 
-	// clientOptions := system.ClientOptions{
-	// 	Host:  "https://api.openai.com",
-	// 	Token: gpt.Options.APIKey,
-	// }
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: userPrompt,
+		},
+	}
 
-	// postData := openai.ChatCompletionRequest{
-	// 	Model:       gpt.model,
-	// 	Messages:    messages,
-	// 	Temperature: gpt.Options.Temperature,
-	// }
+	clientOptions := system.ClientOptions{
+		Host:  "https://api.openai.com",
+		Token: gpt.Options.APIKey,
+	}
 
-	// log.Trace().
-	// 	Msgf("🔴🔴🔴 GPT Question: %+v", postData)
+	postData := openai.ChatCompletionRequest{
+		Model:       gpt.model,
+		Messages:    messages,
+		Temperature: gpt.Options.Temperature,
+	}
 
-	// dataBytes, err := json.Marshal(postData)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error serializing JSON: %s", err.Error())
-	// }
+	log.Trace().
+		Msgf("🔴🔴🔴 GPT Question: %+v", postData)
 
-	// req, err := retryablehttp.NewRequest("POST", system.URL(clientOptions, "/v1/chat/completions"), dataBytes)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// req.Header.Add("Content-type", "application/json")
-	// err = system.AddAuthHeadersRetryable(req, clientOptions.Token)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	dataBytes, err := json.Marshal(postData)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing JSON: %s", err.Error())
+	}
 
-	// client := system.NewRetryClient()
-	// client.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, retry int) {
-	// 	log.Error().Msgf("Retrying request: %s (retry #%d)", req.URL, retry)
-	// }
-	// resp, err := client.Do(req)
-	// if err != nil {
-	// 	log.Error().Msgf("GPT running request: %s", err.Error())
-	// 	return nil, err
-	// }
-	// defer resp.Body.Close()
+	req, err := retryablehttp.NewRequest("POST", system.URL(clientOptions, "/v1/chat/completions"), dataBytes)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-type", "application/json")
+	err = system.AddAuthHeadersRetryable(req, clientOptions.Token)
+	if err != nil {
+		return nil, err
+	}
 
-	// body, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	log.Error().Msgf("GPT reading body: %s", err.Error())
-	// 	return nil, err
-	// }
+	client := system.NewRetryClient()
+	client.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, retry int) {
+		log.Error().Msgf("Retrying request: %s (retry #%d)", req.URL, retry)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error().Msgf("GPT running request: %s", err.Error())
+		return nil, err
+	}
+	defer resp.Body.Close()
 
-	// log.Trace().
-	// 	Msgf("🔴🔴🔴 GPT Answer (%d): %+v", resp.StatusCode, string(body))
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Error().Msgf("GPT reading body: %s", err.Error())
+		return nil, err
+	}
 
-	// if resp.StatusCode >= 400 {
-	// 	log.Error().Msgf("GPT bad status code: %d", resp.StatusCode)
-	// 	return nil, fmt.Errorf(string(body))
-	// }
+	log.Trace().
+		Msgf("🔴🔴🔴 GPT Answer (%d): %+v", resp.StatusCode, string(body))
 
-	// var openAIResponse openai.ChatCompletionResponse
-	// err = json.Unmarshal(body, &openAIResponse)
-	// if err != nil {
-	// 	log.Error().Msgf("GPT Error parsing JSON: %s", err.Error())
-	// 	return nil, fmt.Errorf("error parsing JSON: %s", err.Error())
-	// }
+	if resp.StatusCode >= 400 {
+		log.Error().Msgf("GPT bad status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf(string(body))
+	}
 
-	// conversation, err := gpt.parseResponseFn(openAIResponse.Choices[0].Message.Content, gpt.Options)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	var openAIResponse openai.ChatCompletionResponse
+	err = json.Unmarshal(body, &openAIResponse)
+	if err != nil {
+		log.Error().Msgf("GPT Error parsing JSON: %s", err.Error())
+		return nil, fmt.Errorf("error parsing JSON: %s", err.Error())
+	}
 
-	// return conversation, nil
+	conversation, err := gpt.parseResponseFn(openAIResponse.Choices[0].Message.Content, gpt.Options)
+	if err != nil {
+		return nil, err
+	}
+
+	return conversation, nil
 }
 
 // Compile-time interface check:

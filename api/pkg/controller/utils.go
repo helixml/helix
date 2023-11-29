@@ -9,7 +9,6 @@ import (
 	stdlog "log"
 	"mime/multipart"
 	"net/http"
-	"path"
 	"strings"
 	"time"
 
@@ -116,8 +115,21 @@ func copyFileList(fileList []string) []string {
 	return ret
 }
 
-func getProcessedQAChunkKey(filename string) string {
-	return fmt.Sprintf("%s%s", types.TEXT_DATA_PREP_FILES_CONVERTED_PREFIX, path.Base(filename))
+func getQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+) *types.DataPrepChunk {
+	chunks, ok := interaction.DataPrepChunks[filename]
+	if !ok {
+		return nil
+	}
+	for _, chunk := range chunks {
+		if chunk.Index == chunkIndex {
+			return &chunk
+		}
+	}
+	return nil
 }
 
 func hasProcessedQAChunk(
@@ -125,34 +137,41 @@ func hasProcessedQAChunk(
 	filename string,
 	chunkIndex int,
 ) bool {
-	indexes, ok := interaction.Metadata[getProcessedQAChunkKey(filename)]
-	if !ok {
+	chunk := getQAChunk(interaction, filename, chunkIndex)
+	if chunk == nil {
 		return false
 	}
-	parts := strings.Split(indexes, ",")
-	for _, part := range parts {
-		if part == fmt.Sprintf("%d", chunkIndex) {
-			return true
-		}
-	}
-	return false
+	return chunk.Error == ""
 }
 
 func updateProcessedQAChunk(
 	interaction *types.Interaction,
 	filename string,
 	chunkIndex int,
-) {
+	err error,
+) *types.Interaction {
 	if hasProcessedQAChunk(interaction, filename, chunkIndex) {
-		return
+		return interaction
 	}
-	indexes, ok := interaction.Metadata[getProcessedQAChunkKey(filename)]
+	allChunks := interaction.DataPrepChunks
+	chunks, ok := allChunks[filename]
 	if !ok {
-		indexes = ""
+		chunks = []types.DataPrepChunk{}
 	}
-	parts := strings.Split(indexes, ",")
-	parts = append(parts, fmt.Sprintf("%d", chunkIndex))
-	interaction.Metadata[getProcessedQAChunkKey(filename)] = strings.Join(parts, ",")
+
+	chunk := types.DataPrepChunk{
+		Index: chunkIndex,
+	}
+
+	if err != nil {
+		chunk.Error = err.Error()
+	}
+
+	chunks = append(chunks, chunk)
+	allChunks[filename] = chunks
+
+	interaction.DataPrepChunks = allChunks
+	return interaction
 }
 
 func getFileContent(

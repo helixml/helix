@@ -37,6 +37,10 @@ func NewDataPrepTextHelixMistral(
 	}, nil
 }
 
+func (helixMistral *DataPrepTextHelixMistral) GetConcurrency() int {
+	return 1000
+}
+
 // TODO: getting a consistent output format that we can parse reliably is really hard
 func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
 	prompt := fmt.Sprintf(`
@@ -78,14 +82,15 @@ Do not number the questions or answers.
 		OwnerType:     helixMistral.session.OwnerType,
 		ParentSession: helixMistral.session.ID,
 		UserInteraction: types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Creator:  types.CreatorTypeUser,
-			Message:  prompt,
-			Files:    []string{},
-			State:    types.InteractionStateWaiting,
-			Finished: false,
-			Metadata: map[string]string{},
+			ID:             system.GenerateUUID(),
+			Created:        time.Now(),
+			Creator:        types.CreatorTypeUser,
+			Message:        prompt,
+			Files:          []string{},
+			State:          types.InteractionStateWaiting,
+			Finished:       false,
+			Metadata:       map[string]string{},
+			DataPrepChunks: map[string][]types.DataPrepChunk{},
 		},
 	})
 
