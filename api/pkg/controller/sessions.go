@@ -530,7 +530,6 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	}
 
 	runningFileList := copyFileList(userInteraction.Files)
-	processedCounter := 0
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("downloading and extracting text from %d files", len(filesToConvert))
@@ -540,68 +539,85 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	c.BroadcastProgress(session, 1, initialMessage)
 
-	for _, file := range filesToConvert {
-		fileURL := ""
-		filenameParts := strings.Split(file, ".")
+	var completedCounter int64
+	var dataPrepError error
 
-		if filenameParts[len(filenameParts)-1] == "url" {
-			// if the file itself ends with .url then it's a textfile
-			// that has a URL we should download as the actual file
-			reader, err := c.Options.Filestore.Download(c.Ctx, file)
-			if err != nil {
-				return nil, err
+	system.ForEachConcurrently[string](
+		filesToConvert,
+		c.Options.DataPrepConcurrency,
+		func(file string, i int) {
+			if dataPrepError != nil {
+				return
 			}
-			bytes, err := io.ReadAll(reader)
-			if err != nil {
-				return nil, err
-			}
-			fileURL = string(bytes)
-		} else {
-			// otherwise it's a file already living in the file store
-			// so
-			fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
-			if err != nil {
-				return nil, err
-			}
-			fileURL = fileObject.URL
-		}
 
-		// for local development - the file server hostname will not resolve
-		// from inside the unstructured container
-		fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
+			dataPrepError = func() error {
+				fileURL := ""
+				filenameParts := strings.Split(file, ".")
+				originalFile := file
 
-		res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
-			system.ClientOptions{},
-			c.Options.TextExtractionURL,
-			convertDocumentsToChunksRequest{
-				URL: fileURL,
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
+				if filenameParts[len(filenameParts)-1] == "url" {
+					// if the file itself ends with .url then it's a textfile
+					// that has a URL we should download as the actual file
+					reader, err := c.Options.Filestore.Download(c.Ctx, file)
+					if err != nil {
+						return err
+					}
+					bytes, err := io.ReadAll(reader)
+					if err != nil {
+						return err
+					}
+					fileURL = string(bytes)
+					file = strings.TrimSuffix(file, ".url")
+				} else {
+					// otherwise it's a file already living in the file store
+					// so
+					fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
+					if err != nil {
+						return err
+					}
+					fileURL = fileObject.URL
+				}
 
-		processedCounter++
+				// for local development - the file server hostname will not resolve
+				// from inside the unstructured container
+				fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
-		newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
-		_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
-		if err != nil {
-			return nil, err
-		}
+				res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
+					system.ClientOptions{},
+					c.Options.TextExtractionURL,
+					convertDocumentsToChunksRequest{
+						URL: fileURL,
+					},
+				)
+				if err != nil {
+					return err
+				}
 
-		percentConverted := int(float64(processedCounter) / float64(len(filesToConvert)) * 100)
+				atomic.AddInt64(&completedCounter, 1)
+				newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-		message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), processedCounter, len(filesToConvert))
+				_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
+				if err != nil {
+					return err
+				}
 
-		c.BroadcastProgress(session, percentConverted, message)
-		systemInteraction.Status = message
-		systemInteraction.Progress = percentConverted
-		session = c.WriteInteraction(session, systemInteraction)
+				percentConverted := int(float64(completedCounter) / float64(len(filesToConvert)) * 100)
 
-		runningFileList = injectFileToList(runningFileList, file, fmt.Sprintf("%s.txt", file))
-		userInteraction.Files = runningFileList
-		session = c.WriteInteraction(session, userInteraction)
-	}
+				message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), completedCounter, len(filesToConvert))
+
+				c.BroadcastProgress(session, percentConverted, message)
+				systemInteraction.Status = message
+				systemInteraction.Progress = percentConverted
+				session = c.WriteInteraction(session, systemInteraction)
+
+				runningFileList = injectFileToList(runningFileList, originalFile, newFilepath)
+				userInteraction.Files = runningFileList
+				session = c.WriteInteraction(session, userInteraction)
+
+				return nil
+			}()
+		},
+	)
 
 	finishedMessage := fmt.Sprintf("extracted %d files", len(filesToConvert))
 
