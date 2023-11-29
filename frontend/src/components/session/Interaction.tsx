@@ -6,6 +6,9 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
+import Stepper from '@mui/material/Stepper'
+import Step from '@mui/material/Step'
+import StepLabel from '@mui/material/StepLabel'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
 import ConversationEditor from './ConversationEditor'
@@ -17,6 +20,7 @@ import {
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
+  TEXT_DATA_PREP_STAGE_NONE,
 } from '../../types'
 
 import {
@@ -30,6 +34,11 @@ import {
   mapFileExtension,
   isImage,
 } from '../../utils/filestore'
+
+import {
+  getTextDataPrepStage,
+  getTextDataPrepStageIndex,
+} from '../../utils/session'
 
 const GeneratedImage = styled('img')({})
 
@@ -58,6 +67,8 @@ export const Interaction: FC<{
   
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
+
+  const dataPrepStage = getTextDataPrepStage(interaction)
 
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
@@ -192,6 +203,28 @@ export const Interaction: FC<{
                     
                 }
               </Grid>
+            </Box>
+          )
+        }
+        {
+          dataPrepStage != TEXT_DATA_PREP_STAGE_NONE && (
+            <Box
+              sx={{
+                mt: 4,
+                mb: 4,
+              }}
+            >
+              <Stepper activeStep={getTextDataPrepStageIndex(dataPrepStage)}>
+                <Step>
+                  <StepLabel>Extract Text</StepLabel>
+                </Step>
+                <Step>
+                  <StepLabel>Generate Questions</StepLabel>
+                </Step>
+                <Step>
+                  <StepLabel>Edit Questions</StepLabel>
+                </Step>
+              </Stepper>
             </Box>
           )
         }

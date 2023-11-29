@@ -535,6 +535,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	initialMessage := fmt.Sprintf("downloading and extracting text from %d files", len(filesToConvert))
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
+	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageExtractText)
 	session = c.WriteInteraction(session, systemInteraction)
 
 	c.BroadcastProgress(session, 1, initialMessage)

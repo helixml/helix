@@ -4,12 +4,16 @@ import {
   ISessionType,
   ISessionMode,
   IInteraction,
+  ITextDataPrepStage,
   IModelInstanceState,
   SESSION_CREATOR_SYSTEM,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  TEXT_DATA_PREP_STAGE_NONE,
+  TEXT_DATA_PREP_STAGES,
+  TEXT_DATA_PREP_STAGE_METADATA_KEY,
 } from '../types'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
@@ -135,4 +139,15 @@ export const getSessionSummary = (session: ISession): ISessionSummary => {
     completed: systemInteraction?.completed || '',
     summary,
   }
+}
+
+export const getTextDataPrepStage = (interaction: IInteraction): ITextDataPrepStage => {
+  const metadata = interaction.metadata || {}
+  const value = metadata[TEXT_DATA_PREP_STAGE_METADATA_KEY] || TEXT_DATA_PREP_STAGE_NONE
+  if(value == TEXT_DATA_PREP_STAGE_NONE) return TEXT_DATA_PREP_STAGE_NONE
+  return value as ITextDataPrepStage
+}
+
+export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => {
+  return TEXT_DATA_PREP_STAGES.indexOf(stage)
 }

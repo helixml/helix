@@ -121,3 +121,14 @@ const (
 )
 
 const LORA_DIR_NONE = "none"
+
+const TEXT_DATA_PREP_STAGE_METADATA_KEY = "text_data_prep_stage"
+
+type TextDataPrepStage string
+
+const (
+	TextDataPrepStageNone             TextDataPrepStage = ""
+	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
+	TextDataPrepStageConvertQuestions TextDataPrepStage = "convert_questions"
+	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"
+)
