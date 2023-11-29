@@ -43,7 +43,7 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
-			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 5),
+			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 3),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
@@ -325,20 +325,29 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
-	options.ControllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepText, error) {
+	options.ControllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
 		if appController == nil {
-			return nil, fmt.Errorf("app controller is not initialized")
+			return nil, nil, fmt.Errorf("app controller is not initialized")
 		}
+
+		var questionGenerator text.DataPrepTextQuestionGenerator
+		var err error
 
 		// if we are using openai then let's do that
 		// otherwise - we use our own mistral plugin
 		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
-			return text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+			questionGenerator, err = text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
+			if err != nil {
+				return nil, nil, err
+			}
 		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT3Point5 {
-			return text.NewDataPrepTextGPT3Point5(options.DataPrepTextOptions)
+			questionGenerator, err = text.NewDataPrepTextGPT3Point5(options.DataPrepTextOptions)
+			if err != nil {
+				return nil, nil, err
+			}
 		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
-			return text.NewDataPrepTextHelixMistral(
+			questionGenerator, err = text.NewDataPrepTextHelixMistral(
 				options.DataPrepTextOptions,
 				session,
 				func(req types.CreateSessionRequest) (*types.Session, error) {
@@ -348,9 +357,23 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 					return appController.Options.Store.GetSession(context.Background(), id)
 				},
 			)
+			if err != nil {
+				return nil, nil, err
+			}
 		} else {
-			return nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
+			return nil, nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
 		}
+
+		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+			ChunkSize: options.DataPrepTextOptions.ChunkSize,
+			Overflow:  options.DataPrepTextOptions.OverflowSize,
+		})
+
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return questionGenerator, splitter, nil
 	}
 
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {

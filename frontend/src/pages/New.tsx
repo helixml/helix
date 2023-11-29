@@ -51,7 +51,6 @@ import {
 
 import {
   mapFileExtension,
-  getURLFileExtension,
   ISerlializedFile,
   serializeFile,
   deserializeFile,
@@ -446,6 +445,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Firstly upload some images you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }
@@ -570,6 +570,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Firstly, add URLs, paste some text or upload some files you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }
@@ -805,6 +806,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Now, add a label to each of your images.  Try to add as much detail as possible to each image:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }

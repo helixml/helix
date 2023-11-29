@@ -27,8 +27,15 @@ export const FILE_EXT_MAP: Record<string, string> = {
 }
 
 export const mapFileExtension = (filename: string) => {
+  const hasURL = filename.match(/\.url$/i)
   const useFilename = filename.replace(/\.url$/i, '')
-  const parts = useFilename.split('.')
+  const folders = useFilename.split('/')
+  const folder = folders[folders.length - 1]
+  if(!folder) return ''
+  const parts = folder.split('.')
+  if(parts.length == 1 && hasURL) {
+    return 'html'
+  }
   const ext = parts[parts.length - 1]
   return FILE_EXT_MAP[ext] || ext
 }

@@ -313,3 +313,8 @@ type GlobalSchedulingDecision struct {
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
 }
+
+type DataPrepTextQuestion struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}

@@ -3,16 +3,17 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -126,10 +127,10 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		if err != nil {
 			return nil, err
 		}
-		// session, err = c.convertChunksToQuestions(session)
-		// if err != nil {
-		// 	return nil, err
-		// }
+		session, err = c.convertChunksToQuestions(session)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return session, nil
 }
@@ -138,7 +139,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
 func (c *Controller) WriteSession(session *types.Session) {
-	log.Debug().
+	log.Trace().
 		Msgf("🔵 update session: %s %+v", session.ID, session)
 
 	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
@@ -353,7 +354,7 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 }
 
 // return the JSON of some fine tune conversation data
-func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPTConversations, error) {
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
 	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
 	if err != nil {
 		return nil, err
@@ -364,14 +365,14 @@ func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPT
 		return nil, err
 	}
 
-	var conversations []text.ShareGPTConversations
+	var conversations []types.DataPrepTextQuestion
 	lines := strings.Split(string(data), "\n")
 
 	for _, line := range lines {
 		if line == "" {
 			continue
 		}
-		var conversation text.ShareGPTConversations
+		var conversation types.DataPrepTextQuestion
 		err := json.Unmarshal([]byte(line), &conversation)
 		if err != nil {
 			return nil, err
@@ -382,7 +383,7 @@ func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]text.ShareGPT
 	return conversations, nil
 }
 
-func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []text.ShareGPTConversations) error {
+func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.DataPrepTextQuestion) error {
 	jsonLines := []string{}
 
 	for _, conversationEntry := range data {
@@ -501,7 +502,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			return false
 		}
 
-		if strings.HasSuffix(filename, ".training_data.jsonl") {
+		if strings.HasSuffix(filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX) {
 			// we've already converted this file into q&a pairs
 			return false
 		}
@@ -514,7 +515,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 		}
 
 		// check if we have already got the chunks for this file
-		_, ok = existingFileNames[fmt.Sprintf("%s.training_data.jsonl", filename)]
+		_, ok = existingFileNames[fmt.Sprintf("%s%s", filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)]
 		if ok {
 			// we've already chunked this file into chunks
 			return false
@@ -541,84 +542,74 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	c.BroadcastProgress(session, 1, initialMessage)
 
 	var completedCounter int64
-	var dataPrepError error
 
-	system.ForEachConcurrently[string](
+	err = system.ForEachConcurrently[string](
 		filesToConvert,
 		c.Options.DataPrepConcurrency,
-		func(file string, i int) {
-			if dataPrepError != nil {
-				return
+		func(file string, i int) error {
+			fileURL := ""
+			filenameParts := strings.Split(file, ".")
+			originalFile := file
+
+			if filenameParts[len(filenameParts)-1] == "url" {
+				// if the file itself ends with .url then it's a textfile
+				// that has a URL we should download as the actual file
+				fileURL, err = getFileContent(c.Ctx, c.Options.Filestore, file)
+				if err != nil {
+					return err
+				}
+				file = strings.TrimSuffix(file, ".url")
+			} else {
+				// otherwise it's a file already living in the file store
+				// so
+				fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
+				if err != nil {
+					return err
+				}
+				fileURL = fileObject.URL
 			}
 
-			dataPrepError = func() error {
-				fileURL := ""
-				filenameParts := strings.Split(file, ".")
-				originalFile := file
+			// for local development - the file server hostname will not resolve
+			// from inside the unstructured container
+			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
-				if filenameParts[len(filenameParts)-1] == "url" {
-					// if the file itself ends with .url then it's a textfile
-					// that has a URL we should download as the actual file
-					reader, err := c.Options.Filestore.Download(c.Ctx, file)
-					if err != nil {
-						return err
-					}
-					bytes, err := io.ReadAll(reader)
-					if err != nil {
-						return err
-					}
-					fileURL = string(bytes)
-					file = strings.TrimSuffix(file, ".url")
-				} else {
-					// otherwise it's a file already living in the file store
-					// so
-					fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
-					if err != nil {
-						return err
-					}
-					fileURL = fileObject.URL
-				}
+			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
+				system.ClientOptions{},
+				c.Options.TextExtractionURL,
+				convertDocumentsToChunksRequest{
+					URL: fileURL,
+				},
+			)
+			if err != nil {
+				return err
+			}
 
-				// for local development - the file server hostname will not resolve
-				// from inside the unstructured container
-				fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
+			atomic.AddInt64(&completedCounter, 1)
+			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-				res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
-					system.ClientOptions{},
-					c.Options.TextExtractionURL,
-					convertDocumentsToChunksRequest{
-						URL: fileURL,
-					},
-				)
-				if err != nil {
-					return err
-				}
+			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
+			if err != nil {
+				return err
+			}
 
-				atomic.AddInt64(&completedCounter, 1)
-				newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
+			percentConverted := int(float64(completedCounter) / float64(len(filesToConvert)) * 100)
+			message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), completedCounter, len(filesToConvert))
+			c.BroadcastProgress(session, percentConverted, message)
+			systemInteraction.Status = message
+			systemInteraction.Progress = percentConverted
+			session = c.WriteInteraction(session, systemInteraction)
 
-				_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
-				if err != nil {
-					return err
-				}
+			runningFileList = injectFileToList(runningFileList, originalFile, newFilepath)
+			userInteraction.Files = runningFileList
+			session = c.WriteInteraction(session, userInteraction)
 
-				percentConverted := int(float64(completedCounter) / float64(len(filesToConvert)) * 100)
-
-				message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), completedCounter, len(filesToConvert))
-
-				c.BroadcastProgress(session, percentConverted, message)
-				systemInteraction.Status = message
-				systemInteraction.Progress = percentConverted
-				session = c.WriteInteraction(session, systemInteraction)
-
-				runningFileList = injectFileToList(runningFileList, originalFile, newFilepath)
-				userInteraction.Files = runningFileList
-				session = c.WriteInteraction(session, userInteraction)
-
-				return nil
-			}()
+			return nil
 		},
 	)
+
+	if err != nil {
+		return nil, err
+	}
 
 	finishedMessage := fmt.Sprintf("extracted %d files", len(filesToConvert))
 
@@ -646,111 +637,149 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, err
 	}
 
-	dataprep, err := c.Options.DataPrepTextFactory(session)
-	if err != nil {
-		return nil, err
+	filesToConvert := []string{}
+
+	getQuestionsFilename := func(sourceFilename string) string {
+		return fmt.Sprintf("%s%s", sourceFilename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)
+	}
+
+	// do we have a JSONL file already or do we need to create it?
+	hasQuestionsFile := func(sourceFilename string) bool {
+		for _, file := range userInteraction.Files {
+			if file == getQuestionsFilename(sourceFilename) {
+				return true
+			}
+		}
+		return false
+	}
+
+	shouldConvertFile := func(filename string) bool {
+		return strings.HasSuffix(filename, ".txt")
 	}
 
 	for _, file := range userInteraction.Files {
-		// if file is not a text file
-		// then we need to convert it
-		if !strings.HasSuffix(file, ".txt") {
-			continue
-		}
-
-		systemInteraction.Status = fmt.Sprintf("adding document to training data: %s", path.Base(file))
-		c.WriteInteraction(session, systemInteraction)
-
-		reader, err := c.Options.Filestore.Download(c.Ctx, file)
-		if err != nil {
-			return nil, err
-		}
-
-		buf := new(bytes.Buffer)
-		_, err = io.Copy(buf, reader)
-		if err != nil {
-			return nil, err
-		}
-
-		err = dataprep.AddDocument(buf.String())
-		if err != nil {
-			return nil, err
+		if shouldConvertFile(file) {
+			filesToConvert = append(filesToConvert, file)
 		}
 	}
 
-	finetuneDataSet := path.Join(path.Dir(userInteraction.Files[0]), "finetune_dataset.jsonl")
-
-	chunks, err := dataprep.GetChunks()
+	dataprep, splitter, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, err
 	}
 
-	allConversations := []text.DataPrepTextConversation{}
+	// add all the files to the splitter so we know what chunks we have
+	for _, file := range filesToConvert {
+		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+		if err != nil {
+			return nil, err
+		}
+		err = splitter.AddDocument(file, fileContent)
+		if err != nil {
+			return nil, err
+		}
+	}
 
+	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
+	for _, chunk := range splitter.Chunks {
+		if !hasProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index) {
+			chunksToProcess = append(chunksToProcess, chunk)
+		}
+	}
+
+	// get the progress bar to display
+	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
+	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
-	systemInteraction.Status = fmt.Sprintf("converted 0 of %d chunks into training data", len(chunks))
-	c.WriteInteraction(session, systemInteraction)
+	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageConvertQuestions)
+	session = c.WriteInteraction(session, systemInteraction)
+	c.BroadcastProgress(session, 1, initialMessage)
 
 	var completedCounter int64
-	var dataPrepError error
 
-	system.ForEachConcurrently[string](
-		chunks,
+	// we use this to only append questions to one file at a time
+	var writeUpdatesMutex sync.Mutex
+
+	runningFileList := copyFileList(userInteraction.Files)
+
+	err = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
+		chunksToProcess,
 		c.Options.DataPrepConcurrency,
-		func(chunk string, i int) {
-			if dataPrepError != nil {
-				return
-			}
+		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
+			log.Info().Msgf("🔴 question conversion start %d of %d", i, len(chunksToProcess))
+
+			// use the data prep module to convert raw text into QA pairs
 			// a rough rate limiter
-			time.Sleep(1 * time.Second * time.Duration(i%c.Options.DataPrepConcurrency))
-
-			conversations, err := dataprep.ConvertChunk(chunk)
+			time.Sleep(2 * time.Second * time.Duration(i%c.Options.DataPrepConcurrency))
+			questions, err := dataprep.ConvertChunk(chunk.Text, i)
 			if err != nil {
-				if dataPrepError == nil {
-					dataPrepError = err
-					c.ErrorSession(session, err)
-				}
-				return
-			} else if dataPrepError != nil {
-				return
+				log.Error().Msgf("error converting chunk: %s", err.Error())
+				return err
 			}
 
-			allConversations = append(allConversations, conversations...)
-			atomic.AddInt64(&completedCounter, 1)
-			systemInteraction.Progress = int(float64(completedCounter) / float64(len(chunks)) * 100)
-			systemInteraction.Status = fmt.Sprintf("converted %d of %d chunks into training data", completedCounter, len(chunks))
+			// if there is no JSONL file - make it appear
+			if !hasQuestionsFile(chunk.Filename) {
+				runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
+				userInteraction.Files = runningFileList
 
-			c.WriteInteraction(session, systemInteraction)
+				// we want to write an empty file to the filestore here
+				// because then appendQuestionsToFile doesn't need to deal with making it
+				_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+				if err != nil {
+					log.Error().Msgf("error uploading file: %s", err.Error())
+					return err
+				}
+			}
+
+			// write the updates inside a mutex so we don't get a race
+			err = func() error {
+				writeUpdatesMutex.Lock()
+				defer writeUpdatesMutex.Unlock()
+				innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
+				if innerErr != nil {
+					log.Error().Msgf("error adding questions to file: %s", err.Error())
+					return innerErr
+				}
+				return nil
+			}()
+			if err != nil {
+				return err
+			}
+
+			updateProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index)
+			session = c.WriteInteraction(session, userInteraction)
+
+			atomic.AddInt64(&completedCounter, 1)
+			percentConverted := int(float64(completedCounter) / float64(len(chunksToProcess)) * 100)
+			message := fmt.Sprintf("converted %d of %d text chunks into question answer pairs", completedCounter, len(chunksToProcess))
+			log.Debug().
+				Msgf(message)
+			c.BroadcastProgress(session, percentConverted, message)
+			systemInteraction.Status = message
+			systemInteraction.Progress = percentConverted
+			session = c.WriteInteraction(session, systemInteraction)
+
+			log.Info().Msgf("🔴 question conversion complete %d of %d", i, len(chunksToProcess))
+
+			return nil
 		},
 	)
+
 	if err != nil {
+		fmt.Printf("error from convert --------------------------------------\n")
+		spew.Dump(err.Error())
 		return nil, err
 	}
 
-	// now we have allConversations we convert into jsonL data
-	jsonLines := []string{}
+	finishedMessage := fmt.Sprintf("converted %d text chunks", len(chunksToProcess))
 
-	for _, conversationEntry := range allConversations {
-		jsonLine, err := json.Marshal(text.ConvertConversation(conversationEntry))
-		if err != nil {
-			return nil, err
-		}
-		jsonLines = append(jsonLines, string(jsonLine))
-	}
+	c.BroadcastProgress(session, 100, finishedMessage)
 
-	_, err = c.Options.Filestore.Upload(c.Ctx, finetuneDataSet, strings.NewReader(strings.Join(jsonLines, "\n")))
-	if err != nil {
-		return nil, err
-	}
+	userInteraction.Files = runningFileList
+	session = c.WriteInteraction(session, userInteraction)
 
-	// by this stage we need to have generated a jsonl file of the text
-	systemInteraction.Files = []string{finetuneDataSet}
-	systemInteraction.Status = fmt.Sprintf("all files converted to txt - please edit and save the file to start training")
-	systemInteraction.Progress = 0
-	systemInteraction.State = types.InteractionStateEditing
+	systemInteraction.Status = finishedMessage
 	session = c.WriteInteraction(session, systemInteraction)
 
-	// we return nil here because we want the user to edit the JSONL
-	// file and we will handle adding the session to the queue ourselves
-	return nil, nil
+	return session, nil
 }
