@@ -2,15 +2,20 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	stdlog "log"
 	"mime/multipart"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -109,4 +114,91 @@ func copyFileList(fileList []string) []string {
 		ret = append(ret, file)
 	}
 	return ret
+}
+
+func getProcessedQAChunkKey(filename string) string {
+	return fmt.Sprintf("%s%s", types.TEXT_DATA_PREP_FILES_CONVERTED_PREFIX, path.Base(filename))
+}
+
+func hasProcessedQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+) bool {
+	indexes, ok := interaction.Metadata[getProcessedQAChunkKey(filename)]
+	if !ok {
+		return false
+	}
+	parts := strings.Split(indexes, ",")
+	for _, part := range parts {
+		if part == fmt.Sprintf("%d", chunkIndex) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateProcessedQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+) {
+	if hasProcessedQAChunk(interaction, filename, chunkIndex) {
+		return
+	}
+	indexes, ok := interaction.Metadata[getProcessedQAChunkKey(filename)]
+	if !ok {
+		indexes = ""
+	}
+	parts := strings.Split(indexes, ",")
+	parts = append(parts, fmt.Sprintf("%d", chunkIndex))
+	interaction.Metadata[getProcessedQAChunkKey(filename)] = strings.Join(parts, ",")
+}
+
+func getFileContent(
+	ctx context.Context,
+	fs filestore.FileStore,
+	path string,
+) (string, error) {
+	// load the actual file contents
+	reader, err := fs.Download(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, reader)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// for text based fine tuning - once we've converted text into questions
+// we need to append to the jsonl file with the new questions
+// this is NOT atomic and should be run in some kind of mutex
+// to prevent a race between writers loosing data
+func appendQuestionsToFile(
+	ctx context.Context,
+	fs filestore.FileStore,
+	path string,
+	questions []types.DataPrepTextQuestion,
+) error {
+	jsonLines := []string{}
+	for _, question := range questions {
+		jsonLine, err := json.Marshal(question)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+	existingContent, err := getFileContent(ctx, fs, path)
+	if err != nil {
+		return err
+	}
+	newContent := fmt.Sprintf("%s\n%s", existingContent, strings.Join(jsonLines, "\n"))
+	_, err = fs.Upload(ctx, path, strings.NewReader(newContent))
+	if err != nil {
+		return err
+	}
+	return nil
 }

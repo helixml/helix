@@ -124,11 +124,21 @@ const LORA_DIR_NONE = "none"
 
 const TEXT_DATA_PREP_STAGE_METADATA_KEY = "text_data_prep_stage"
 
+// in the interaction metadata we keep track of which chunks
+// have been turned into questions - we use the following format
+// qa_<filename>
+// the value will be a comma separated list of chunk indexes
+// e.g. qa_file.txt = 0,1,2,3,4
+const TEXT_DATA_PREP_FILES_CONVERTED_PREFIX = "qa_"
+
+// what we append on the end of the files to turn them into the qa files
+const TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX = ".qa.jsonl"
+
 type TextDataPrepStage string
 
 const (
 	TextDataPrepStageNone             TextDataPrepStage = ""
 	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
-	TextDataPrepStageConvertQuestions TextDataPrepStage = "convert_questions"
+	TextDataPrepStageConvertQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"
 )

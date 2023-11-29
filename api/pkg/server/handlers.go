@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -426,7 +425,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	return ret, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
@@ -456,7 +455,7 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
 }
 
-func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
@@ -484,7 +483,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, fmt.Errorf("file is not a jsonl file")
 	}
 
-	var data []text.ShareGPTConversations
+	var data []types.DataPrepTextQuestion
 
 	// Decode the JSON from the request body
 	err = json.NewDecoder(req.Body).Decode(&data)
