@@ -42,6 +42,7 @@ export const useSession = (session_id: string) => {
   ])
 
   useWebsocket(session_id, (parsedData) => {
+    console.log(parsedData)
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
       setData(newSession)

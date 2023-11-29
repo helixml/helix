@@ -218,13 +218,14 @@ const New: FC = () => {
       snackbar.error(`Please enter a valid URL`)
       return
     }
-    const useUrl = manualURL.replace(/\/$/i, '')
+    let useUrl = manualURL.replace(/\/$/i, '')
+    useUrl = decodeURIComponent(useUrl)
     let fileTitle = useUrl
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
     const file = new File([
       new Blob([manualURL], { type: 'text/html' })
-    ], `${fileTitle}.url.${getURLFileExtension(useUrl)}`)
+    ], `${fileTitle}.url`)
     setFiles(files.concat(file))
     setManualURL('')
   }, [

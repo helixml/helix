@@ -91,3 +91,22 @@ func newRetryClient() *retryablehttp.Client {
 	}
 	return retryClient
 }
+
+func injectFileToList(fileList []string, existingFile string, addFile string) []string {
+	ret := []string{}
+	for _, file := range fileList {
+		ret = append(ret, file)
+		if file == existingFile {
+			ret = append(ret, addFile)
+		}
+	}
+	return ret
+}
+
+func copyFileList(fileList []string) []string {
+	ret := []string{}
+	for _, file := range fileList {
+		ret = append(ret, file)
+	}
+	return ret
+}

@@ -10,7 +10,6 @@ import SessionHeader from '../components/session/Header'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import useSessions from '../hooks/useSessions'
 import useSession from '../hooks/useSession'
 
 import {
@@ -133,10 +132,11 @@ const Session: FC = () => {
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
+                    if(!session.data) return null
                     return (
                       <Interaction
                         key={ i }
-                        session_id={ session.data?.id }
+                        session_id={ session.data.id }
                         type={ session.data?.type || SESSION_TYPE_TEXT}
                         mode={ session.data?.mode || SESSION_MODE_INFERENCE }
                         interaction={ interaction }

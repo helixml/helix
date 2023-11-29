@@ -115,12 +115,12 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
 
-			log.Printf("uploading file %s", filePath)
+			log.Debug().Msgf("uploading file %s", filePath)
 			imageItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
-			log.Printf("success uploading file: %s", imageItem.Path)
+			log.Debug().Msgf("success uploading file: %s", imageItem.Path)
 			filePaths = append(filePaths, imageItem.Path)
 
 			// let's see if there is a single form field named after the filename
@@ -140,11 +140,11 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
-				log.Printf("success uploading file: %s", fileHeader.Filename)
+				log.Debug().Msgf("success uploading file: %s", fileHeader.Filename)
 				filePaths = append(filePaths, labelItem.Path)
 			}
 		}
-		log.Printf("success uploading files")
+		log.Debug().Msgf("success uploading files")
 	}
 
 	if sessionMode == types.SessionModeFinetune && len(filePaths) == 0 {

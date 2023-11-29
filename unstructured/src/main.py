@@ -2,49 +2,41 @@ from flask import Flask, request, jsonify
 import os
 from unstructured.partition.auto import partition
 from unstructured.documents.elements import NarrativeText
-from unstructured.partition.text_type import sentence_count
+from unstructured.chunking.title import chunk_by_title
 import tempfile
 
 app = Flask(__name__)
 
-def parse_document(filename):
-  elements = partition(filename=filename)
+def parse_document(url):
+  elements = partition(url=url)
   text = ""
   for element in elements:
     if isinstance(element, NarrativeText):
-        text += element.text + "\n"
-        print(element.text)
-        print("\n")
+      text += element.text + "\n"
   return text
+  # if we want unstructured to do the splitting then we mess with this
+  # chunks = chunk_by_title(
+  #   elements=elements,
+  # )
+  # texts = [element.text for element in chunks]
+  # return texts
 
 @app.route('/api/v1/extract', methods=['POST'])
 def extract_file():
-  # Create a temporary directory
-  temp_dir = tempfile.mkdtemp()
+  if 'url' not in request.json:
+    return jsonify({"error": "No 'url' field in the request"}), 400
+  
+  url = request.json['url']
 
-  results = []
-
-  # Check if the post request has the file part
-  if 'documents' not in request.files:
-    return jsonify({"error": "No files part in the request"}), 400
-
-  files = request.files.getlist('documents')
-
-  # Save each file in the temporary directory
-  for file in files:
-    if file.filename == '':
-      return jsonify({"error": "No selected file"}), 400
-
-    if file:
-      file_path = os.path.join(temp_dir, file.filename)
-      file.save(file_path)
-      file_content = parse_document(file_path)
-      results.append({
-        "name": file.filename,
-        "content": file_content,
-      })
-
-  return jsonify(results), 200
+  print("-------------------------------------------")
+  print(f"converting URL: {url}")
+  text = parse_document(url)
+  print("-------------------------------------------")
+  print(f"converted URL: {url} - length: {len(text)}")
+  
+  return jsonify({
+    "text": text,
+  }), 200
 
 if __name__ == '__main__':
   app.run(debug=True, port=5000, host='0.0.0.0')
