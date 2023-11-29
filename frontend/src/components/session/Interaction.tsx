@@ -34,7 +34,7 @@ import {
 const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
-  session_id?: string,
+  session_id: string,
   type: ISessionType,
   mode: ISessionMode,
   interaction: IInteraction,
@@ -199,6 +199,7 @@ export const Interaction: FC<{
           isLoading && (
             <LiveInteraction
               session_id={ session_id }
+              interaction={ interaction }             
             />
           )
         }

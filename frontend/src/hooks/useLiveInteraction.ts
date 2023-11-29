@@ -5,12 +5,19 @@ import {
   WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE,
   WORKER_TASK_RESPONSE_TYPE_PROGRESS,
   WORKER_TASK_RESPONSE_TYPE_STREAM,
+  IInteraction,
 } from '../types'
 
-export const useLiveInteraction = (session_id: string) => {
-  const [ message, setMessage ] = useState('')
-  const [ progress, setProgress ] = useState(0)
-  const [ status, setStatus ] = useState('')
+export const useLiveInteraction = ({
+  session_id,
+  interaction,
+}: {
+  session_id: string,
+  interaction: IInteraction,
+}) => {
+  const [ message, setMessage ] = useState(interaction.message)
+  const [ progress, setProgress ] = useState(interaction.progress)
+  const [ status, setStatus ] = useState(interaction.status)
 
   useWebsocket(session_id, (parsedData) => {
     if(!session_id) return

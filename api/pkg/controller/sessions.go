@@ -23,6 +23,117 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
+func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
+	// the system interaction is the task we will run on a GPU and update in place
+	systemInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Updated:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		State:    types.InteractionStateWaiting,
+		Finished: false,
+		Metadata: map[string]string{},
+	}
+
+	session := types.Session{
+		ID:            req.SessionID,
+		Name:          system.GenerateAmusingName(),
+		ModelName:     req.ModelName,
+		Type:          req.SessionType,
+		Mode:          req.SessionMode,
+		ParentSession: req.ParentSession,
+		Owner:         req.Owner,
+		OwnerType:     req.OwnerType,
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Interactions: []types.Interaction{
+			req.UserInteraction,
+			systemInteraction,
+		},
+	}
+
+	// create session in database
+	sessionData, err := c.Options.Store.CreateSession(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	go c.SessionRunner(sessionData)
+
+	return sessionData, nil
+}
+
+func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionRequest) (*types.Session, error) {
+	systemInteraction := types.Interaction{
+		ID:       system.GenerateUUID(),
+		Created:  time.Now(),
+		Updated:  time.Now(),
+		Creator:  types.CreatorTypeSystem,
+		Message:  "",
+		Files:    []string{},
+		State:    types.InteractionStateWaiting,
+		Finished: false,
+		Metadata: map[string]string{},
+	}
+	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	session.Updated = time.Now()
+	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
+
+	log.Debug().
+		Msgf("🟢 update session: %+v", session)
+
+	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, err
+	}
+
+	go c.SessionRunner(sessionData)
+
+	return sessionData, nil
+}
+
+// this is called in a go routine from the main api handler
+// this is blocking the session being added to the queue
+// so we get the chance to do some async pre-processing
+// before the session joins the queue
+// in some cases - we need the user to interact with our pre-processing
+// in this case - let's return nil here and let the user interaction add the session to the queue
+// once they have completed their editing
+// e.g. for text fine-tuning we need to prepare the input files
+//   - convert pdf, docx, etc to txt
+//   - chunk the text based on buffer and overflow config
+//   - feed each chunk into an LLM implementation to extract q&a pairs
+//   - append the q&a pairs to a jsonl file
+//
+// so - that is all auto handled by the system
+// the user then needs to view and edit the resuting JSONL file in the browser
+// so now we are in a state where the session is still preparing but we are waiting
+// for the user - so, we return nil here with no error which
+// TODO: this should be adding jobs to a queue
+func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+	var err error
+	// load the model
+	// call it's
+	// here we need to turn all of the uploaded files into text files
+	// so we ping our handy python server that will do that for us
+	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
+		session, err = c.convertDocumentsToText(session)
+		if err != nil {
+			return nil, err
+		}
+		// session, err = c.convertChunksToQuestions(session)
+		// if err != nil {
+		// 	return nil, err
+		// }
+	}
+	return session, nil
+}
+
 // generic "update this session handler"
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
@@ -57,6 +168,31 @@ func (c *Controller) WriteInteraction(session *types.Session, newInteraction *ty
 	session.Interactions = newInteractions
 	c.WriteSession(session)
 	return session
+}
+
+func (c *Controller) BroadcastWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) error {
+	c.UserWebsocketEventChanWriter <- ev
+	return nil
+}
+
+func (c *Controller) BroadcastProgress(
+	session *types.Session,
+	progress int,
+	status string,
+) {
+	ev := &types.WebsocketEvent{
+		Type:      types.WebsocketEventWorkerTaskResponse,
+		SessionID: session.ID,
+		Owner:     session.Owner,
+		WorkerTaskResponse: &types.RunnerTaskResponse{
+			Type:      types.WorkerTaskResponseTypeProgress,
+			SessionID: session.ID,
+			Owner:     session.Owner,
+			Progress:  progress,
+			Status:    status,
+		},
+	}
+	c.UserWebsocketEventChanWriter <- ev
 }
 
 func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
@@ -135,11 +271,6 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 	c.sessionSummaryQueue = newSummaryQueue
 }
 
-func (c *Controller) ReadRunnerWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) (*types.RunnerTaskResponse, error) {
-	c.UserWebsocketEventChanWriter <- ev
-	return nil, nil
-}
-
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
@@ -200,85 +331,6 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	return taskResponse, nil
 }
 
-func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
-	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Updated:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
-	}
-
-	session := types.Session{
-		ID:            req.SessionID,
-		Name:          system.GenerateAmusingName(),
-		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
-		ParentSession: req.ParentSession,
-		Owner:         req.Owner,
-		OwnerType:     req.OwnerType,
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Interactions: []types.Interaction{
-			req.UserInteraction,
-			systemInteraction,
-		},
-	}
-
-	if req.ParentSession != "" {
-		log.Debug().
-			Msgf("🟢 new session: %+v", session)
-	}
-
-	// create session in database
-	sessionData, err := c.Options.Store.CreateSession(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-
-	go c.SessionRunner(sessionData)
-
-	return sessionData, nil
-}
-
-func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionRequest) (*types.Session, error) {
-	systemInteraction := types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Updated:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
-	}
-	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
-	if err != nil {
-		return nil, err
-	}
-	session.Updated = time.Now()
-	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
-
-	log.Debug().
-		Msgf("🟢 update session: %+v", session)
-
-	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
-	if err != nil {
-		return nil, err
-	}
-
-	go c.SessionRunner(sessionData)
-
-	return sessionData, nil
-}
-
 // called once we've done the pre-processing for both create and update calls to sessions
 func (c *Controller) SessionRunner(sessionData *types.Session) {
 	// first we prepare the seession - which could mean whatever the model implementation wants
@@ -298,42 +350,6 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 	if preparedSession != nil {
 		c.AddSessionToQueue(preparedSession)
 	}
-}
-
-// this is called in a go routine from the main api handler
-// this is blocking the session being added to the queue
-// so we get the chance to do some async pre-processing
-// before the session joins the queue
-// in some cases - we need the user to interact with our pre-processing
-// in this case - let's return nil here and let the user interaction add the session to the queue
-// once they have completed their editing
-// e.g. for text fine-tuning we need to prepare the input files
-//   - convert pdf, docx, etc to txt
-//   - chunk the text based on buffer and overflow config
-//   - feed each chunk into an LLM implementation to extract q&a pairs
-//   - append the q&a pairs to a jsonl file
-//
-// so - that is all auto handled by the system
-// the user then needs to view and edit the resuting JSONL file in the browser
-// so now we are in a state where the session is still preparing but we are waiting
-// for the user - so, we return nil here with no error which
-func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
-	var err error
-	// load the model
-	// call it's
-	// here we need to turn all of the uploaded files into text files
-	// so we ping our handy python server that will do that for us
-	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, err = c.convertDocumentsToText(session)
-		if err != nil {
-			return nil, err
-		}
-		session, err = c.convertDocumentsToQuestions(session)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return session, nil
 }
 
 // return the JSON of some fine tune conversation data
@@ -446,6 +462,14 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	return nil
 }
 
+type convertDocumentsToChunksRequest struct {
+	URL string `json:"url"`
+}
+
+type convertDocumentsToChunksResponse struct {
+	Text string `json:"text"`
+}
+
 type convertTextItem struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -464,121 +488,137 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 		return nil, err
 	}
 
-	newFiles := []string{}
+	filesToConvert := []string{}
+	existingFileNames := map[string]bool{}
+
 	for _, file := range userInteraction.Files {
-		// we will always add the original file to the list
-		// the question is do we need to add another file next to it
-		// that is the text equivalent of that file
-		newFiles = append(newFiles, file)
+		existingFileNames[file] = true
+	}
 
-		if strings.HasSuffix(file, ".txt") {
+	shouldConvertFile := func(filename string) bool {
+		if strings.HasSuffix(filename, ".txt") {
 			// it is already converted - nothing to do
-		} else if strings.HasSuffix(file, ".html") {
-			// we need to see if this is an actual HTML document
-			// or if it's a text document with a URL that we need to turn into plain text
-			systemInteraction.Status = fmt.Sprintf("converting file: %s", path.Base(file))
-			c.WriteInteraction(session, systemInteraction)
+			return false
+		}
 
-			log.Debug().
-				Msgf("🔵 converting file: %s", file)
+		if strings.HasSuffix(filename, ".training_data.jsonl") {
+			// we've already converted this file into q&a pairs
+			return false
+		}
+
+		// check if we have already got the chunks for this file
+		_, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]
+		if ok {
+			// we've already chunked this file into chunks
+			return false
+		}
+
+		// check if we have already got the chunks for this file
+		_, ok = existingFileNames[fmt.Sprintf("%s.training_data.jsonl", filename)]
+		if ok {
+			// we've already chunked this file into chunks
+			return false
+		}
+
+		return true
+	}
+
+	for _, file := range userInteraction.Files {
+		if shouldConvertFile(file) {
+			filesToConvert = append(filesToConvert, file)
+		}
+	}
+
+	runningFileList := copyFileList(userInteraction.Files)
+	processedCounter := 0
+
+	// get the progress bar to display
+	initialMessage := fmt.Sprintf("downloading and extracting text from %d files", len(filesToConvert))
+	systemInteraction.Status = initialMessage
+	systemInteraction.Progress = 1
+	session = c.WriteInteraction(session, systemInteraction)
+
+	c.BroadcastProgress(session, 1, initialMessage)
+
+	for _, file := range filesToConvert {
+		fileURL := ""
+		filenameParts := strings.Split(file, ".")
+
+		if filenameParts[len(filenameParts)-1] == "url" {
+			// if the file itself ends with .url then it's a textfile
+			// that has a URL we should download as the actual file
 			reader, err := c.Options.Filestore.Download(c.Ctx, file)
 			if err != nil {
 				return nil, err
 			}
-
-			textString := ""
-
 			bytes, err := io.ReadAll(reader)
 			if err != nil {
 				return nil, err
 			}
-
-			htmlString := string(bytes)
-
-			if strings.HasPrefix(htmlString, "http") {
-				// we assume this is a URL and convert it
-				textString, err = system.ExtractTextFromURL(htmlString)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				// it's not a URL - so we assume it's HTML
-				textString, err = system.ExtractTextFromHTML(htmlString)
-				if err != nil {
-					return nil, err
-				}
-			}
-
-			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
-
-			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(textString))
-			if err != nil {
-				return nil, err
-			}
-
-			newFiles = append(newFiles, newFilepath)
+			fileURL = string(bytes)
 		} else {
-			systemInteraction.Status = fmt.Sprintf("converting file: %s", path.Base(file))
-			c.WriteInteraction(session, systemInteraction)
-
-			log.Debug().
-				Msgf("🔵 converting file: %s", file)
-			reader, err := c.Options.Filestore.Download(c.Ctx, file)
+			// otherwise it's a file already living in the file store
+			// so
+			fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
 			if err != nil {
 				return nil, err
 			}
-
-			client := newRetryClient()
-
-			req, err := createMultipartRequest(c.Options.TextExtractionURL, "documents", path.Base(file), reader)
-			if err != nil {
-				return nil, fmt.Errorf("Error creating request: %v\n", err)
-			}
-
-			resp, err := client.Do(req)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return nil, err
-			}
-
-			var results []convertTextItem
-
-			err = json.Unmarshal(body, &results)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(results) == 0 {
-				return nil, fmt.Errorf("no results found")
-			}
-
-			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
-
-			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(results[0].Content))
-			if err != nil {
-				return nil, err
-			}
-
-			newFiles = append(newFiles, newFilepath)
+			fileURL = fileObject.URL
 		}
 
-		// now we have added some text files let's update the user interaction
-		userInteraction.Files = newFiles
-		userInteraction.State = types.InteractionStateComplete
-		session = c.WriteInteraction(session, userInteraction)
+		// for local development - the file server hostname will not resolve
+		// from inside the unstructured container
+		fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
-		systemInteraction.Status = fmt.Sprintf("all files converted to txt")
+		res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
+			system.ClientOptions{},
+			c.Options.TextExtractionURL,
+			convertDocumentsToChunksRequest{
+				URL: fileURL,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		processedCounter++
+
+		newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
+		_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
+		if err != nil {
+			return nil, err
+		}
+
+		percentConverted := int(float64(processedCounter) / float64(len(filesToConvert)) * 100)
+
+		message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), processedCounter, len(filesToConvert))
+
+		c.BroadcastProgress(session, percentConverted, message)
+		systemInteraction.Status = message
+		systemInteraction.Progress = percentConverted
 		session = c.WriteInteraction(session, systemInteraction)
+
+		runningFileList = injectFileToList(runningFileList, file, fmt.Sprintf("%s.txt", file))
+		userInteraction.Files = runningFileList
+		session = c.WriteInteraction(session, userInteraction)
 	}
+
+	finishedMessage := fmt.Sprintf("extracted %d files", len(filesToConvert))
+
+	c.BroadcastProgress(session, 100, finishedMessage)
+
+	// now we have added some text files let's update the user interaction
+	userInteraction.Files = runningFileList
+	// userInteraction.State = types.InteractionStateComplete
+	session = c.WriteInteraction(session, userInteraction)
+
+	systemInteraction.Status = finishedMessage
+	session = c.WriteInteraction(session, systemInteraction)
 
 	return session, nil
 }
 
-func (c *Controller) convertDocumentsToQuestions(session *types.Session) (*types.Session, error) {
+func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, error) {
 	userInteraction, err := model.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
