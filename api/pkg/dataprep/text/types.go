@@ -42,8 +42,10 @@ type DataPrepTextOptions struct {
 	OverflowSize      int
 	QuestionsPerChunk int
 	Temperature       float32
+	Concurrency       int
 }
 
 type DataPrepTextQuestionGenerator interface {
 	ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error)
+	GetConcurrency() int
 }

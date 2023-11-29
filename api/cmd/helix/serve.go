@@ -43,7 +43,7 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
-			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 3),
+			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 5),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
@@ -379,6 +379,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
 	}
+
+	options.DataPrepTextOptions.Concurrency = options.ControllerOptions.DataPrepConcurrency
 
 	appController, err = controller.NewController(ctx, options.ControllerOptions)
 	if err != nil {

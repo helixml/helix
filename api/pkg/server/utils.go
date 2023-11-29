@@ -152,17 +152,18 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}
 
 	return &types.Interaction{
-		ID:        system.GenerateUUID(),
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		Scheduled: time.Now(),
-		Completed: time.Now(),
-		Creator:   types.CreatorTypeUser,
-		Message:   message,
-		Files:     filePaths,
-		State:     types.InteractionStateComplete,
-		Finished:  true,
-		Metadata:  metadata,
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Scheduled:      time.Now(),
+		Completed:      time.Now(),
+		Creator:        types.CreatorTypeUser,
+		Message:        message,
+		Files:          filePaths,
+		State:          types.InteractionStateComplete,
+		Finished:       true,
+		Metadata:       metadata,
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}, nil
 }
 

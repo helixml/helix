@@ -70,7 +70,7 @@ export const Interaction: FC<{
 
   const dataPrepStage = getTextDataPrepStage(interaction)
 
-  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
+  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
 
   // in this state the last interaction is not yet "finished"
@@ -103,6 +103,7 @@ export const Interaction: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
+  console.log(interaction)
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>

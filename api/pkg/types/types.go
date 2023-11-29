@@ -47,7 +47,8 @@ type Interaction struct {
 	Status   string            `json:"status"`
 	Error    string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir string `json:"lora_dir"`
+	LoraDir        string                     `json:"lora_dir"`
+	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
 }
 
 type Session struct {
@@ -312,6 +313,15 @@ type GlobalSchedulingDecision struct {
 	ModelName     ModelName     `json:"model_name"`
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
+}
+
+// keep track of the state of the data prep
+// no error means "success"
+// we have a map[string][]DataPrepChunk
+// where string is filename
+type DataPrepChunk struct {
+	Index int    `json:"index"`
+	Error string `json:"error"`
 }
 
 type DataPrepTextQuestion struct {

@@ -9,6 +9,14 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// If there is not enough context to generate %d questions, you can generate fewer questions.
+
+// In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
+
+// It's VERY important that you don't include any additional text in your response, otherwise the system will be unable to parse your response.
+
+// ONLY include the JSON array of questions and answers.
+
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
@@ -48,7 +56,9 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 
 	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {
 		answer = strings.TrimPrefix(answer, "```json")
-		answer = strings.TrimSuffix(answer, "```")
+		// sometimes GPT4 in it's wisdom puts a message after the enclosing ```json``` block
+		parts := strings.Split(answer, "```")
+		answer = parts[0]
 		var res []types.DataPrepTextQuestion
 		err := json.Unmarshal([]byte(answer), &res)
 		if err != nil {

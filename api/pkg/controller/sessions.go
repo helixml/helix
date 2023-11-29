@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -27,15 +26,16 @@ const DEBUG = true
 func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
 	// the system interaction is the task we will run on a GPU and update in place
 	systemInteraction := types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Updated:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Creator:        types.CreatorTypeSystem,
+		Message:        "",
+		Files:          []string{},
+		State:          types.InteractionStateWaiting,
+		Finished:       false,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}
 
 	session := types.Session{
@@ -422,26 +422,28 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	systemInteraction.Finished = true
 
 	finetuneUserInteraction := types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeUser,
-		Message:  "completed question & answer editing",
-		Status:   "all question & answer pairs edited",
-		Files:    systemInteraction.Files,
-		State:    types.InteractionStateComplete,
-		Finished: true,
-		Metadata: map[string]string{},
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Creator:        types.CreatorTypeUser,
+		Message:        "completed question & answer editing",
+		Status:         "all question & answer pairs edited",
+		Files:          systemInteraction.Files,
+		State:          types.InteractionStateComplete,
+		Finished:       true,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}
 
 	finetuneSystemInteraction := types.Interaction{
-		ID:       system.GenerateUUID(),
-		Created:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
-		Message:  "",
-		Files:    []string{},
-		State:    types.InteractionStateWaiting,
-		Finished: false,
-		Metadata: map[string]string{},
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Creator:        types.CreatorTypeSystem,
+		Message:        "",
+		Files:          []string{},
+		State:          types.InteractionStateWaiting,
+		Finished:       false,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}
 
 	systemInteraction.Files = []string{}
@@ -623,6 +625,9 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	systemInteraction.Status = finishedMessage
 	session = c.WriteInteraction(session, systemInteraction)
 
+	// for cases where the text conversion is very fast, give the UI a chance to display the text stage
+	time.Sleep(1 * time.Second)
+
 	return session, nil
 }
 
@@ -696,38 +701,39 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	c.BroadcastProgress(session, 1, initialMessage)
 
 	var completedCounter int64
+	var errorCounter int64
+	var outerError error
 
 	// we use this to only append questions to one file at a time
 	var writeUpdatesMutex sync.Mutex
 
 	runningFileList := copyFileList(userInteraction.Files)
 
-	err = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
+	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
 		chunksToProcess,
-		c.Options.DataPrepConcurrency,
+		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
-			log.Info().Msgf("🔴 question conversion start %d of %d", i, len(chunksToProcess))
+			log.Info().Msgf("🔵 question conversion start %d of %d", i, len(chunksToProcess))
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, i)
 
-			// use the data prep module to convert raw text into QA pairs
-			// a rough rate limiter
-			time.Sleep(2 * time.Second * time.Duration(i%c.Options.DataPrepConcurrency))
-			questions, err := dataprep.ConvertChunk(chunk.Text, i)
-			if err != nil {
-				log.Error().Msgf("error converting chunk: %s", err.Error())
-				return err
+			// if this is set then we have a non GPT error and should just stop what we are doing
+			if outerError != nil {
+				return nil
 			}
 
-			// if there is no JSONL file - make it appear
-			if !hasQuestionsFile(chunk.Filename) {
-				runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
-				userInteraction.Files = runningFileList
+			if convertError == nil {
+				// if there is no JSONL file - make it appear
+				if !hasQuestionsFile(chunk.Filename) {
+					runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
+					userInteraction.Files = runningFileList
 
-				// we want to write an empty file to the filestore here
-				// because then appendQuestionsToFile doesn't need to deal with making it
-				_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
-				if err != nil {
-					log.Error().Msgf("error uploading file: %s", err.Error())
-					return err
+					// we want to write an empty file to the filestore here
+					// because then appendQuestionsToFile doesn't need to deal with making it
+					_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+					if err != nil {
+						log.Error().Msgf("error uploading file: %s", err.Error())
+						return err
+					}
 				}
 			}
 
@@ -735,40 +741,45 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			err = func() error {
 				writeUpdatesMutex.Lock()
 				defer writeUpdatesMutex.Unlock()
-				innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
-				if innerErr != nil {
-					log.Error().Msgf("error adding questions to file: %s", err.Error())
-					return innerErr
+
+				if convertError == nil {
+					innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
+					if innerErr != nil {
+						log.Error().Msgf("error adding questions to file: %s", err.Error())
+						return innerErr
+					}
+					atomic.AddInt64(&completedCounter, 1)
+				} else {
+					atomic.AddInt64(&errorCounter, 1)
 				}
+				userInteraction = updateProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index, convertError)
 				return nil
 			}()
 			if err != nil {
 				return err
 			}
 
-			updateProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index)
 			session = c.WriteInteraction(session, userInteraction)
 
-			atomic.AddInt64(&completedCounter, 1)
-			percentConverted := int(float64(completedCounter) / float64(len(chunksToProcess)) * 100)
-			message := fmt.Sprintf("converted %d of %d text chunks into question answer pairs", completedCounter, len(chunksToProcess))
-			log.Debug().
-				Msgf(message)
+			percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
+			message := fmt.Sprintf("%d total, %d converted and %d errors", len(chunksToProcess), completedCounter, errorCounter)
 			c.BroadcastProgress(session, percentConverted, message)
 			systemInteraction.Status = message
 			systemInteraction.Progress = percentConverted
 			session = c.WriteInteraction(session, systemInteraction)
 
-			log.Info().Msgf("🔴 question conversion complete %d of %d", i, len(chunksToProcess))
+			if convertError != nil {
+				log.Error().Msgf("🔴 question conversion error %s", convertError.Error())
+			} else {
+				log.Info().Msgf("🟢 question conversion complete %d of %d", i, len(chunksToProcess))
+			}
 
 			return nil
 		},
 	)
 
-	if err != nil {
-		fmt.Printf("error from convert --------------------------------------\n")
-		spew.Dump(err.Error())
-		return nil, err
+	if outerError != nil {
+		return nil, outerError
 	}
 
 	finishedMessage := fmt.Sprintf("converted %d text chunks", len(chunksToProcess))
@@ -779,6 +790,9 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	session = c.WriteInteraction(session, userInteraction)
 
 	systemInteraction.Status = finishedMessage
+	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageEditQuestions)
+	systemInteraction.Progress = 0
+	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
 
 	return session, nil
