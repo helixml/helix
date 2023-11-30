@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useMemo } from 'react'
 import { styled } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
@@ -36,7 +36,6 @@ import {
 } from '../../utils/filestore'
 
 import {
-  getTextDataPrepStage,
   getTextDataPrepStageIndex,
 } from '../../utils/session'
 
@@ -67,8 +66,7 @@ export const Interaction: FC<{
   
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
-
-  const dataPrepStage = getTextDataPrepStage(interaction)
+  const dataPrepStage = interaction.data_prep_stage
 
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
@@ -100,6 +98,12 @@ export const Interaction: FC<{
       }
     }
   }
+
+  const dataPrepErrors = useMemo(() => {
+    return 
+  }, [
+    interaction,
+  ])
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 

@@ -87,8 +87,6 @@ export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/sta
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 
-export const TEXT_DATA_PREP_STAGE_METADATA_KEY = 'text_data_prep_stage'
-
 export type ITextDataPrepStage = '' | 'extract_text' | 'generate_questions' | 'edit_questions'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
 export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
@@ -112,6 +110,15 @@ export interface IWorkerTaskResponse {
   error?: string,
 }
 
+export interface IDataPrepChunk {
+  index: number,
+  error: string,
+}
+
+export interface IDataPrepChunkWithFilename extends IDataPrepChunk {
+  filename: string,
+}
+
 export interface IInteraction {
   id: string,
   created: string,
@@ -129,6 +136,8 @@ export interface IInteraction {
   finished: boolean,
   metadata: Record<string, string>,
   error: string,
+  data_prep_chunks: Record<string, IDataPrepChunk[]>,
+  data_prep_stage: ITextDataPrepStage,
 }
 
 export interface ISession {

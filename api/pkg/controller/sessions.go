@@ -538,7 +538,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	initialMessage := fmt.Sprintf("downloading and extracting text from %d files", len(filesToConvert))
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
-	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageExtractText)
+	systemInteraction.DataPrepStage = types.TextDataPrepStageExtractText
 	session = c.WriteInteraction(session, systemInteraction)
 
 	c.BroadcastProgress(session, 1, initialMessage)
@@ -696,7 +696,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
-	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageConvertQuestions)
+	systemInteraction.DataPrepStage = types.TextDataPrepStageConvertQuestions
 	session = c.WriteInteraction(session, systemInteraction)
 	c.BroadcastProgress(session, 1, initialMessage)
 
@@ -752,7 +752,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				} else {
 					atomic.AddInt64(&errorCounter, 1)
 				}
+
+				// this marks the QA chunk as "done" - even with an error
+				// we then give the user the choice to try again, abort or ignore the errors
 				userInteraction = updateProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index, convertError)
+
 				return nil
 			}()
 			if err != nil {
@@ -790,7 +794,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	session = c.WriteInteraction(session, userInteraction)
 
 	systemInteraction.Status = finishedMessage
-	systemInteraction.Metadata[types.TEXT_DATA_PREP_STAGE_METADATA_KEY] = string(types.TextDataPrepStageEditQuestions)
+	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
 	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)

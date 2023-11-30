@@ -122,8 +122,6 @@ const (
 
 const LORA_DIR_NONE = "none"
 
-const TEXT_DATA_PREP_STAGE_METADATA_KEY = "text_data_prep_stage"
-
 // in the interaction metadata we keep track of which chunks
 // have been turned into questions - we use the following format
 // qa_<filename>
