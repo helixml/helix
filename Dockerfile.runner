@@ -8,7 +8,7 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
     git clone https://github.com/lukemarsden/sd-scripts && \
     cd sd-scripts && \
-    git checkout long-running && \
+    git checkout dagger && \
     virtualenv venv && \
     . venv/bin/activate && \
     pip install -r requirements.txt && \
