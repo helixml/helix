@@ -1,19 +1,16 @@
 import {
   ISession,
   ISessionSummary,
-  ISessionType,
   ISessionMode,
   IInteraction,
   ITextDataPrepStage,
   IModelInstanceState,
+  IDataPrepChunkWithFilename,
   SESSION_CREATOR_SYSTEM,
-  SESSION_TYPE_IMAGE,
-  SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGES,
-  TEXT_DATA_PREP_STAGE_METADATA_KEY,
 } from '../types'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
@@ -47,7 +44,9 @@ export const getSystemMessage = (message: string): IInteraction => {
     message,
     progress: 0,
     files: [],
-    finished: true, 
+    finished: true,
+    data_prep_chunks: {},
+    data_prep_stage: TEXT_DATA_PREP_STAGE_NONE,
   }
 }
 
@@ -141,13 +140,15 @@ export const getSessionSummary = (session: ISession): ISessionSummary => {
   }
 }
 
-export const getTextDataPrepStage = (interaction: IInteraction): ITextDataPrepStage => {
-  const metadata = interaction.metadata || {}
-  const value = metadata[TEXT_DATA_PREP_STAGE_METADATA_KEY] || TEXT_DATA_PREP_STAGE_NONE
-  if(value == TEXT_DATA_PREP_STAGE_NONE) return TEXT_DATA_PREP_STAGE_NONE
-  return value as ITextDataPrepStage
-}
-
 export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => {
   return TEXT_DATA_PREP_STAGES.indexOf(stage)
+}
+
+export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
+  return Object.keys(interaction.data_prep_chunks).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
+    const chunks = interaction.data_prep_chunks[filename]
+    const errors = chunks.filter(chunk => chunk.error != '')
+    if(errors.length <= 0) return acc
+    return acc.concat(errors.map(error => ({ ...error, filename })))
+  }, [])
 }

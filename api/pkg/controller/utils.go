@@ -9,6 +9,7 @@ import (
 	stdlog "log"
 	"mime/multipart"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -120,7 +121,7 @@ func getQAChunk(
 	filename string,
 	chunkIndex int,
 ) *types.DataPrepChunk {
-	chunks, ok := interaction.DataPrepChunks[filename]
+	chunks, ok := interaction.DataPrepChunks[path.Base(filename)]
 	if !ok {
 		return nil
 	}
@@ -137,7 +138,7 @@ func hasProcessedQAChunk(
 	filename string,
 	chunkIndex int,
 ) bool {
-	chunk := getQAChunk(interaction, filename, chunkIndex)
+	chunk := getQAChunk(interaction, path.Base(filename), chunkIndex)
 	if chunk == nil {
 		return false
 	}
@@ -150,11 +151,12 @@ func updateProcessedQAChunk(
 	chunkIndex int,
 	err error,
 ) *types.Interaction {
-	if hasProcessedQAChunk(interaction, filename, chunkIndex) {
+	useFilename := path.Base(filename)
+	if hasProcessedQAChunk(interaction, useFilename, chunkIndex) {
 		return interaction
 	}
 	allChunks := interaction.DataPrepChunks
-	chunks, ok := allChunks[filename]
+	chunks, ok := allChunks[useFilename]
 	if !ok {
 		chunks = []types.DataPrepChunk{}
 	}
@@ -168,7 +170,7 @@ func updateProcessedQAChunk(
 	}
 
 	chunks = append(chunks, chunk)
-	allChunks[filename] = chunks
+	allChunks[useFilename] = chunks
 
 	interaction.DataPrepChunks = allChunks
 	return interaction
