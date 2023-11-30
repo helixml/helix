@@ -2,6 +2,7 @@ package helix
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log"
@@ -143,7 +144,18 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		if ok {
 			log.Printf("Progress: %+v%%", wtr.Progress)
 			if len(wtr.Files) > 0 {
-				log.Printf("File has been written: %s", wtr.Files[0][len("/app/sd-scripts/./output_images/"):])
+				// Base64 decode the file content
+				decodedBytes, err := base64.StdEncoding.DecodeString(wtr.Files[0])
+				if err != nil {
+					return err
+				}
+
+				// Write the decoded bytes to output.png
+				err = os.WriteFile("output.png", decodedBytes, 0644)
+				if err != nil {
+					return err
+				}
+				log.Printf("File has been written: output.png")
 				return nil
 			}
 		}
