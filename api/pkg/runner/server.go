@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
-	"gopkg.in/yaml.v3"
 )
 
 type RunnerServerOptions struct {
@@ -98,15 +97,15 @@ func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Reque
 	runnerServer.Controller.StateMtx.Lock()
 	defer runnerServer.Controller.StateMtx.Unlock()
 
-	stateYAML, err := yaml.Marshal(runnerServer.Controller.State)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
+	// stateYAML, err := yaml.Marshal(runnerServer.Controller.State)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// fmt.Println("==========================================")
+	// fmt.Println("             LOCAL STATE")
+	// fmt.Println("==========================================")
+	// fmt.Println(string(stateYAML))
+	// fmt.Println("==========================================")
 
 	return runnerServer.Controller.State, nil
 }
