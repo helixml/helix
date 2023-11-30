@@ -13,7 +13,6 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
-	"gopkg.in/yaml.v3"
 )
 
 type RunnerServerOptions struct {
@@ -103,34 +102,12 @@ func (runnerServer *RunnerServer) respondWorkerTask(res http.ResponseWriter, req
 
 	// record in-memory for any local clients who want to query us
 	runnerServer.State[taskResponse.SessionID] = *taskResponse
-
-	stateYAML, err := yaml.Marshal(runnerServer.State)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
-
 	return taskResponse, nil
 }
 
 func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.WorkerTaskResponse, error) {
 	runnerServer.StateMtx.Lock()
 	defer runnerServer.StateMtx.Unlock()
-
-	stateYAML, err := yaml.Marshal(runnerServer.State)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
-
 	return runnerServer.State, nil
 }
 
