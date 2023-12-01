@@ -56,6 +56,9 @@ export const Interaction: FC<{
   serverConfig: IServerConfig,
   error?: string,
   isLast?: boolean,
+  retryFinetuneErrors?: {
+    (): void
+  },
 }> = ({
   session_id,
   type,
@@ -64,8 +67,8 @@ export const Interaction: FC<{
   serverConfig,
   error = '',
   isLast = false,
+  retryFinetuneErrors,
 }) => {
-
   const [ viewingError, setViewingError ] = useState(false)
   let displayMessage: string = ''
   let imageURLs: string[] = []
@@ -309,19 +312,21 @@ export const Interaction: FC<{
                 However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
               </Alert>
               <Row>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  sx={{
-                    mr: 1,
-                  }}
-                  endIcon={<ReplayIcon />}
-                  onClick={ () => {
-                    window.location.href = `/session/${session_id}/edit`
-                  }}
-                >
-                  Retry
-                </Button>
+                {
+                  retryFinetuneErrors && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      sx={{
+                        mr: 1,
+                      }}
+                      endIcon={<ReplayIcon />}
+                      onClick={ retryFinetuneErrors }
+                    >
+                      Retry
+                    </Button>
+                  )
+                }
                 
                 <Button
                   variant="contained"
@@ -331,7 +336,7 @@ export const Interaction: FC<{
                   }}
                   endIcon={<VisibilityIcon />}
                   onClick={ () => {
-                    window.location.href = `/session/${session_id}/edit`
+                    alert('coming soon')
                   }}
                 >
                   View Errors
