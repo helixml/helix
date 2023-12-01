@@ -47,11 +47,19 @@ Given the following context - please summarize it into %d question and answer pa
 
 ONLY include a question if you know the answer.
 
+If there is not enough context to generate %d questions, you can generate fewer questions.
+
+In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
+
+It's VERY important that you don't include any additional text in your response, otherwise the system will be unable to parse your response.
+
+ONLY include the JSON array of questions and answers.
+
 Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
-%s`, options.QuestionsPerChunk, chunk)
+%s`, options.QuestionsPerChunk, options.QuestionsPerChunk, chunk)
 	}
 
 	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {

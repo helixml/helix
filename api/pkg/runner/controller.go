@@ -149,6 +149,10 @@ func NewRunner(
 }
 
 func (r *Runner) Initialize(ctx context.Context) error {
+	if r.Options.LocalMode {
+		// don't push our state anywhere when we're in local-only mode
+		return nil
+	}
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
 	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
@@ -224,6 +228,10 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 }
 
 func (r *Runner) startReportStateLoop() {
+	if r.Options.LocalMode {
+		// don't push our state anywhere when we're in local-only mode
+		return
+	}
 	for {
 		select {
 		case <-r.Ctx.Done():
