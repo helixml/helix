@@ -112,7 +112,16 @@ export interface IWorkerTaskResponse {
 
 export interface IDataPrepChunk {
   index: number,
+  question_count: number,
   error: string,
+}
+
+export interface IDataPrepStats {
+  total_files: number,
+  total_chunks: number,
+  total_questions: number,
+  converted: number,
+  errors: number,
 }
 
 export interface IDataPrepChunkWithFilename extends IDataPrepChunk {
