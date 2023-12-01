@@ -451,7 +451,6 @@ func getSessionFinetuneFile(session *types.Session) (string, error) {
 	if len(userInteraction.Files) == 0 {
 		return "", fmt.Errorf("no files found")
 	}
-
 	foundFile := ""
 	for _, filepath := range userInteraction.Files {
 		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
