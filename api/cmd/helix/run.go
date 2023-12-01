@@ -147,6 +147,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 				// Base64 decode the file content
 				decodedBytes, err := base64.StdEncoding.DecodeString(wtr.Files[0])
 				if err != nil {
+					log.Printf("Unable to base64 decode: %s", wtr.Files[0])
 					return err
 				}
 
