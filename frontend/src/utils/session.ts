@@ -6,6 +6,7 @@ import {
   ITextDataPrepStage,
   IModelInstanceState,
   IDataPrepChunkWithFilename,
+  IDataPrepStats,
   SESSION_CREATOR_SYSTEM,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
@@ -151,4 +152,25 @@ export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunk
     if(errors.length <= 0) return acc
     return acc.concat(errors.map(error => ({ ...error, filename })))
   }, [])
+}
+
+export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats => {
+  return Object.keys(interaction.data_prep_chunks).reduce((acc: IDataPrepStats, filename: string) => {
+    const chunks = interaction.data_prep_chunks[filename] || []
+    const errors = chunks.filter(chunk => chunk.error != '')
+    const questionCount = chunks.reduce((acc: number, chunk) => acc + chunk.question_count, 0)
+    return {
+      total_files: acc.total_files + 1,
+      total_chunks: acc.total_chunks + chunks.length,
+      total_questions: acc.total_questions + questionCount,
+      converted: acc.converted + (chunks.length - errors.length),
+      errors: acc.errors + errors.length,
+    }
+  }, {
+    total_files: 0,
+    total_chunks: 0,
+    total_questions: 0,
+    converted: 0,
+    errors: 0,
+  })
 }

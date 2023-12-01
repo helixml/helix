@@ -149,6 +149,7 @@ func updateProcessedQAChunk(
 	interaction *types.Interaction,
 	filename string,
 	chunkIndex int,
+	questionCount int,
 	err error,
 ) *types.Interaction {
 	useFilename := path.Base(filename)
@@ -162,7 +163,8 @@ func updateProcessedQAChunk(
 	}
 
 	chunk := types.DataPrepChunk{
-		Index: chunkIndex,
+		Index:         chunkIndex,
+		QuestionCount: questionCount,
 	}
 
 	if err != nil {

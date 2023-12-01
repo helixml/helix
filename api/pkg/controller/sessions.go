@@ -745,7 +745,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				if convertError == nil {
 					innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
 					if innerErr != nil {
-						log.Error().Msgf("error adding questions to file: %s", err.Error())
+						log.Error().Msgf("error adding questions to file: %s", innerErr.Error())
 						return innerErr
 					}
 					atomic.AddInt64(&completedCounter, 1)
@@ -755,7 +755,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// this marks the QA chunk as "done" - even with an error
 				// we then give the user the choice to try again, abort or ignore the errors
-				userInteraction = updateProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index, convertError)
+				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, len(questions), convertError)
 
 				return nil
 			}()
@@ -782,6 +782,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		},
 	)
 
+	// if this error is hit - it means something has actually gone wrong rather than a data prep error
+	// we catch the data prep errors and present them to the user once all processing is done
 	if outerError != nil {
 		return nil, outerError
 	}
@@ -789,9 +791,6 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	finishedMessage := fmt.Sprintf("converted %d text chunks", len(chunksToProcess))
 
 	c.BroadcastProgress(session, 100, finishedMessage)
-
-	userInteraction.Files = runningFileList
-	session = c.WriteInteraction(session, userInteraction)
 
 	systemInteraction.Status = finishedMessage
 	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions

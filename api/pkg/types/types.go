@@ -321,8 +321,9 @@ type GlobalSchedulingDecision struct {
 // we have a map[string][]DataPrepChunk
 // where string is filename
 type DataPrepChunk struct {
-	Index int    `json:"index"`
-	Error string `json:"error"`
+	Index         int    `json:"index"`
+	QuestionCount int    `json:"question_count"`
+	Error         string `json:"error"`
 }
 
 type DataPrepTextQuestion struct {
