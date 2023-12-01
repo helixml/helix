@@ -59,11 +59,28 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		// sometimes GPT4 in it's wisdom puts a message after the enclosing ```json``` block
 		parts := strings.Split(answer, "```")
 		answer = parts[0]
-		var res []types.DataPrepTextQuestion
-		err := json.Unmarshal([]byte(answer), &res)
+		var resRaw []types.DataPrepTextQuestionRaw
+		err := json.Unmarshal([]byte(answer), &resRaw)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing JSON:\n\n%s", answer)
 		}
+
+		res := []types.DataPrepTextQuestion{}
+		for _, q := range resRaw {
+			res = append(res, types.DataPrepTextQuestion{
+				Conversations: []types.DataPrepTextQuestionPart{
+					{
+						From:  "human",
+						Value: q.Question,
+					},
+					{
+						From:  "gpt",
+						Value: q.Answer,
+					},
+				},
+			})
+		}
+
 		return res, nil
 	}
 

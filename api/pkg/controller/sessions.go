@@ -98,6 +98,27 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 	return sessionData, nil
 }
 
+// called once we've done the pre-processing for both create and update calls to sessions
+func (c *Controller) SessionRunner(sessionData *types.Session) {
+	// first we prepare the seession - which could mean whatever the model implementation wants
+	// so we have to wait for that to complete before adding to the queue
+	// the model can be adding subsequent child sessions to the queue
+	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
+	// text into q&a pairs and we want to use our own mistral inference
+	preparedSession, err := c.PrepareSession(sessionData)
+	if err != nil {
+		log.Error().Msgf("error preparing session: %s", err.Error())
+		c.ErrorSession(sessionData, err)
+		return
+	}
+	// it's ok if we did not get a session back here
+	// it means there will be a later action that will add the session to the queue
+	// in the case the user needs to edit some data before it can be run for example
+	if preparedSession != nil {
+		c.AddSessionToQueue(preparedSession)
+	}
+}
+
 // this is called in a go routine from the main api handler
 // this is blocking the session being added to the queue
 // so we get the chance to do some async pre-processing
@@ -131,6 +152,12 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		if err != nil {
 			return nil, err
 		}
+
+		// we DON'T want the session in the queue yet
+		// the user has to confirm the questions are correct
+		// or there might have been errors that we want to give the user
+		// a chance to decide what to do
+		return nil, nil
 	}
 	return session, nil
 }
@@ -332,27 +359,6 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	return taskResponse, nil
 }
 
-// called once we've done the pre-processing for both create and update calls to sessions
-func (c *Controller) SessionRunner(sessionData *types.Session) {
-	// first we prepare the seession - which could mean whatever the model implementation wants
-	// so we have to wait for that to complete before adding to the queue
-	// the model can be adding subsequent child sessions to the queue
-	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
-	// text into q&a pairs and we want to use our own mistral inference
-	preparedSession, err := c.PrepareSession(sessionData)
-	if err != nil {
-		log.Error().Msgf("error preparing session: %s", err.Error())
-		c.ErrorSession(sessionData, err)
-		return
-	}
-	// it's ok if we did not get a session back here
-	// it means there will be a later action that will add the session to the queue
-	// in the case the user needs to edit some data before it can be run for example
-	if preparedSession != nil {
-		c.AddSessionToQueue(preparedSession)
-	}
-}
-
 // return the JSON of some fine tune conversation data
 func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
 	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
@@ -504,10 +510,16 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			return false
 		}
 
-		if strings.HasSuffix(filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX) {
-			// we've already converted this file into q&a pairs
+		filename = strings.TrimSuffix(filename, ".url")
+
+		if strings.HasSuffix(filename, ".jsonl") {
 			return false
 		}
+
+		// if strings.HasSuffix(filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX) {
+		// 	// we've already converted this file into q&a pairs
+		// 	return false
+		// }
 
 		// check if we have already got the chunks for this file
 		_, ok := existingFileNames[fmt.Sprintf("%s.txt", filename)]
@@ -517,11 +529,11 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 		}
 
 		// check if we have already got the chunks for this file
-		_, ok = existingFileNames[fmt.Sprintf("%s%s", filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)]
-		if ok {
-			// we've already chunked this file into chunks
-			return false
-		}
+		// _, ok = existingFileNames[fmt.Sprintf("%s%s", filename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)]
+		// if ok {
+		// 	// we've already chunked this file into chunks
+		// 	return false
+		// }
 
 		return true
 	}
@@ -539,6 +551,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
 	systemInteraction.DataPrepStage = types.TextDataPrepStageExtractText
+	systemInteraction.State = types.InteractionStateWaiting
 	session = c.WriteInteraction(session, systemInteraction)
 
 	c.BroadcastProgress(session, 1, initialMessage)
@@ -644,20 +657,6 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 	filesToConvert := []string{}
 
-	getQuestionsFilename := func(sourceFilename string) string {
-		return fmt.Sprintf("%s%s", sourceFilename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)
-	}
-
-	// do we have a JSONL file already or do we need to create it?
-	hasQuestionsFile := func(sourceFilename string) bool {
-		for _, file := range userInteraction.Files {
-			if file == getQuestionsFilename(sourceFilename) {
-				return true
-			}
-		}
-		return false
-	}
-
 	shouldConvertFile := func(filename string) bool {
 		return strings.HasSuffix(filename, ".txt")
 	}
@@ -687,7 +686,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range splitter.Chunks {
-		if !hasProcessedQAChunk(userInteraction, chunk.Filename, chunk.Index) {
+		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
 	}
@@ -714,27 +713,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
 			log.Info().Msgf("🔵 question conversion start %d of %d", i, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, i)
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
 				return nil
-			}
-
-			if convertError == nil {
-				// if there is no JSONL file - make it appear
-				if !hasQuestionsFile(chunk.Filename) {
-					runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
-					userInteraction.Files = runningFileList
-
-					// we want to write an empty file to the filestore here
-					// because then appendQuestionsToFile doesn't need to deal with making it
-					_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
-					if err != nil {
-						log.Error().Msgf("error uploading file: %s", err.Error())
-						return err
-					}
-				}
 			}
 
 			// write the updates inside a mutex so we don't get a race
@@ -743,6 +726,19 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				defer writeUpdatesMutex.Unlock()
 
 				if convertError == nil {
+					// if there is no JSONL file - make it appear
+					if !hasQuestionsFile(userInteraction, chunk.Filename) {
+						runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
+						userInteraction.Files = runningFileList
+
+						// we want to write an empty file to the filestore here
+						// because then appendQuestionsToFile doesn't need to deal with making it
+						_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+						if err != nil {
+							log.Error().Msgf("error uploading file: %s", err.Error())
+							return err
+						}
+					}
 					innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
 					if innerErr != nil {
 						log.Error().Msgf("error adding questions to file: %s", innerErr.Error())
@@ -759,6 +755,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				return nil
 			}()
+
 			if err != nil {
 				return err
 			}

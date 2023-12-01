@@ -326,7 +326,33 @@ type DataPrepChunk struct {
 	Error         string `json:"error"`
 }
 
-type DataPrepTextQuestion struct {
+// the thing we get from the LLM's
+type DataPrepTextQuestionRaw struct {
 	Question string `json:"question"`
 	Answer   string `json:"answer"`
 }
+
+type DataPrepTextQuestionPart struct {
+	From  string `json:"from"`
+	Value string `json:"value"`
+}
+
+type DataPrepTextQuestion struct {
+	Conversations []DataPrepTextQuestionPart `json:"conversations"`
+}
+
+// func ConvertConversation(data DataPrepTextConversation) ShareGPTConversations {
+// 	res := ShareGPTConversations{
+// 		Conversations: []ShareGPTConversation{
+// 			{
+// 				From:  "human",
+// 				Value: data.Question,
+// 			},
+// 			{
+// 				From:  "gpt",
+// 				Value: data.Answer,
+// 			},
+// 		},
+// 	}
+// 	return res
+// }

@@ -132,6 +132,9 @@ const TEXT_DATA_PREP_FILES_CONVERTED_PREFIX = "qa_"
 // what we append on the end of the files to turn them into the qa files
 const TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX = ".qa.jsonl"
 
+// let's write to the same file for now
+const TEXT_DATA_PREP_QUESTIONS_FILE = "finetune_dataset.jsonl"
+
 type TextDataPrepStage string
 
 const (

@@ -62,6 +62,11 @@ const Session: FC = () => {
     setInputValue("")
   }
 
+  const retryFinetuneErrors = async () => {
+    if(!session.data) return
+    await session.retryTextFinetune(session.data.id)
+  }
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
@@ -143,6 +148,7 @@ const Session: FC = () => {
                         error={ interaction.error }
                         serverConfig={ account.serverConfig }
                         isLast={ i === interactionsLength - 1 }
+                        retryFinetuneErrors={ retryFinetuneErrors }
                       />
                     )   
                   })

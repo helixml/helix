@@ -162,18 +162,44 @@ func updateProcessedQAChunk(
 		chunks = []types.DataPrepChunk{}
 	}
 
-	chunk := types.DataPrepChunk{
-		Index:         chunkIndex,
-		QuestionCount: questionCount,
+	chunkExists := false
+	var chunk *types.DataPrepChunk
+
+	for _, existingChunk := range chunks {
+		if existingChunk.Index == chunkIndex {
+			chunkExists = true
+			chunk = &existingChunk
+		}
+	}
+
+	if chunk == nil {
+		chunk = &types.DataPrepChunk{
+			Index:         chunkIndex,
+			QuestionCount: questionCount,
+		}
 	}
 
 	if err != nil {
 		chunk.Error = err.Error()
+	} else {
+		chunk.Error = ""
 	}
 
-	chunks = append(chunks, chunk)
-	allChunks[useFilename] = chunks
+	if !chunkExists {
+		chunks = append(chunks, *chunk)
+	} else {
+		newChunks := []types.DataPrepChunk{}
+		for _, existingChunk := range chunks {
+			if existingChunk.Index == chunkIndex {
+				newChunks = append(newChunks, *chunk)
+			} else {
+				newChunks = append(newChunks, existingChunk)
+			}
+		}
+		chunks = newChunks
+	}
 
+	allChunks[useFilename] = chunks
 	interaction.DataPrepChunks = allChunks
 	return interaction
 }
@@ -224,4 +250,21 @@ func appendQuestionsToFile(
 		return err
 	}
 	return nil
+}
+
+// for the moment, we append question pairs to the same file
+// eventually we will append questions to a JSONL file per source file
+func getQuestionsFilename(sourceFilename string) string {
+	return path.Join(path.Dir(sourceFilename), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+	// return fmt.Sprintf("%s%s", sourceFilename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)
+}
+
+// do we have a JSONL file already or do we need to create it?
+func hasQuestionsFile(interaction *types.Interaction, sourceFilename string) bool {
+	for _, file := range interaction.Files {
+		if file == getQuestionsFilename(sourceFilename) {
+			return true
+		}
+	}
+	return false
 }

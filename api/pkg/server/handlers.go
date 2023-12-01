@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -386,11 +387,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 	return &finalFolder, nil
 }
 
-func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	reqContext := apiServer.getRequestContext(req)
+func (apiServer *HelixAPIServer) getSessionFromID(reqContext types.RequestContext, id string) (*types.Session, error) {
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
@@ -403,6 +400,13 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	return session, nil
+}
+
+func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	return apiServer.getSessionFromID(reqContext, id)
 }
 
 func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {
@@ -425,6 +429,44 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	return ret, nil
 }
 
+func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	session, err := apiServer.getSessionFromID(reqContext, id)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		apiServer.Controller.PrepareSession(session)
+	}()
+	return session, nil
+}
+
+func getSessionFinetuneFile(session *types.Session) (string, error) {
+	userInteraction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return "", err
+	}
+	if len(userInteraction.Files) == 0 {
+		return "", fmt.Errorf("no files found")
+	}
+
+	foundFile := ""
+	for _, filepath := range userInteraction.Files {
+		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+			foundFile = filepath
+			break
+		}
+	}
+
+	if foundFile == "" {
+		return "", fmt.Errorf("file is not a jsonl file")
+	}
+
+	return foundFile, nil
+}
+
 func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
@@ -440,19 +482,11 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		return nil, fmt.Errorf("access denied")
 	}
-
-	systemInteraction, err := model.GetSystemInteraction(session)
+	foundFile, err := getSessionFinetuneFile(session)
 	if err != nil {
 		return nil, err
 	}
-	if len(systemInteraction.Files) == 0 {
-		return nil, fmt.Errorf("no files found")
-	}
-	filepath := systemInteraction.Files[0]
-	if !strings.HasSuffix(filepath, ".jsonl") {
-		return nil, fmt.Errorf("file is not a jsonl file")
-	}
-	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
+	return apiServer.Controller.ReadTextFineTuneQuestions(foundFile)
 }
 
 func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
@@ -471,16 +505,9 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, fmt.Errorf("access denied")
 	}
 
-	systemInteraction, err := model.GetSystemInteraction(session)
+	foundFile, err := getSessionFinetuneFile(session)
 	if err != nil {
 		return nil, err
-	}
-	if len(systemInteraction.Files) == 0 {
-		return nil, fmt.Errorf("no files found")
-	}
-	filepath := systemInteraction.Files[0]
-	if !strings.HasSuffix(filepath, ".jsonl") {
-		return nil, fmt.Errorf("file is not a jsonl file")
 	}
 
 	var data []types.DataPrepTextQuestion
@@ -491,7 +518,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, err
 	}
 
-	err = apiServer.Controller.WriteTextFineTuneQuestions(filepath, data)
+	err = apiServer.Controller.WriteTextFineTuneQuestions(foundFile, data)
 	if err != nil {
 		return nil, err
 	}

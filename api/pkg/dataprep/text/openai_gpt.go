@@ -48,12 +48,6 @@ func (gpt *DataOpenAIGPT) GetConcurrency() int {
 func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
 	// use the data prep module to convert raw text into QA pairs
 
-	if index == 1 {
-		return nil, fmt.Errorf("test error")
-	} else {
-		return []types.DataPrepTextQuestion{}, nil
-	}
-
 	// a rough rate limiter
 	time.Sleep(2 * time.Second * time.Duration(index%gpt.Options.Concurrency))
 
