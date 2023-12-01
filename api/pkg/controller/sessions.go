@@ -414,13 +414,6 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	if err != nil {
 		return err
 	}
-	if len(systemInteraction.Files) == 0 {
-		return fmt.Errorf("no files found")
-	}
-	filepath := systemInteraction.Files[0]
-	if !strings.HasSuffix(filepath, ".jsonl") {
-		return fmt.Errorf("file is not a jsonl file")
-	}
 
 	systemInteraction.Message = "completed document conversion"
 	systemInteraction.Status = "all files converted to txt"
@@ -431,7 +424,7 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Creator:        types.CreatorTypeUser,
-		Message:        "completed question & answer editing",
+		Message:        "completed question & answer editing, now fine tuning",
 		Status:         "all question & answer pairs edited",
 		Files:          systemInteraction.Files,
 		State:          types.InteractionStateComplete,
