@@ -377,10 +377,8 @@ const New: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start">
-            <Grid item xs={2} md={2}>
-            </Grid>
-            <Grid item xs={4} md={4}>
+          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{width:"550px", marginLeft: "auto", marginRight: "auto"}}>
+            <Grid item>
               <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
                 Create
                 <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
@@ -403,7 +401,7 @@ const New: FC = () => {
                 </FormControl>
               </Button>
             </Grid>
-            <Grid item xs={4} md={4}>
+            <Grid item>
               <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
                 Finetune
                 <FormControl sx={{minWidth: 120, marginLeft: 2}}>
@@ -425,8 +423,6 @@ const New: FC = () => {
                   </Select>
                 </FormControl>
               </Button>
-            </Grid>
-            <Grid item xs={2} md={2}>
             </Grid>
           </Grid>
           {
