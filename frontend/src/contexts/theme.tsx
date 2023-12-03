@@ -17,7 +17,7 @@ export const ThemeProviderWrapper: FC = ({ children }) => {
       },
       typography: {
         fontFamily: "Assistant, Helvetica, Arial, sans-serif",
-        fontSize: 16,
+        fontSize: 14,
       }
     })
   }, [
