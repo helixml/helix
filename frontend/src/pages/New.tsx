@@ -377,7 +377,7 @@ const New: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{width:"550px", marginLeft: "auto", marginRight: "auto"}}>
+          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{width:"560px", marginLeft: "auto", marginRight: "auto"}}>
             <Grid item>
               <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
                 Create
@@ -681,7 +681,7 @@ const New: FC = () => {
                     >
                       <Box
                         sx={{
-                          border: '1px solid #C0B8AC',
+                          border: '1px solid #555',
                           borderRadius: '4px',
                           p: 2,
                           display: 'flex',
@@ -696,7 +696,7 @@ const New: FC = () => {
                         
                         <Typography
                           sx={{
-                            color: '#666',
+                            color: '#bbb',
                             width: '100%',
                           }}
                         >

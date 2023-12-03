@@ -20,7 +20,7 @@ export const THEMES: Record<string, ITheme> = {
     company: 'Helix',
     url: 'https://tryhelix.ai/',
     primary: '#7db6c7',
-    secondary: '#e450bf',
+    secondary: '#7db6c7',
     // this means ALL
     activeSections: [],
     logo: () => (
