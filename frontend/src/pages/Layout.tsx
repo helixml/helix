@@ -95,6 +95,7 @@ const Layout: FC = ({
     meta,
     navigate,
     getToolbarElement,
+    name,
   } = useRouter()
   
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
@@ -148,25 +149,13 @@ const Layout: FC = ({
           <ListItem
             disablePadding
             onClick={ () => {
-              navigate('home')
-              setMobileOpen(false)
-            }}
-          >
-            <ListItemButton>
-              <ListItemIcon>
-                <HomeIcon color="primary" />
-              </ListItemIcon>
-              <ListItemText primary="Home" />
-            </ListItemButton>
-          </ListItem>
-          <ListItem
-            disablePadding
-            onClick={ () => {
               navigate('new')
               setMobileOpen(false)
             }}
           >
-            <ListItemButton>
+            <ListItemButton
+                selected={ name == 'new' }
+            >
               <ListItemIcon>
                 <AddIcon color="primary" />
               </ListItemIcon>
@@ -319,22 +308,6 @@ const Layout: FC = ({
       component="div"
     >
       <CssBaseline />
-      <GlobalStyles
-        styles={{
-          ".home": {
-            fontFamily: 'Open Sauce Sans',
-            h1: {
-              letterSpacing:"-6px", lineHeight: "72px", fontSize: "80px", fontWeight: 500,
-            },
-            p: {
-              letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-            },
-            li: {
-              letterSpacing: "-2.2px", lineHeight: "54px", fontSize: "45px", fontWeight: 500,
-            },
-          },
-        }}
-      />
       <AppBar
         elevation={ 0 }
         position="fixed"
