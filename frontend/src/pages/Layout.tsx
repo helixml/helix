@@ -63,7 +63,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
-      backgroundColor: "#f8f8f8",
+      backgroundColor: theme.palette.mode === 'light' ? "#f8f8f8": "#303846",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -182,8 +182,8 @@ const Layout: FC = ({
         sx={{
           flexGrow: 0,
           width: '100%',
-          borderTop: "1px solid #ddd",
-          backgroundColor: "white",
+          borderTop: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #555",
+          backgroundColor: theme.palette.mode === 'light' ? "white" : "",
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
@@ -303,7 +303,7 @@ const Layout: FC = ({
       id="root-container"
       sx={{
         height: '100%',
-        display: 'flex'
+        display: 'flex',
       }}
       component="div"
     >
@@ -322,13 +322,13 @@ const Layout: FC = ({
         <Toolbar
           sx={{
             pr: '24px', // keep right padding when drawer closed
-            backgroundColor: '#fff',
             height: '100%',
             borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
             width: '100%',
+            backgroundColor: theme.palette.mode === 'light' ? "white" : "#272d38"
           }}
         >
           {
@@ -452,7 +452,7 @@ const Layout: FC = ({
             if(meta.background) return meta.background
             return theme.palette.mode === 'light'
               ? "#FAEFE0" 
-              : theme.palette.grey[900]
+              : "#202732"
           },
           flexGrow: 1,
           height: '100vh',
@@ -474,6 +474,9 @@ const Layout: FC = ({
           sx={{
             flexGrow: 1,
             overflow: 'auto',
+            backgroundColor: theme.palette.mode === 'light'
+                ? "#FAEFE0" 
+                : "#202732"
           }}
         >
           { children }

@@ -150,17 +150,10 @@ export const SessionsMenu: FC<{
         >
           <ListItemIcon>
             <EditIcon
-              sx={{
-                color: '#999'
-              }}
               fontSize="small"
             />
           </ListItemIcon>
-          <ListItemText
-            sx={{
-              color: '#444'
-            }}
-          >
+          <ListItemText>
             Edit Name
           </ListItemText>
         </MenuItem>
@@ -174,17 +167,10 @@ export const SessionsMenu: FC<{
         >
           <ListItemIcon>
             <DeleteIcon
-              sx={{
-                color: '#999'
-              }}
               fontSize="small"
             />
           </ListItemIcon>
-          <ListItemText
-            sx={{
-              color: '#444'
-            }}
-          >
+          <ListItemText>
             Delete
           </ListItemText>
         </MenuItem>

@@ -12,8 +12,13 @@ export const ThemeProviderWrapper: FC = ({ children }) => {
         },
         secondary: {
           main: themeConfig.secondary,
-        }
-      } 
+        },
+        mode: "dark",
+      },
+      typography: {
+        fontFamily: "Assistant, Helvetica, Arial, sans-serif",
+        fontSize: 16,
+      }
     })
   }, [
     themeConfig,

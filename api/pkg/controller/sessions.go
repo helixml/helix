@@ -399,7 +399,7 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 		return fmt.Errorf("file is not a jsonl file")
 	}
 
-	systemInteraction.Message = "completed document conversion"
+	systemInteraction.Message = "Completed document conversion."
 	systemInteraction.Status = "all files converted to txt"
 	systemInteraction.State = types.InteractionStateComplete
 	systemInteraction.Finished = true
@@ -408,7 +408,7 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
 		Creator:  types.CreatorTypeUser,
-		Message:  "completed question & answer editing",
+		Message:  "Completed question & answer editing.",
 		Status:   "all question & answer pairs edited",
 		Files:    systemInteraction.Files,
 		State:    types.InteractionStateComplete,

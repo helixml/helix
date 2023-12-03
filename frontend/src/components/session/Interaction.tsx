@@ -1,5 +1,5 @@
 import React, { FC, useState } from 'react'
-import { styled } from '@mui/system'
+import { styled, useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
@@ -52,6 +52,7 @@ export const Interaction: FC<{
 }) => {
 
   const [ viewingError, setViewingError ] = useState(false)
+  const theme = useTheme()
   let displayMessage: string = ''
   let progress = 0
   let imageURLs: string[] = []
@@ -170,6 +171,7 @@ export const Interaction: FC<{
                               justifyContent: 'center',
                               color: '#999',
                               cursor: 'pointer',
+                              overflow: "hidden"
                             }}
                             onClick={ () => {
                               window.open(useURL)
@@ -178,7 +180,7 @@ export const Interaction: FC<{
                             <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(filename)}`}></span>
                             <Typography variant="caption" sx={{
                               textAlign: 'center',
-                              color: 'blue',
+                              color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
                               textDecoration: 'underline',
                             }}>{filename}</Typography>
                           </Box>
