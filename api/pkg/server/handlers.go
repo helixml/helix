@@ -314,6 +314,8 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
 
+	fmt.Printf("HERE --------------------------------------\n")
+
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
 		return nil, err
