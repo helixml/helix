@@ -19,7 +19,7 @@ import (
 type ControllerOptions struct {
 	Store               store.Store
 	Filestore           filestore.FileStore
-	DataPrepTextFactory func(session *types.Session) (text.DataPrepText, error)
+	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
@@ -122,7 +122,7 @@ func (c *Controller) Initialize() error {
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
 				log.Trace().Msgf("Runner websocket event: %+v", *event)
-				_, err := c.ReadRunnerWebsocketEvent(context.Background(), event)
+				err := c.BroadcastWebsocketEvent(context.Background(), event)
 				if err != nil {
 					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
 				}

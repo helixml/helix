@@ -47,7 +47,9 @@ type Interaction struct {
 	Status   string            `json:"status"`
 	Error    string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir string `json:"lora_dir"`
+	LoraDir        string                     `json:"lora_dir"`
+	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
+	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
 }
 
 type Session struct {
@@ -313,3 +315,44 @@ type GlobalSchedulingDecision struct {
 	Mode          SessionMode   `json:"mode"`
 	Filter        SessionFilter `json:"filter"`
 }
+
+// keep track of the state of the data prep
+// no error means "success"
+// we have a map[string][]DataPrepChunk
+// where string is filename
+type DataPrepChunk struct {
+	Index         int    `json:"index"`
+	QuestionCount int    `json:"question_count"`
+	Error         string `json:"error"`
+}
+
+// the thing we get from the LLM's
+type DataPrepTextQuestionRaw struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+type DataPrepTextQuestionPart struct {
+	From  string `json:"from"`
+	Value string `json:"value"`
+}
+
+type DataPrepTextQuestion struct {
+	Conversations []DataPrepTextQuestionPart `json:"conversations"`
+}
+
+// func ConvertConversation(data DataPrepTextConversation) ShareGPTConversations {
+// 	res := ShareGPTConversations{
+// 		Conversations: []ShareGPTConversation{
+// 			{
+// 				From:  "human",
+// 				Value: data.Question,
+// 			},
+// 			{
+// 				From:  "gpt",
+// 				Value: data.Answer,
+// 			},
+// 		},
+// 	}
+// 	return res
+// }

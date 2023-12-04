@@ -5,17 +5,26 @@ import Progress from '../widgets/Progress'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 
+import {
+  IInteraction,
+} from '../../types'
+
 export const LiveInteraction: FC<{
-  session_id?: string,
+  session_id: string,
+  interaction: IInteraction,
 }> = ({
   session_id,
+  interaction,
 }) => {
 
   const {
     message,
     progress,
     status,
-  } = useLiveInteraction(session_id || '')
+  } = useLiveInteraction({
+    session_id,
+    interaction,
+  })
   
   return (
     <>

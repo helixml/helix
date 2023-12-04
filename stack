@@ -44,7 +44,8 @@ function start() {
   tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
-  tmux send-keys -t 2 'docker-compose logs -f unstructured' C-m
+  tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
+  tmux send-keys -t 2 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 'sleep 10' C-m

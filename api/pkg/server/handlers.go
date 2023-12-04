@@ -3,12 +3,12 @@ package server
 import (
 	"archive/tar"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,7 +17,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -25,6 +24,98 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	reqContext := apiServer.getRequestContext(req)
+
+	// now upload any files that were included
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionMode, err := types.ValidateSessionMode(req.FormValue("mode"), false)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionType, err := types.ValidateSessionType(req.FormValue("type"), false)
+	if err != nil {
+		return nil, err
+	}
+
+	modelName, err := model.GetModelNameForSession(sessionType)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionID := system.GenerateUUID()
+
+	// the user interaction is the request from the user
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
+	if err != nil {
+		return nil, err
+	}
+	if userInteraction == nil {
+		return nil, fmt.Errorf("no interaction found")
+	}
+
+	sessionData, err := apiServer.Controller.CreateSession(req.Context(), types.CreateSessionRequest{
+		SessionID:       sessionID,
+		SessionMode:     sessionMode,
+		SessionType:     sessionType,
+		ModelName:       modelName,
+		Owner:           reqContext.Owner,
+		OwnerType:       reqContext.OwnerType,
+		UserInteraction: *userInteraction,
+	})
+
+	return sessionData, nil
+}
+
+func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	reqContext := apiServer.getRequestContext(req)
+
+	// now upload any files that were included
+	err := req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+	if sessionID == "" {
+		return nil, fmt.Errorf("cannot update session without id")
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", sessionID)
+	}
+
+	canEdit := apiServer.canEditSession(reqContext, session)
+	if !canEdit {
+		return nil, fmt.Errorf("access dened for session id %s", session.ID)
+	}
+
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
+	if err != nil {
+		return nil, err
+	}
+	if userInteraction == nil {
+		return nil, fmt.Errorf("no interaction found")
+	}
+
+	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), types.UpdateSessionRequest{
+		SessionID:       sessionID,
+		UserInteraction: *userInteraction,
+	})
+
+	return sessionData, nil
+}
 
 func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
 	if apiServer.Options.LocalFilestorePath != "" {
@@ -93,34 +184,6 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 	}
 
 	return true, nil
-}
-
-func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.RequestContext, error) {
-	session, err := apiServer.Store.GetSession(ctx, sessionID)
-	if err != nil {
-		return "", types.RequestContext{}, err
-	}
-
-	if session == nil {
-		return "", types.RequestContext{}, fmt.Errorf("no session found with id %v", sessionID)
-	}
-
-	requestContext := types.RequestContext{
-		Ctx:       ctx,
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	}
-	// let's remove the /dev/users/XXX part of the path if it's there
-	userPath, err := apiServer.Controller.GetFilestoreUserPath(requestContext, "")
-	if err != nil {
-		return "", types.RequestContext{}, err
-	}
-
-	if strings.HasPrefix(filePath, userPath) {
-		filePath = strings.TrimPrefix(filePath, userPath)
-	}
-
-	return filePath, requestContext, nil
 }
 
 // in this case the path contains the full /dev/users/XXX/sessions/XXX path
@@ -251,11 +314,6 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
 
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
 	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
 	if err != nil {
 		return nil, err
@@ -269,30 +327,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 		OwnerType: session.OwnerType,
 	}
 
-	files := req.MultipartForm.File["files"]
-
-	if len(files) != 1 {
-		return nil, fmt.Errorf("upload folder only supports a single file")
-	}
-
-	file := files[0]
-
-	if !strings.HasSuffix(file.Filename, ".tar") {
-		return nil, fmt.Errorf("upload folder only supports a tar file")
-	}
-
-	log.Debug().Msgf("🟠 Got tar file %s", file.Filename)
-
-	// Handle .tar file
-	tarFile, err := file.Open()
-	if err != nil {
-		return nil, fmt.Errorf("unable to open tar file")
-	}
-	defer func() {
-		tarFile.Close()
-	}()
-
-	tarReader := tar.NewReader(tarFile)
+	tarReader := tar.NewReader(req.Body)
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -324,11 +359,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 	return &finalFolder, nil
 }
 
-func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	vars := mux.Vars(req)
-	id := vars["id"]
-
-	reqContext := apiServer.getRequestContext(req)
+func (apiServer *HelixAPIServer) getSessionFromID(reqContext types.RequestContext, id string) (*types.Session, error) {
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, err
@@ -341,6 +372,13 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	return session, nil
+}
+
+func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	return apiServer.getSessionFromID(reqContext, id)
 }
 
 func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {
@@ -363,37 +401,66 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	return ret, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
-
-	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	session, err := apiServer.getSessionFromID(reqContext, id)
 	if err != nil {
 		return nil, err
 	}
-	if session == nil {
-		return nil, fmt.Errorf("no session found with id %v", id)
-	}
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
-	}
-
-	systemInteraction, err := model.GetSystemInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-	if len(systemInteraction.Files) == 0 {
-		return nil, fmt.Errorf("no files found")
-	}
-	filepath := systemInteraction.Files[0]
-	if !strings.HasSuffix(filepath, ".jsonl") {
-		return nil, fmt.Errorf("file is not a jsonl file")
-	}
-	return apiServer.Controller.ReadTextFineTuneQuestions(filepath)
+	go func() {
+		apiServer.Controller.PrepareSession(session)
+	}()
+	return session, nil
 }
 
-func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]text.ShareGPTConversations, error) {
+func getSessionFinetuneFile(session *types.Session) (string, error) {
+	userInteraction, err := model.GetUserInteraction(session)
+	if err != nil {
+		return "", err
+	}
+	if len(userInteraction.Files) == 0 {
+		return "", fmt.Errorf("no files found")
+	}
+	foundFile := ""
+	for _, filepath := range userInteraction.Files {
+		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+			foundFile = filepath
+			break
+		}
+	}
+
+	if foundFile == "" {
+		return "", fmt.Errorf("file is not a jsonl file")
+	}
+
+	return foundFile, nil
+}
+
+func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+	foundFile, err := getSessionFinetuneFile(session)
+	if err != nil {
+		return nil, err
+	}
+	return apiServer.Controller.ReadTextFineTuneQuestions(foundFile)
+}
+
+func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
@@ -409,19 +476,12 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, fmt.Errorf("access denied")
 	}
 
-	systemInteraction, err := model.GetSystemInteraction(session)
+	foundFile, err := getSessionFinetuneFile(session)
 	if err != nil {
 		return nil, err
 	}
-	if len(systemInteraction.Files) == 0 {
-		return nil, fmt.Errorf("no files found")
-	}
-	filepath := systemInteraction.Files[0]
-	if !strings.HasSuffix(filepath, ".jsonl") {
-		return nil, fmt.Errorf("file is not a jsonl file")
-	}
 
-	var data []text.ShareGPTConversations
+	var data []types.DataPrepTextQuestion
 
 	// Decode the JSON from the request body
 	err = json.NewDecoder(req.Body).Decode(&data)
@@ -429,7 +489,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, err
 	}
 
-	err = apiServer.Controller.WriteTextFineTuneQuestions(filepath, data)
+	err = apiServer.Controller.WriteTextFineTuneQuestions(foundFile, data)
 	if err != nil {
 		return nil, err
 	}
@@ -441,182 +501,6 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 	}
 
 	return data, nil
-}
-
-// based on a multi-part form that has message and files
-// return a user interaction we can add to a session
-// if we are uploading files for a fine-tuning session for images
-// then the form data will have a field named after each of the filenames
-// this is the label for the file and we should create a text file
-// in the session folder that is named after the file and contains the label
-func (apiServer *HelixAPIServer) getUserInteractionFromForm(
-	req *http.Request,
-	sessionID string,
-	sessionMode types.SessionMode,
-) (*types.Interaction, error) {
-	message := req.FormValue("input")
-
-	if sessionMode == types.SessionModeInference && message == "" {
-		return nil, fmt.Errorf("inference sessions require a message")
-	}
-
-	filePaths := []string{}
-	files, okFiles := req.MultipartForm.File["files"]
-	inputPath := controller.GetSessionInputsFolder(sessionID)
-
-	metadata := map[string]string{}
-
-	if okFiles {
-		for _, fileHeader := range files {
-			file, err := fileHeader.Open()
-			if err != nil {
-				return nil, fmt.Errorf("unable to open file")
-			}
-			defer file.Close()
-
-			filePath := filepath.Join(inputPath, fileHeader.Filename)
-
-			log.Printf("uploading file %s", filePath)
-			imageItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
-			if err != nil {
-				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
-			}
-			log.Printf("success uploading file: %s", imageItem.Path)
-			filePaths = append(filePaths, imageItem.Path)
-
-			// let's see if there is a single form field named after the filename
-			// this is for labelling images for fine tuning
-			labelValues, ok := req.MultipartForm.Value[fileHeader.Filename]
-
-			if ok && len(labelValues) > 0 {
-				filenameParts := strings.Split(fileHeader.Filename, ".")
-				filenameParts[len(filenameParts)-1] = "txt"
-				labelFilename := strings.Join(filenameParts, ".")
-				labelFilepath := filepath.Join(inputPath, labelFilename)
-				label := labelValues[0]
-
-				metadata[fileHeader.Filename] = label
-
-				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
-				if err != nil {
-					return nil, fmt.Errorf("unable to create label: %s", err.Error())
-				}
-				log.Printf("success uploading file: %s", fileHeader.Filename)
-				filePaths = append(filePaths, labelItem.Path)
-			}
-		}
-		log.Printf("success uploading files")
-	}
-
-	if sessionMode == types.SessionModeFinetune && len(filePaths) == 0 {
-		return nil, fmt.Errorf("finetune sessions require some files")
-	}
-
-	return &types.Interaction{
-		ID:        system.GenerateUUID(),
-		Created:   time.Now(),
-		Updated:   time.Now(),
-		Scheduled: time.Now(),
-		Completed: time.Now(),
-		Creator:   types.CreatorTypeUser,
-		Message:   message,
-		Files:     filePaths,
-		State:     types.InteractionStateComplete,
-		Finished:  true,
-		Metadata:  metadata,
-	}, nil
-}
-
-func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	reqContext := apiServer.getRequestContext(req)
-
-	// now upload any files that were included
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionMode, err := types.ValidateSessionMode(req.FormValue("mode"), false)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionType, err := types.ValidateSessionType(req.FormValue("type"), false)
-	if err != nil {
-		return nil, err
-	}
-
-	modelName, err := model.GetModelNameForSession(sessionType)
-	if err != nil {
-		return nil, err
-	}
-
-	sessionID := system.GenerateUUID()
-
-	// the user interaction is the request from the user
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
-	if err != nil {
-		return nil, err
-	}
-	if userInteraction == nil {
-		return nil, fmt.Errorf("no interaction found")
-	}
-
-	sessionData, err := apiServer.Controller.CreateSession(req.Context(), types.CreateSessionRequest{
-		SessionID:       sessionID,
-		SessionMode:     sessionMode,
-		SessionType:     sessionType,
-		ModelName:       modelName,
-		Owner:           reqContext.Owner,
-		OwnerType:       reqContext.OwnerType,
-		UserInteraction: *userInteraction,
-	})
-
-	return sessionData, nil
-}
-
-func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	reqContext := apiServer.getRequestContext(req)
-
-	// now upload any files that were included
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
-	vars := mux.Vars(req)
-	sessionID := vars["id"]
-	if sessionID == "" {
-		return nil, fmt.Errorf("cannot update session without id")
-	}
-
-	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if session == nil {
-		return nil, fmt.Errorf("no session found with id %v", sessionID)
-	}
-
-	canEdit := apiServer.canEditSession(reqContext, session)
-	if !canEdit {
-		return nil, fmt.Errorf("access dened for session id %s", session.ID)
-	}
-
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
-	if err != nil {
-		return nil, err
-	}
-	if userInteraction == nil {
-		return nil, fmt.Errorf("no interaction found")
-	}
-
-	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), types.UpdateSessionRequest{
-		SessionID:       sessionID,
-		UserInteraction: *userInteraction,
-	})
-
-	return sessionData, nil
 }
 
 func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -662,15 +546,6 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 		}
 	}
 	return false
-}
-
-func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
-	isAdmin := apiServer.isAdmin(req)
-	if !isAdmin {
-		return fmt.Errorf("access denied")
-	} else {
-		return nil
-	}
 }
 
 // admin is required by the auth middleware

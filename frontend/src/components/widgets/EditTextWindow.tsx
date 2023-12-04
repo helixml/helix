@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Window from './Window'
@@ -25,6 +25,16 @@ const EditTextWindow: FC<React.PropsWithChildren<EditTextWindowProps>> = ({
   onSubmit,
 }) => {
   const [currentValue, setCurrentValue] = useState(value)
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      onSubmit(currentValue)
+      event.preventDefault()
+    }
+  }, [
+    currentValue,
+    onSubmit,
+  ])
 
   return (
     <Window
@@ -59,6 +69,7 @@ const EditTextWindow: FC<React.PropsWithChildren<EditTextWindowProps>> = ({
             value={ currentValue }
             fullWidth
             onChange={ (e) => setCurrentValue(e.target.value) }
+            onKeyDown={ handleKeyDown }
           />
         </Box>
       </Box>

@@ -15,7 +15,7 @@ import {
 } from '../../types'
 
 import {
-  getFileExtension,
+  mapFileExtension,
   isImage,
 } from '../../utils/filestore'
 
@@ -70,7 +70,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
         }
         else {
           icon = (
-            <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(data.name)}`}></span>
+            <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(data.name)}`}></span>
           )
         }
   

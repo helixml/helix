@@ -18,7 +18,6 @@ type DataPrepTextHelixMistralSessionGet func(id string) (*types.Session, error)
 // {"question": "...", "answer": "..."}
 type DataPrepTextHelixMistral struct {
 	Options  DataPrepTextOptions
-	docs     *dataPrepDocuments
 	session  *types.Session
 	createFn DataPrepTextHelixMistralSessionCreate
 	getFn    DataPrepTextHelixMistralSessionGet
@@ -33,22 +32,17 @@ func NewDataPrepTextHelixMistral(
 	return &DataPrepTextHelixMistral{
 		Options:  options,
 		session:  session,
-		docs:     newDataPrepDocuments(),
 		createFn: createFn,
 		getFn:    getFn,
 	}, nil
 }
 
-func (helixMistral *DataPrepTextHelixMistral) AddDocument(content string) error {
-	return helixMistral.docs.AddDocument(content)
-}
-
-func (helixMistral *DataPrepTextHelixMistral) GetChunks() ([]string, error) {
-	return helixMistral.docs.GetChunks(helixMistral.Options.ChunkSize, helixMistral.Options.OverflowSize)
+func (helixMistral *DataPrepTextHelixMistral) GetConcurrency() int {
+	return 1000
 }
 
 // TODO: getting a consistent output format that we can parse reliably is really hard
-func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
+func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
 	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate exactly %d question and answer pairs that captures an important fact from the context.
@@ -88,14 +82,15 @@ Do not number the questions or answers.
 		OwnerType:     helixMistral.session.OwnerType,
 		ParentSession: helixMistral.session.ID,
 		UserInteraction: types.Interaction{
-			ID:       system.GenerateUUID(),
-			Created:  time.Now(),
-			Creator:  types.CreatorTypeUser,
-			Message:  prompt,
-			Files:    []string{},
-			State:    types.InteractionStateWaiting,
-			Finished: false,
-			Metadata: map[string]string{},
+			ID:             system.GenerateUUID(),
+			Created:        time.Now(),
+			Creator:        types.CreatorTypeUser,
+			Message:        prompt,
+			Files:          []string{},
+			State:          types.InteractionStateWaiting,
+			Finished:       false,
+			Metadata:       map[string]string{},
+			DataPrepChunks: map[string][]types.DataPrepChunk{},
 		},
 	})
 
@@ -128,7 +123,7 @@ Do not number the questions or answers.
 		time.Sleep(1 * time.Second)
 	}
 
-	var res []DataPrepTextConversation
+	var res []types.DataPrepTextQuestion
 
 	log.Debug().
 		Msgf("🔴 Mistral Answer: %+v", result)
@@ -169,4 +164,4 @@ Do not number the questions or answers.
 }
 
 // Compile-time interface check:
-var _ DataPrepText = (*DataPrepTextHelixMistral)(nil)
+var _ DataPrepTextQuestionGenerator = (*DataPrepTextHelixMistral)(nil)

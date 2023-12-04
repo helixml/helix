@@ -35,8 +35,8 @@ const GlobalLoading: React.FC<React.PropsWithChildren<{
         component="div"
         sx={{
           padding: 6,
-          backgroundColor: '#ffffff',
-          border: '1px solid #e5e5e5',
+          // backgroundColor: '#ffffff',
+          // border: '1px solid #e5e5e5',
         }}
       >
         <Box
