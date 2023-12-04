@@ -249,63 +249,6 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	c.WriteSession(session)
 }
 
-// // once we've edited the JSONL file - we trigger the fine tuning by adding more interactions
-// func (c *Controller) BeginTextFineTune(session *types.Session) error {
-// 	systemInteraction, err := model.GetSystemInteraction(session)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	systemInteraction.Message = "Completed document conversion."
-// 	systemInteraction.Status = "all files converted to txt"
-// 	systemInteraction.State = types.InteractionStateComplete
-// 	systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
-// 	systemInteraction.Finished = true
-
-// 	finetuneUserInteraction := types.Interaction{
-// 		ID:             system.GenerateUUID(),
-// 		Created:        time.Now(),
-// 		Creator:        types.CreatorTypeUser,
-// 		Message:        "completed question & answer editing, now fine tuning.",
-// 		Status:         "all question & answer pairs edited.",
-// 		Files:          systemInteraction.Files,
-// 		State:          types.InteractionStateComplete,
-// 		Finished:       true,
-// 		Metadata:       map[string]string{},
-// 		DataPrepChunks: map[string][]types.DataPrepChunk{},
-// 	}
-
-// 	finetuneSystemInteraction := types.Interaction{
-// 		ID:             system.GenerateUUID(),
-// 		Created:        time.Now(),
-// 		Creator:        types.CreatorTypeSystem,
-// 		Message:        "",
-// 		Files:          []string{},
-// 		State:          types.InteractionStateWaiting,
-// 		Finished:       false,
-// 		Metadata:       map[string]string{},
-// 		DataPrepChunks: map[string][]types.DataPrepChunk{},
-// 	}
-
-// 	systemInteraction.Files = []string{}
-
-// 	newInteractions := []types.Interaction{}
-// 	for _, interaction := range session.Interactions {
-// 		if interaction.ID == systemInteraction.ID {
-// 			newInteractions = append(newInteractions, *systemInteraction)
-// 		} else {
-// 			newInteractions = append(newInteractions, interaction)
-// 		}
-// 	}
-// 	newInteractions = append(newInteractions, finetuneUserInteraction, finetuneSystemInteraction)
-// 	session.Interactions = newInteractions
-
-// 	c.WriteSession(session)
-// 	c.AddSessionToQueue(session)
-
-// 	return nil
-// }
-
 // once we've edited the JSONL file - we trigger the fine tuning by adding more interactions
 func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	systemInteraction, err := model.GetSystemInteraction(session)
@@ -313,10 +256,12 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 		return err
 	}
 
-	systemInteraction.Message = "completed document conversion"
-	systemInteraction.Status = "all files converted to txt"
+	systemInteraction.Finished = false
+	systemInteraction.Progress = 1
+	systemInteraction.Message = "fine tuning on data..."
+	systemInteraction.Status = ""
 	systemInteraction.State = types.InteractionStateWaiting
-	systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
+	systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
 	systemInteraction.Files = []string{}
 
 	session = updateSessionInteractions(session, []types.Interaction{
