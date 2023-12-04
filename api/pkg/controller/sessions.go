@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -418,6 +419,7 @@ func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	systemInteraction.Message = "completed document conversion"
 	systemInteraction.Status = "all files converted to txt"
 	systemInteraction.State = types.InteractionStateComplete
+	systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
 	systemInteraction.Finished = true
 
 	finetuneUserInteraction := types.Interaction{
@@ -676,6 +678,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			return nil, err
 		}
 	}
+
+	fmt.Printf("splitter.Chunks --------------------------------------\n")
+	fmt.Printf("splitter.Chunks --------------------------------------\n")
+	fmt.Printf("splitter.Chunks --------------------------------------\n")
+	spew.Dump(splitter.Chunks)
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range splitter.Chunks {
