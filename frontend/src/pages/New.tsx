@@ -379,10 +379,8 @@ const New: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start">
-            <Grid item xs={2} md={2}>
-            </Grid>
-            <Grid item xs={4} md={4}>
+          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{maxWidth:"560px", marginLeft: "auto", marginRight: "auto"}}>
+            <Grid item>
               <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
                 Create
                 <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
@@ -405,7 +403,7 @@ const New: FC = () => {
                 </FormControl>
               </Button>
             </Grid>
-            <Grid item xs={4} md={4}>
+            <Grid item>
               <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
                 Finetune
                 <FormControl sx={{minWidth: 120, marginLeft: 2}}>
@@ -427,8 +425,6 @@ const New: FC = () => {
                   </Select>
                 </FormControl>
               </Button>
-            </Grid>
-            <Grid item xs={2} md={2}>
             </Grid>
           </Grid>
           {
@@ -689,7 +685,7 @@ const New: FC = () => {
                     >
                       <Box
                         sx={{
-                          border: '1px solid #C0B8AC',
+                          border: '1px solid #555',
                           borderRadius: '4px',
                           p: 2,
                           display: 'flex',
@@ -704,7 +700,7 @@ const New: FC = () => {
                         
                         <Typography
                           sx={{
-                            color: '#666',
+                            color: '#bbb',
                             width: '100%',
                           }}
                         >
@@ -903,6 +899,7 @@ const New: FC = () => {
             }}
           >
             <TextField
+              id="textEntry"
               fullWidth
               inputRef={textFieldRef}
               autoFocus
@@ -921,6 +918,7 @@ const New: FC = () => {
               onKeyDown={handleKeyDown}
             />
             <Button
+              id="sendButton"
               variant='contained'
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
