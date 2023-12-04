@@ -722,6 +722,7 @@ func (r *Runner) getHypotheticalFreeMemory() uint64 {
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
 	if res.Type == types.WorkerTaskResponseTypeResult {
 		// if it's a full result then we just post it to the api
+		log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 		return r.postWorkerResponseToApi(res)
 	} else if res.Type == types.WorkerTaskResponseTypeProgress || res.Type == types.WorkerTaskResponseTypeStream {
 		// otherwise for streaming updates it's a websocket event
