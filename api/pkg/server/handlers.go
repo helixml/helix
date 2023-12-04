@@ -314,13 +314,6 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 	sessionid := vars["sessionid"]
 	filePath := req.URL.Query().Get("path")
 
-	fmt.Printf("HERE --------------------------------------\n")
-
-	err := req.ParseMultipartForm(10 << 20)
-	if err != nil {
-		return nil, err
-	}
-
 	session, err := apiServer.Store.GetSession(req.Context(), sessionid)
 	if err != nil {
 		return nil, err
@@ -334,30 +327,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 		OwnerType: session.OwnerType,
 	}
 
-	files := req.MultipartForm.File["files"]
-
-	if len(files) != 1 {
-		return nil, fmt.Errorf("upload folder only supports a single file")
-	}
-
-	file := files[0]
-
-	if !strings.HasSuffix(file.Filename, ".tar") {
-		return nil, fmt.Errorf("upload folder only supports a tar file")
-	}
-
-	log.Debug().Msgf("🟠 Got tar file %s", file.Filename)
-
-	// Handle .tar file
-	tarFile, err := file.Open()
-	if err != nil {
-		return nil, fmt.Errorf("unable to open tar file")
-	}
-	defer func() {
-		tarFile.Close()
-	}()
-
-	tarReader := tar.NewReader(tarFile)
+	tarReader := tar.NewReader(req.Body)
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
