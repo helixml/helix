@@ -202,7 +202,7 @@ export const Interaction: FC<{
         }
         {
           displayMessage && (
-            <Typography>{ displayMessage }</Typography>
+            <Typography className="interactionMessage">{ displayMessage }</Typography>
           )
         }
         {
