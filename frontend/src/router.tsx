@@ -3,7 +3,6 @@ import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
 import Box from '@mui/material/Box'
 
-import Home from './pages/Home'
 import Session from './pages/Session'
 import Account from './pages/Account'
 import Dashboard from './pages/Dashboard'
@@ -31,14 +30,14 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 }
 
 const routes: IApplicationRoute[] = [{
-  name: 'home',
+  name: 'new',
   path: '/',
   meta: {
-    title: 'Home',
+    title: 'New Session',
     sidebar: true,
   },
   render: () => (
-    <Home />
+      <New />
   ),
 }, {
   name: 'files',
@@ -51,16 +50,6 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
-  ),
-}, {
-  name: 'new',
-  path: '/new',
-  meta: {
-    title: 'New Session',
-    sidebar: true,
-  },
-  render: () => (
-      <New />
   ),
 }, {
   name: 'session',

@@ -181,6 +181,7 @@ const Session: FC = () => {
             }}
           >
             <TextField
+              id="textEntry"
               fullWidth
               inputRef={textFieldRef}
               label={(

@@ -6,7 +6,7 @@ import {
 
 export const useTheme = (): ITheme => {
   const themeName = getThemeName()
-  return THEMES[themeName] || THEMES.aria
+  return THEMES[themeName] || THEMES.helix
 }
 
 export default useTheme

@@ -1,5 +1,5 @@
 import React, { FC, useState, useMemo } from 'react'
-import { styled } from '@mui/system'
+import { styled, useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
@@ -70,6 +70,7 @@ export const Interaction: FC<{
   retryFinetuneErrors,
 }) => {
   const [ viewingError, setViewingError ] = useState(false)
+  const theme = useTheme()
   let displayMessage: string = ''
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
@@ -206,6 +207,7 @@ export const Interaction: FC<{
                               justifyContent: 'center',
                               color: '#999',
                               cursor: 'pointer',
+                              overflow: "hidden"
                             }}
                             onClick={ () => {
                               window.open(useURL)
@@ -214,7 +216,7 @@ export const Interaction: FC<{
                             <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
                             <Typography variant="caption" sx={{
                               textAlign: 'center',
-                              color: 'blue',
+                              color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
                               textDecoration: 'underline',
                             }}>{filename}</Typography>
                           </Box>
@@ -259,7 +261,7 @@ export const Interaction: FC<{
         }
         {
           displayMessage && (
-            <Typography>{ displayMessage }</Typography>
+            <Typography className="interactionMessage">{ displayMessage }</Typography>
           )
         }
         {
