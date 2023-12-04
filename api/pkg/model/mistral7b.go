@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -76,14 +77,22 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 
 		return stdout, nil, nil
 	} else if mode == types.SessionModeFinetune {
-		chunker := newMistral7bFinetuneChunker(eventHandler)
-		stdout := NewTextStream(bufio.ScanLines, func(line string) {
+		chunker := newMistral7bFinetuneChunker(eventHandler, mistral7bFinetuneChunkerOptions{
+			progressActivationWord: "[axolotl.train.train:108]",
+		})
+		stdout := NewTextStream(bufio.ScanWords, func(line string) {
 			err := chunker.write(line)
 			if err != nil {
 				log.Error().Msgf("error writing word to mistral inference chunker: %s", err)
 			}
 		})
-		return stdout, nil, nil
+		stderr := NewTextStream(bufio.ScanWords, func(line string) {
+			err := chunker.write(line)
+			if err != nil {
+				log.Error().Msgf("error writing word to mistral inference chunker: %s", err)
+			}
+		})
+		return stdout, stderr, nil
 	}
 
 	return nil, nil, nil
@@ -224,35 +233,48 @@ func (chunker *mistral7bInferenceChunker) reset() {
 	chunker.active = false
 }
 
-type mistral7bFinetuneChunker struct {
-	sessionID    string
-	eventHandler WorkerEventHandler
+type mistral7bFinetuneChunkerOptions struct {
+	// if defined - we must wait until we see this word
+	// before we start to activate percentages
+	// this is because the fine tuning emits percentages
+	// before the actual training starts so causes
+	// the loading bar to flicker back and forth
+	progressActivationWord string
 }
 
-func newMistral7bFinetuneChunker(eventHandler WorkerEventHandler) *mistral7bFinetuneChunker {
+type mistral7bFinetuneChunker struct {
+	sessionID      string
+	progressActive bool
+	options        mistral7bFinetuneChunkerOptions
+	eventHandler   WorkerEventHandler
+}
+
+func newMistral7bFinetuneChunker(eventHandler WorkerEventHandler, options mistral7bFinetuneChunkerOptions) *mistral7bFinetuneChunker {
 	return &mistral7bFinetuneChunker{
-		sessionID:    "",
-		eventHandler: eventHandler,
+		sessionID:      "",
+		eventHandler:   eventHandler,
+		options:        options,
+		progressActive: false,
 	}
 }
 
-func (chunker *mistral7bFinetuneChunker) write(line string) error {
+func (chunker *mistral7bFinetuneChunker) write(word string) error {
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
-	if strings.HasPrefix(line, "[SESSION_START]") {
-		parts := strings.Split(line, "=")
+	if strings.HasPrefix(word, "[SESSION_START]") {
+		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
 			// which is very strange
-			return fmt.Errorf("invalid session start line: %s", line)
+			return fmt.Errorf("invalid session start line: %s", word)
 		}
 		chunker.sessionID = parts[1]
-	} else if strings.HasPrefix(line, "[SESSION_END_LORA_DIR]") {
+	} else if strings.HasPrefix(word, "[SESSION_END_LORA_DIR]") {
 		// e.g. [SESSION_END_LORA_DIR]lora_dir=/tmp/helix/results/123
-		parts := strings.Split(line, "=")
+		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
 			// which is very strange
-			return fmt.Errorf("invalid session start line: %s", line)
+			return fmt.Errorf("invalid session start line: %s", word)
 		}
 		chunker.eventHandler(&types.RunnerTaskResponse{
 			Type:      types.WorkerTaskResponseTypeResult,
@@ -260,15 +282,32 @@ func (chunker *mistral7bFinetuneChunker) write(line string) error {
 			LoraDir:   parts[1],
 			Files:     []string{},
 		})
+		chunker.reset()
 	} else if chunker.sessionID != "" {
-		// we can't get a streaming % from axolotl so we just emit the status lines
-		chunker.eventHandler(&types.RunnerTaskResponse{
-			Type:      types.WorkerTaskResponseTypeProgress,
-			SessionID: chunker.sessionID,
-			Status:    line,
-		})
+		if chunker.options.progressActivationWord != "" && !chunker.progressActive && strings.HasPrefix(word, chunker.options.progressActivationWord) {
+			chunker.progressActive = true
+		}
+		// 10%|█
+		if strings.Contains(word, "%|") && (chunker.options.progressActivationWord == "" || chunker.progressActive) {
+			parts := strings.Split(word, "%")
+			percentStr := parts[0]
+			progress, err := strconv.Atoi(percentStr)
+			if err != nil {
+				return err
+			}
+			chunker.eventHandler(&types.RunnerTaskResponse{
+				Type:      types.WorkerTaskResponseTypeProgress,
+				SessionID: chunker.sessionID,
+				Progress:  progress,
+			})
+		}
 	}
 	return nil
+}
+
+func (chunker *mistral7bFinetuneChunker) reset() {
+	chunker.sessionID = ""
+	chunker.progressActive = false
 }
 
 // Compile-time interface check:
