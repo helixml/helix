@@ -96,7 +96,7 @@ func NewModelInstance(
 
 	runnerOptions RunnerOptions,
 ) (*ModelInstance, error) {
-	modelInstance, err := model.GetModel(initialSession.ModelName)
+	aiModel, err := model.GetModel(initialSession.ModelName)
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +116,11 @@ func NewModelInstance(
 		Token: runnerOptions.ApiToken,
 	}
 
-	return &ModelInstance{
+	modelInstance := &ModelInstance{
 		id:                id,
 		ctx:               ctx,
 		finishChan:        make(chan bool, 1),
-		model:             modelInstance,
+		model:             aiModel,
 		responseHandler:   responseHandler,
 		nextTaskURL:       fmt.Sprintf("%s/%s", nextTaskURL, id),
 		initialSessionURL: fmt.Sprintf("%s/%s", initialSessionURL, id),
@@ -133,9 +133,13 @@ func NewModelInstance(
 		},
 		runnerOptions:     runnerOptions,
 		httpClientOptions: httpClientOptions,
-		fileHandler:       NewFileHandler(runnerOptions.ID, httpClientOptions),
 		jobHistory:        []*types.SessionSummary{},
-	}, nil
+	}
+
+	fileHandler := NewFileHandler(runnerOptions.ID, httpClientOptions, modelInstance.taskResponseHandler)
+	modelInstance.fileHandler = fileHandler
+
+	return modelInstance, nil
 }
 
 /*
@@ -241,6 +245,7 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 		log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
 		return
 	}
+
 	taskResponse.Owner = instance.currentSession.Owner
 	instance.lastActivityTimestamp = time.Now().Unix()
 
