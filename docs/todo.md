@@ -10,6 +10,7 @@
  - [ ] reverse the color of the active session
  - [ ] put the name of the session in topbar
  - [ ] rather than system as the username, put the name of the session
+ - [ ] speedway empty error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701725991656799
  - [ ] performance of auto-save before login (image fine tune text is slow)
  - [ ] for session updates check we are on the same page
    - [ ] whilst we are on one page and another session is processing - it's updating the page we are on with the wrong session

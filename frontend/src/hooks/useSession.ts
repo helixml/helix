@@ -6,6 +6,7 @@ import useSnackbar from './useSnackbar'
 
 import {
   ISession,
+  IBot,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
@@ -15,11 +16,19 @@ export const useSession = (session_id: string) => {
   const snackbar = useSnackbar()
 
   const [ data, setData ] = useState<ISession>()
+  const [ bot, setBot ] = useState<IBot>()
 
   const loadSession = useCallback(async (id: string) => {
     const result = await api.get<ISession>(`/api/v1/sessions/${id}`)
     if(!result) return
     setData(result)
+    if(result.parent_bot) {
+      const botResult = await api.get<IBot>(`/api/v1/bots/${result.parent_bot}`)
+      if(!botResult) return
+      setBot(botResult)
+    } else {
+      setBot(undefined)
+    }
   }, [])
   
   const reload = useCallback(() => {
@@ -65,6 +74,7 @@ export const useSession = (session_id: string) => {
 
   return {
     data,
+    bot,
     reload,
     retryTextFinetune,
   }
