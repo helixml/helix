@@ -1,8 +1,16 @@
 ## kai
 
- - [ ] retry button for errors
+ 
  - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
+ - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
+ - [ ] retry button for errors
  - [ ] render markdown
+ - [ ] plugin sentry
+ - [ ] auto-scroll broken
+ - [ ] reverse the color of the active session
+ - [ ] put the name of the session in topbar
+ - [ ] rather than system as the username, put the name of the session
+ - [ ] performance of auto-save before login (image fine tune text is slow)
  - [ ] for session updates check we are on the same page
    - [ ] whilst we are on one page and another session is processing - it's updating the page we are on with the wrong session
  - [x] react is rendering streaming updates to the sessions slowly
@@ -14,17 +22,21 @@
  - [ ] show a dot next to sessions that are currently active or have new replies
  - [ ] progress bars on text fine tuning
  - [ ] fork session (fork from an interaction)
- - [ ] pdfs are broken in production
+ - [ ] add data after the model is trained
+ - [x] pdfs are broken in production
  - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
  - [ ] multiple SDXL at the same time causes error
    - [ ] this could be in same session or not
    - [ ] we need a test stack
  - [ ] place in the queue indiciation if it's more than 5 seconds
+ - [ ] multi-model group (i.e. train an image and text and combine them into one chat)
  - [ ] add your own runner
  - [ ] reliable and fast, scale to 5 concurrent users (Luke)
    - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io
  - [ ] show API calls to replicate many actions (e.g. text & image inference to start with)
  - [ ] kill any pid that shows up in nvidia-smi that it doesn't own
+ - [ ] email user when their finetune completes
+ - [ ] auto-training - i.e. on a schedule, retrain the model from existing connections
  - [ ] the data prep needs to be in a job queue (later, unless we do everything ourselves)
    - [ ] the same job queue would be used for fetching data from URLs
 
