@@ -591,16 +591,17 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 
 	if foundLocalQueuedSession {
 		// queue it, and fall thru below to assign
-		log.Printf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
+		log.Debug().Msgf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
 		go modelInstance.queueSession(session, false)
 	} else if modelInstance.nextSession != nil {
 		// if there is a session in the nextSession cache then we return it immediately
-		log.Printf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
+		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
 		session = modelInstance.nextSession
 		modelInstance.nextSession = nil
 	} else if modelInstance.queuedSession != nil {
 		// if there is a session in the queuedSession cache then we are waiting for
 		// a task to complete before we want to actually run the session
+		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.queuedSession)
 	} else {
 		// ask the upstream api server if there is another task
 		// if there is - then assign it to the queuedSession
@@ -648,10 +649,6 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	if err != nil {
 		return nil, err
 	}
-
-	log.Trace().
-		Str(req.Method, req.URL.String()).
-		Msgf("")
 
 	system.AddAutheaders(req, r.httpClientOptions.Token)
 
