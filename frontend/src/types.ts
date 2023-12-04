@@ -87,16 +87,18 @@ export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/sta
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 
-export type ITextDataPrepStage = '' | 'extract_text' | 'generate_questions' | 'edit_questions'
+export type ITextDataPrepStage = '' | 'extract_text' | 'generate_questions' | 'edit_questions' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
 export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
 export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage = 'generate_questions'
 export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_questions'
+export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
   TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
   TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_COMPLETE,
 ]
 
 export interface IWorkerTaskResponse {

@@ -142,4 +142,5 @@ const (
 	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
 	TextDataPrepStageConvertQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"
+	TextDataPrepStageComplete         TextDataPrepStage = "complete"
 )
