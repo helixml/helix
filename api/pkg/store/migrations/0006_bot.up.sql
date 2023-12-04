@@ -13,7 +13,7 @@ create table bot (
   parent_session varchar(255) NOT NULL,
 
   -- these values are filled in by the parent_session
-  finetune_file varchar(255) NOT NULL,
+  lora_dir varchar(255) NOT NULL,
   type varchar(255) NOT NULL,
   model_name varchar(255) NOT NULL
   

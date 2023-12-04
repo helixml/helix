@@ -73,6 +73,24 @@ func (d *PostgresStore) DeleteSession(
 	return deleted, nil
 }
 
+func (d *PostgresStore) DeleteBot(
+	ctx context.Context,
+	botID string,
+) (*types.Bot, error) {
+	deleted, err := d.GetBot(ctx, botID)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.db.Exec(`
+		DELETE FROM bot WHERE id = $1
+	`, botID)
+	if err != nil {
+		return nil, err
+	}
+
+	return deleted, nil
+}
+
 func (d *PostgresStore) GetSession(
 	ctx context.Context,
 	sessionID string,
@@ -100,6 +118,28 @@ func (d *PostgresStore) GetSession(
 	}
 
 	return session, nil
+}
+
+func (d *PostgresStore) GetBot(
+	ctx context.Context,
+	botID string,
+) (*types.Bot, error) {
+	if botID == "" {
+		return nil, fmt.Errorf("botID cannot be empty")
+	}
+	row := d.db.QueryRow(`
+		SELECT id, name, parent_session, type, model_name, lora_dir, owner, owner_type
+		FROM session WHERE id = $1
+	`, botID)
+	bot := &types.Bot{}
+	err := row.Scan(&bot.ID, &bot.Name, &bot.ParentSession, &bot.Type, &bot.ModelName, &bot.LoraDir, &bot.Owner, &bot.OwnerType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return bot, nil
 }
 
 func (d *PostgresStore) GetSessions(
@@ -169,6 +209,66 @@ func (d *PostgresStore) GetSessions(
 	return sessions, nil
 }
 
+func (d *PostgresStore) GetBots(
+	ctx context.Context,
+	query GetBotsQuery,
+) ([]*types.Bot, error) {
+	var rows *sql.Rows
+	var err error
+
+	/// XXX SECURITY not sure this is what we want - audit who can set these values?
+	if query.Owner != "" && query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
+			FROM bot
+			WHERE owner = $1 AND owner_type = $2
+			ORDER BY created DESC
+		`, query.Owner, query.OwnerType)
+	} else if query.Owner != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
+			FROM bot
+			WHERE owner = $1
+			ORDER BY created DESC
+		`, query.Owner)
+	} else if query.OwnerType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
+			FROM bot
+			WHERE owner_type = $1
+			ORDER BY created DESC
+		`, query.OwnerType)
+	} else {
+		rows, err = d.db.Query(`
+			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
+			FROM bot
+			ORDER BY created DESC
+		`)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bots := []*types.Bot{}
+	for rows.Next() {
+		bot := &types.Bot{}
+
+		err := rows.Scan(&bot.ID, &bot.Created, &bot.Updated, &bot.Name, &bot.ParentSession, &bot.Type, &bot.ModelName, &bot.LoraDir, &bot.Owner, &bot.OwnerType)
+		if err != nil {
+			return nil, err
+		}
+		bots = append(bots, bot)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return bots, nil
+}
+
 func (d *PostgresStore) CreateSession(
 	ctx context.Context,
 	session types.Session,
@@ -191,6 +291,25 @@ func (d *PostgresStore) CreateSession(
 	}
 
 	return &session, nil
+}
+
+func (d *PostgresStore) CreateBot(
+	ctx context.Context,
+	bot types.Bot,
+) (*types.Bot, error) {
+	_, err := d.db.Exec(`
+		INSERT INTO bot (
+			id, name, parent_session, type, model_name, lora_dir, owner, owner_type
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8
+		)
+	`, bot.ID, bot.Name, bot.ParentSession, bot.Type, bot.ModelName, bot.LoraDir, bot.Owner, bot.OwnerType)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &bot, nil
 }
 
 func (d *PostgresStore) UpdateSession(
@@ -222,6 +341,30 @@ func (d *PostgresStore) UpdateSession(
 
 	// TODO maybe do a SELECT to get the exact session that's in the database
 	return &session, nil
+}
+
+func (d *PostgresStore) UpdateBot(
+	ctx context.Context,
+	bot types.Bot,
+) (*types.Bot, error) {
+	_, err := d.db.Exec(`
+		UPDATE bot SET
+			name = $2,
+			parent_session = $3,
+			type = $4,
+			model_name = $5,
+			lora_dir = $6,
+			owner = $7,
+			owner_type = $8
+		WHERE id = $1
+	`, bot.ID, bot.Name, bot.ParentSession, bot.Type, bot.ModelName, bot.LoraDir, bot.Owner, bot.OwnerType)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO maybe do a SELECT to get the exact session that's in the database
+	return &bot, nil
 }
 
 func (d *PostgresStore) UpdateSessionMeta(

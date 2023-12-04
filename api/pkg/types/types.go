@@ -60,6 +60,7 @@ type Session struct {
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
+	ParentBot     string    `json:"parent_bot"`
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -78,6 +79,20 @@ type Session struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+// a bot can spawn new sessions from it's finetune dir
+type Bot struct {
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	Created       time.Time   `json:"created"`
+	Updated       time.Time   `json:"updated"`
+	Owner         string      `json:"owner"`
+	OwnerType     OwnerType   `json:"owner_type"`
+	ParentSession string      `json:"parent_session"`
+	LoraDir       string      `json:"lora_dir"`
+	Type          SessionType `json:"type"`
+	ModelName     ModelName   `json:"model_name"`
 }
 
 // things we can change about a session that are not interaction related
