@@ -894,6 +894,7 @@ const New: FC = () => {
             }}
           >
             <TextField
+              id="textEntry"
               fullWidth
               inputRef={textFieldRef}
               autoFocus
@@ -912,6 +913,7 @@ const New: FC = () => {
               onKeyDown={handleKeyDown}
             />
             <Button
+              id="sendButton"
               variant='contained'
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
