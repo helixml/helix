@@ -180,6 +180,7 @@ func PostRequest[RequestType any, ResultType any](
 		options,
 		path,
 		bytes.NewBuffer(dataBytes),
+		"application/json",
 	)
 }
 
@@ -187,6 +188,7 @@ func PostRequestBuffer[ResultType any](
 	options ClientOptions,
 	path string,
 	data *bytes.Buffer,
+	contentType string,
 ) (ResultType, error) {
 	var result ResultType
 	client := NewRetryClient()
@@ -197,6 +199,7 @@ func PostRequestBuffer[ResultType any](
 	log.Trace().
 		Str(req.Method, req.URL.String()).
 		Msgf("")
+	req.Header.Add("Content-type", contentType)
 	err = AddAuthHeadersRetryable(req, options.Token)
 	if err != nil {
 		return result, err

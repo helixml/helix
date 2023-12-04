@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useCallback } from 'react'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
@@ -22,6 +22,19 @@ const DeleteConfirmWindow: FC<React.PropsWithChildren<DeleteConfirmWindowProps>>
   onSubmit,
 }) => {
   const [confirmValue, setConfirmValue] = useState('')
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      if(confirmValue == confirmString) {
+        onSubmit()
+      }
+      event.preventDefault()
+    }
+  }, [
+    confirmValue,
+    confirmString,
+    onSubmit,
+  ])
 
   return (
     <Window
@@ -75,6 +88,7 @@ const DeleteConfirmWindow: FC<React.PropsWithChildren<DeleteConfirmWindowProps>>
             value={ confirmValue }
             fullWidth
             onChange={ (e) => setConfirmValue(e.target.value) }
+            onKeyDown={ handleKeyDown }
           />
         </Box>
       </Box>

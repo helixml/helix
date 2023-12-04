@@ -86,7 +86,7 @@ services:
     build:
       context: unstructured
       dockerfile: Dockerfile
-    entrypoint: python3 src/main.py
+    entrypoint: ${UNSTRUCTURED_ENTRYPOINT:-tail -f /dev/null}
     restart: always
     volumes:
       - ./unstructured/src:/home/notebook-user/app/src

@@ -87,6 +87,22 @@ export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/sta
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 
+export type ITextDataPrepStage = '' | 'extract_text' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
+export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
+export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
+export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage = 'generate_questions'
+export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_questions'
+export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
+export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
+
+export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
+  TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
+  TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_FINETUNE,
+  TEXT_DATA_PREP_STAGE_COMPLETE,
+]
+
 export interface IWorkerTaskResponse {
   type: IWorkerTaskResponseType,
   session_id: string,
@@ -96,6 +112,24 @@ export interface IWorkerTaskResponse {
   status?: string,
   files?: string[],
   error?: string,
+}
+
+export interface IDataPrepChunk {
+  index: number,
+  question_count: number,
+  error: string,
+}
+
+export interface IDataPrepStats {
+  total_files: number,
+  total_chunks: number,
+  total_questions: number,
+  converted: number,
+  errors: number,
+}
+
+export interface IDataPrepChunkWithFilename extends IDataPrepChunk {
+  filename: string,
 }
 
 export interface IInteraction {
@@ -115,6 +149,8 @@ export interface IInteraction {
   finished: boolean,
   metadata: Record<string, string>,
   error: string,
+  data_prep_chunks: Record<string, IDataPrepChunk[]>,
+  data_prep_stage: ITextDataPrepStage,
 }
 
 export interface ISession {

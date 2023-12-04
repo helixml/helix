@@ -50,7 +50,7 @@ import {
 } from '../utils/session'
 
 import {
-  getFileExtension,
+  mapFileExtension,
   ISerlializedFile,
   serializeFile,
   deserializeFile,
@@ -217,12 +217,14 @@ const New: FC = () => {
       snackbar.error(`Please enter a valid URL`)
       return
     }
-    let fileTitle = manualURL
+    let useUrl = manualURL.replace(/\/$/i, '')
+    useUrl = decodeURIComponent(useUrl)
+    let fileTitle = useUrl
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
     const file = new File([
       new Blob([manualURL], { type: 'text/html' })
-    ], `${fileTitle}.html`)
+    ], `${fileTitle}.url`)
     setFiles(files.concat(file))
     setManualURL('')
   }, [
@@ -439,6 +441,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Firstly upload some images you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }
@@ -563,6 +566,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Firstly, add URLs, paste some text or upload some files you want your model to learn from:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }
@@ -749,7 +753,7 @@ const New: FC = () => {
                                 color: '#999'
                               }}
                             >
-                              <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(file.name)}`}></span>
+                              <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(file.name)}`}></span>
                               <Caption sx={{ maxWidth: '100%'}}>
                                 {file.name}
                               </Caption>
@@ -798,6 +802,7 @@ const New: FC = () => {
                   }}
                 >
                   <Interaction
+                    session_id=""
                     interaction={ getSystemMessage('Now, add a label to each of your images.  Try to add as much detail as possible to each image:') }
                     type={ SESSION_TYPE_TEXT }
                     mode={ SESSION_MODE_INFERENCE }

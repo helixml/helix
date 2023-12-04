@@ -1,15 +1,17 @@
 import {
   ISession,
   ISessionSummary,
-  ISessionType,
   ISessionMode,
   IInteraction,
+  ITextDataPrepStage,
   IModelInstanceState,
+  IDataPrepChunkWithFilename,
+  IDataPrepStats,
   SESSION_CREATOR_SYSTEM,
-  SESSION_TYPE_IMAGE,
-  SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  TEXT_DATA_PREP_STAGE_NONE,
+  TEXT_DATA_PREP_STAGES,
 } from '../types'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
@@ -43,7 +45,9 @@ export const getSystemMessage = (message: string): IInteraction => {
     message,
     progress: 0,
     files: [],
-    finished: true, 
+    finished: true,
+    data_prep_chunks: {},
+    data_prep_stage: TEXT_DATA_PREP_STAGE_NONE,
   }
 }
 
@@ -135,4 +139,38 @@ export const getSessionSummary = (session: ISession): ISessionSummary => {
     completed: systemInteraction?.completed || '',
     summary,
   }
+}
+
+export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => {
+  return TEXT_DATA_PREP_STAGES.indexOf(stage)
+}
+
+export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
+  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
+    const chunks = interaction.data_prep_chunks[filename]
+    const errors = chunks.filter(chunk => chunk.error != '')
+    if(errors.length <= 0) return acc
+    return acc.concat(errors.map(error => ({ ...error, filename })))
+  }, [])
+}
+
+export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats => {
+  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepStats, filename: string) => {
+    const chunks = interaction.data_prep_chunks[filename] || []
+    const errors = chunks.filter(chunk => chunk.error != '')
+    const questionCount = chunks.reduce((acc: number, chunk) => acc + chunk.question_count, 0)
+    return {
+      total_files: acc.total_files + 1,
+      total_chunks: acc.total_chunks + chunks.length,
+      total_questions: acc.total_questions + questionCount,
+      converted: acc.converted + (chunks.length - errors.length),
+      errors: acc.errors + errors.length,
+    }
+  }, {
+    total_files: 0,
+    total_chunks: 0,
+    total_questions: 0,
+    converted: 0,
+    errors: 0,
+  })
 }

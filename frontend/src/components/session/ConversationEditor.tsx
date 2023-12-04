@@ -138,7 +138,7 @@ export const ConversationEditor: FC<{
       }
       data.push(c)
     })
-    await api.post(`/api/v1/sessions/${session_id}/finetune_conversations`, data, {}, {
+    await api.post(`/api/v1/sessions/${session_id}/finetune/text/conversations`, data, {}, {
       loading: true,
     })
     snackbar.success('Questions saved')
@@ -149,7 +149,7 @@ export const ConversationEditor: FC<{
   useEffect(() => {
     if(!session_id) return
     const doAsync = async () => {
-      const data = await api.get<IConversations[]>(`/api/v1/sessions/${session_id}/finetune_conversations`)
+      const data = await api.get<IConversations[]>(`/api/v1/sessions/${session_id}/finetune/text/conversations`)
       if(!data) return
       let qas: IQuestionAnswer[] = []
       data.forEach(c => {
@@ -216,7 +216,7 @@ export const ConversationEditor: FC<{
                 endIcon={<NavigateNextIcon />}
                 onClick={ submitData }
               >
-                Save Questions
+                Start Training
               </Button>
             ) : (
               <>
@@ -246,7 +246,7 @@ export const ConversationEditor: FC<{
 
       </Box>
            
-      <Box sx={{ height: 600, width: '100%' }}>
+      <Box sx={{ height: editMode ? 600 : 0, width: '100%' }}>
         {
           editMode && (
             <DataGrid2

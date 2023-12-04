@@ -5,8 +5,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lukemarsden/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
+
+// If there is not enough context to generate %d questions, you can generate fewer questions.
+
+// In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
+
+// It's VERY important that you don't include any additional text in your response, otherwise the system will be unable to parse your response.
+
+// ONLY include the JSON array of questions and answers.
 
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
@@ -52,16 +61,34 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 
 %s`, options.QuestionsPerChunk, options.QuestionsPerChunk, chunk)
 	}
-	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]DataPrepTextConversation, error) {
+
+	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {
 		answer = strings.TrimPrefix(answer, "```json")
 		// sometimes GPT4 in it's wisdom puts a message after the enclosing ```json``` block
 		parts := strings.Split(answer, "```")
 		answer = parts[0]
-		var res []DataPrepTextConversation
-		err := json.Unmarshal([]byte(answer), &res)
+		var resRaw []types.DataPrepTextQuestionRaw
+		err := json.Unmarshal([]byte(answer), &resRaw)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing JSON:\n\n%s", answer)
 		}
+
+		res := []types.DataPrepTextQuestion{}
+		for _, q := range resRaw {
+			res = append(res, types.DataPrepTextQuestion{
+				Conversations: []types.DataPrepTextQuestionPart{
+					{
+						From:  "human",
+						Value: q.Question,
+					},
+					{
+						From:  "gpt",
+						Value: q.Answer,
+					},
+				},
+			})
+		}
+
 		return res, nil
 	}
 

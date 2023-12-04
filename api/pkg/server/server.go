@@ -129,12 +129,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions", system.Wrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.Wrapper(apiServer.createSession)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/finetune_conversations", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")
-	// this is like update session but with meta rather than an entire interaction to add
-	authRouter.HandleFunc("/sessions/{id}/meta", system.Wrapper(apiServer.updateSessionMeta)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
+
+	authRouter.HandleFunc("/sessions/{id}/meta", system.Wrapper(apiServer.updateSessionMeta)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.Wrapper(apiServer.retryTextFinetune)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
 
 	adminRouter.HandleFunc("/dashboard", system.Wrapper(apiServer.dashboard)).Methods("GET")
 

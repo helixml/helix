@@ -1,15 +1,23 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useMemo } from 'react'
 import { styled, useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
+import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Link from '@mui/material/Link'
+import Stepper from '@mui/material/Stepper'
+import Step from '@mui/material/Step'
+import StepLabel from '@mui/material/StepLabel'
+import ReplayIcon from '@mui/icons-material/Replay'
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
 import ConversationEditor from './ConversationEditor'
 import LiveInteraction from './LiveInteraction'
+import Row from '../widgets/Row'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -17,6 +25,7 @@ import {
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
+  TEXT_DATA_PREP_STAGE_NONE,
 } from '../../types'
 
 import {
@@ -27,20 +36,29 @@ import {
 } from '../../types'
 
 import {
-  getFileExtension,
+  mapFileExtension,
   isImage,
 } from '../../utils/filestore'
+
+import {
+  getTextDataPrepStageIndex,
+  getTextDataPrepErrors,
+  getTextDataPrepStats,
+} from '../../utils/session'
 
 const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
-  session_id?: string,
+  session_id: string,
   type: ISessionType,
   mode: ISessionMode,
   interaction: IInteraction,
   serverConfig: IServerConfig,
   error?: string,
   isLast?: boolean,
+  retryFinetuneErrors?: {
+    (): void
+  },
 }> = ({
   session_id,
   type,
@@ -49,20 +67,25 @@ export const Interaction: FC<{
   serverConfig,
   error = '',
   isLast = false,
+  retryFinetuneErrors,
 }) => {
-
   const [ viewingError, setViewingError ] = useState(false)
   const theme = useTheme()
   let displayMessage: string = ''
-  let progress = 0
   let imageURLs: string[] = []
   let isLoading = isLast && interaction.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
   
   const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && type == SESSION_TYPE_TEXT
+  const dataPrepStage = interaction.data_prep_stage
 
-  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.files.find(f => f.endsWith('.jsonl')) ? true : false
+  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
+
+  // in this state the last interaction is not yet "finished"
+  if(isEditingConversations) {
+    isLoading = false
+  }
 
   if(isLoading) {
     // we don't display the message here - we render a LiveInteraction which handles the websockets
@@ -86,7 +109,19 @@ export const Interaction: FC<{
       }
     }
   }
-  
+
+  const dataPrepErrors = useMemo(() => {
+    return getTextDataPrepErrors(interaction)
+  }, [
+    interaction,
+  ])
+
+  const dataPrepStats = useMemo(() => {
+    return getTextDataPrepStats(interaction)
+  }, [
+    interaction,
+  ])
+
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
@@ -177,7 +212,7 @@ export const Interaction: FC<{
                               window.open(useURL)
                             }}
                           >
-                            <span className={`fiv-viv fiv-size-md fiv-icon-${getFileExtension(filename)}`}></span>
+                            <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
                             <Typography variant="caption" sx={{
                               textAlign: 'center',
                               color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
@@ -194,9 +229,35 @@ export const Interaction: FC<{
           )
         }
         {
+          dataPrepStage != TEXT_DATA_PREP_STAGE_NONE && (
+            <Box
+              sx={{
+                mt: 4,
+                mb: 4,
+              }}
+            >
+              <Stepper activeStep={getTextDataPrepStageIndex(dataPrepStage)}>
+                <Step>
+                  <StepLabel>Extract Text</StepLabel>
+                </Step>
+                <Step>
+                  <StepLabel>Generate Questions</StepLabel>
+                </Step>
+                <Step>
+                  <StepLabel>Edit Questions</StepLabel>
+                </Step>
+                <Step>
+                  <StepLabel>Fine Tune</StepLabel>
+                </Step>
+              </Stepper>
+            </Box>
+          )
+        }
+        {
           isLoading && (
             <LiveInteraction
               session_id={ session_id }
+              interaction={ interaction }             
             />
           )
         }
@@ -207,13 +268,19 @@ export const Interaction: FC<{
         }
         {
           useErrorText && (
-            <Alert severity="error">The system has encountered an error - <ClickLink onClick={ () => {
-              setViewingError(true)
-            }}>click here</ClickLink> to view the details.</Alert>
+            <Alert severity="error">
+              The system has encountered an error - 
+              <ClickLink onClick={ () => {
+                setViewingError(true)
+              }}>
+                click here
+              </ClickLink>
+              to view the details.
+            </Alert>
           ) 
         }
         {
-          isEditingConversations && session_id && (
+          isEditingConversations && session_id && dataPrepErrors.length == 0 && (
             <Box
               sx={{
                 mt: 2,
@@ -225,7 +292,76 @@ export const Interaction: FC<{
             </Box>
           )
         }
-        
+        {
+          isEditingConversations && session_id && dataPrepErrors.length > 0 && (
+            <Box
+              sx={{
+                mt: 2,
+              }}
+            >
+              <Alert
+                severity="success"
+                sx={{
+                  mb: 2,
+                }}
+              >
+                From <strong>{ dataPrepStats.total_files }</strong> file{ dataPrepStats.total_files == 1 ? '' : 's' } we created <strong>{ dataPrepStats.total_chunks }</strong> text chunk{ dataPrepStats.total_chunks == 1 ? '' : 's' } and converted <strong>{ dataPrepStats.converted }</strong> of those into <strong>{ dataPrepStats.total_questions }</strong> questions.
+              </Alert>
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 2,
+                }}
+              >
+                However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
+              </Alert>
+              <Row>
+                {
+                  retryFinetuneErrors && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      sx={{
+                        mr: 1,
+                      }}
+                      endIcon={<ReplayIcon />}
+                      onClick={ retryFinetuneErrors }
+                    >
+                      Retry
+                    </Button>
+                  )
+                }
+                
+                <Button
+                  variant="contained"
+                  color="primary"
+                  sx={{
+                    mr: 1,
+                  }}
+                  endIcon={<VisibilityIcon />}
+                  onClick={ () => {
+                    alert('coming soon')
+                  }}
+                >
+                  View Errors
+                </Button>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  sx={{
+                    mr: 1,
+                  }}
+                  endIcon={<ArrowForwardIcon />}
+                  onClick={ () => {
+                    window.location.href = `/session/${session_id}/edit`
+                  }}
+                >
+                  Ignore Errors
+                </Button>
+              </Row>
+            </Box>
+          )
+        }
         {
           imageURLs.map((imageURL: string) => {
             const useURL = `${serverConfig.filestore_prefix}/${imageURL}`

@@ -2,15 +2,20 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	stdlog "log"
 	"mime/multipart"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -90,4 +95,197 @@ func newRetryClient() *retryablehttp.Client {
 		}
 	}
 	return retryClient
+}
+
+func injectFileToList(fileList []string, existingFile string, addFile string) []string {
+	ret := []string{}
+	for _, file := range fileList {
+		ret = append(ret, file)
+		if file == existingFile {
+			ret = append(ret, addFile)
+		}
+	}
+	return ret
+}
+
+func copyFileList(fileList []string) []string {
+	ret := []string{}
+	for _, file := range fileList {
+		ret = append(ret, file)
+	}
+	return ret
+}
+
+func getQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+) *types.DataPrepChunk {
+	chunks, ok := interaction.DataPrepChunks[path.Base(filename)]
+	if !ok {
+		return nil
+	}
+	for _, chunk := range chunks {
+		if chunk.Index == chunkIndex {
+			return &chunk
+		}
+	}
+	return nil
+}
+
+func hasProcessedQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+) bool {
+	chunk := getQAChunk(interaction, path.Base(filename), chunkIndex)
+	if chunk == nil {
+		return false
+	}
+	return chunk.Error == ""
+}
+
+func updateProcessedQAChunk(
+	interaction *types.Interaction,
+	filename string,
+	chunkIndex int,
+	questionCount int,
+	err error,
+) *types.Interaction {
+	useFilename := path.Base(filename)
+	if hasProcessedQAChunk(interaction, useFilename, chunkIndex) {
+		return interaction
+	}
+	allChunks := interaction.DataPrepChunks
+	chunks, ok := allChunks[useFilename]
+	if !ok {
+		chunks = []types.DataPrepChunk{}
+	}
+
+	chunkExists := false
+	var chunk *types.DataPrepChunk
+
+	for _, existingChunk := range chunks {
+		if existingChunk.Index == chunkIndex {
+			chunkExists = true
+			chunk = &existingChunk
+		}
+	}
+
+	if chunk == nil {
+		chunk = &types.DataPrepChunk{
+			Index:         chunkIndex,
+			QuestionCount: questionCount,
+		}
+	}
+
+	if err != nil {
+		chunk.Error = err.Error()
+	} else {
+		chunk.Error = ""
+	}
+
+	if !chunkExists {
+		chunks = append(chunks, *chunk)
+	} else {
+		newChunks := []types.DataPrepChunk{}
+		for _, existingChunk := range chunks {
+			if existingChunk.Index == chunkIndex {
+				newChunks = append(newChunks, *chunk)
+			} else {
+				newChunks = append(newChunks, existingChunk)
+			}
+		}
+		chunks = newChunks
+	}
+
+	allChunks[useFilename] = chunks
+	interaction.DataPrepChunks = allChunks
+	return interaction
+}
+
+func getFileContent(
+	ctx context.Context,
+	fs filestore.FileStore,
+	path string,
+) (string, error) {
+	// load the actual file contents
+	reader, err := fs.Download(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, reader)
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// for text based fine tuning - once we've converted text into questions
+// we need to append to the jsonl file with the new questions
+// this is NOT atomic and should be run in some kind of mutex
+// to prevent a race between writers loosing data
+func appendQuestionsToFile(
+	ctx context.Context,
+	fs filestore.FileStore,
+	path string,
+	questions []types.DataPrepTextQuestion,
+) error {
+	jsonLines := []string{}
+	for _, question := range questions {
+		jsonLine, err := json.Marshal(question)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+	existingContent, err := getFileContent(ctx, fs, path)
+	if err != nil {
+		return err
+	}
+	newContent := fmt.Sprintf("%s\n%s", existingContent, strings.Join(jsonLines, "\n"))
+	_, err = fs.Upload(ctx, path, strings.NewReader(newContent))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// for the moment, we append question pairs to the same file
+// eventually we will append questions to a JSONL file per source file
+func getQuestionsFilename(sourceFilename string) string {
+	return path.Join(path.Dir(sourceFilename), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+	// return fmt.Sprintf("%s%s", sourceFilename, types.TEXT_DATA_PREP_QUESTIONS_FILE_SUFFIX)
+}
+
+// do we have a JSONL file already or do we need to create it?
+func hasQuestionsFile(interaction *types.Interaction, sourceFilename string) bool {
+	for _, file := range interaction.Files {
+		if file == getQuestionsFilename(sourceFilename) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateSessionInteractions(session *types.Session, interactions []types.Interaction) *types.Session {
+	newInteractions := []types.Interaction{}
+	newInteractionMap := map[string]types.Interaction{}
+	for _, interaction := range interactions {
+		newInteractionMap[interaction.ID] = interaction
+	}
+	for _, existingInteraction := range session.Interactions {
+		newInteraction, ok := newInteractionMap[existingInteraction.ID]
+		if ok {
+			newInteractions = append(newInteractions, newInteraction)
+		} else {
+			newInteractions = append(newInteractions, existingInteraction)
+		}
+	}
+
+	session.Interactions = newInteractions
+	session.Updated = time.Now()
+
+	return session
 }

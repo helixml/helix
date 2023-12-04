@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -15,11 +18,10 @@ import (
 type DataOpenAIGPT struct {
 	Options           DataPrepTextOptions
 	client            *openai.Client
-	docs              *dataPrepDocuments
 	model             string
 	getSystemPromptFn func(chunk string, options DataPrepTextOptions) string
 	getUserPromptFn   func(chunk string, options DataPrepTextOptions) string
-	parseResponseFn   func(answer string, options DataPrepTextOptions) ([]DataPrepTextConversation, error)
+	parseResponseFn   func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error)
 }
 
 func NewDataOpenAIGPT(
@@ -27,12 +29,11 @@ func NewDataOpenAIGPT(
 	model string,
 	getSystemPromptFn func(chunk string, options DataPrepTextOptions) string,
 	getUserPromptFn func(chunk string, options DataPrepTextOptions) string,
-	parseResponseFn func(answer string, options DataPrepTextOptions) ([]DataPrepTextConversation, error),
+	parseResponseFn func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error),
 ) (*DataOpenAIGPT, error) {
 	return &DataOpenAIGPT{
 		Options:           options,
 		client:            openai.NewClient(options.APIKey),
-		docs:              newDataPrepDocuments(),
 		model:             model,
 		getUserPromptFn:   getUserPromptFn,
 		getSystemPromptFn: getSystemPromptFn,
@@ -40,15 +41,16 @@ func NewDataOpenAIGPT(
 	}, nil
 }
 
-func (gpt *DataOpenAIGPT) AddDocument(content string) error {
-	return gpt.docs.AddDocument(content)
+func (gpt *DataOpenAIGPT) GetConcurrency() int {
+	return 5
 }
 
-func (gpt *DataOpenAIGPT) GetChunks() ([]string, error) {
-	return gpt.docs.GetChunks(gpt.Options.ChunkSize, gpt.Options.OverflowSize)
-}
+func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
+	// use the data prep module to convert raw text into QA pairs
 
-func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation, error) {
+	// a rough rate limiter
+	time.Sleep(2 * time.Second * time.Duration(index%gpt.Options.Concurrency))
+
 	systemPrompt := gpt.getSystemPromptFn(chunk, gpt.Options)
 	userPrompt := gpt.getUserPromptFn(chunk, gpt.Options)
 
@@ -74,7 +76,7 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 		Temperature: gpt.Options.Temperature,
 	}
 
-	log.Debug().
+	log.Trace().
 		Msgf("🔴🔴🔴 GPT Question: %+v", postData)
 
 	dataBytes, err := json.Marshal(postData)
@@ -93,27 +95,34 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 	}
 
 	client := system.NewRetryClient()
+	client.RequestLogHook = func(logger retryablehttp.Logger, req *http.Request, retry int) {
+		log.Error().Msgf("Retrying request: %s (retry #%d)", req.URL, retry)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Error().Msgf("GPT running request: %s", err.Error())
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Error().Msgf("GPT reading body: %s", err.Error())
 		return nil, err
 	}
 
-	log.Debug().
+	log.Trace().
 		Msgf("🔴🔴🔴 GPT Answer (%d): %+v", resp.StatusCode, string(body))
 
 	if resp.StatusCode >= 400 {
+		log.Error().Msgf("GPT bad status code: %d", resp.StatusCode)
 		return nil, fmt.Errorf(string(body))
 	}
 
 	var openAIResponse openai.ChatCompletionResponse
 	err = json.Unmarshal(body, &openAIResponse)
 	if err != nil {
+		log.Error().Msgf("GPT Error parsing JSON: %s", err.Error())
 		return nil, fmt.Errorf("error parsing JSON: %s", err.Error())
 	}
 
@@ -126,4 +135,4 @@ func (gpt *DataOpenAIGPT) ConvertChunk(chunk string) ([]DataPrepTextConversation
 }
 
 // Compile-time interface check:
-var _ DataPrepText = (*DataOpenAIGPT)(nil)
+var _ DataPrepTextQuestionGenerator = (*DataOpenAIGPT)(nil)

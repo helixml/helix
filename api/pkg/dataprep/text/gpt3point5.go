@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/lukemarsden/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -44,8 +45,8 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 %s`, options.QuestionsPerChunk, chunk)
 	}
 
-	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]DataPrepTextConversation, error) {
-		var res []DataPrepTextConversation
+	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {
+		var res []types.DataPrepTextQuestion
 		err := json.Unmarshal([]byte(answer), &res)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing JSON:\n\n%s", answer)

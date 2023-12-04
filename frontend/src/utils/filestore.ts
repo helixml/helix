@@ -26,10 +26,29 @@ export const FILE_EXT_MAP: Record<string, string> = {
   'jsonl': 'json',
 }
 
-export const getFileExtension = (filename: string) => {
-  const parts = filename.split('.')
+export const mapFileExtension = (filename: string) => {
+  const hasURL = filename.match(/\.url$/i)
+  const useFilename = filename.replace(/\.url$/i, '')
+  const folders = useFilename.split('/')
+  const folder = folders[folders.length - 1]
+  if(!folder) return ''
+  const parts = folder.split('.')
+  if(parts.length == 1 && hasURL) {
+    return 'html'
+  }
   const ext = parts[parts.length - 1]
   return FILE_EXT_MAP[ext] || ext
+}
+
+export const getURLFileExtension = (url: string): string => {
+  // Regular expression to match file extension
+  const regex = /(?:\.([^.]+))?$/;
+  
+  // Extract the extension using the regex
+  const matches = regex.exec(url);
+
+  // Check if an extension is found, otherwise default to 'html'
+  return matches && matches[1] ? matches[1] : 'html';
 }
 
 export const isImage = (filename: string) => {
