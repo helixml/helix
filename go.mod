@@ -5,7 +5,6 @@ go 1.20
 require (
 	cloud.google.com/go/storage v1.33.0
 	github.com/Nerzal/gocloak/v13 v13.8.0
-	github.com/bacalhau-project/golang-mutex-tracer v0.0.0-20230214151516-bb996d6e8b46
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/google/uuid v1.3.1
@@ -21,16 +20,8 @@ require (
 )
 
 require (
-	github.com/davecgh/go-spew v1.1.1
+	github.com/dustin/go-humanize v1.0.1
 	github.com/sashabaranov/go-openai v1.17.3
-	jaytaylor.com/html2text v0.0.0-20230321000545-74c2419ad056
-)
-
-require (
-	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.9 // indirect
-	github.com/olekukonko/tablewriter v0.0.5 // indirect
-	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
 )
 
 require (
