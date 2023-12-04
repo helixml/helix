@@ -151,6 +151,7 @@ const Window: FC<WindowProps> = ({
                         marginLeft: 2,
                       }}
                       type="button"
+                      id="submitButton"
                       variant="contained"
                       color="primary"
                       disabled={ disabled || loading ? true : false }
