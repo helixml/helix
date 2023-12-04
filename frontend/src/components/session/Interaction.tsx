@@ -59,6 +59,9 @@ export const Interaction: FC<{
   retryFinetuneErrors?: {
     (): void
   },
+  onMessageChange?: {
+    (message: string): void,
+  },
 }> = ({
   session_id,
   type,
@@ -68,6 +71,7 @@ export const Interaction: FC<{
   error = '',
   isLast = false,
   retryFinetuneErrors,
+  onMessageChange,
 }) => {
   const [ viewingError, setViewingError ] = useState(false)
   const theme = useTheme()
@@ -257,7 +261,8 @@ export const Interaction: FC<{
           isLoading && (
             <LiveInteraction
               session_id={ session_id }
-              interaction={ interaction }             
+              interaction={ interaction }
+              onMessageChange={ onMessageChange }
             />
           )
         }
