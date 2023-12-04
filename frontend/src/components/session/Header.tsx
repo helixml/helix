@@ -24,7 +24,6 @@ export const SessionHeader: FC<{
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        mb: 2,
       }}
     >
       <Typography
