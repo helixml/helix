@@ -15,7 +15,10 @@ export const SessionHeader: FC<{
 }> = ({
   session,
 }) => {
-  const {navigate} = useRouter()
+  const {
+    navigate,
+    setParams,
+  } = useRouter()
 
   return (
     <Box
@@ -35,24 +38,25 @@ export const SessionHeader: FC<{
       >
         {session?.name}
       </Typography>
-      <Typography
-        sx={{
-          fontSize: "small",
-          color: "gray",
-          flexGrow: 0,
+      <Link
+        href="/files?path=%2Fsessions"
+        onClick={(e) => {
+          e.preventDefault()
+          navigate('files', {
+            path: `/sessions/${session?.id}`
+          })
         }}
       >
-        <Link href="/files?path=%2Fsessions"
-          onClick={(e) => {
-            e.preventDefault()
-            navigate('files', {
-              path: `/sessions/${session?.id}`
-            })
+        <Typography
+          sx={{
+            fontSize: "small",
+            flexGrow: 0,
+            textDecoration: 'underline',
           }}
         >
           View Files
-        </Link>
-      </Typography>
+        </Typography>
+      </Link>
       <Typography
         sx={{
           fontSize: "small",
@@ -77,6 +81,42 @@ export const SessionHeader: FC<{
           Info
         </Typography>
       </JsonWindowLink>
+      {
+        session.lora_dir && (
+          <>
+            <Typography
+              sx={{
+                fontSize: "small",
+                color: "gray",
+                flexGrow: 0,
+                pl: 1,
+                pr: 1,
+              }}
+            >
+              |
+            </Typography>
+            <Link
+              href="/create_bot"
+              onClick={(e) => {
+                e.preventDefault()
+                setParams({
+                  editBot: 'yes',
+                })
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: "small",
+                  flexGrow: 0,
+                  textDecoration: 'underline',
+                }}
+              >
+                Publish Bot
+              </Typography>
+            </Link>
+          </>
+        )
+      }
     </Box>
   )
 }

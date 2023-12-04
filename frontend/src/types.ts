@@ -166,6 +166,20 @@ export interface ISession {
   interactions: IInteraction[],
   owner: string,
   owner_type: IOwnerType,
+  parent_bot: string,
+}
+
+export interface IBot {
+  id: string,
+  name: string,
+  created: string,
+  updated: string,
+  owner: string,
+  owner_type: IOwnerType,
+  parent_session: string,
+  lora_dir: string,
+  type: ISessionType,
+  model_name: string,
 }
 
 export interface IWebsocketEvent {

@@ -7,6 +7,7 @@ import Box from '@mui/material/Box'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
+import CreateBotWindow from '../components/session/CreateBotWindow'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -239,6 +240,18 @@ const Session: FC = () => {
         </Container>
         
       </Box>
+
+      {
+        router.params.editBot && (
+          <CreateBotWindow
+            bot={ session.bot }
+            onSubmit={ () => {} }
+            onCancel={ () => {
+              router.removeParams(['editBot'])
+            }}
+          />
+        )
+      }
 
     </Box>
   )
