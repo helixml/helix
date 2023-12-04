@@ -80,6 +80,15 @@ const Session: FC = () => {
     }
   }
 
+  const scrollToBottom = () => {
+    const divElement = divRef.current
+    if(!divElement) return
+    divElement.scrollTo({
+      top: divElement.scrollHeight - divElement.clientHeight,
+      behavior: "smooth"
+    })
+  }
+
   useEffect(() => {
     if(loading) return
     textFieldRef.current?.focus()
@@ -95,12 +104,7 @@ const Session: FC = () => {
 
   useEffect(() => {
     if(!session) return
-    const divElement = divRef.current
-    if(!divElement) return
-    divElement.scrollTo({
-      top: divElement.scrollHeight - divElement.clientHeight,
-      behavior: "smooth"
-    })
+    scrollToBottom()
   }, [
     session,
   ])
@@ -119,6 +123,7 @@ const Session: FC = () => {
       }}
     >
       <Box
+        id="helix-session-scroller"
         ref={ divRef }
         sx={{
           width: '100%',
@@ -149,6 +154,7 @@ const Session: FC = () => {
                         serverConfig={ account.serverConfig }
                         isLast={ i === interactionsLength - 1 }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        onMessageChange={ scrollToBottom }
                       />
                     )   
                   })
