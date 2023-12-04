@@ -123,6 +123,23 @@ const Session: FC = () => {
       }}
     >
       <Box
+        sx={{
+          width: '100%',
+          flexGrow: 0,
+          p: 2,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Container maxWidth="lg">
+          <SessionHeader
+            session={ session.data }
+          />
+        </Container>
+      </Box>
+      <Box
         id="helix-session-scroller"
         ref={ divRef }
         sx={{
@@ -136,9 +153,7 @@ const Session: FC = () => {
           {
             session.data && (
               <>
-                <SessionHeader
-                  session={ session.data }
-                />
+                
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
