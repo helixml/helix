@@ -365,6 +365,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			session.Mode = types.SessionModeInference
 			session.LoraDir = taskResponse.LoraDir
 			targetInteraction.LoraDir = taskResponse.LoraDir
+			targetInteraction.DataPrepStage = types.TextDataPrepStageComplete
 		}
 
 		return targetInteraction, nil
