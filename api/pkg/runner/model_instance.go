@@ -157,6 +157,7 @@ func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *t
 
 	task, err := instance.model.GetTask(session)
 	if err != nil {
+		log.Error().Msgf("error getting task: %s", err.Error())
 		return nil, err
 	}
 	task.SessionID = session.ID
