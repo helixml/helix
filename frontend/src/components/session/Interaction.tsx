@@ -247,6 +247,9 @@ export const Interaction: FC<{
                 <Step>
                   <StepLabel>Edit Questions</StepLabel>
                 </Step>
+                <Step>
+                  <StepLabel>Fine Tune</StepLabel>
+                </Step>
               </Stepper>
             </Box>
           )

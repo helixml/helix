@@ -26,6 +26,9 @@ export const useLiveInteraction = ({
       if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_STREAM && workerResponse.message) {
         setMessage(m => m + workerResponse.message)
       } else if(workerResponse.type == WORKER_TASK_RESPONSE_TYPE_PROGRESS) {
+        if(workerResponse.message) {
+          setMessage(workerResponse.message)
+        }
         if(workerResponse.progress) {
           setProgress(workerResponse.progress)
         }
