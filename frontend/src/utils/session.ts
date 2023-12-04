@@ -146,7 +146,7 @@ export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => 
 }
 
 export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
-  return Object.keys(interaction.data_prep_chunks).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
+  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
     const chunks = interaction.data_prep_chunks[filename]
     const errors = chunks.filter(chunk => chunk.error != '')
     if(errors.length <= 0) return acc
@@ -155,7 +155,7 @@ export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunk
 }
 
 export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats => {
-  return Object.keys(interaction.data_prep_chunks).reduce((acc: IDataPrepStats, filename: string) => {
+  return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepStats, filename: string) => {
     const chunks = interaction.data_prep_chunks[filename] || []
     const errors = chunks.filter(chunk => chunk.error != '')
     const questionCount = chunks.reduce((acc: number, chunk) => acc + chunk.question_count, 0)
