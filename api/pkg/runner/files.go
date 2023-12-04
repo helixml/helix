@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dustin/go-humanize"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -24,15 +25,18 @@ import (
 type FileHandler struct {
 	runnerID          string
 	httpClientOptions system.ClientOptions
+	eventHandler      func(res *types.RunnerTaskResponse)
 }
 
 func NewFileHandler(
 	runnerID string,
 	clientOptions system.ClientOptions,
+	eventHandler func(res *types.RunnerTaskResponse),
 ) *FileHandler {
 	return &FileHandler{
 		runnerID:          runnerID,
 		httpClientOptions: clientOptions,
+		eventHandler:      eventHandler,
 	}
 }
 
@@ -55,6 +59,10 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 		}
 		res.LoraDir = uploadedLoraDir
 	}
+
+	log.Info().
+		Msgf("🟢 worker response uploaded: %+v", res)
+
 	return res, nil
 }
 
@@ -323,19 +331,34 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 	return mappedFiles, nil
 }
 
-func (handler *FileHandler) uploadFolder(sessionID string, localPath string, remoteFolder string) (string, error) {
-	// create a new multipart form
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+type ProgressReader struct {
+	reader         io.Reader
+	totalSize      uint64
+	bytesRead      uint64
+	percent        int
+	emitPercentage func(int, uint64)
+}
 
+func (pr *ProgressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	pr.bytesRead += uint64(n)
+	percent := int(float64(pr.bytesRead) / float64(pr.totalSize) * 100)
+	if percent != pr.percent {
+		pr.percent = percent
+		pr.emitPercentage(percent, pr.bytesRead)
+	}
+	return n, err
+}
+
+func (handler *FileHandler) uploadFolder(sessionID string, localPath string, remoteFolder string) (string, error) {
 	log.Debug().Msgf("🟠 Uploading task folder %s %+v", sessionID, localPath)
 
-	fileInfo, err := os.Stat(localPath)
+	dirInfo, err := os.Stat(localPath)
 	if err != nil {
 		return "", err
 	}
 
-	if !fileInfo.IsDir() {
+	if !dirInfo.IsDir() {
 		return "", fmt.Errorf("not a directory: %s", localPath)
 	}
 
@@ -351,22 +374,34 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 	}
 	defer file.Close()
 
-	// create a new form field for the file
-	part, err := writer.CreateFormFile("files", tarFilePath)
+	// Get the file size for progress calculation
+	fileInfo, err := file.Stat()
 	if err != nil {
 		return "", err
 	}
 
-	// copy the file contents into the form field
-	_, err = io.Copy(part, file)
-	if err != nil {
-		return "", err
-	}
+	handler.eventHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeProgress,
+		SessionID: sessionID,
+		Progress:  1,
+		Message:   "uploading fine tuned files...",
+	})
 
-	// close the multipart form
-	err = writer.Close()
-	if err != nil {
-		return "", err
+	totalSize := uint64(fileInfo.Size())
+
+	progressReader := &ProgressReader{
+		reader:    file,
+		totalSize: totalSize,
+		bytesRead: 0,
+		percent:   0,
+		emitPercentage: func(percent int, bytesRead uint64) {
+			handler.eventHandler(&types.RunnerTaskResponse{
+				Type:      types.WorkerTaskResponseTypeProgress,
+				SessionID: sessionID,
+				Progress:  percent,
+				Status:    fmt.Sprintf("uploaded %s of %s", humanize.Bytes(bytesRead), humanize.Bytes(totalSize)),
+			})
+		},
 	}
 
 	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/upload/folder", handler.runnerID, sessionID)))
@@ -374,14 +409,12 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 	urlValues.Add("path", remoteFolder)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
 
-	log.Debug().Msgf("🟠 upload files %s", fullURL)
+	log.Debug().Msgf("🟠 upload task folder %s", fullURL)
 
-	// create a new POST request with the multipart form as the body
-	req, err := http.NewRequest("POST", fullURL, body)
+	req, err := http.NewRequest("POST", fullURL, progressReader)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	// send the request
