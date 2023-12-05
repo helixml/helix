@@ -153,7 +153,7 @@ export const Interaction: FC<{
               { useName.charAt(0).toUpperCase() + useName.slice(1) }
             </Typography>
           </Cell>
-          {
+          {/* {
             interaction.creator == SESSION_CREATOR_SYSTEM && onClone && (
               <Cell>
                 <Link
@@ -175,7 +175,7 @@ export const Interaction: FC<{
                 </Link>
               </Cell>
             )
-          }
+          } */}
         </Row>
         {
           isImageFinetune && interaction.files && interaction.files.length > 0 && (

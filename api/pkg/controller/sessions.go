@@ -249,7 +249,6 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	c.WriteSession(session)
 }
 
-// once we've edited the JSONL file - we trigger the fine tuning by adding more interactions
 func (c *Controller) BeginTextFineTune(session *types.Session) error {
 	systemInteraction, err := model.GetSystemInteraction(session)
 	if err != nil {

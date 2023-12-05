@@ -2,7 +2,6 @@
 
  
  - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
- - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
  - [ ] retry button for errors
  - [ ] render markdown
  - [ ] plugin sentry
@@ -86,5 +85,9 @@
  - [ ] we should keep previous Lora files at the interaction level
  - [ ] we hoist lora_dir from the latest interaction to the session
  - [ ] /bot/XXX page that will spawn new session
+ - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
+ - [ ] share as well as create bot
+   - [ ] readonly view
+   - [ ] ready to spawn own chat from that place
  
  
