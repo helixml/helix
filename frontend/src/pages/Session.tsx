@@ -4,23 +4,32 @@ import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
 import CreateBotWindow from '../components/session/CreateBotWindow'
+import TextFineTuneInputs from '../components/session/TextFineTuneInputs'
+import ImageFineTuneInputs from '../components/session/ImageFineTuneInputs'
+import ImageFineTuneLabels from '../components/session/ImageFineTuneLabels'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
+import UploadingOverlay from '../components/widgets/UploadingOverlay'
+
+import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useWebsocket from '../hooks/useWebsocket'
+import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
 import {
   ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
@@ -32,13 +41,19 @@ import {
 } from '../utils/session'
 
 const Session: FC = () => {
+  const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
   const session = useSession()
 
+  const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
+  const isImage = session.data?.type === SESSION_TYPE_IMAGE
+  const isText = session.data?.type === SESSION_TYPE_TEXT
+
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
+  const inputs = useFinetuneInputs()
 
   const divRef = useRef<HTMLDivElement>()
 
@@ -48,6 +63,19 @@ const Session: FC = () => {
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
+
+  const addDocumentsSubmitTitle = useMemo(() => {
+    if(isFinetune && isImage && inputs.fineTuneStep == 0) {
+      return "Next Step"
+    } else {
+      return "Upload"
+    }
+  }, [
+    isFinetune,
+    isImage,
+    inputs.fineTuneStep,
+  ])
+
 
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
@@ -122,6 +150,44 @@ const Session: FC = () => {
     })
   }, [])
 
+
+  // this is for text finetune
+  const onAddDocuments = async () => {
+    if(!session.data) return
+
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+
+    try {
+      const formData = inputs.getFormData(session.data.mode, session.data.type)
+      await api.put(`/api/v1/sessions/${sessionID}/documents`, formData, {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+      if(!session) {
+        inputs.setUploadProgress(undefined)
+        return
+      }
+      session.reload()
+    } catch(e: any) {}
+
+    inputs.setUploadProgress(undefined)
+  }
+
+  // this is for image finetune
+  const onAddImageDocuments = async () => {
+    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
+    if(errorFiles.length > 0) {
+      inputs.setShowImageLabelErrors(true)
+      snackbar.error('Please add a label to each image')
+      return
+    }
+    inputs.setShowImageLabelErrors(false)
+    onAddDocuments()
+  }
+
   useEffect(() => {
     if(loading) return
     textFieldRef.current?.focus()
@@ -153,7 +219,6 @@ const Session: FC = () => {
   ])
 
   useWebsocket(sessionID, (parsedData) => {
-    console.log(parsedData)
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
       session.setData(newSession)
@@ -205,7 +270,6 @@ const Session: FC = () => {
           {
             session.data && (
               <>
-                
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
@@ -284,7 +348,7 @@ const Session: FC = () => {
               hasFinishedFinetune(session.data) && (
                 <Cell>
                   <Button
-                    variant='contained'
+                    variant='outlined'
                     disabled={ loading }
                     onClick={ () => {
                       router.setParams({
@@ -293,7 +357,7 @@ const Session: FC = () => {
                     }}
                     sx={{ ml: 2 }}
                   >
-                    Add Documents
+                    Add More Training { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
                   </Button>
                 </Cell>
               )
@@ -349,44 +413,70 @@ const Session: FC = () => {
       }
 
       {
-        router.params.addDocuments && (
+        router.params.addDocuments && session.data && (
           <Window
             open
-            size="sm"
+            size="lg"
             title={`Add Documents to ${session.data.name}?`}
             withCancel
-            submitTitle="Upload"
+            submitTitle={ addDocumentsSubmitTitle }
             onSubmit={ () => {
-              
+              if(isFinetune && isImage && inputs.fineTuneStep == 0) {
+                inputs.setFineTuneStep(1)
+              } else if(isFinetune && isText && inputs.fineTuneStep == 0) {
+                onAddDocuments()
+              } else if(isFinetune && isImage && inputs.fineTuneStep == 1) {
+                onAddImageDocuments()
+              }
             } }
             onCancel={ () => {
               router.removeParams(['addDocuments'])
+              inputs.reset()
             }}
           >
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                width: '100%',
-              }}
-            >
-              <Box
-                sx={{
-                  width: '100%',
-                  padding:1,
-                }}
-              >
-                <Typography gutterBottom>
-                  Are you sure you want to clone {session.data.name} from this point in time?
-                </Typography>
-                <Typography variant="caption" gutterBottom>
-                  This will create a new session.
-                </Typography>
-              </Box>
-            </Box>
+            {
+              isFinetune && isImage && inputs.fineTuneStep == 0 && (
+                <ImageFineTuneInputs
+                  initialFiles={ inputs.files }
+                  onChange={ (files) => {
+                    inputs.setFiles(files)
+                  }}
+                />
+              )
+            }
+            {
+              isFinetune && isText && inputs.fineTuneStep == 0 && (
+                <TextFineTuneInputs
+                  initialCounter={ inputs.manualTextFileCounter }
+                  initialFiles={ inputs.files }
+                  onChange={ (counter, files) => {
+                    inputs.setManualTextFileCounter(counter)
+                    inputs.setFiles(files)
+                  }}
+                />
+              )
+            }
+            {
+              isFinetune && isImage && inputs.fineTuneStep == 1 && (
+                <ImageFineTuneLabels
+                  showImageLabelErrors={ inputs.showImageLabelErrors }
+                  initialLabels={ inputs.labels }
+                  files={ inputs.files }
+                  onChange={ (labels) => {
+                    inputs.setLabels(labels)
+                  }}
+                />
+              )
+            }
           </Window>
+        )
+      }
+
+      {
+        inputs.uploadProgress && (
+          <UploadingOverlay
+            percent={ inputs.uploadProgress.percent }
+          />
         )
       }
 

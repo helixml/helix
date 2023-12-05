@@ -121,7 +121,7 @@ export const Interaction: FC<{
     }
   }
 
-  const useSystemName = mode == SESSION_MODE_INFERENCE ? session_name : 'System'
+  const useSystemName = (mode == SESSION_MODE_INFERENCE ? session_name : 'System') || 'System'
   const useName = interaction.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction.creator
 
   const dataPrepErrors = useMemo(() => {
@@ -277,7 +277,7 @@ export const Interaction: FC<{
           )
         }
         {
-          dataPrepStage != TEXT_DATA_PREP_STAGE_NONE && (
+          type == SESSION_TYPE_TEXT && dataPrepStage != TEXT_DATA_PREP_STAGE_NONE && (
             <Box
               sx={{
                 mt: 4,

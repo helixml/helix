@@ -36,15 +36,17 @@ import {
 export const TextFineTuneInputs: FC<{
   initialCounter?: number,
   initialFiles?: File[],
+  showButton?: boolean,
   onChange?: {
     (counter: number, files: File[]): void
   },
-  onDone: {
+  onDone?: {
     (): void
   },
 }> = ({
   initialCounter,
   initialFiles,
+  showButton = false,
   onChange,
   onDone,
 }) => {
@@ -124,7 +126,7 @@ export const TextFineTuneInputs: FC<{
         <Interaction
           session_id=""
           session_name=""
-          interaction={ getSystemMessage('Firstly, add URLs, paste some text or upload some files you want your model to learn from:') }
+          interaction={ getSystemMessage('Add URLs, paste some text or upload some files you want your model to learn from:') }
           type={ SESSION_TYPE_TEXT }
           mode={ SESSION_MODE_INFERENCE }
           serverConfig={ account.serverConfig }
@@ -242,7 +244,7 @@ export const TextFineTuneInputs: FC<{
           >
             <Box
               sx={{
-                border: '1px solid #555',
+                border: '1px solid #797F88',
                 borderRadius: '4px',
                 p: 2,
                 display: 'flex',
@@ -326,7 +328,7 @@ export const TextFineTuneInputs: FC<{
         </Grid>
       </Box>
       {
-        files.length > 0 && (
+        files.length > 0 && showButton && onDone && (
           <Button
             sx={{
               width: '100%',
