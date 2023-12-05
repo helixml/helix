@@ -298,3 +298,38 @@ export interface ISessionMetaUpdate {
   owner?: string,
   owner_type?: string,
 }
+
+
+export interface ISerlializedFile {
+  filename: string
+  content: string
+  mimeType: string
+}
+
+export interface ISerializedPage {
+  files: ISerlializedFile[],
+  labels: Record<string, string>,
+  fineTuneStep: number,
+  manualTextFileCounter: number,
+  inputValue: string,
+}
+
+
+export type IButtonStateColor = 'primary' | 'secondary'
+export interface IButtonStates {
+  addTextColor: IButtonStateColor,
+  addTextLabel: string,
+  addUrlColor: IButtonStateColor,
+  addUrlLabel: string,
+  uploadFilesColor: IButtonStateColor,
+  uploadFilesLabel: string,
+}
+
+export const buttonStates: IButtonStates = {
+  addUrlColor: 'primary',
+  addUrlLabel: 'Add URL',
+  addTextColor: 'primary',
+  addTextLabel: 'Add Text',
+  uploadFilesColor: 'primary',
+  uploadFilesLabel: 'Or Choose Files',
+}
