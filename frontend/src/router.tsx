@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
+import SessionTitle from './components/session/SessionTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -16,6 +17,7 @@ import Files from './pages/Files'
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
+  getTitle?: () => JSX.Element,
   getToolbarElement?: () => JSX.Element,
   meta: Record<string, any>,
 }
@@ -57,6 +59,11 @@ const routes: IApplicationRoute[] = [{
   meta: {
     title: 'Session',
     sidebar: true,
+  },
+  getTitle: () => {
+    return (
+      <SessionTitle />
+    )
   },
   render: () => (
       <Session />

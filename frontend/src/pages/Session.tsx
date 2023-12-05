@@ -13,12 +13,15 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
+import useWebsocket from '../hooks/useWebsocket'
 
 import {
+  ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
 
@@ -26,7 +29,9 @@ const Session: FC = () => {
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
-  const session = useSession(router.params.session_id)
+  const session = useSession()
+
+  const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
   const divRef = useRef<HTMLDivElement>()
@@ -133,11 +138,30 @@ const Session: FC = () => {
   ])
 
   useEffect(() => {
-    if(!session) return
+    if(!session.data) return
     scrollToBottom()
   }, [
-    session,
+    session.data,
   ])
+
+  useEffect(() => {
+    if(!account.user) return
+    if(sessionID) {
+      session.loadSession(sessionID)
+    }
+  }, [
+    account.user,
+    sessionID,
+  ])
+
+  useWebsocket(sessionID, (parsedData) => {
+    console.log(parsedData)
+    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      session.setData(newSession)
+    }
+  })
+
 
   if(!session.data) return null
 
@@ -293,7 +317,7 @@ const Session: FC = () => {
             withCancel
             submitTitle="Clone"
             onSubmit={ () => {
-              session.clone(router.params.cloneInteraction)
+              session.clone(sessionID, router.params.cloneInteraction)
             } }
             onCancel={ () => {
               router.removeParams(['cloneInteraction'])

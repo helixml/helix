@@ -112,6 +112,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), types.UpdateSessionRequest{
 		SessionID:       sessionID,
 		UserInteraction: *userInteraction,
+		SessionMode:     session.Mode,
 	})
 
 	return sessionData, nil
@@ -379,6 +380,17 @@ func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.R
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
 	return apiServer.getSessionFromID(reqContext, id)
+}
+
+func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req *http.Request) (*types.SessionSummary, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	session, err := apiServer.getSessionFromID(reqContext, id)
+	if err != nil {
+		return nil, err
+	}
+	return model.GetSessionSummary(session)
 }
 
 func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {

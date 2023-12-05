@@ -31,6 +31,7 @@ import AccountBoxIcon from '@mui/icons-material/AccountBox'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useSessions from '../hooks/useSessions'
 import Snackbar from '../components/system/Snackbar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -95,6 +96,7 @@ const Layout: FC = ({
     meta,
     navigate,
     getToolbarElement,
+    getTitle,
     name,
   } = useRouter()
   
@@ -341,22 +343,28 @@ const Layout: FC = ({
                   alignItems: 'center',
                 }}
               >
-                <Typography
-                  component="h1"
-                  variant="h6"
-                  color="inherit"
-                  noWrap
-                  sx={{
-                    flexGrow: 1,
-                    ml: 1,
-                    color: 'text.primary',
-                  }}
-                >
-                  { meta.title || '' }
-                </Typography>
-                
+                {
+                  getTitle ?
+
+                    getTitle() :
+
+                    (
+                      <Typography
+                        component="h1"
+                        variant="h6"
+                        color="inherit"
+                        noWrap
+                        sx={{
+                          flexGrow: 1,
+                          ml: 1,
+                          color: 'text.primary',
+                        }}
+                      >
+                        { meta.title || '' }
+                      </Typography>
+                    )
+                }
               </Box>
-              
             ) : (
               <Box
                 sx={{

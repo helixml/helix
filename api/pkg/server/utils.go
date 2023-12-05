@@ -160,6 +160,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		Scheduled:      time.Now(),
 		Completed:      time.Now(),
 		Creator:        types.CreatorTypeUser,
+		Mode:           sessionMode,
 		Message:        message,
 		Files:          filePaths,
 		State:          types.InteractionStateComplete,

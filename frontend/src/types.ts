@@ -139,18 +139,23 @@ export interface IInteraction {
   scheduled: string,
   completed: string,
   creator: ISessionCreator,
+  mode: ISessionMode,
   runner: string,
   message: string,
   progress: number,
-  status: string,
-  state: IInteractionState,
   files: string[],
-  lora_dir: string,
   finished: boolean,
   metadata: Record<string, string>,
+  state: IInteractionState,
+  status: string,
   error: string,
+  lora_dir: string,
   data_prep_chunks: Record<string, IDataPrepChunk[]>,
   data_prep_stage: ITextDataPrepStage,
+}
+
+export interface ISessionConfig {
+
 }
 
 export interface ISession {
@@ -159,6 +164,9 @@ export interface ISession {
   created: string,
   updated: string,
   parent_session: string,
+  parent_bot: string,
+  child_bot: string,
+  config: ISessionConfig,
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
@@ -166,11 +174,15 @@ export interface ISession {
   interactions: IInteraction[],
   owner: string,
   owner_type: IOwnerType,
-  parent_bot: string,
+  
 }
 
 export interface IBotForm {
   name: string,
+}
+
+export interface IBotConfig {
+
 }
 
 export interface IBot {
@@ -180,10 +192,7 @@ export interface IBot {
   updated: string,
   owner: string,
   owner_type: IOwnerType,
-  parent_session: string,
-  lora_dir: string,
-  type: ISessionType,
-  model_name: string,
+  config: IBotConfig,
 }
 
 export interface IWebsocketEvent {
