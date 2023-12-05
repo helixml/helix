@@ -9,6 +9,8 @@ import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
 import CreateBotWindow from '../components/session/CreateBotWindow'
 import Window from '../components/widgets/Window'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -24,6 +26,10 @@ import {
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
+
+import {
+  hasFinishedFinetune,
+} from '../utils/session'
 
 const Session: FC = () => {
   const api = useApi()
@@ -90,14 +96,6 @@ const Session: FC = () => {
     await session.retryTextFinetune(session.data.id)
   }, [
     session.data,
-  ])
-
-  const onCloneInteraction = useCallback((interactionID: string) => {
-    router.setParams({
-      cloneInteraction: interactionID,
-    })
-  }, [
-    router.params.session_id,
   ])
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -225,7 +223,11 @@ const Session: FC = () => {
                         isLast={ i === interactionsLength - 1 }
                         retryFinetuneErrors={ retryFinetuneErrors }
                         onMessageChange={ scrollToBottom }
-                        onClone={ onCloneInteraction }
+                        onClone={ (interactionID: string) => {
+                          router.setParams({
+                            cloneInteraction: interactionID,
+                          })
+                        } }
                       />
                     )   
                   })
@@ -247,43 +249,56 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Box
-            sx={{
-              width: '100%',
-              flexGrow: 0,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              label={(
-                (
-                  session.data?.type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
-                    'Describe what you want to see in an image...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputValue}
-              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-            />
-            <Button
-              variant='contained'
-              disabled={loading}
-              onClick={ onSend }
-              sx={{ ml: 2 }}
-            >
-              Send
-            </Button>
-          </Box>
+          <Row>
+            <Cell flexGrow={1}>
+              <TextField
+                id="textEntry"
+                fullWidth
+                inputRef={textFieldRef}
+                label={(
+                  (
+                    session.data?.type == SESSION_TYPE_TEXT ?
+                      'Chat with Helix...' :
+                      'Describe what you want to see in an image...'
+                  ) + " (shift+enter to add a newline)"
+                )}
+                value={inputValue}
+                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                onChange={handleInputChange}
+                name="ai_submit"
+                multiline={true}
+                onKeyDown={handleKeyDown}
+              />
+            </Cell>
+            <Cell>
+              <Button
+                variant='contained'
+                disabled={loading}
+                onClick={ onSend }
+                sx={{ ml: 2 }}
+              >
+                Send
+              </Button>
+            </Cell>
+            {
+              hasFinishedFinetune(session.data) && (
+                <Cell>
+                  <Button
+                    variant='contained'
+                    disabled={ loading }
+                    onClick={ () => {
+                      router.setParams({
+                        addDocuments: 'yes',
+                      })
+                    }}
+                    sx={{ ml: 2 }}
+                  >
+                    Add Documents
+                  </Button>
+                </Cell>
+              )
+            }
+          </Row>
           <Box
             sx={{
               mt: 2,
@@ -321,6 +336,48 @@ const Session: FC = () => {
             } }
             onCancel={ () => {
               router.removeParams(['cloneInteraction'])
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                width: '100%',
+              }}
+            >
+              <Box
+                sx={{
+                  width: '100%',
+                  padding:1,
+                }}
+              >
+                <Typography gutterBottom>
+                  Are you sure you want to clone {session.data.name} from this point in time?
+                </Typography>
+                <Typography variant="caption" gutterBottom>
+                  This will create a new session.
+                </Typography>
+              </Box>
+            </Box>
+          </Window>
+        )
+      }
+
+{
+        router.params.addDocuments && (
+          <Window
+            open
+            size="sm"
+            title={`Add Documents to ${session.data.name}?`}
+            withCancel
+            submitTitle="Upload"
+            onSubmit={ () => {
+              
+            } }
+            onCancel={ () => {
+              router.removeParams(['addDocuments'])
             }}
           >
             <Box
