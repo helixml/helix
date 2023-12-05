@@ -50,6 +50,7 @@ const GeneratedImage = styled('img')({})
 
 export const Interaction: FC<{
   session_id: string,
+  session_name: string,
   type: ISessionType,
   mode: ISessionMode,
   interaction: IInteraction,
@@ -64,6 +65,7 @@ export const Interaction: FC<{
   },
 }> = ({
   session_id,
+  session_name,
   type,
   mode,
   interaction,
@@ -114,6 +116,9 @@ export const Interaction: FC<{
     }
   }
 
+  const useSystemName = mode == SESSION_MODE_INFERENCE ? session_name : 'System'
+  const useName = interaction.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction.creator
+
   const dataPrepErrors = useMemo(() => {
     return getTextDataPrepErrors(interaction)
   }, [
@@ -130,9 +135,9 @@ export const Interaction: FC<{
 
   return (
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
-      <Avatar sx={{ width: 24, height: 24 }}>{interaction.creator.charAt(0)}</Avatar>
+      <Avatar sx={{ width: 24, height: 24 }}>{useName.charAt(0).toUpperCase()}</Avatar>
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{interaction.creator.charAt(0).toUpperCase() + interaction.creator.slice(1)}</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{useName.charAt(0).toUpperCase() + useName.slice(1)}</Typography>
         {
           isImageFinetune && interaction.files && interaction.files.length > 0 && (
             <Box

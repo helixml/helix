@@ -183,6 +183,7 @@ const Session: FC = () => {
                       <Interaction
                         key={ i }
                         session_id={ session.data.id }
+                        session_name={ session.data.name }
                         type={ session.data?.type || SESSION_TYPE_TEXT}
                         mode={ session.data?.mode || SESSION_MODE_INFERENCE }
                         interaction={ interaction }

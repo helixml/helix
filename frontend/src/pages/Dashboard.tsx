@@ -250,6 +250,7 @@ const Dashboard: FC = () => {
                   <Interaction
                     key={ i }
                     session_id={ viewingSession.id }
+                    session_name={ viewingSession.name }
                     type={ viewingSession.type }
                     mode={ viewingSession.mode }
                     interaction={ interaction }
