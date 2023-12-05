@@ -224,7 +224,11 @@ type RunnerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	Owner     string                 `json:"owner"`
+	// this should be the latest system interaction
+	// it is filled in by the model instance
+	// based on currentSession
+	InteractionID string `json:"interaction_id"`
+	Owner         string `json:"owner"`
 	// which fields the python code decides to fill in here depends
 	// on what the type of model it is
 	Message  string   `json:"message,omitempty"`  // e.g. Prove pythagoras

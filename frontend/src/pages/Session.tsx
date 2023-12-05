@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useRef, useMemo } from 'react'
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -18,6 +18,7 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  IBotForm,
 } from '../types'
 
 const Session: FC = () => {
@@ -45,8 +46,18 @@ const Session: FC = () => {
     session.data,
   ])
 
-  const onSend = async () => {
+  const botForm = useMemo<IBotForm | undefined>(() => {
     if(!session) return
+    if(!session.bot) return
+    return session.bot ? {
+      name: session.bot.name,
+    } : undefined
+  }, [
+    session.bot,
+  ])
+
+  const onSend = useCallback(async () => {
+    if(!session.data) return
     
     const formData = new FormData()
     files.forEach((file) => {
@@ -61,14 +72,21 @@ const Session: FC = () => {
 
     setFiles([])
     setInputValue("")
-  }
+  }, [
+    session.data,
+    session.reload,
+    files,
+    inputValue,
+  ])
 
-  const retryFinetuneErrors = async () => {
+  const retryFinetuneErrors = useCallback(async () => {
     if(!session.data) return
     await session.retryTextFinetune(session.data.id)
-  }
+  }, [
+    session.data,
+  ])
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
         setInputValue(current => current + "\n")
@@ -79,16 +97,18 @@ const Session: FC = () => {
       }
       event.preventDefault()
     }
-  }
+  }, [
+    onSend,
+  ])
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     const divElement = divRef.current
     if(!divElement) return
     divElement.scrollTo({
       top: divElement.scrollHeight - divElement.clientHeight,
       behavior: "smooth"
     })
-  }
+  }, [])
 
   useEffect(() => {
     if(loading) return
@@ -244,8 +264,8 @@ const Session: FC = () => {
       {
         router.params.editBot && (
           <CreateBotWindow
-            bot={ session.bot }
-            onSubmit={ () => {} }
+            bot={ botForm }
+            onSubmit={ (newBotForm) => {} }
             onCancel={ () => {
               router.removeParams(['editBot'])
             }}

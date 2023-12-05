@@ -10,7 +10,7 @@ import Cell from '../widgets/Cell'
 import useSnackbar from '../../hooks/useSnackbar'
 
 import {
-  IBot,
+  IBotForm,
 } from '../../types'
 
 import {
@@ -18,9 +18,9 @@ import {
 } from '../../utils/names'
 
 export const CreateBotWindow: FC<{
-  bot?: IBot,
+  bot?: IBotForm,
   onSubmit: {
-    (bot: IBot): void,
+    (bot: IBotForm): void,
   },
   onCancel: {
     (): void,
@@ -41,7 +41,10 @@ export const CreateBotWindow: FC<{
       submitTitle={ bot ? 'Update Bot' : 'Publish Bot' }
       onCancel={onCancel}
       onSubmit={ () => {
-
+        const newBot: IBotForm = Object.assign({}, bot, {
+          name: botName,
+        })
+        onSubmit(newBot)
       }}
     >
       <Box
@@ -49,10 +52,19 @@ export const CreateBotWindow: FC<{
           p: 1,
         }}
       >
+        <Typography
+          variant="body1"
+          sx={{
+            mb: 3,
+          }}
+        >
+          Make your bot available to others by publishing it. You can share the URL with anyone, and they will be able to interact with your bot.
+        </Typography>
         <Row>
           <Cell
             sx={{
               pr: 0.5,
+              pb: 2.5,
             }}
           >
             <Typography variant="h6">
@@ -64,6 +76,7 @@ export const CreateBotWindow: FC<{
               id="textEntry"
               fullWidth
               label="Enter bot name"
+              helperText="Name can only include letters, numbers, and dashes"
               value={ botName }
               onChange={ (e) => setBotName(e.target.value) }
             />
@@ -71,6 +84,7 @@ export const CreateBotWindow: FC<{
           <Cell
             sx={{
               ml: 0.5,
+              pb: 3,
             }}
           >
             <CopyToClipboard

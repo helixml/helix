@@ -82,7 +82,7 @@ export const SessionHeader: FC<{
         </Typography>
       </JsonWindowLink>
       {
-        session.lora_dir && (
+        session.lora_dir && !session.parent_bot && (
           <>
             <Typography
               sx={{
@@ -111,7 +111,7 @@ export const SessionHeader: FC<{
                   textDecoration: 'underline',
                 }}
               >
-                Publish Bot
+                { session.parent_bot ? 'Edit' : 'Publish' } Bot
               </Typography>
             </Link>
           </>

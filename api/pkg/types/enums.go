@@ -120,6 +120,9 @@ const (
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
 
+const FILESTORE_RESULTS_DIR = "results"
+const FILESTORE_LORA_DIR = "lora"
+
 const LORA_DIR_NONE = "none"
 
 // in the interaction metadata we keep track of which chunks
