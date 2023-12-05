@@ -1,5 +1,5 @@
 import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
-
+import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
@@ -8,6 +8,7 @@ import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
 import CreateBotWindow from '../components/session/CreateBotWindow'
+import Window from '../components/widgets/Window'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -84,6 +85,14 @@ const Session: FC = () => {
     await session.retryTextFinetune(session.data.id)
   }, [
     session.data,
+  ])
+
+  const onCloneInteraction = useCallback((interactionID: string) => {
+    router.setParams({
+      cloneInteraction: interactionID,
+    })
+  }, [
+    router.params.session_id,
   ])
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -192,6 +201,7 @@ const Session: FC = () => {
                         isLast={ i === interactionsLength - 1 }
                         retryFinetuneErrors={ retryFinetuneErrors }
                         onMessageChange={ scrollToBottom }
+                        onClone={ onCloneInteraction }
                       />
                     )   
                   })
@@ -271,6 +281,48 @@ const Session: FC = () => {
               router.removeParams(['editBot'])
             }}
           />
+        )
+      }
+
+      {
+        router.params.cloneInteraction && (
+          <Window
+            open
+            size="sm"
+            title={`Clone ${session.data.name}?`}
+            withCancel
+            submitTitle="Clone"
+            onSubmit={ () => {
+              session.clone(router.params.cloneInteraction)
+            } }
+            onCancel={ () => {
+              router.removeParams(['cloneInteraction'])
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                width: '100%',
+              }}
+            >
+              <Box
+                sx={{
+                  width: '100%',
+                  padding:1,
+                }}
+              >
+                <Typography gutterBottom>
+                  Are you sure you want to clone {session.data.name} from this point in time?
+                </Typography>
+                <Typography variant="caption" gutterBottom>
+                  This will create a new session.
+                </Typography>
+              </Box>
+            </Box>
+          </Window>
         )
       }
 

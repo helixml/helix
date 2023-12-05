@@ -6,6 +6,7 @@
  - [ ] retry button for errors
  - [ ] render markdown
  - [ ] plugin sentry
+ - [ ] the delete button shows for read only folders in filestore
  - [ ] auto-scroll broken
  - [ ] reverse the color of the active session
  - [ ] put the name of the session in topbar
