@@ -378,7 +378,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 
 // return the JSON of some fine tune conversation data
 func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
-	reader, err := c.Options.Filestore.Download(c.Ctx, filepath)
+	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +417,7 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 		jsonLines = append(jsonLines, string(jsonLine))
 	}
 
-	_, err := c.Options.Filestore.Upload(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	_, err := c.Options.Filestore.UploadFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
 	if err != nil {
 		return err
 	}
@@ -556,7 +556,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			atomic.AddInt64(&completedCounter, 1)
 			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-			_, err = c.Options.Filestore.Upload(c.Ctx, newFilepath, strings.NewReader(res.Text))
+			_, err = c.Options.Filestore.UploadFile(c.Ctx, newFilepath, strings.NewReader(res.Text))
 			if err != nil {
 				return err
 			}
@@ -687,7 +687,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 						// we want to write an empty file to the filestore here
 						// because then appendQuestionsToFile doesn't need to deal with making it
-						_, err = c.Options.Filestore.Upload(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+						_, err = c.Options.Filestore.UploadFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
 						if err != nil {
 							log.Error().Msgf("error uploading file: %s", err.Error())
 							return err

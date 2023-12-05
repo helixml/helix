@@ -177,7 +177,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
+		_, err = apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -202,7 +202,7 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 		if err != nil {
 			return err
 		}
-		stream, err := apiServer.Controller.FilestoreDownload(requestContext, filePath)
+		stream, err := apiServer.Controller.FilestoreDownloadFile(requestContext, filePath)
 		if err != nil {
 			return err
 		}
@@ -299,7 +299,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 		}
 		defer file.Close()
 
-		item, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
+		item, err := apiServer.Controller.FilestoreUploadFile(reqContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -344,7 +344,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 
 			// Create a virtual file from the buffer to upload
 			vFile := bytes.NewReader(buffer.Bytes())
-			_, err := apiServer.Controller.FilestoreUpload(reqContext, filepath.Join(uploadFolder, header.Name), vFile)
+			_, err := apiServer.Controller.FilestoreUploadFile(reqContext, filepath.Join(uploadFolder, header.Name), vFile)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}

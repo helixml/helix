@@ -1,6 +1,7 @@
 package filestore
 
 import (
+	"archive/tar"
 	"context"
 	"fmt"
 	"io"
@@ -65,7 +66,7 @@ func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem
 	}, nil
 }
 
-func (s *FileSystemStorage) Upload(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *FileSystemStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	// Create the directory structure if it doesn't exist
@@ -86,7 +87,7 @@ func (s *FileSystemStorage) Upload(ctx context.Context, path string, r io.Reader
 	return s.Get(ctx, path)
 }
 
-func (s *FileSystemStorage) Download(ctx context.Context, path string) (io.Reader, error) {
+func (s *FileSystemStorage) DownloadFile(ctx context.Context, path string) (io.Reader, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	file, err := os.Open(fullPath)
@@ -100,6 +101,56 @@ func (s *FileSystemStorage) Download(ctx context.Context, path string) (io.Reade
 func (s *FileSystemStorage) DownloadFolder(ctx context.Context, path string) (io.Reader, error) {
 	fullPath := filepath.Join(s.basePath, path)
 	return system.GetTarStream(fullPath)
+}
+
+// UploadFolder uploads a folder from a tarball in the io.Reader to the specified path.
+func (s *FileSystemStorage) UploadFolder(ctx context.Context, path string, r io.Reader) error {
+	// Determine the full path to the destination folder
+	fullPath := filepath.Join(s.basePath, path)
+
+	// Create the directory structure if it doesn't exist
+	if err := os.MkdirAll(fullPath, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create directory structure: %w", err)
+	}
+
+	// Read from the tarball
+	tr := tar.NewReader(r)
+	for {
+		header, err := tr.Next()
+
+		// If no more files are found, break out of the loop
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed reading tarball: %w", err)
+		}
+
+		// Determine the full path for the current file
+		targetPath := filepath.Join(fullPath, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			// Create the directory
+			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+		case tar.TypeReg:
+			// Create the file
+			file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
+			if err != nil {
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+			defer file.Close()
+
+			// Copy the file contents from the tarball
+			if _, err := io.Copy(file, tr); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *FileSystemStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {
