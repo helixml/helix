@@ -155,7 +155,7 @@ export interface IInteraction {
 }
 
 export interface ISessionConfig {
-
+  original_mode: ISessionMode,
 }
 
 export interface ISession {
@@ -174,7 +174,6 @@ export interface ISession {
   interactions: IInteraction[],
   owner: string,
   owner_type: IOwnerType,
-  
 }
 
 export interface IBotForm {

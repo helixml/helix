@@ -14,8 +14,6 @@ export const SessionTitle: FC = () => {
   const session = useSession()
   
   const sessionID = router.params.session_id
-  console.log('--------------------------------------------')
-  console.log(sessionID)
 
   useEffect(() => {
     if(!account.user) return

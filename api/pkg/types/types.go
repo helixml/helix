@@ -60,6 +60,7 @@ type Interaction struct {
 
 // gives us a quick way to add settings
 type SessionConfig struct {
+	OriginalMode SessionMode `json:"original_mode"`
 }
 
 type Session struct {
