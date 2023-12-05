@@ -11,6 +11,7 @@
  - [ ] put the name of the session in topbar
  - [ ] rather than system as the username, put the name of the session
  - [ ] why do finetunes stick around in GPU memory? once they're done they should exit right?
+ - [ ] the session page scrolls to the bottom randomly
  - [ ] quite often there's a model ready to serve and a new one gets spun up on the other node - maybe the clocks are drifting between the machines so the 2 second head start doesn't work? or the python processes aren't polling every 100ms or something?
  - [ ] speedway empty error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701725991656799
  - [ ] empty response messages error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701727773319809

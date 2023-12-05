@@ -47,6 +47,9 @@ func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionR
 			req.UserInteraction,
 			systemInteraction,
 		},
+		Config: types.SessionConfig{
+			OriginalMode: req.SessionMode,
+		},
 	}
 
 	// create session in database
