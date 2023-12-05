@@ -3,6 +3,7 @@ import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import useWebsocket from './useWebsocket'
 import useSnackbar from './useSnackbar'
+import useRouter from './useRouter'
 
 import {
   ISession,
@@ -14,6 +15,7 @@ export const useSession = (session_id: string) => {
   const api = useApi()
   const account = useAccount()
   const snackbar = useSnackbar()
+  const router = useRouter()
 
   const [ data, setData ] = useState<ISession>()
   const [ bot, setBot ] = useState<IBot>()
@@ -51,6 +53,17 @@ export const useSession = (session_id: string) => {
     loadSession,
   ])
 
+  const clone = useCallback(async (interactionID: string) => {
+    const result = await api.put<undefined, ISession>(`/api/v1/sessions/${session_id}/clone/${interactionID}`, undefined, {}, {
+      loading: true,
+    })
+    if(!result) return
+    snackbar.success('Session cloned')
+    router.navigate("session", {session_id: result.id})
+  }, [
+    session_id,
+  ])
+
   useEffect(() => {
     if(!account.user) return
     if(session_id) {
@@ -77,6 +90,7 @@ export const useSession = (session_id: string) => {
     bot,
     reload,
     retryTextFinetune,
+    clone,
   }
 }
 

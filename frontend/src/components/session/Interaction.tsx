@@ -18,6 +18,7 @@ import ClickLink from '../widgets/ClickLink'
 import ConversationEditor from './ConversationEditor'
 import LiveInteraction from './LiveInteraction'
 import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -63,6 +64,9 @@ export const Interaction: FC<{
   onMessageChange?: {
     (message: string): void,
   },
+  onClone?: {
+    (interactionID: string): void,
+  },
 }> = ({
   session_id,
   session_name,
@@ -74,6 +78,7 @@ export const Interaction: FC<{
   isLast = false,
   retryFinetuneErrors,
   onMessageChange,
+  onClone,
 }) => {
   const [ viewingError, setViewingError ] = useState(false)
   const theme = useTheme()
@@ -137,7 +142,41 @@ export const Interaction: FC<{
     <Box key={interaction.id} sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', mb:2 }}>
       <Avatar sx={{ width: 24, height: 24 }}>{useName.charAt(0).toUpperCase()}</Avatar>
       <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{useName.charAt(0).toUpperCase() + useName.slice(1)}</Typography>
+        <Row>
+          <Cell flexGrow={1}>
+            <Typography
+              variant="subtitle2"
+              sx={{
+                fontWeight: 'bold'
+              }}
+            >
+              { useName.charAt(0).toUpperCase() + useName.slice(1) }
+            </Typography>
+          </Cell>
+          {
+            interaction.creator == SESSION_CREATOR_SYSTEM && onClone && (
+              <Cell>
+                <Link
+                  href={`/copy/${session_id}/${interaction.id}`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    onClone(interaction.id)
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: "small",
+                      flexGrow: 0,
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    Clone
+                  </Typography>
+                </Link>
+              </Cell>
+            )
+          }
+        </Row>
         {
           isImageFinetune && interaction.files && interaction.files.length > 0 && (
             <Box
