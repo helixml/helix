@@ -27,6 +27,10 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	}
 }
 
+// this will change from finetune to inference (so the user can chat to their fine tuned model)
+// if they then turn back to "add more documents" / "add more images", then it will change back to finetune
+// we keep OriginalSessionMode in the session config so we can know:
+// "this is an inference session that is actually a finetune session in chat mode"
 type SessionMode string
 
 const (

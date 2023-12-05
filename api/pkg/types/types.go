@@ -36,6 +36,12 @@ type Interaction struct {
 	Scheduled time.Time   `json:"scheduled"`
 	Completed time.Time   `json:"completed"`
 	Creator   CreatorType `json:"creator"` // e.g. User
+	// this let's us know if this interaction is part of the fine tuning process
+	// or if it's a chat interaction that the user is using to interact with the model
+	// once it's been fine-tuned
+	// for fine-tune models, we can filter out inference interactions
+	// to get down to what actually matters
+	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
 	Runner   string            `json:"runner"`   // e.g. 0
 	Message  string            `json:"message"`  // e.g. Prove pythagoras
@@ -272,6 +278,7 @@ type CreateSessionRequest struct {
 type UpdateSessionRequest struct {
 	SessionID       string
 	UserInteraction Interaction
+	SessionMode     SessionMode
 }
 
 // a short version of a session that we keep for the dashboard
