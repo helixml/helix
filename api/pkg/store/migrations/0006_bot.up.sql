@@ -8,19 +8,18 @@ create table bot (
   updated timestamp default current_timestamp,
   owner varchar(255) NOT NULL,
   owner_type varchar(255) NOT NULL,
-
-  -- the session that this bot was created from
-  parent_session varchar(255) NOT NULL,
-
-  -- these values are filled in by the parent_session
-  lora_dir varchar(255) NOT NULL,
-  type varchar(255) NOT NULL,
-  model_name varchar(255) NOT NULL
-  
+  config json not null
 );
+
+-- if a session is used to create a bot then let's record that in the session
+-- the bot itself will also have this session in it's config
+-- TODO: normalize this and use cascade delete otherwise we are gonna get into a mess
+ALTER TABLE session
+ADD COLUMN child_bot varchar(255) NOT NULL DEFAULT '';
 
 -- if a session is created from a bot
 -- (i.e. a user says "talk to bob")
 -- then let's record the bot that spawned the new session
 ALTER TABLE session
 ADD COLUMN parent_bot varchar(255) NOT NULL DEFAULT '';
+

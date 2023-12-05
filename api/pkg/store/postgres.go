@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"time"
 
@@ -55,6 +56,403 @@ func NewPostgresStore(
 	return store, nil
 }
 
+type Scanner interface {
+	Scan(dest ...interface{}) error
+}
+
+// given an array of field names - return the indexes as a string
+// e.g. $1, $2, $3, $4
+func getValueIndexes(fields []string) string {
+	parts := []string{}
+	for i := range fields {
+		parts = append(parts, fmt.Sprintf("$%d", i+1))
+	}
+	return fmt.Sprintf("%s", strings.Join(parts, ", "))
+}
+
+// given an array of field names - return the indexes as an update
+// start at the given offset
+// e.g. id = $2, name = $3
+func getKeyValueIndexes(fields []string, offset int) string {
+	parts := []string{}
+	for i, field := range fields {
+		parts = append(parts, fmt.Sprintf("%s = $%d", field, i+offset+1))
+	}
+	return fmt.Sprintf("%s", strings.Join(parts, ", "))
+}
+
+var SESSION_FIELDS = []string{
+	"id",
+	"name",
+	"created",
+	"updated",
+	"mode",
+	"type",
+	"model_name",
+	"lora_dir",
+	"interactions",
+	"owner",
+	"owner_type",
+	"parent_session",
+	"child_bot",
+	"parent_bot",
+	"config",
+}
+
+var SESSION_FIELDS_STRING = strings.Join(SESSION_FIELDS, ", ")
+
+func scanSessionRow(row Scanner) (*types.Session, error) {
+	session := &types.Session{}
+	var interactions []byte
+	var config []byte
+	err := row.Scan(
+		&session.ID,
+		&session.Name,
+		&session.Created,
+		&session.Updated,
+		&session.Mode,
+		&session.Type,
+		&session.ModelName,
+		&session.LoraDir,
+		&interactions,
+		&session.Owner,
+		&session.OwnerType,
+		&session.ParentSession,
+		&session.ChildBot,
+		&session.ParentBot,
+		&config,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(interactions, &session.Interactions)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(config, &session.Config)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func getSessionValues(session *types.Session) ([]interface{}, error) {
+	interactions, err := json.Marshal(session.Interactions)
+	if err != nil {
+		return nil, err
+	}
+	config, err := json.Marshal(session.Config)
+	if err != nil {
+		return nil, err
+	}
+	return []interface{}{
+		session.ID,
+		session.Name,
+		session.Created,
+		session.Updated,
+		session.Mode,
+		session.Type,
+		session.ModelName,
+		session.LoraDir,
+		interactions,
+		session.Owner,
+		session.OwnerType,
+		session.ParentSession,
+		session.ChildBot,
+		session.ParentBot,
+		config,
+	}, nil
+}
+
+var BOT_FIELDS = []string{
+	"id",
+	"name",
+	"created",
+	"updated",
+	"owner",
+	"owner_type",
+	"config",
+}
+
+var BOT_FIELDS_STRING = strings.Join(BOT_FIELDS, ", ")
+
+func scanBotRow(row Scanner) (*types.Bot, error) {
+	bot := &types.Bot{}
+	var config []byte
+	err := row.Scan(
+		&bot.ID,
+		&bot.Name,
+		&bot.Created,
+		&bot.Updated,
+		&bot.Owner,
+		&bot.OwnerType,
+		&config,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(config, &bot.Config)
+	if err != nil {
+		return nil, err
+	}
+	return bot, nil
+}
+
+func getBotValues(bot *types.Bot) ([]interface{}, error) {
+	config, err := json.Marshal(bot.Config)
+	if err != nil {
+		return nil, err
+	}
+	return []interface{}{
+		bot.ID,
+		bot.Name,
+		bot.Created,
+		bot.Updated,
+		bot.Owner,
+		bot.OwnerType,
+		config,
+	}, nil
+}
+
+func (d *PostgresStore) GetSession(
+	ctx context.Context,
+	sessionID string,
+) (*types.Session, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("sessionID cannot be empty")
+	}
+	row := d.db.QueryRow(fmt.Sprintf(`
+		SELECT %s
+		FROM session WHERE id = $1
+	`, SESSION_FIELDS_STRING), sessionID)
+
+	return scanSessionRow(row)
+}
+
+func (d *PostgresStore) GetBot(
+	ctx context.Context,
+	botID string,
+) (*types.Bot, error) {
+	if botID == "" {
+		return nil, fmt.Errorf("botID cannot be empty")
+	}
+	row := d.db.QueryRow(fmt.Sprintf(`
+		SELECT %s
+		FROM bot WHERE id = $1
+	`, BOT_FIELDS_STRING), botID)
+
+	return scanBotRow(row)
+}
+
+func (d *PostgresStore) GetSessions(
+	ctx context.Context,
+	query GetSessionsQuery,
+) ([]*types.Session, error) {
+	var rows *sql.Rows
+	var err error
+
+	/// XXX SECURITY not sure this is what we want - audit who can set these values?
+	if query.Owner != "" && query.OwnerType != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM session
+			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
+			ORDER BY created DESC
+		`, SESSION_FIELDS_STRING), query.Owner, query.OwnerType)
+	} else if query.Owner != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM session
+			WHERE owner = $1 AND parent_session = ''
+			ORDER BY created DESC
+		`, SESSION_FIELDS_STRING), query.Owner)
+	} else if query.OwnerType != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM session
+			WHERE owner_type = $1 AND parent_session = ''
+			ORDER BY created DESC
+		`, SESSION_FIELDS_STRING), query.OwnerType)
+	} else {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM session
+			WHERE parent_session = ''
+			ORDER BY created DESC
+		`, SESSION_FIELDS_STRING))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sessions := []*types.Session{}
+	for rows.Next() {
+		session, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+func (d *PostgresStore) GetBots(
+	ctx context.Context,
+	query GetBotsQuery,
+) ([]*types.Bot, error) {
+	var rows *sql.Rows
+	var err error
+
+	/// XXX SECURITY not sure this is what we want - audit who can set these values?
+	if query.Owner != "" && query.OwnerType != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM bot
+			WHERE owner = $1 AND owner_type = $2
+			ORDER BY created DESC
+		`, BOT_FIELDS_STRING), query.Owner, query.OwnerType)
+	} else if query.Owner != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM bot
+			WHERE owner = $1
+			ORDER BY created DESC
+		`, BOT_FIELDS_STRING), query.Owner)
+	} else if query.OwnerType != "" {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM bot
+			WHERE owner_type = $1
+			ORDER BY created DESC
+		`, BOT_FIELDS_STRING), query.OwnerType)
+	} else {
+		rows, err = d.db.Query(fmt.Sprintf(`
+			SELECT %s
+			FROM bot
+			ORDER BY created DESC
+		`, BOT_FIELDS_STRING))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bots := []*types.Bot{}
+	for rows.Next() {
+		bot, err := scanBotRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		bots = append(bots, bot)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return bots, nil
+}
+
+func (d *PostgresStore) CreateSession(
+	ctx context.Context,
+	session types.Session,
+) (*types.Session, error) {
+	values, err := getSessionValues(&session)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.db.Exec(fmt.Sprintf(`
+		INSERT INTO session (
+			%s
+		) VALUES (
+			%s
+		)
+	`, SESSION_FIELDS_STRING, getValueIndexes(SESSION_FIELDS)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (d *PostgresStore) CreateBot(
+	ctx context.Context,
+	bot types.Bot,
+) (*types.Bot, error) {
+	values, err := getBotValues(&bot)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.db.Exec(fmt.Sprintf(`
+		INSERT INTO bot (
+			%s
+		) VALUES (
+			%s
+		)
+	`, BOT_FIELDS_STRING, getValueIndexes(BOT_FIELDS)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+	return &bot, nil
+}
+
+// NOTE: yes we are updating the ID based on the ID
+// TODO: use a library!?!
+func (d *PostgresStore) UpdateSession(
+	ctx context.Context,
+	session types.Session,
+) (*types.Session, error) {
+	values, err := getSessionValues(&session)
+	if err != nil {
+		return nil, err
+	}
+
+	// prepend the ID to the values
+	values = append([]interface{}{session.ID}, values...)
+
+	_, err = d.db.Exec(fmt.Sprintf(`
+		UPDATE session SET
+			%s
+		WHERE id = $1
+	`, getKeyValueIndexes(SESSION_FIELDS, 1)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &session, nil
+}
+
+func (d *PostgresStore) UpdateBot(
+	ctx context.Context,
+	bot types.Bot,
+) (*types.Bot, error) {
+	values, err := getBotValues(&bot)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.db.Exec(fmt.Sprintf(`
+		UPDATE bot SET
+			%s
+		WHERE id = $1
+	`, getKeyValueIndexes(BOT_FIELDS, 1)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &bot, nil
+}
+
 func (d *PostgresStore) DeleteSession(
 	ctx context.Context,
 	sessionID string,
@@ -89,283 +487,6 @@ func (d *PostgresStore) DeleteBot(
 	}
 
 	return deleted, nil
-}
-
-func (d *PostgresStore) GetSession(
-	ctx context.Context,
-	sessionID string,
-) (*types.Session, error) {
-	if sessionID == "" {
-		return nil, fmt.Errorf("sessionID cannot be empty")
-	}
-	row := d.db.QueryRow(`
-		SELECT id, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-		FROM session WHERE id = $1
-	`, sessionID)
-
-	var interactions []byte
-	session := &types.Session{}
-	err := row.Scan(&session.ID, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.LoraDir, &interactions, &session.Owner, &session.OwnerType, &session.ParentBot)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	err = json.Unmarshal(interactions, &session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}
-
-func (d *PostgresStore) GetBot(
-	ctx context.Context,
-	botID string,
-) (*types.Bot, error) {
-	if botID == "" {
-		return nil, fmt.Errorf("botID cannot be empty")
-	}
-	row := d.db.QueryRow(`
-		SELECT id, name, parent_session, type, model_name, lora_dir, owner, owner_type
-		FROM session WHERE id = $1
-	`, botID)
-	bot := &types.Bot{}
-	err := row.Scan(&bot.ID, &bot.Name, &bot.ParentSession, &bot.Type, &bot.ModelName, &bot.LoraDir, &bot.Owner, &bot.OwnerType)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return bot, nil
-}
-
-func (d *PostgresStore) GetSessions(
-	ctx context.Context,
-	query GetSessionsQuery,
-) ([]*types.Session, error) {
-	var rows *sql.Rows
-	var err error
-
-	/// XXX SECURITY not sure this is what we want - audit who can set these values?
-	if query.Owner != "" && query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-			FROM session
-			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
-			ORDER BY created DESC
-		`, query.Owner, query.OwnerType)
-	} else if query.Owner != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-			FROM session
-			WHERE owner = $1 AND parent_session = ''
-			ORDER BY created DESC
-		`, query.Owner)
-	} else if query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-			FROM session
-			WHERE owner_type = $1 AND parent_session = ''
-			ORDER BY created DESC
-		`, query.OwnerType)
-	} else {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-			FROM session
-			WHERE parent_session = ''
-			ORDER BY created DESC
-		`)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	sessions := []*types.Session{}
-	for rows.Next() {
-		session := &types.Session{}
-
-		var interactions []byte
-		err := rows.Scan(&session.ID, &session.Created, &session.Updated, &session.Name, &session.ParentSession, &session.Mode, &session.Type, &session.ModelName, &session.LoraDir, &interactions, &session.Owner, &session.OwnerType, &session.ParentBot)
-		if err != nil {
-			return nil, err
-		}
-		err = json.Unmarshal(interactions, &session.Interactions)
-		if err != nil {
-			return nil, err
-		}
-
-		sessions = append(sessions, session)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return sessions, nil
-}
-
-func (d *PostgresStore) GetBots(
-	ctx context.Context,
-	query GetBotsQuery,
-) ([]*types.Bot, error) {
-	var rows *sql.Rows
-	var err error
-
-	/// XXX SECURITY not sure this is what we want - audit who can set these values?
-	if query.Owner != "" && query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
-			FROM bot
-			WHERE owner = $1 AND owner_type = $2
-			ORDER BY created DESC
-		`, query.Owner, query.OwnerType)
-	} else if query.Owner != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
-			FROM bot
-			WHERE owner = $1
-			ORDER BY created DESC
-		`, query.Owner)
-	} else if query.OwnerType != "" {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
-			FROM bot
-			WHERE owner_type = $1
-			ORDER BY created DESC
-		`, query.OwnerType)
-	} else {
-		rows, err = d.db.Query(`
-			SELECT id, created, updated, name, parent_session, type, model_name, lora_dir, owner, owner_type
-			FROM bot
-			ORDER BY created DESC
-		`)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	bots := []*types.Bot{}
-	for rows.Next() {
-		bot := &types.Bot{}
-
-		err := rows.Scan(&bot.ID, &bot.Created, &bot.Updated, &bot.Name, &bot.ParentSession, &bot.Type, &bot.ModelName, &bot.LoraDir, &bot.Owner, &bot.OwnerType)
-		if err != nil {
-			return nil, err
-		}
-		bots = append(bots, bot)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return bots, nil
-}
-
-func (d *PostgresStore) CreateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	interactions, err := json.Marshal(session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = d.db.Exec(`
-		INSERT INTO session (
-			id, name, parent_session, mode, type, model_name, lora_dir, interactions, owner, owner_type, parent_bot
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-		)
-	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.LoraDir, interactions, session.Owner, session.OwnerType, session.ParentBot)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &session, nil
-}
-
-func (d *PostgresStore) CreateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	_, err := d.db.Exec(`
-		INSERT INTO bot (
-			id, name, parent_session, type, model_name, lora_dir, owner, owner_type
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
-		)
-	`, bot.ID, bot.Name, bot.ParentSession, bot.Type, bot.ModelName, bot.LoraDir, bot.Owner, bot.OwnerType)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &bot, nil
-}
-
-func (d *PostgresStore) UpdateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	interactions, err := json.Marshal(session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = d.db.Exec(`
-		UPDATE session SET
-			name = $2,
-			parent_session = $3,
-			mode = $4,
-			type = $5,
-			model_name = $6,
-			lora_dir = $7,
-			interactions = $8,
-			owner = $9,
-			owner_type = $10,
-			parent_bot = $11
-		WHERE id = $1
-	`, session.ID, session.Name, session.ParentSession, session.Mode, session.Type, session.ModelName, session.LoraDir, interactions, session.Owner, session.OwnerType, session.ParentBot)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO maybe do a SELECT to get the exact session that's in the database
-	return &session, nil
-}
-
-func (d *PostgresStore) UpdateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	_, err := d.db.Exec(`
-		UPDATE bot SET
-			name = $2,
-			parent_session = $3,
-			type = $4,
-			model_name = $5,
-			lora_dir = $6,
-			owner = $7,
-			owner_type = $8
-		WHERE id = $1
-	`, bot.ID, bot.Name, bot.ParentSession, bot.Type, bot.ModelName, bot.LoraDir, bot.Owner, bot.OwnerType)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO maybe do a SELECT to get the exact session that's in the database
-	return &bot, nil
 }
 
 func (d *PostgresStore) UpdateSessionMeta(
