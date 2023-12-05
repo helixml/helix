@@ -1,16 +1,8 @@
 import { useState, useCallback } from 'react'
 import bluebird from 'bluebird'
-import {AxiosProgressEvent} from 'axios'
-
-import useApi from './useApi'
+import { AxiosProgressEvent } from 'axios'
 
 import {
-  ISessionMode,
-  ISessionType,
-  SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
-  SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
   ISerializedPage,
 } from '../types'
 
@@ -58,17 +50,17 @@ export const useFinetuneInputs = () => {
     inputValue,
   ])
 
-  const getFormData = useCallback(async (mode: string, type: string) => {
+  const getFormData = useCallback((mode: string, type: string) => {
     const formData = new FormData()
-      files.forEach((file) => {
-        formData.append("files", file)
-        if(labels[file.name]) {
-          formData.set(file.name, labels[file.name])
-        }
-      })
-      formData.set('mode', mode)
-      formData.set('type', type)
-      return formData
+    files.forEach((file) => {
+      formData.append("files", file)
+      if(labels[file.name]) {
+        formData.set(file.name, labels[file.name])
+      }
+    })
+    formData.set('mode', mode)
+    formData.set('type', type)
+    return formData
   }, [
     files,
     labels,
@@ -106,6 +98,14 @@ export const useFinetuneInputs = () => {
     setManualTextFileCounter(data.manualTextFileCounter)
     setInputValue(data.inputValue)
   }, [])
+
+  const reset = useCallback(async () => {
+    setFiles([])
+    setLabels({})
+    setFineTuneStep(0)
+    setManualTextFileCounter(0)
+    setInputValue('')
+  }, [])
   
   return {
     inputValue, setInputValue,
@@ -119,6 +119,7 @@ export const useFinetuneInputs = () => {
     loadFromLocalStorage,
     getFormData,
     uploadProgressHandler,
+    reset,
   }
 }
 

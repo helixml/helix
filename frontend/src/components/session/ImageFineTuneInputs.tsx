@@ -24,14 +24,16 @@ import {
 
 export const ImageFineTuneInputs: FC<{
   initialFiles?: File[],
+  showButton?: boolean,
   onChange?: {
     (files: File[]): void
   },
-  onDone: {
+  onDone?: {
     (): void
   },
 }> = ({
   initialFiles,
+  showButton = false,
   onChange,
   onDone,
 }) => {
@@ -72,7 +74,7 @@ export const ImageFineTuneInputs: FC<{
         <Interaction
           session_id=""
           session_name=""
-          interaction={ getSystemMessage('Firstly upload some images you want your model to learn from:') }
+          interaction={ getSystemMessage('Upload some images you want your model to learn from:') }
           type={ SESSION_TYPE_TEXT }
           mode={ SESSION_MODE_INFERENCE }
           serverConfig={ account.serverConfig }
@@ -163,7 +165,7 @@ export const ImageFineTuneInputs: FC<{
         </Box>
       </FileUpload>
       {
-        files.length > 0 && (
+        files.length > 0 && showButton && onDone && (
           <Button
             sx={{
               width: '100%',

@@ -23,16 +23,18 @@ export const ImageFineTuneLabels: FC<{
   showImageLabelErrors: boolean,
   initialLabels?: Record<string, string>,
   files: File[],
-  onChange: {
+  showButton?: boolean,
+  onChange?: {
     (labels: Record<string, string>): void
   },
-  onDone: {
+  onDone?: {
     (): void
   },
 }> = ({
   showImageLabelErrors,
   initialLabels,
   files,
+  showButton = false,
   onChange,
   onDone,
 }) => {
@@ -96,6 +98,9 @@ export const ImageFineTuneLabels: FC<{
                       const newLabels = {...labels}
                       newLabels[file.name] = value
                       setLabels(newLabels)
+                      if(onChange) {
+                        onChange(newLabels)
+                      }
                     }}
                   />
                 </Box>
@@ -106,7 +111,7 @@ export const ImageFineTuneLabels: FC<{
         }
       </Grid>
       {
-        files.length > 0 && (
+        files.length > 0 && showButton && onDone && (
           <Button
             sx={{
               width: '100%',

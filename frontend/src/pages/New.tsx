@@ -1,5 +1,4 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
-import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -8,17 +7,15 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
-import CircularProgress from '@mui/material/CircularProgress'
 import FormControl from '@mui/material/FormControl'
 
-import Progress from '../components/widgets/Progress'
 import TextFineTuneInputs from '../components/session/TextFineTuneInputs'
 import ImageFineTuneInputs from '../components/session/ImageFineTuneInputs'
 import ImageFineTuneLabels from '../components/session/ImageFineTuneLabels'
-
 import Window from '../components/widgets/Window'
-
 import Disclaimer from '../components/widgets/Disclaimer'
+import UploadingOverlay from '../components/widgets/UploadingOverlay'
+
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -33,20 +30,7 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  ISerializedPage,
 } from '../types'
-
-import {
-  IFilestoreUploadProgress,
-} from '../contexts/filestore'
-
-import {
-  serializeFile,
-  deserializeFile,
-  saveFile,
-  loadFile,
-  deleteFile,
-} from '../utils/filestore'
 
 const New: FC = () => {
   const snackbar = useSnackbar()
@@ -103,7 +87,7 @@ const New: FC = () => {
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
-    
+
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     sessions.addSesssion(session)
@@ -161,9 +145,7 @@ const New: FC = () => {
     })
 
     try {
-
       const formData = inputs.getFormData(selectedMode, selectedType)
-      
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
       })
@@ -178,7 +160,7 @@ const New: FC = () => {
     inputs.setUploadProgress(undefined)
   }
 
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
         inputs.setInputValue(current => current + "\n")
@@ -187,7 +169,7 @@ const New: FC = () => {
       }
       event.preventDefault()
     }
-  }, [])
+  }
 
   useEffect(() => {
     if(mode != SESSION_MODE_INFERENCE) return
@@ -277,6 +259,7 @@ const New: FC = () => {
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
               <ImageFineTuneInputs
+                showButton
                 initialFiles={ inputs.files }
                 onChange={ (files) => {
                   inputs.setFiles(files)
@@ -288,6 +271,7 @@ const New: FC = () => {
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
               <TextFineTuneInputs
+                showButton
                 initialCounter={ inputs.manualTextFileCounter }
                 initialFiles={ inputs.files }
                 onChange={ (counter, files) => {
@@ -301,13 +285,14 @@ const New: FC = () => {
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1 && (
               <ImageFineTuneLabels
+                showButton
                 showImageLabelErrors={ inputs.showImageLabelErrors }
                 initialLabels={ inputs.labels }
                 files={ inputs.files }
                 onChange={ (labels) => {
                   inputs.setLabels(labels)
                 }}
-                onDone={onStartImageFinetune}
+                onDone={ onStartImageFinetune }
               />
             )
           }
@@ -377,61 +362,9 @@ const New: FC = () => {
 
       {
         inputs.uploadProgress && (
-          <Box
-            component="div"
-            sx={{
-              position: 'fixed',
-              left: '0px',
-              top: '0px',
-              zIndex: 10000,
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.7)'
-            }}
-          >
-            <Box
-              component="div"
-              sx={{
-                padding: 6,
-                backgroundColor: '#ffffff',
-                border: '1px solid #e5e5e5',
-              }}
-            >
-              <Box
-                component="div"
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  height: '100%',
-                }}
-              >
-                <Box
-                  component="div"
-                  sx={{
-                    maxWidth: '100%'
-                  }}
-                >
-                  <Box
-                    component="div"
-                    sx={{
-                      textAlign: 'center',
-                      display: 'inline-block',
-                    }}
-                  >
-                    <CircularProgress />
-                    <Typography variant='subtitle1'>
-                      Uploading...
-                    </Typography>
-                    <Progress progress={ inputs.uploadProgress.percent } />
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-          </Box>
+          <UploadingOverlay
+            percent={ inputs.uploadProgress.percent }
+          />
         )
       }
       {
