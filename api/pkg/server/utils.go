@@ -99,9 +99,11 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		return nil, fmt.Errorf("inference sessions require a message")
 	}
 
+	interactionID := system.GenerateUUID()
+
 	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]
-	inputPath := controller.GetSessionInputsFolder(sessionID)
+	inputPath := controller.GetInteractionInputsFolder(sessionID, interactionID)
 
 	metadata := map[string]string{}
 
@@ -152,7 +154,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}
 
 	return &types.Interaction{
-		ID:             system.GenerateUUID(),
+		ID:             interactionID,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Scheduled:      time.Now(),

@@ -44,8 +44,8 @@ func GetSessionFolder(sessionID string) string {
 	return filepath.Join("sessions", sessionID)
 }
 
-func GetSessionInputsFolder(sessionID string) string {
-	return filepath.Join(GetSessionFolder(sessionID), "inputs")
+func GetInteractionInputsFolder(sessionID string, interactionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "inputs", interactionID)
 }
 
 func GetSessionResultsFolder(sessionID string) string {
