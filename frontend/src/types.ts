@@ -169,6 +169,10 @@ export interface ISession {
   parent_bot: string,
 }
 
+export interface IBotForm {
+  name: string,
+}
+
 export interface IBot {
   id: string,
   name: string,

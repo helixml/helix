@@ -246,10 +246,17 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 		return
 	}
 
+	var err error
+
+	systemInteraction, err := model.GetSystemInteraction(instance.currentSession)
+	if err != nil {
+		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		return
+	}
+
+	taskResponse.InteractionID = systemInteraction.ID
 	taskResponse.Owner = instance.currentSession.Owner
 	instance.lastActivityTimestamp = time.Now().Unix()
-
-	var err error
 
 	// if it's the final result then we need to upload the files first
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
