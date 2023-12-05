@@ -73,7 +73,7 @@ func (s *GCSStorage) Get(ctx context.Context, path string) (FileStoreItem, error
 	}, nil
 }
 
-func (s *GCSStorage) Upload(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *GCSStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
 	obj := s.bucket.Object(path)
 	writer := obj.NewWriter(ctx)
 	if _, err := io.Copy(writer, r); err != nil {
@@ -96,7 +96,7 @@ func (s *GCSStorage) Upload(ctx context.Context, path string, r io.Reader) (File
 	}, nil
 }
 
-func (s *GCSStorage) Download(ctx context.Context, path string) (io.Reader, error) {
+func (s *GCSStorage) DownloadFile(ctx context.Context, path string) (io.Reader, error) {
 	obj := s.bucket.Object(path)
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
@@ -144,6 +144,47 @@ func (s *GCSStorage) DownloadFolder(ctx context.Context, path string) (io.Reader
 	}
 
 	return &buf, nil
+}
+
+func (s *GCSStorage) UploadFolder(ctx context.Context, path string, r io.Reader) error {
+	tarReader := tar.NewReader(r)
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading tar header: %w", err)
+		}
+
+		// Skip directories
+		if header.Typeflag == tar.TypeDir {
+			continue
+		}
+
+		// Create the object path by appending the file name to the given path
+		objPath := path + "/" + header.Name
+
+		// Create the object in GCS
+		obj := s.bucket.Object(objPath)
+		writer := obj.NewWriter(ctx)
+		if _, err := io.Copy(writer, tarReader); err != nil {
+			writer.Close()
+			return fmt.Errorf("failed to copy content to GCS: %w", err)
+		}
+		if err := writer.Close(); err != nil {
+			return fmt.Errorf("failed to finalize GCS object upload: %w", err)
+		}
+
+		// Fetch the object attributes
+		_, err = obj.Attrs(ctx)
+		if err != nil {
+			return fmt.Errorf("error fetching GCS object attributes after upload: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *GCSStorage) Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error) {

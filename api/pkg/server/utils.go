@@ -116,7 +116,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
 
 			log.Debug().Msgf("uploading file %s", filePath)
-			imageItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
+			imageItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -136,7 +136,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
+				labelItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
