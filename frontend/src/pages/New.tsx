@@ -24,6 +24,7 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSessions from '../hooks/useSessions'
+import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
 import {
   ISessionMode,
@@ -58,19 +59,11 @@ const New: FC = () => {
   const account = useAccount()
   const sessions = useSessions()
   const textFieldRef = useRef<HTMLTextAreaElement>()
+  const inputs = useFinetuneInputs()
 
   const [initialized, setInitialized] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
-  const [inputValue, setInputValue] = useState('')
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
-  const [manualTextFile, setManualTextFile] = useState('')
-  const [manualURL, setManualURL] = useState('')
-  const [fineTuneStep, setFineTuneStep] = useState(0)
-  const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
-  const [files, setFiles] = useState<File[]>([])
-  const [labels, setLabels] = useState<Record<string, string>>({})
-
+  
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -87,31 +80,13 @@ const New: FC = () => {
   const selectedType = type
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(event.target.value)
-  }
-
-  const serializePage = async () => {
-    const serializedFiles = await bluebird.map(files, async (file) => {
-      const serializedFile = await serializeFile(file)
-      await saveFile(serializedFile)
-      serializedFile.content = ''
-      return serializedFile
-    })
-    const data: ISerializedPage = {
-      files: serializedFiles,
-      labels,
-      fineTuneStep,
-      manualTextFileCounter,
-      inputValue,
-    }
-    localStorage.setItem('new-page', JSON.stringify(data))
+    inputs.setInputValue(event.target.value)
   }
 
   const proceedToLogin = async () => {
-    await serializePage()
+    await inputs.serializePage()
     account.onLogin()
   }
-
 
   // this is for inference in both modes
   const onInference = async () => {
@@ -124,11 +99,8 @@ const New: FC = () => {
       return
     }
     const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
-    })
-
-    formData.set('input', inputValue)
+    
+    formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
     
@@ -138,153 +110,78 @@ const New: FC = () => {
     navigate('session', {session_id: session.id})
   }
 
-  const onAddTextFile = useCallback(() => {
-    const newCounter = manualTextFileCounter + 1
-    setManualTextFileCounter(newCounter)
-    const file = new File([
-      new Blob([manualTextFile], { type: 'text/plain' })
-    ], `textfile-${newCounter}.txt`)
-    setFiles(files.concat(file))
-    setManualTextFile('')
-  }, [
-    manualTextFile,
-    manualTextFileCounter,
-    files,
-  ])
-
-  const onAddURL = useCallback(() => {
-    if(!manualURL.match(/^https?:\/\//i)) {
-      snackbar.error(`Please enter a valid URL`)
-      return
-    }
-    let useUrl = manualURL.replace(/\/$/i, '')
-    useUrl = decodeURIComponent(useUrl)
-    let fileTitle = useUrl
-      .replace(/^https?:\/\//i, '')
-      .replace(/^www\./i, '')
-    const file = new File([
-      new Blob([manualURL], { type: 'text/html' })
-    ], `${fileTitle}.url`)
-    setFiles(files.concat(file))
-    setManualURL('')
-  }, [
-    manualURL,
-    files,
-  ])
-
-  const onDropFiles = useCallback(async (newFiles: File[]) => {
-    const existingFiles = files.reduce<Record<string, string>>((all, file) => {
-      all[file.name] = file.name
-      return all
-    }, {})
-    const filteredNewFiles = newFiles.filter(f => !existingFiles[f.name])
-    setFiles(files.concat(filteredNewFiles))
-  }, [
-    files,
-  ])
-
   // this is for text finetune
-  const onUploadDocuments = async () => {
+  const onStartTextFinetune = async () => {
     if(!account.user) {
       setShowLoginWindow(true)
       return
     }
-    setUploadProgress({
+    inputs.setUploadProgress({
       percent: 0,
       totalBytes: 0,
       uploadedBytes: 0,
     })
 
     try {
-      const formData = new FormData()
-      files.forEach((file) => {
-        formData.append("files", file)
-      })
-
-      formData.set('mode', selectedMode)
-      formData.set('type', selectedType)
-
+      const formData = inputs.getFormData(selectedMode, selectedType)
+      
       const session = await api.post('/api/v1/sessions', formData, {
-        onUploadProgress: (progressEvent) => {
-          const percent = progressEvent.total && progressEvent.total > 0 ?
-            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
-            0
-          setUploadProgress({
-            percent,
-            totalBytes: progressEvent.total || 0,
-            uploadedBytes: progressEvent.loaded || 0,
-          })
-        }
+        onUploadProgress: inputs.uploadProgressHandler,
       })
       if(!session) {
-        setUploadProgress(undefined)
+        inputs.setUploadProgress(undefined)
         return
       }
       sessions.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
-    setUploadProgress(undefined)
+    inputs.setUploadProgress(undefined)
   }
 
   // this is for image finetune
-  const onUploadImages = async () => {
+  const onStartImageFinetune = async () => {
     if(!account.user) {
       setShowLoginWindow(true)
       return
     }
 
-    const errorFiles = files.filter(file => labels[file.name] ? false : true)
+    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
     if(errorFiles.length > 0) {
-      setShowImageLabelErrors(true)
+      inputs.setShowImageLabelErrors(true)
       snackbar.error('Please add a label to each image')
       return
     }
-    setShowImageLabelErrors(false)
+    inputs.setShowImageLabelErrors(false)
 
-    setUploadProgress({
+    inputs.setUploadProgress({
       percent: 0,
       totalBytes: 0,
       uploadedBytes: 0,
     })
 
     try {
-      const formData = new FormData()
-      files.forEach((file) => {
-        formData.append("files", file)
-        formData.set(file.name, labels[file.name])
-      })
 
-      formData.set('mode', selectedMode)
-      formData.set('type', selectedType)
-
+      const formData = inputs.getFormData(selectedMode, selectedType)
+      
       const session = await api.post('/api/v1/sessions', formData, {
-        onUploadProgress: (progressEvent) => {
-          const percent = progressEvent.total && progressEvent.total > 0 ?
-            Math.round((progressEvent.loaded * 100) / progressEvent.total) :
-            0
-          setUploadProgress({
-            percent,
-            totalBytes: progressEvent.total || 0,
-            uploadedBytes: progressEvent.loaded || 0,
-          })
-        }
+        onUploadProgress: inputs.uploadProgressHandler,
       })
       if(!session) {
-        setUploadProgress(undefined)
+        inputs.setUploadProgress(undefined)
         return
       }
       sessions.loadSessions()
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
-    setUploadProgress(undefined)
+    inputs.setUploadProgress(undefined)
   }
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
-        setInputValue(current => current + "\n")
+        inputs.setInputValue(current => current + "\n")
       } else {
         onInference()
       }
@@ -300,30 +197,11 @@ const New: FC = () => {
   ])
 
   useEffect(() => {
-    const loadData = async () => {
-      const dataString = localStorage.getItem('new-page')
-      if(!dataString) {
-        setInitialized(true)
-        return
-      }
-      localStorage.removeItem('new-page')
-      const data: ISerializedPage = JSON.parse(dataString)
-      // map over the empty content files
-      // load their content from the individual file key
-      // turn into native File
-      const loadedFiles = await bluebird.map(data.files, async file => {
-        const loadedFile = await loadFile(file)
-        await deleteFile(file)
-        return deserializeFile(loadedFile)
-      })
-      setFiles(loadedFiles)
-      setLabels(data.labels)
-      setFineTuneStep(data.fineTuneStep)
-      setManualTextFileCounter(data.manualTextFileCounter)
-      setInputValue(data.inputValue)
+    const loader = async () => {
+      await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loadData()
+    loader()  
   }, [])
 
   if(!initialized) return null
@@ -397,39 +275,39 @@ const New: FC = () => {
             </Grid>
           </Grid>
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && fineTuneStep == 0 && (
+            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
               <ImageFineTuneInputs
-                initialFiles={ files }
+                initialFiles={ inputs.files }
                 onChange={ (files) => {
-                  setFiles(files)
+                  inputs.setFiles(files)
                 }}
-                onDone={ () => setFineTuneStep(1) }
+                onDone={ () => inputs.setFineTuneStep(1) }
               />
             )
           }
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && fineTuneStep == 0 && (
+            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
               <TextFineTuneInputs
-                initialCounter={ manualTextFileCounter }
-                initialFiles={ files }
+                initialCounter={ inputs.manualTextFileCounter }
+                initialFiles={ inputs.files }
                 onChange={ (counter, files) => {
-                  setManualTextFileCounter(counter)
-                  setFiles(files)
+                  inputs.setManualTextFileCounter(counter)
+                  inputs.setFiles(files)
                 }}
-                onDone={ onUploadDocuments }
+                onDone={ onStartTextFinetune }
               />
             )
           }
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && fineTuneStep == 1 && (
+            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1 && (
               <ImageFineTuneLabels
-                showImageLabelErrors={ showImageLabelErrors }
-                initialLabels={ labels }
-                files={ files }
+                showImageLabelErrors={ inputs.showImageLabelErrors }
+                initialLabels={ inputs.labels }
+                files={ inputs.files }
                 onChange={ (labels) => {
-                  setLabels(labels)
+                  inputs.setLabels(labels)
                 }}
-                onDone={onUploadImages}
+                onDone={onStartImageFinetune}
               />
             )
           }
@@ -469,7 +347,7 @@ const New: FC = () => {
                     'Describe what you want to see in an image...'
                 ) + " (shift+enter to add a newline)"
               )}
-              value={inputValue}
+              value={inputs.inputValue}
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onChange={handleInputChange}
               name="ai_submit"
@@ -498,7 +376,7 @@ const New: FC = () => {
       </Box>
 
       {
-        uploadProgress && (
+        inputs.uploadProgress && (
           <Box
             component="div"
             sx={{
@@ -548,7 +426,7 @@ const New: FC = () => {
                     <Typography variant='subtitle1'>
                       Uploading...
                     </Typography>
-                    <Progress progress={ uploadProgress.percent } />
+                    <Progress progress={ inputs.uploadProgress.percent } />
                   </Box>
                 </Box>
               </Box>

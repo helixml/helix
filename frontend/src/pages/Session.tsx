@@ -338,34 +338,17 @@ const Session: FC = () => {
               router.removeParams(['cloneInteraction'])
             }}
           >
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                width: '100%',
-              }}
-            >
-              <Box
-                sx={{
-                  width: '100%',
-                  padding:1,
-                }}
-              >
-                <Typography gutterBottom>
-                  Are you sure you want to clone {session.data.name} from this point in time?
-                </Typography>
-                <Typography variant="caption" gutterBottom>
-                  This will create a new session.
-                </Typography>
-              </Box>
-            </Box>
+            <Typography gutterBottom>
+              Are you sure you want to clone {session.data.name} from this point in time?
+            </Typography>
+            <Typography variant="caption" gutterBottom>
+              This will create a new session.
+            </Typography>
           </Window>
         )
       }
 
-{
+      {
         router.params.addDocuments && (
           <Window
             open
