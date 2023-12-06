@@ -203,7 +203,9 @@ const Session: FC = () => {
 
   useEffect(() => {
     if(!session.data) return
-    scrollToBottom()
+    setTimeout(() => {
+      scrollToBottom()
+    }, 10) 
   }, [
     session.data,
   ])
