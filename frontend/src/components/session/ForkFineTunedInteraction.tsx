@@ -3,11 +3,15 @@ import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import EditIcon from '@mui/icons-material/Edit'
+import FileCopyIcon from '@mui/icons-material/FileCopy'
+import ViewIcon from '@mui/icons-material/Visibility'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import ConversationEditor from './ConversationEditor'
+import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
-export const ForkFineTunedInteration: FC<{
+export const ForkFineTunedInteraction: FC<{
   
 }> = ({
   
@@ -30,18 +34,18 @@ export const ForkFineTunedInteration: FC<{
           sx={{
             mr: 2,
           }}
-          endIcon={<EditIcon />}
+          endIcon={<ViewIcon />}
           onClick={ () => {} }
         >
-          Edit Questions
+          View Questions
         </Button>
         <Button
           variant="contained"
           color="secondary"
-          endIcon={<NavigateNextIcon />}
+          endIcon={<FileCopyIcon />}
           onClick={ () => {} }
         >
-          Start Training
+          Clone From Here
         </Button>
       </Cell>
 
@@ -49,4 +53,4 @@ export const ForkFineTunedInteration: FC<{
   )  
 }
 
-export default ForkFineTunedInteration
+export default ForkFineTunedInteraction
