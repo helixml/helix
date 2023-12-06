@@ -34,6 +34,46 @@ func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
 	return nil, fmt.Errorf("no system interaction found")
 }
 
+func FilterUserInteractions(interactions []types.Interaction) []types.Interaction {
+	filtered := []types.Interaction{}
+	for _, interaction := range interactions {
+		if interaction.Creator == types.CreatorTypeUser {
+			filtered = append(filtered, interaction)
+		}
+	}
+	return filtered
+}
+
+func FilterSystemInteractions(interactions []types.Interaction) []types.Interaction {
+	filtered := []types.Interaction{}
+	for _, interaction := range interactions {
+		if interaction.Creator == types.CreatorTypeSystem {
+			filtered = append(filtered, interaction)
+		}
+	}
+	return filtered
+}
+
+func FilterFinetuneInteractions(interactions []types.Interaction) []types.Interaction {
+	filtered := []types.Interaction{}
+	for _, interaction := range interactions {
+		if interaction.Mode == types.SessionModeFinetune {
+			filtered = append(filtered, interaction)
+		}
+	}
+	return filtered
+}
+
+func FilterInferenceInteractions(interactions []types.Interaction) []types.Interaction {
+	filtered := []types.Interaction{}
+	for _, interaction := range interactions {
+		if interaction.Mode == types.SessionModeInference {
+			filtered = append(filtered, interaction)
+		}
+	}
+	return filtered
+}
+
 // update the most recent system interaction
 
 type InteractionUpdater func(*types.Interaction) (*types.Interaction, error)

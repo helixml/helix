@@ -176,7 +176,7 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.fileHandler.downloadSession(session, isInitialSession)
+	preparedSession, err := instance.fileHandler.downloadSession(instance.model, session, isInitialSession)
 
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
