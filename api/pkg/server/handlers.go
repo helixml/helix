@@ -532,13 +532,32 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, err
 	}
 
+	return data, nil
+}
+
+func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+
+	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", id)
+	}
+	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
+		return nil, fmt.Errorf("access denied")
+	}
+
 	// now we switch the session into training mode
 	err = apiServer.Controller.BeginTextFineTune(session)
 	if err != nil {
 		return nil, err
 	}
 
-	return data, nil
+	return session, nil
 }
 
 func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req *http.Request) (*types.Session, error) {

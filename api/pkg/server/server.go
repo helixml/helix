@@ -134,10 +134,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
 
 	authRouter.HandleFunc("/sessions/{id}/meta", system.Wrapper(apiServer.updateSessionMeta)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/start", system.Wrapper(apiServer.startSessionFinetune)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}/finetune/documents", system.Wrapper(apiServer.finetuneAddDocuments)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.Wrapper(apiServer.retryTextFinetune)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
 	adminRouter.HandleFunc("/dashboard", system.Wrapper(apiServer.dashboard)).Methods("GET")
 

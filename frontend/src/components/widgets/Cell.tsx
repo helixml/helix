@@ -4,16 +4,18 @@ import { SxProps } from '@mui/system'
 
 const Cell: FC<{
   flexGrow?: number,
+  grow?: boolean,
   sx?: SxProps,
 }> = ({
   flexGrow = 0,
+  grow = false,
   sx = {},
   children,
 }) => {
   return (
     <Box
       sx={{
-        flexGrow,
+        flexGrow: grow ? 1 : flexGrow,
         ...sx
       }}
     >

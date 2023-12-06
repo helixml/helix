@@ -16,6 +16,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
 import ConversationEditor from './ConversationEditor'
+import EditTextFineTunedQuestions from './EditTextFineTunedQuestions'
 import LiveInteraction from './LiveInteraction'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -91,6 +92,7 @@ export const Interaction: FC<{
   const dataPrepStage = interaction.data_prep_stage
 
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
+  const hasFineTuned = interaction.lora_dir ? true : false
   const useErrorText = interaction.error || (isLast ? error : '')
 
   // in this state the last interaction is not yet "finished"
@@ -103,25 +105,22 @@ export const Interaction: FC<{
     // without reloading the entire app
   } else {
     if(type == SESSION_TYPE_TEXT) {
-      displayMessage = interaction.message
-      if(interaction.lora_dir) {
-        displayMessage = 'Fine tuning complete - you can now ask the model questions...'
+      if(!interaction.lora_dir) {
+        displayMessage = interaction.message
       }
     } else if(type == SESSION_TYPE_IMAGE) {
       if(interaction.creator == SESSION_CREATOR_USER) {
         displayMessage = interaction.message
       }
       else {
-        if(interaction.lora_dir) {
-          displayMessage = 'Fine tuning complete - you can now ask the model to create images...'
-        } else if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
+        if(mode == SESSION_MODE_INFERENCE && interaction.files && interaction.files.length > 0) {
           imageURLs = interaction.files.filter(isImage)
         }
       }
     }
   }
 
-  const useSystemName = (mode == SESSION_MODE_INFERENCE ? session_name : 'System') || 'System'
+  const useSystemName = session_name || 'System'
   const useName = interaction.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction.creator
 
   const dataPrepErrors = useMemo(() => {
@@ -308,8 +307,8 @@ export const Interaction: FC<{
                 mt: 2,
               }}
             >
-              <ConversationEditor
-                session_id={ session_id }
+              <EditTextFineTunedQuestions
+                sessionID={ session_id }
               />
             </Box>
           )
