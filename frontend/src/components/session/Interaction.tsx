@@ -302,6 +302,19 @@ export const Interaction: FC<{
           )
         }
         {
+          isEditingConversations && session_id && dataPrepErrors.length == 0 && (
+            <Box
+              sx={{
+                mt: 2,
+              }}
+            >
+              <ConversationEditor
+                session_id={ session_id }
+              />
+            </Box>
+          )
+        }
+        {
           isLoading && (
             <LiveInteraction
               session_id={ session_id }
@@ -327,19 +340,6 @@ export const Interaction: FC<{
               to view the details.
             </Alert>
           ) 
-        }
-        {
-          isEditingConversations && session_id && dataPrepErrors.length == 0 && (
-            <Box
-              sx={{
-                mt: 2,
-              }}
-            >
-              <ConversationEditor
-                session_id={ session_id }
-              />
-            </Box>
-          )
         }
         {
           isEditingConversations && session_id && dataPrepErrors.length > 0 && (
