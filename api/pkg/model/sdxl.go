@@ -62,7 +62,49 @@ func (l *SDXL) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHa
 	return stdout, stderr, nil
 }
 
+func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
+	if sessionFilter.Mode == types.SessionModeInference {
+		args := []string{
+			"runner/sdxl_inference.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else if sessionFilter.Mode == types.SessionModeFinetune {
+		args := []string{
+			"runner/sdxl_finetune.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else {
+		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
+		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
+		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+		"PYTHONUNBUFFERED=1",
+	}
+
+	return cmd, nil
+}
+
 func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	if config.MockRunner {
+		return l.getMockCommand(ctx, sessionFilter, config)
+	}
 	var cmd *exec.Cmd
 	if sessionFilter.Mode == types.SessionModeInference {
 		args := []string{

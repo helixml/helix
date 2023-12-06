@@ -286,7 +286,11 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		InstanceID:        instance.id,
 		NextTaskURL:       instance.nextTaskURL,
 		InitialSessionURL: instance.initialSessionURL,
+		MockRunner:        instance.runnerOptions.MockRunner,
 	})
+
+	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
+
 	if err != nil {
 		return err
 	}

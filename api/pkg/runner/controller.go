@@ -64,6 +64,10 @@ type RunnerOptions struct {
 
 	SchedulingDecisionBufferSize int
 	JobHistoryBufferSize         int
+
+	// used when we are developing platform code without a GPU
+	// it will run local python scripts that fake the output
+	MockRunner bool
 }
 
 type Runner struct {

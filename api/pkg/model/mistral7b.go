@@ -98,7 +98,46 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 	return nil, nil, nil
 }
 
+func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
+	if sessionFilter.Mode == types.SessionModeInference {
+		args := []string{
+			"./runner/axolotl_inference.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else {
+		args := []string{
+			"./runner/axolotl_finetune.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
+		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
+		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+	}
+
+	return cmd, nil
+}
+
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	if config.MockRunner {
+		return l.getMockCommand(ctx, sessionFilter, config)
+	}
 	var cmd *exec.Cmd
 	if sessionFilter.Mode == types.SessionModeInference {
 		cmd = exec.CommandContext(

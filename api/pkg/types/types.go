@@ -214,6 +214,7 @@ type RunnerProcessConfig struct {
 	// the URL to ask for what the session is (e.g. to know what finetune_file to load)
 	// this is readonly and will not pop the session(task) from the queue
 	InitialSessionURL string `json:"initial_session_url"`
+	MockRunner        bool
 }
 
 // a session will run "tasks" on runners
