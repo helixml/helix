@@ -15,8 +15,8 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
-import ConversationEditor from './ConversationEditor'
 import EditTextFineTunedQuestions from './EditTextFineTunedQuestions'
+import ForkFineTunedInteration from './ForkFineTunedInteraction'
 import LiveInteraction from './LiveInteraction'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
@@ -309,8 +309,16 @@ export const Interaction: FC<{
             >
               <EditTextFineTunedQuestions
                 sessionID={ session_id }
+                interactionID={ interaction.id }
               />
             </Box>
+          )
+        }
+        {
+          hasFineTuned && (
+            <ForkFineTunedInteration
+
+            />
           )
         }
         {
