@@ -427,6 +427,32 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	return session, nil
 }
 
+func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	session, err := apiServer.getSessionFromID(reqContext, id)
+	if err != nil {
+		return nil, err
+	}
+
+	err = req.ParseMultipartForm(10 << 20)
+	if err != nil {
+		return nil, err
+	}
+
+	// the user interaction is the request from the user
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune)
+	if err != nil {
+		return nil, err
+	}
+	if userInteraction == nil {
+		return nil, fmt.Errorf("no interaction found")
+	}
+
+	return apiServer.Controller.AddDocumentsToSession(req.Context(), session, *userInteraction)
+}
+
 func getSessionFinetuneFile(session *types.Session) (string, error) {
 	userInteraction, err := model.GetUserInteraction(session)
 	if err != nil {

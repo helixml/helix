@@ -96,6 +96,34 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 	return sessionData, nil
 }
 
+func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction types.Interaction) (*types.Session, error) {
+	// the system interaction is the task we will run on a GPU and update in place
+	systemInteraction := types.Interaction{
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Creator:        types.CreatorTypeSystem,
+		Mode:           userInteraction.Mode,
+		Message:        "",
+		Files:          []string{},
+		State:          types.InteractionStateWaiting,
+		Finished:       false,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
+	}
+
+	// we switch back to finetune mode - the session has been in inference mode
+	// so the user can ask questions
+	session.Mode = types.SessionModeFinetune
+	session.Updated = time.Now()
+	session.Interactions = append(session.Interactions, userInteraction, systemInteraction)
+
+	c.WriteSession(session)
+	go c.SessionRunner(session)
+
+	return session, nil
+}
+
 // called once we've done the pre-processing for both create and update calls to sessions
 func (c *Controller) SessionRunner(sessionData *types.Session) {
 	// first we prepare the seession - which could mean whatever the model implementation wants
