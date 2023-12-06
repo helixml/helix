@@ -163,7 +163,7 @@ const Session: FC = () => {
 
     try {
       const formData = inputs.getFormData(session.data.mode, session.data.type)
-      await api.put(`/api/v1/sessions/${sessionID}/documents`, formData, {
+      await api.put(`/api/v1/sessions/${sessionID}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
       })
       if(!session) {
