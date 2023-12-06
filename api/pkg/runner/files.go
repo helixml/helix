@@ -22,6 +22,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type SessionFileHandler struct {
+	folder         string
+	sessionID      string
+	downloadFile   func(sessionID string, remotePath string, localPath string) error
+	downloadFolder func(sessionID string, remotePath string, localPath string) error
+}
+
+func (handler *SessionFileHandler) GetFolder() string {
+	return handler.folder
+}
+
+func (handler *SessionFileHandler) DownloadFile(remotePath string, localPath string) error {
+	return handler.downloadFile(handler.sessionID, remotePath, localPath)
+}
+
+func (handler *SessionFileHandler) DownloadFolder(remotePath string, localPath string) error {
+	return handler.downloadFolder(handler.sessionID, remotePath, localPath)
+}
+
 type FileHandler struct {
 	runnerID          string
 	httpClientOptions system.ClientOptions
@@ -73,89 +92,46 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 }
 
 // download the lora dir and the most recent user interaction files for a session
-func (handler *FileHandler) downloadSession(session *types.Session, isInitialSession bool) (*types.Session, error) {
-	var err error
-	if isInitialSession {
-		session, err = handler.downloadLoraDir(session)
-		if err != nil {
-			return nil, err
-		}
+func (handler *FileHandler) downloadSession(model model.Model, session *types.Session, isInitialSession bool) (*types.Session, error) {
+	sessionFileHandler := &SessionFileHandler{
+		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
+		sessionID: session.ID,
+		downloadFile: func(sessionID string, remotePath string, localPath string) error {
+			return handler.downloadFile(sessionID, remotePath, localPath)
+		},
+		downloadFolder: func(sessionID string, remotePath string, localPath string) error {
+			return handler.downloadFolder(sessionID, remotePath, localPath)
+		},
 	}
 
-	session, err = handler.downloadUserInteractionFiles(session)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
+	return model.PrepareFiles(session, isInitialSession, sessionFileHandler)
+	// var err error
+
+	// if isInitialSession {
+	// 	session, err = handler.downloadLoraDir(session)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// }
+
+	// session, err = handler.downloadUserInteractionFiles(session)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return session, nil
 }
 
-func (handler *FileHandler) downloadLoraDir(session *types.Session) (*types.Session, error) {
-	if session.LoraDir == "" {
-		return session, nil
+func (handler *FileHandler) downloadFile(sessionID string, remotePath string, localPath string) error {
+	if err := os.MkdirAll(path.Dir(localPath), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create folder: %w", err)
 	}
-	downloadedPath, err := handler.downloadFolder(session.ID, "lora_dir", session.LoraDir)
-	if err != nil {
-		return nil, err
-	}
-	session.LoraDir = downloadedPath
-	return session, nil
-}
-
-// get the most recent user interaction - download all the files
-// and return the session with the filepaths remapped
-func (handler *FileHandler) downloadUserInteractionFiles(session *types.Session) (*types.Session, error) {
-	interaction, err := model.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	if interaction == nil {
-		return nil, fmt.Errorf("no model interaction")
-	}
-
-	remappedFilepaths := []string{}
-
-	for _, filepath := range interaction.Files {
-		downloadedPath, err := handler.downloadFile(session.ID, interaction.ID, filepath)
-		if err != nil {
-			return nil, err
-		}
-
-		remappedFilepaths = append(remappedFilepaths, downloadedPath)
-	}
-
-	interaction.Files = remappedFilepaths
-
-	newInteractions := []types.Interaction{}
-
-	for _, existingInteraction := range session.Interactions {
-		if existingInteraction.ID == interaction.ID {
-			newInteractions = append(newInteractions, *interaction)
-		} else {
-			newInteractions = append(newInteractions, existingInteraction)
-		}
-	}
-
-	session.Interactions = newInteractions
-
-	return session, nil
-}
-
-func (handler *FileHandler) downloadFile(sessionID string, localFolder string, filepath string) (string, error) {
-	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", sessionID, localFolder)
-	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
-		return "", fmt.Errorf("failed to create folder: %w", err)
-	}
-	filename := path.Base(filepath)
-	finalPath := path.Join(downloadFolder, filename)
-
-	if _, err := os.Stat(finalPath); err == nil {
-		return finalPath, nil
+	if _, err := os.Stat(localPath); err == nil {
+		return nil
 	}
 
 	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/download/file", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
-	urlValues.Add("path", filepath)
+	urlValues.Add("path", remotePath)
 
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
 
@@ -164,94 +140,92 @@ func (handler *FileHandler) downloadFile(sessionID string, localFolder string, f
 
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
-		return "", err
+		return err
 	}
 	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
+		return fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
 	}
 
-	file, err := os.Create(finalPath)
+	file, err := os.Create(localPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer file.Close()
 
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	log.Debug().
-		Msgf("🔵 runner downloaded interaction file: %s -> %s", fullURL, finalPath)
+		Msgf("🔵 runner downloaded interaction file: %s -> %s", remotePath, localPath)
 
-	return finalPath, nil
+	return nil
 }
 
-func (handler *FileHandler) downloadFolder(sessionID string, localFolder string, filepath string) (string, error) {
-	downloadFolder := path.Join(os.TempDir(), "helix", "downloads", sessionID, localFolder)
-
+func (handler *FileHandler) downloadFolder(sessionID string, remotePath string, localPath string) error {
 	// if the folder already exists, then assume we have already downloaded everything
-	if _, err := os.Stat(downloadFolder); err == nil {
-		log.Debug().Msgf("🟠 runner already downloaded folder: %s %s", sessionID, downloadFolder)
-		return downloadFolder, nil
+	if _, err := os.Stat(localPath); err == nil {
+		log.Debug().Msgf("🟠 runner already downloaded folder: %s %s", sessionID, localPath)
+		return nil
 	}
 
-	if err := os.MkdirAll(downloadFolder, os.ModePerm); err != nil {
-		return "", fmt.Errorf("failed to create folder: %w", err)
+	if err := os.MkdirAll(localPath, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create folder: %w", err)
 	}
 	url := system.URL(handler.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/session/%s/download/folder", handler.runnerID, sessionID)))
 	urlValues := urllib.Values{}
-	urlValues.Add("path", filepath)
+	urlValues.Add("path", remotePath)
 	fullURL := fmt.Sprintf("%s?%s", url, urlValues.Encode())
 
 	log.Debug().
-		Msgf("🔵 runner downloading folder: %s %s", sessionID, filepath)
+		Msgf("🔵 runner downloading folder: %s %s", sessionID, remotePath)
 
 	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
-		return "", err
+		return err
 	}
 	system.AddAutheaders(req, handler.httpClientOptions.Token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
+		return fmt.Errorf("unexpected status code for file download: %d %s", resp.StatusCode, fullURL)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	var buffer bytes.Buffer
 	_, err = buffer.Write(body)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	log.Debug().Msgf("🟠 runner expanding tar buffer folder: %s %s", sessionID, downloadFolder)
+	log.Debug().Msgf("🟠 runner expanding tar buffer folder: %s %s", sessionID, localPath)
 
-	err = system.ExpandTarBuffer(&buffer, downloadFolder)
+	err = system.ExpandTarBuffer(&buffer, localPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	log.Debug().Msgf("🟠 runner downloaded folder: %s %s", sessionID, downloadFolder)
+	log.Debug().Msgf("🟠 runner downloaded folder: %s %s", sessionID, localPath)
 
-	return downloadFolder, nil
+	return nil
 }
 
 func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, remoteFolder string) ([]string, error) {

@@ -101,6 +101,23 @@ func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFi
 	return cmd, nil
 }
 
+func (l *SDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+	var err error
+	if isInitialSession && session.Mode == types.SessionModeInference && session.LoraDir != "" {
+		session, err = downloadLoraDir(session, fileManager)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// download all files across all interactions
+	// and accumulate them in the last user interaction
+	if session.Mode == types.SessionModeFinetune {
+
+	}
+	return session, nil
+}
+
 func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
 	if config.MockRunner {
 		return l.getMockCommand(ctx, sessionFilter, config)
