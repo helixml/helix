@@ -244,8 +244,9 @@ func appendQuestionsToFile(
 	if err != nil {
 		return err
 	}
-	newContent := fmt.Sprintf("%s\n%s", existingContent, strings.Join(jsonLines, "\n"))
-	_, err = fs.UploadFile(ctx, path, strings.NewReader(newContent))
+	existingParts := strings.Split(existingContent, "\n")
+	newParts := append(existingParts, jsonLines...)
+	_, err = fs.UploadFile(ctx, path, strings.NewReader(strings.Join(newParts, "\n")))
 	if err != nil {
 		return err
 	}
