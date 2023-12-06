@@ -208,40 +208,25 @@ export const ConversationEditor: FC<{
             flexGrow: 0,
           }}
         >
-          {
-            editMode ? (
-              <Button
-                variant="contained"
-                color="secondary"
-                endIcon={<NavigateNextIcon />}
-                onClick={ submitData }
-              >
-                Start Training
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  sx={{
-                    mr: 2,
-                  }}
-                  endIcon={<EditIcon />}
-                  onClick={ () => setEditMode(true) }
-                >
-                  Edit Questions
-                </Button>
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<NavigateNextIcon />}
-                  onClick={ submitData }
-                >
-                  Start Training
-                </Button>
-              </>
-            )
-          }
+          <Button
+            variant="contained"
+            color="primary"
+            sx={{
+              mr: 2,
+            }}
+            endIcon={<EditIcon />}
+            onClick={ () => setEditMode(true) }
+          >
+            Edit Questions
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<NavigateNextIcon />}
+            onClick={ submitData }
+          >
+            Start Training
+          </Button>
         </Box>
 
       </Box>
@@ -249,13 +234,22 @@ export const ConversationEditor: FC<{
       <Box sx={{ height: editMode ? 600 : 0, width: '100%' }}>
         {
           editMode && (
-            <DataGrid2
-              autoSort
-              userSelect
-              rows={ questions }
-              columns={ columns }
-              loading={ false }
-            />
+            <Window
+              title="Edit Questions"
+              size="lg"
+              open
+              withCancel
+              cancelTitle="Close"
+              onCancel={ () => setEditMode(false) }
+            >
+              <DataGrid2
+                autoSort
+                userSelect
+                rows={ questions }
+                columns={ columns }
+                loading={ false }
+              />
+            </Window>
           )
         }
         {
