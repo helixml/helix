@@ -249,14 +249,10 @@ const Dashboard: FC = () => {
                 return (
                   <Interaction
                     key={ i }
-                    session_id={ viewingSession.id }
-                    session_name={ viewingSession.name }
-                    type={ viewingSession.type }
-                    mode={ viewingSession.mode }
-                    interaction={ interaction }
-                    error={ interaction.error }
+                    showFinetuning={ false }
                     serverConfig={ account.serverConfig }
-                    isLast={ i === viewingSession.interactions.length - 1 }
+                    interaction={ interaction }
+                    session={ viewingSession }
                   />
                 )   
               })
