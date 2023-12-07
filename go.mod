@@ -24,6 +24,13 @@ require (
 	github.com/sashabaranov/go-openai v1.17.3
 )
 
+require github.com/davecgh/go-spew v1.1.1
+
+require (
+	github.com/doug-martin/goqu v5.0.0+incompatible // indirect
+	github.com/doug-martin/goqu/v9 v9.19.0 // indirect
+)
+
 require (
 	cloud.google.com/go v0.110.8 // indirect
 	cloud.google.com/go/compute v1.23.0 // indirect
