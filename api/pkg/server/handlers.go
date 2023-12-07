@@ -393,7 +393,7 @@ func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req 
 	return model.GetSessionSummary(session)
 }
 
-func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) ([]*types.SessionSummary, error) {
+func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
 	reqContext := apiServer.getRequestContext(req)
 	query := store.GetSessionsQuery{}
 	query.Owner = reqContext.Owner
@@ -422,15 +422,24 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 		return nil, err
 	}
 
-	ret := []*types.SessionSummary{}
+	counter, err := apiServer.Store.GetSessionsCounter(reqContext.Ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	data := []*types.SessionSummary{}
 	for _, session := range sessions {
 		summary, err := model.GetSessionSummary(session)
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, summary)
+		data = append(data, summary)
 	}
-	return ret, nil
+
+	return &types.SessionsList{
+		Sessions: data,
+		Counter:  counter,
+	}, nil
 }
 
 func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
