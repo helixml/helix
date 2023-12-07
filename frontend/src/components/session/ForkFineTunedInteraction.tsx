@@ -78,27 +78,14 @@ export const ForkFineTunedInteraction: FC<{
       </Grid>
 
       {
-        viewMode && (
-          <Window
+        viewMode && interactionQuestions.loaded && (
+          <ConversationEditor
             title="View Questions"
-            size="lg"
-            fullHeight
-            open
-            withCancel
             cancelTitle="Close"
+            readOnly
+            initialQuestions={ interactionQuestions.questions }
             onCancel={ () => setViewMode(false) }
-          >
-            {
-              interactionQuestions.questions.length > 0 && (
-                <ConversationEditor
-                  readOnly
-                  initialQuestions={ interactionQuestions.questions }
-                  onCancel={ () => setViewMode(false) }
-                />
-              )
-            }
-            
-          </Window>
+          />
         )
       }
     </>

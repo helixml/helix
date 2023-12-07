@@ -1,30 +1,23 @@
-import React, { FC, useState, useMemo } from 'react'
-import { styled, useTheme } from '@mui/system'
+import React, { FC, useMemo } from 'react'
+import { useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
-import Avatar from '@mui/material/Avatar'
 import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
-import Link from '@mui/material/Link'
 import Stepper from '@mui/material/Stepper'
 import Step from '@mui/material/Step'
 import StepLabel from '@mui/material/StepLabel'
 import ReplayIcon from '@mui/icons-material/Replay'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
-import TerminalWindow from '../widgets/TerminalWindow'
-import ClickLink from '../widgets/ClickLink'
 import EditTextFineTunedQuestions from './EditTextFineTunedQuestions'
 import ForkFineTunedInteration from './ForkFineTunedInteraction'
-import LiveInteraction from './LiveInteraction'
 import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
+
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  SESSION_MODE_INFERENCE,
-  SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
   TEXT_DATA_PREP_STAGE_NONE,
@@ -32,15 +25,12 @@ import {
 
 import {
   ISession,
-  ISessionType,
-  ISessionMode,
   IInteraction,
   IServerConfig,
 } from '../../types'
 
 import {
   mapFileExtension,
-  isImage,
 } from '../../utils/filestore'
 
 import {
@@ -72,6 +62,19 @@ export const InteractionFinetune: FC<{
   const dataPrepErrors = useMemo(() => {
     return getTextDataPrepErrors(interaction)
   }, [
+    interaction,
+  ])
+
+  // in the case where we are a system interaction that is showing buttons
+  // to edit the dataset in the previous user interaction
+  // we need to know what that previous user interaction was
+  const userFilesInteractionID = useMemo(() => {
+    const currentInteractionIndex = session.interactions.findIndex((i) => i.id == interaction.id)
+    if(currentInteractionIndex == 0) return ''
+    const previousInteraction = session.interactions[currentInteractionIndex - 1]
+    return previousInteraction.id
+  }, [
+    session,
     interaction,
   ])
 
@@ -218,7 +221,7 @@ export const InteractionFinetune: FC<{
           >
             <EditTextFineTunedQuestions
               sessionID={ session.id }
-              interactionID={ interaction.id }
+              interactionID={ userFilesInteractionID }
             />
           </Box>
         )
@@ -227,7 +230,7 @@ export const InteractionFinetune: FC<{
         hasFineTuned && (
           <ForkFineTunedInteration
             sessionID={ session.id }
-            interactionID={ interaction.id }
+            interactionID={ userFilesInteractionID }
           />
         )
       }

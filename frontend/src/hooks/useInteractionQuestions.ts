@@ -12,29 +12,35 @@ export const useInteractionQuestions = () => {
   const api = useApi()
   const snackbar = useSnackbar()
   
+  const [ loaded, setLoaded ] = useState<boolean>(false)
   const [ questions, setQuestions ] = useState<IQuestionAnswer[]>([])
 
   const loadQuestions = useCallback(async (sessionID: string, interactionID: string) => {
     setQuestions([])
+    setLoaded(false)
     const data = await api.get<IConversations[]>(`/api/v1/sessions/${sessionID}/finetune/text/conversations/${interactionID}`)
-      if(!data) return
-      let qas: IQuestionAnswer[] = []
-      data.forEach(c => {
-        const qa: IQuestionAnswer = {
-          id: uuidv4(),
-          question: '',
-          answer: '',
+    if(!data) {
+      setLoaded(true)
+      return
+    }
+    let qas: IQuestionAnswer[] = []
+    data.forEach(c => {
+      const qa: IQuestionAnswer = {
+        id: uuidv4(),
+        question: '',
+        answer: '',
+      }
+      c.conversations.forEach(c => {
+        if(c.from == 'human') {
+          qa.question = c.value
+        } else if(c.from == 'gpt') {
+          qa.answer = c.value
         }
-        c.conversations.forEach(c => {
-          if(c.from == 'human') {
-            qa.question = c.value
-          } else if(c.from == 'gpt') {
-            qa.answer = c.value
-          }
-        })
-        qas.push(qa)
       })
-      setQuestions(qas)
+      qas.push(qa)
+    })
+    setQuestions(qas)
+    setLoaded(true)
   }, [])
 
   const saveQuestions = useCallback(async (sessionID: string, interactionID: string, qs: IQuestionAnswer[]): Promise<boolean | undefined> => {
@@ -65,6 +71,7 @@ export const useInteractionQuestions = () => {
   ])
 
   return {
+    loaded,
     questions,
     setQuestions,
     loadQuestions,
