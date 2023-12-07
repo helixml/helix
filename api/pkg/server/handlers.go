@@ -398,10 +398,30 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	query := store.GetSessionsQuery{}
 	query.Owner = reqContext.Owner
 	query.OwnerType = reqContext.OwnerType
+
+	// Extract offset and limit values from query parameters
+	offsetStr := req.URL.Query().Get("offset")
+	limitStr := req.URL.Query().Get("limit")
+
+	// Convert offset and limit values to integers
+	offset, err := strconv.Atoi(offsetStr)
+	if err != nil {
+		offset = 0 // Default value if offset is not provided or conversion fails
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		limit = 0 // Default value if limit is not provided or conversion fails
+	}
+
+	query.Offset = offset
+	query.Limit = limit
+
 	sessions, err := apiServer.Store.GetSessions(reqContext.Ctx, query)
 	if err != nil {
 		return nil, err
 	}
+
 	ret := []*types.SessionSummary{}
 	for _, session := range sessions {
 		summary, err := model.GetSessionSummary(session)
