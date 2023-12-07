@@ -258,28 +258,32 @@ func (d *PostgresStore) GetSessions(
 			FROM session
 			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
 			ORDER BY created DESC
-		`, SESSION_FIELDS_STRING), query.Owner, query.OwnerType)
+			OFFSET $3 LIMIT $4
+		`, SESSION_FIELDS_STRING), query.Owner, query.OwnerType, query.Offset, query.Limit)
 	} else if query.Owner != "" {
 		rows, err = d.db.Query(fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE owner = $1 AND parent_session = ''
 			ORDER BY created DESC
-		`, SESSION_FIELDS_STRING), query.Owner)
+			OFFSET $2 LIMIT $3
+		`, SESSION_FIELDS_STRING), query.Owner, query.Offset, query.Limit)
 	} else if query.OwnerType != "" {
 		rows, err = d.db.Query(fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE owner_type = $1 AND parent_session = ''
 			ORDER BY created DESC
-		`, SESSION_FIELDS_STRING), query.OwnerType)
+			OFFSET $2 LIMIT $3
+		`, SESSION_FIELDS_STRING), query.OwnerType, query.Offset, query.Limit)
 	} else {
 		rows, err = d.db.Query(fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE parent_session = ''
 			ORDER BY created DESC
-		`, SESSION_FIELDS_STRING))
+			OFFSET $1 LIMIT $2
+		`, SESSION_FIELDS_STRING), query.Offset, query.Limit)
 	}
 
 	if err != nil {
