@@ -15,7 +15,8 @@ export const useInteractionQuestions = () => {
   const [ questions, setQuestions ] = useState<IQuestionAnswer[]>([])
 
   const loadQuestions = useCallback(async (sessionID: string, interactionID: string) => {
-    const data = await api.get<IConversations[]>(`/api/v1/sessions/${sessionID}/finetune/text/conversations`)
+    setQuestions([])
+    const data = await api.get<IConversations[]>(`/api/v1/sessions/${sessionID}/finetune/text/conversations/${interactionID}`)
       if(!data) return
       let qas: IQuestionAnswer[] = []
       data.forEach(c => {
@@ -54,7 +55,7 @@ export const useInteractionQuestions = () => {
       }
       data.push(c)
     })
-    await api.put(`/api/v1/sessions/${sessionID}/finetune/text/conversations`, data, {}, {
+    await api.put(`/api/v1/sessions/${sessionID}/finetune/text/conversations/${interactionID}`, data, {}, {
       loading: true,
     })
     snackbar.success('Questions saved')

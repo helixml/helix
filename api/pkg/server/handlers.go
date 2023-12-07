@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -482,45 +481,20 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	return apiServer.Controller.AddDocumentsToSession(req.Context(), session, *userInteraction)
 }
 
-func getSessionFinetuneFile(session *types.Session) (string, error) {
-	userInteraction, err := model.GetUserInteraction(session)
-	if err != nil {
-		return "", err
-	}
-	if len(userInteraction.Files) == 0 {
-		return "", fmt.Errorf("no files found")
-	}
-	foundFile := ""
-	for _, filepath := range userInteraction.Files {
-		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
-			foundFile = filepath
-			break
-		}
-	}
-
-	if foundFile == "" {
-		return "", fmt.Errorf("file is not a jsonl file")
-	}
-
-	return foundFile, nil
-}
-
 func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
+	interactionID := vars["interaction"]
 	reqContext := apiServer.getRequestContext(req)
 
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if session == nil {
+	if session == nil || err != nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		return nil, fmt.Errorf("access denied")
 	}
-	foundFile, err := getSessionFinetuneFile(session)
+	foundFile, err := model.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -530,20 +504,18 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
+	interactionID := vars["interaction"]
 	reqContext := apiServer.getRequestContext(req)
 
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if session == nil {
+	if session == nil || err != nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		return nil, fmt.Errorf("access denied")
 	}
 
-	foundFile, err := getSessionFinetuneFile(session)
+	foundFile, err := model.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
 		return nil, err
 	}

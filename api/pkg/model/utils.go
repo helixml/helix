@@ -6,12 +6,50 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 // define 1 GB as a uint64 number of bytes
 const GB uint64 = 1024 * 1024 * 1024
 const MB uint64 = 1024 * 1024
+
+func GetInteractionFinetuneFile(session *types.Session, interactionID string) (string, error) {
+	interaction, err := GetInteraction(session, interactionID)
+
+	fmt.Printf("interaction --------------------------------------\n")
+	spew.Dump(interaction)
+	fmt.Printf("interactionID --------------------------------------\n")
+	spew.Dump(interactionID)
+	if err != nil {
+		return "", err
+	}
+	if len(interaction.Files) == 0 {
+		return "", fmt.Errorf("no files found")
+	}
+	foundFile := ""
+	for _, filepath := range interaction.Files {
+		if path.Base(filepath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+			foundFile = filepath
+			break
+		}
+	}
+
+	if foundFile == "" {
+		return "", fmt.Errorf("file is not a jsonl file")
+	}
+
+	return foundFile, nil
+}
+
+func GetInteraction(session *types.Session, id string) (*types.Interaction, error) {
+	for _, interaction := range session.Interactions {
+		if interaction.ID == id {
+			return &interaction, nil
+		}
+	}
+	return nil, fmt.Errorf("interaction not found: %s", id)
+}
 
 // get the most recent user interaction
 func GetUserInteraction(session *types.Session) (*types.Interaction, error) {

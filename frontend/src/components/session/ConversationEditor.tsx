@@ -21,8 +21,9 @@ import {
 
 export const ConversationEditor: FC<{
   readOnly?: boolean,
+  title?: string,
   initialQuestions: IQuestionAnswer[],
-  onSubmit: {
+  onSubmit?: {
     (questions: IQuestionAnswer[]): void,
   },
   onCancel: {
@@ -30,6 +31,7 @@ export const ConversationEditor: FC<{
   }
 }> = ({
   readOnly = false,
+  title = 'Edit Questions',
   initialQuestions,
   onSubmit,
   onCancel,
@@ -134,14 +136,15 @@ export const ConversationEditor: FC<{
 
   return (
     <Window
-      title="Edit Questions"
+      title={ title }
       size="lg"
       fullHeight
       open
       withCancel
       submitTitle="Save"
       onCancel={ onCancel }
-      onSubmit={ () => {
+      onSubmit={ readOnly ? undefined : () => {
+        if(!onSubmit) return
         onSubmit(questions)
       }}
     >

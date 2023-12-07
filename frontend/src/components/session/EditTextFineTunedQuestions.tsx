@@ -1,16 +1,13 @@
 import React, { FC, useState, useEffect, useCallback } from 'react'
-import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
+import Grid from '@mui/material/Grid'
 
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import EditIcon from '@mui/icons-material/Edit'
 
 import useApi from '../../hooks/useApi'
 import Window from '../widgets/Window'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
-
 import ConversationEditor from './ConversationEditor'
 
 import useSnackbar from '../../hooks/useSnackbar'
@@ -38,16 +35,21 @@ export const EditTextFineTunedQuestions: FC<{
   ])
 
   useEffect(() => {
+    if(!editMode) {
+      interactionQuestions.setQuestions([])
+      return
+    }
     interactionQuestions.loadQuestions(sessionID, interactionID)
   }, [
+    editMode,
     sessionID,
     interactionID,
   ])
 
   return (
-    <Box>
-      <Row>
-        <Cell grow>
+    <>
+      <Grid container spacing={ 0 }>
+        <Grid item sm={ 12 } md={ 6 } sx={{pr:2}}>
           <Typography gutterBottom>
             Your documents have been turned into question answer pairs ready for fine tuning.
           </Typography>
@@ -62,11 +64,15 @@ export const EditTextFineTunedQuestions: FC<{
               </Typography>
             )
           }
-        </Cell>
-        <Cell>
+        </Grid>
+        <Grid item sm={ 12 } md={ 6 } sx={{
+          textAlign: 'right',
+          pt: 2,
+        }}>
           <Button
             variant="contained"
             color="primary"
+            size="small"
             sx={{
               mr: 2,
             }}
@@ -78,14 +84,15 @@ export const EditTextFineTunedQuestions: FC<{
           <Button
             variant="contained"
             color="secondary"
+            size="small"
             endIcon={<NavigateNextIcon />}
             onClick={ startFinetuning }
           >
             Start Training
           </Button>
-        </Cell>
+        </Grid>
 
-      </Row>
+      </Grid>
           
       {
         editMode && (
@@ -98,21 +105,25 @@ export const EditTextFineTunedQuestions: FC<{
             cancelTitle="Close"
             onCancel={ () => setEditMode(false) }
           >
-            <ConversationEditor
-              initialQuestions={ interactionQuestions.questions }
-              onSubmit={ async (questions) => {
-                const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
-                if(saved) {
-                  setEditMode(false)
-                }
-              }}
-              onCancel={ () => setEditMode(false) }
-            />
+            {
+              interactionQuestions.questions.length > 0 && (
+                <ConversationEditor
+                  initialQuestions={ interactionQuestions.questions }
+                  onSubmit={ async (questions) => {
+                    const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
+                    if(saved) {
+                      setEditMode(false)
+                    }
+                  }}
+                  onCancel={ () => setEditMode(false) }
+                />
+              )
+            }
           </Window>
         )
       }
     
-    </Box>
+    </>
   )  
 }
 

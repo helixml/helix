@@ -1,23 +1,14 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
-import TextField from '@mui/material/TextField'
+import Typography from '@mui/material/Typography'
 
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 
 import useAccount from '../../hooks/useAccount'
-import Interaction from './Interaction'
 import ImageFineTuneLabel from './ImageFineTuneLabel'
-
-import {
-  SESSION_MODE_INFERENCE,
-  SESSION_TYPE_TEXT,
-} from '../../types'
-
-import {
-  getSystemMessage,
-} from '../../utils/session'
+import InteractionContainer from './InteractionContainer'
 
 export const ImageFineTuneLabels: FC<{
   showImageLabelErrors: boolean,
@@ -54,14 +45,13 @@ export const ImageFineTuneLabels: FC<{
           mb: 4,
         }}
       >
-        <Interaction
-          session_id=""
-          session_name=""
-          interaction={ getSystemMessage('Now, add a label to each of your images.  Try to add as much detail as possible to each image:') }
-          type={ SESSION_TYPE_TEXT }
-          mode={ SESSION_MODE_INFERENCE }
-          serverConfig={ account.serverConfig }
-        />
+        <InteractionContainer
+          name="System"
+        >
+          <Typography className="interactionMessage">
+            Now, add a label to each of your images.  Try to add as much detail as possible to each image:
+          </Typography>
+        </InteractionContainer>
       </Box>
     
       <Grid container spacing={3} direction="row" justifyContent="flex-start">

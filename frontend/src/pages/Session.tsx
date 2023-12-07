@@ -5,6 +5,7 @@ import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
+import LiveInteraction from '../components/session/LiveInteraction'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
@@ -31,7 +32,6 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
@@ -275,26 +275,26 @@ const Session: FC = () => {
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
+                    const isLast = i == interactionsLength - 1
                     if(!session.data) return null
                     return (
                       <Interaction
                         key={ i }
-                        session_id={ session.data.id }
-                        session_name={ session.data.name }
-                        type={ session.data?.type || SESSION_TYPE_TEXT}
-                        mode={ session.data?.mode || SESSION_MODE_INFERENCE }
-                        interaction={ interaction }
-                        error={ interaction.error }
                         serverConfig={ account.serverConfig }
-                        isLast={ i === interactionsLength - 1 }
+                        interaction={ interaction }
+                        session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
-                        onMessageChange={ scrollToBottom }
-                        onClone={ (interactionID: string) => {
-                          router.setParams({
-                            cloneInteraction: interactionID,
-                          })
-                        } }
-                      />
+                      >
+                        {
+                          isLast && !interaction.finished && (
+                            <LiveInteraction
+                              session_id={ session.data.id }
+                              interaction={ interaction }
+                              onMessageChange={ scrollToBottom }
+                            />
+                          )
+                        }
+                      </Interaction>
                     )   
                   })
                 }

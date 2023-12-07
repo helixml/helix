@@ -10,17 +10,11 @@ import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 import FileUpload from '../widgets/FileUpload'
 
 import useAccount from '../../hooks/useAccount'
-import Interaction from './Interaction'
+import InteractionContainer from './InteractionContainer'
 
 import {
-  SESSION_MODE_INFERENCE,
-  SESSION_TYPE_TEXT,
   buttonStates,
 } from '../../types'
-
-import {
-  getSystemMessage,
-} from '../../utils/session'
 
 export const ImageFineTuneInputs: FC<{
   initialFiles?: File[],
@@ -71,14 +65,13 @@ export const ImageFineTuneInputs: FC<{
           mb: 4,
         }}
       >
-        <Interaction
-          session_id=""
-          session_name=""
-          interaction={ getSystemMessage('Upload some images you want your model to learn from:') }
-          type={ SESSION_TYPE_TEXT }
-          mode={ SESSION_MODE_INFERENCE }
-          serverConfig={ account.serverConfig }
-        />
+        <InteractionContainer
+          name="System"
+        >
+          <Typography className="interactionMessage">
+            Upload some images you want your model to learn from:
+          </Typography>
+        </InteractionContainer>
       </Box>
       <FileUpload
         sx={{
