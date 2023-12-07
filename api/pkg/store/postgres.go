@@ -244,47 +244,48 @@ func (d *PostgresStore) GetBot(
 	return scanBotRow(row)
 }
 
-func (d *PostgresStore) GetSessions(
-	ctx context.Context,
-	query GetSessionsQuery,
-) ([]*types.Session, error) {
-	var rows *sql.Rows
-	var err error
-
-	/// XXX SECURITY not sure this is what we want - audit who can set these values?
+func (d *PostgresStore) getSessionsSQL(query GetSessionsQuery, selectCols string) (string, []interface{}) {
 	if query.Owner != "" && query.OwnerType != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
+		return fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
 			ORDER BY created DESC
 			OFFSET $3 LIMIT $4
-		`, SESSION_FIELDS_STRING), query.Owner, query.OwnerType, query.Offset, query.Limit)
+		`, selectCols), []interface{}{query.Owner, query.OwnerType, query.Offset, query.Limit}
 	} else if query.Owner != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
+		return fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE owner = $1 AND parent_session = ''
 			ORDER BY created DESC
 			OFFSET $2 LIMIT $3
-		`, SESSION_FIELDS_STRING), query.Owner, query.Offset, query.Limit)
+		`, selectCols), []interface{}{query.Owner, query.Offset, query.Limit}
 	} else if query.OwnerType != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
+		return fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE owner_type = $1 AND parent_session = ''
 			ORDER BY created DESC
 			OFFSET $2 LIMIT $3
-		`, SESSION_FIELDS_STRING), query.OwnerType, query.Offset, query.Limit)
+		`, selectCols), []interface{}{query.OwnerType, query.Offset, query.Limit}
 	} else {
-		rows, err = d.db.Query(fmt.Sprintf(`
+		return fmt.Sprintf(`
 			SELECT %s
 			FROM session
 			WHERE parent_session = ''
 			ORDER BY created DESC
 			OFFSET $1 LIMIT $2
-		`, SESSION_FIELDS_STRING), query.Offset, query.Limit)
+		`, selectCols), []interface{}{query.OwnerType, query.Offset, query.Limit}
 	}
+}
+
+func (d *PostgresStore) GetSessions(
+	ctx context.Context,
+	query GetSessionsQuery,
+) ([]*types.Session, error) {
+	sql, values := d.getSessionsSQL(query, SESSION_FIELDS_STRING)
+	rows, err := d.db.Query(sql, values...)
 
 	if err != nil {
 		return nil, err
@@ -305,6 +306,22 @@ func (d *PostgresStore) GetSessions(
 	}
 
 	return sessions, nil
+}
+
+func (d *PostgresStore) GetSessionsCounter(
+	ctx context.Context,
+	query GetSessionsQuery,
+) (*types.Counter, error) {
+	sql, values := d.getSessionsSQL(query, "count(*) as count")
+	row := d.db.QueryRow(sql, values...)
+	counter := &types.Counter{}
+	err := row.Scan(
+		&counter.Count,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return counter, nil
 }
 
 func (d *PostgresStore) GetBots(

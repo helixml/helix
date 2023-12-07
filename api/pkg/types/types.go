@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+type Counter struct {
+	Count int `json:"count"`
+}
+
 type BalanceTransferData struct {
 	JobID           string `json:"job_id"`
 	StripePaymentID string `json:"stripe_payment_id"`
@@ -61,6 +65,14 @@ type Interaction struct {
 // gives us a quick way to add settings
 type SessionConfig struct {
 	OriginalMode SessionMode `json:"original_mode"`
+}
+
+// the packet we put a list of sessions into so pagination is supported and we know the total amount
+type SessionsList struct {
+	// the list of sessions
+	Sessions []*SessionSummary `json:"sessions"`
+	// the total number of sessions that match the query
+	Counter *Counter `json:"counter"`
 }
 
 type Session struct {
