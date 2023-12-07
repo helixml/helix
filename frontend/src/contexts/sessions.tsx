@@ -6,11 +6,10 @@ import {
   ISession,
   ISessionSummary,
   ISessionMetaUpdate,
-} from '../types'
-
-import {
+  ISessionsList,
+  IPaginationState,
   SESSION_PAGINATION_PAGE_LIMIT,
-} from '../constants'
+} from '../types'
 
 import {
   getSessionSummary,
@@ -18,8 +17,11 @@ import {
 
 export interface ISessionsContext {
   initialized: boolean,
+  loading: boolean,
+  pagination: IPaginationState,
   sessions: ISessionSummary[],
-  loadSessions: (offset: number, limit: number) => void,
+  advancePage: () => void,
+  loadSessions: () => void,
   addSesssion: (session: ISession) => void,
   deleteSession: (id: string) => Promise<boolean>,
   renameSession: (id: string, name: string) => Promise<boolean>,
@@ -27,7 +29,14 @@ export interface ISessionsContext {
 
 export const SessionsContext = createContext<ISessionsContext>({
   initialized: false,
+  loading: false,
+  pagination: {
+    total: 0,
+    limit: 0,
+    offset: 0,
+  },
   sessions: [],
+  advancePage: () => {},
   loadSessions: () => {},
   addSesssion: (session: ISession) => {},
   deleteSession: (id: string) => Promise.resolve(false),
@@ -38,32 +47,60 @@ export const useSessionsContext = (): ISessionsContext => {
   const api = useApi()
   const account = useAccount()
 
-  const [ offset, setOffset ] = useState(0)
-  const [ limit, setLimit ] = useState(SESSION_PAGINATION_PAGE_LIMIT)
+  // in this model - offset is always zero - i.e. we are not paginating
+  // just increasing the limit as we scroll down
+  const [ loading, setLoading ] = useState(false)
+  const [ page, setPage ] = useState(1)
+  const [ pagination, setPagination ] = useState<IPaginationState>({
+    total: 0,
+    limit: SESSION_PAGINATION_PAGE_LIMIT,
+    offset: 0,
+  })
+  
   const [ initialized, setInitialized ] = useState(false)
   const [ sessions, setSessions ] = useState<ISessionSummary[]>([])
 
-  const loadSessions = useCallback(async (offset: number, limit: number) => {
-    const result = await api.get<ISessionSummary[]>('/api/v1/sessions')
-    if(!result) return
-    setSessions(result)
-  }, [])
-
-  const reloadSessions = useCallback(async () => {
-    await loadSessions(offset, limit)
+  const loadSessions = useCallback(async () => {
+    const limit = page * SESSION_PAGINATION_PAGE_LIMIT
+    // this means we have already loaded all the sessions
+    if(limit > pagination.total && pagination.total > 0) return
+    setLoading(true)
+    const result = await api.get<ISessionsList>('/api/v1/sessions', {
+      params: {
+        limit,
+        offset: 0,
+      }
+    })
+    if(!result) {
+      setLoading(false)
+      return
+    }
+    setSessions(result.sessions)
+    setPagination({
+      total: result.counter.count,
+      limit,
+      offset: 0,
+    })
+    setLoading(false)
   }, [
-    offset,
-    limit,
-    loadSessions,
+    page,
+    pagination,
   ])
+
+  // increase the limit whilst anchoring the offset
+  // means we scroll down adding more sessions as we scroll
+  const advancePage = useCallback(() => {
+    setPage(page => page + 1)
+  }, [])
 
   const deleteSession = useCallback(async (id: string): Promise<boolean> => {
     const result = await api.delete<ISession>(`/api/v1/sessions/${id}`)
     if(!result) return false
-    await reloadSessions()
+    await loadSessions()
     return true
   }, [
-    reloadSessions,
+    page,
+    loadSessions,
   ])
 
   const renameSession = useCallback(async (id: string, name: string): Promise<boolean> => {
@@ -72,10 +109,10 @@ export const useSessionsContext = (): ISessionsContext => {
       name,
     })
     if(!result) return false
-    await reloadSessions()
+    await loadSessions()
     return true
   }, [
-    reloadSessions,
+    loadSessions,
   ])
 
   const addSesssion = useCallback((session: ISession) => {
@@ -85,25 +122,31 @@ export const useSessionsContext = (): ISessionsContext => {
 
   useEffect(() => {
     if(!account.user) return
-    reloadSessions()
+    loadSessions()
     if(!initialized) {
       setInitialized(true)
     }
   }, [
     account.user,
-    reloadSessions,
+    page,
   ])
 
   const contextValue = useMemo<ISessionsContext>(() => ({
     initialized,
+    loading,
+    pagination,
     sessions,
+    advancePage,
     loadSessions,
     addSesssion,
     deleteSession,
     renameSession,
   }), [
     initialized,
+    loading,
+    pagination,
     sessions,
+    advancePage,
     loadSessions,
     addSesssion,
     deleteSession,

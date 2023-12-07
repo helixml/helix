@@ -15,6 +15,8 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -24,7 +26,8 @@ import (
 type PostgresStore struct {
 	options          StoreOptions
 	connectionString string
-	db               *sql.DB
+	pgDb             *sql.DB
+	db               *goqu.Database
 }
 
 func NewPostgresStore(
@@ -38,13 +41,16 @@ func NewPostgresStore(
 		options.Port,
 		options.Database,
 	)
-	db, err := sql.Open("postgres", connectionString)
+	pgDb, err := sql.Open("postgres", connectionString)
 	if err != nil {
 		return nil, err
 	}
+	dialect := goqu.Dialect("postgres")
+	db := dialect.DB(pgDb)
 	store := &PostgresStore{
 		connectionString: connectionString,
 		options:          options,
+		pgDb:             pgDb,
 		db:               db,
 	}
 	if options.AutoMigrate {
@@ -221,7 +227,7 @@ func (d *PostgresStore) GetSession(
 	if sessionID == "" {
 		return nil, fmt.Errorf("sessionID cannot be empty")
 	}
-	row := d.db.QueryRow(fmt.Sprintf(`
+	row := d.pgDb.QueryRow(fmt.Sprintf(`
 		SELECT %s
 		FROM session WHERE id = $1
 	`, SESSION_FIELDS_STRING), sessionID)
@@ -236,7 +242,7 @@ func (d *PostgresStore) GetBot(
 	if botID == "" {
 		return nil, fmt.Errorf("botID cannot be empty")
 	}
-	row := d.db.QueryRow(fmt.Sprintf(`
+	row := d.pgDb.QueryRow(fmt.Sprintf(`
 		SELECT %s
 		FROM bot WHERE id = $1
 	`, BOT_FIELDS_STRING), botID)
@@ -244,49 +250,40 @@ func (d *PostgresStore) GetBot(
 	return scanBotRow(row)
 }
 
-func (d *PostgresStore) getSessionsSQL(query GetSessionsQuery, selectCols string) (string, []interface{}) {
-	if query.Owner != "" && query.OwnerType != "" {
-		return fmt.Sprintf(`
-			SELECT %s
-			FROM session
-			WHERE owner = $1 AND owner_type = $2 AND parent_session = ''
-			ORDER BY created DESC
-			OFFSET $3 LIMIT $4
-		`, selectCols), []interface{}{query.Owner, query.OwnerType, query.Offset, query.Limit}
-	} else if query.Owner != "" {
-		return fmt.Sprintf(`
-			SELECT %s
-			FROM session
-			WHERE owner = $1 AND parent_session = ''
-			ORDER BY created DESC
-			OFFSET $2 LIMIT $3
-		`, selectCols), []interface{}{query.Owner, query.Offset, query.Limit}
-	} else if query.OwnerType != "" {
-		return fmt.Sprintf(`
-			SELECT %s
-			FROM session
-			WHERE owner_type = $1 AND parent_session = ''
-			ORDER BY created DESC
-			OFFSET $2 LIMIT $3
-		`, selectCols), []interface{}{query.OwnerType, query.Offset, query.Limit}
-	} else {
-		return fmt.Sprintf(`
-			SELECT %s
-			FROM session
-			WHERE parent_session = ''
-			ORDER BY created DESC
-			OFFSET $1 LIMIT $2
-		`, selectCols), []interface{}{query.OwnerType, query.Offset, query.Limit}
+func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
+	where := goqu.Ex{}
+	if query.Owner != "" {
+		where["owner"] = query.Owner
 	}
+	if query.OwnerType != "" {
+		where["owner_type"] = query.OwnerType
+	}
+	return where
 }
 
 func (d *PostgresStore) GetSessions(
 	ctx context.Context,
 	query GetSessionsQuery,
 ) ([]*types.Session, error) {
-	sql, values := d.getSessionsSQL(query, SESSION_FIELDS_STRING)
-	rows, err := d.db.Query(sql, values...)
+	sqlQuery := d.db.
+		From("session").
+		Where(d.getSessionsWhere(query)).
+		Order(goqu.I("created").Desc())
 
+	if query.Limit > 0 {
+		sqlQuery = sqlQuery.Limit(uint(query.Limit))
+	}
+
+	if query.Offset > 0 {
+		sqlQuery = sqlQuery.Offset(uint(query.Offset))
+	}
+
+	sql, values, err := sqlQuery.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := d.pgDb.Query(sql, values...)
 	if err != nil {
 		return nil, err
 	}
@@ -312,55 +309,41 @@ func (d *PostgresStore) GetSessionsCounter(
 	ctx context.Context,
 	query GetSessionsQuery,
 ) (*types.Counter, error) {
-	sql, values := d.getSessionsSQL(query, "count(*) as count")
-	row := d.db.QueryRow(sql, values...)
-	counter := &types.Counter{}
-	err := row.Scan(
-		&counter.Count,
-	)
+	count, err := d.db.
+		From("session").
+		Where(d.getSessionsWhere(query)).
+		Count()
 	if err != nil {
 		return nil, err
 	}
-	return counter, nil
+	return &types.Counter{
+		Count: count,
+	}, nil
 }
 
 func (d *PostgresStore) GetBots(
 	ctx context.Context,
 	query GetBotsQuery,
 ) ([]*types.Bot, error) {
-	var rows *sql.Rows
-	var err error
-
-	/// XXX SECURITY not sure this is what we want - audit who can set these values?
-	if query.Owner != "" && query.OwnerType != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
-			SELECT %s
-			FROM bot
-			WHERE owner = $1 AND owner_type = $2
-			ORDER BY created DESC
-		`, BOT_FIELDS_STRING), query.Owner, query.OwnerType)
-	} else if query.Owner != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
-			SELECT %s
-			FROM bot
-			WHERE owner = $1
-			ORDER BY created DESC
-		`, BOT_FIELDS_STRING), query.Owner)
-	} else if query.OwnerType != "" {
-		rows, err = d.db.Query(fmt.Sprintf(`
-			SELECT %s
-			FROM bot
-			WHERE owner_type = $1
-			ORDER BY created DESC
-		`, BOT_FIELDS_STRING), query.OwnerType)
-	} else {
-		rows, err = d.db.Query(fmt.Sprintf(`
-			SELECT %s
-			FROM bot
-			ORDER BY created DESC
-		`, BOT_FIELDS_STRING))
+	where := goqu.Ex{}
+	if query.Owner != "" {
+		where["owner"] = query.Owner
+	}
+	if query.OwnerType != "" {
+		where["owner_type"] = query.OwnerType
 	}
 
+	sqlQuery := d.db.
+		From("bot").
+		Where(where).
+		Order(goqu.I("created").Desc())
+
+	sql, values, err := sqlQuery.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := d.pgDb.Query(sql, values...)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +373,7 @@ func (d *PostgresStore) CreateSession(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.db.Exec(fmt.Sprintf(`
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		INSERT INTO session (
 			%s
 		) VALUES (
@@ -412,7 +395,7 @@ func (d *PostgresStore) CreateBot(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.db.Exec(fmt.Sprintf(`
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		INSERT INTO bot (
 			%s
 		) VALUES (
@@ -440,7 +423,7 @@ func (d *PostgresStore) UpdateSession(
 	// prepend the ID to the values
 	values = append([]interface{}{session.ID}, values...)
 
-	_, err = d.db.Exec(fmt.Sprintf(`
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		UPDATE session SET
 			%s
 		WHERE id = $1
@@ -461,7 +444,7 @@ func (d *PostgresStore) UpdateBot(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.db.Exec(fmt.Sprintf(`
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		UPDATE bot SET
 			%s
 		WHERE id = $1
@@ -482,7 +465,7 @@ func (d *PostgresStore) DeleteSession(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.db.Exec(`
+	_, err = d.pgDb.Exec(`
 		DELETE FROM session WHERE id = $1
 	`, sessionID)
 	if err != nil {
@@ -500,7 +483,7 @@ func (d *PostgresStore) DeleteBot(
 	if err != nil {
 		return nil, err
 	}
-	_, err = d.db.Exec(`
+	_, err = d.pgDb.Exec(`
 		DELETE FROM bot WHERE id = $1
 	`, botID)
 	if err != nil {
@@ -515,7 +498,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 	data types.SessionMetaUpdate,
 ) (*types.Session, error) {
 	if data.Owner != "" {
-		_, err := d.db.Exec(`
+		_, err := d.pgDb.Exec(`
 		UPDATE session SET
 			name = $2,
 			owner = $3,
@@ -526,7 +509,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 			return nil, err
 		}
 	} else {
-		_, err := d.db.Exec(`
+		_, err := d.pgDb.Exec(`
 		UPDATE session SET
 			name = $2
 		WHERE id = $1
@@ -547,7 +530,7 @@ func (d *PostgresStore) GetBalanceTransfers(
 	var rows *sql.Rows
 	var err error
 
-	rows, err = d.db.Query(`
+	rows, err = d.pgDb.Query(`
 		SELECT
 			id, created, owner, owner_type, payment_type, amount, data
 		FROM
@@ -623,7 +606,7 @@ balance_transfer (
 	data
 )
 values ($1, $2, $3, $4, $5, $6)`
-	_, err = d.db.Exec(
+	_, err = d.pgDb.Exec(
 		sqlStatement,
 		transfer.ID,
 		transfer.Owner,
@@ -652,7 +635,7 @@ values ($1, $2, $3, $4)
 returning key
 `
 	var id string
-	err = d.db.QueryRow(
+	err = d.pgDb.QueryRow(
 		sqlStatement,
 		owner.Owner,
 		owner.OwnerType,
@@ -687,7 +670,7 @@ from
 where
 	owner = $1 and owner_type = $2
 `
-	rows, err := d.db.Query(
+	rows, err := d.pgDb.Query(
 		sqlStatement,
 		query.Owner,
 		query.OwnerType,
@@ -719,7 +702,7 @@ func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) e
 	sqlStatement := `
 delete from api_key where key = $1 and owner = $2 and owner_type = $3
 `
-	_, err := d.db.Exec(
+	_, err := d.pgDb.Exec(
 		sqlStatement,
 		apiKey.Key,
 		apiKey.Owner,
@@ -738,7 +721,7 @@ from
 where
 	key = $1
 `
-	row := d.db.QueryRow(sqlStatement, apiKey)
+	row := d.pgDb.QueryRow(sqlStatement, apiKey)
 	err := row.Scan(&key.Key, &key.Owner, &key.OwnerType)
 	if err != nil {
 		if err == sql.ErrNoRows {
