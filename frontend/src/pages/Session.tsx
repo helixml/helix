@@ -27,6 +27,7 @@ import useWebsocket from '../hooks/useWebsocket'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
 import {
+  ICloneTextMode,
   ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
@@ -117,6 +118,16 @@ const Session: FC = () => {
     session.reload,
     files,
     inputValue,
+  ])
+
+  const onClone = useCallback(async (interactionID: string, mode: ICloneTextMode) => {
+    if(!session.data) return
+    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/clone/${interactionID}/${mode}`, undefined)
+    if(!newSession) return
+    console.log('--------------------------------------------')
+    console.dir(newSession)
+  }, [
+    session.data,
   ])
 
   const retryFinetuneErrors = useCallback(async () => {
@@ -284,6 +295,7 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        onClone={ (mode) => onClone(interaction.id, mode) }
                       >
                         {
                           isLast && !interaction.finished && (
