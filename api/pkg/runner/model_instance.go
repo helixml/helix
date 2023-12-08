@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"syscall"
 	"time"
 
@@ -152,6 +153,19 @@ func NewModelInstance(
 
 */
 
+func (instance *ModelInstance) getSessionFileHander(session *types.Session) *SessionFileHandler {
+	return &SessionFileHandler{
+		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
+		sessionID: session.ID,
+		downloadFile: func(sessionID string, remotePath string, localPath string) error {
+			return instance.fileHandler.downloadFile(sessionID, remotePath, localPath)
+		},
+		downloadFolder: func(sessionID string, remotePath string, localPath string) error {
+			return instance.fileHandler.downloadFolder(sessionID, remotePath, localPath)
+		},
+	}
+}
+
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
 func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
@@ -159,7 +173,7 @@ func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *t
 	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
 
-	task, err := instance.model.GetTask(session)
+	task, err := instance.model.GetTask(session, instance.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error getting task: %s", err.Error())
 		return nil, err
@@ -176,8 +190,7 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.fileHandler.downloadSession(instance.model, session, isInitialSession)
-
+	preparedSession, err := instance.model.PrepareFiles(session, isInitialSession, instance.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
 		instance.queuedSession = nil

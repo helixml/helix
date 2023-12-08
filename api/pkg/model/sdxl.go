@@ -30,7 +30,7 @@ func (l *SDXL) GetType() types.SessionType {
 	return types.SessionTypeImage
 }
 
-func (l *SDXL) GetTask(session *types.Session) (*types.RunnerTask, error) {
+func (l *SDXL) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
 	return getGenericTask(session)
 }
 

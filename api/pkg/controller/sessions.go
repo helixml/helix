@@ -124,6 +124,17 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
+func (c *Controller) CloneTextFinetuneInteraction(
+	ctx context.Context,
+	session *types.Session,
+	userInteraction *types.Interaction,
+	mode types.CloneTextType,
+) (*types.Session, error) {
+	// sessionID := system.GenerateUUID()
+
+	return session, nil
+}
+
 // called once we've done the pre-processing for both create and update calls to sessions
 func (c *Controller) SessionRunner(sessionData *types.Session) {
 	// first we prepare the seession - which could mean whatever the model implementation wants

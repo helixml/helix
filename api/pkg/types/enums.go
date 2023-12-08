@@ -77,6 +77,32 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type CloneTextType string
+
+const (
+	CloneTextTypeNone          CloneTextType = ""
+	CloneTextTypeJustData      CloneTextType = "just_data"
+	CloneTextTypeWithQuestions CloneTextType = "with_questions"
+	CloneTextTypeAll           CloneTextType = "all"
+)
+
+func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneTextType, error) {
+	switch cloneTextType {
+	case string(CloneTextTypeJustData):
+		return CloneTextTypeJustData, nil
+	case string(CloneTextTypeWithQuestions):
+		return CloneTextTypeWithQuestions, nil
+	case string(CloneTextTypeAll):
+		return CloneTextTypeAll, nil
+	default:
+		if acceptEmpty && cloneTextType == string(CloneTextTypeNone) {
+			return CloneTextTypeNone, nil
+		} else {
+			return CloneTextTypeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
+		}
+	}
+}
+
 type InteractionState string
 
 const (

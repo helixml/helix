@@ -455,6 +455,24 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	return session, nil
 }
 
+func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	reqContext := apiServer.getRequestContext(req)
+	session, err := apiServer.getSessionFromID(reqContext, vars["id"])
+	if err != nil {
+		return nil, err
+	}
+	interaction, err := model.GetInteraction(session, vars["interaction"])
+	if err != nil {
+		return nil, err
+	}
+	mode, err := types.ValidateCloneTextType(vars["mode"], false)
+	if err != nil {
+		return nil, err
+	}
+	return apiServer.Controller.CloneTextFinetuneInteraction(req.Context(), session, interaction, mode)
+}
+
 func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]

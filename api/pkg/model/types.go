@@ -55,7 +55,7 @@ type Model interface {
 	// and downloading files from the filestore
 	// we don't need to fill in the SessionID and Session fields
 	// the runner controller will do that for us
-	GetTask(session *types.Session) (*types.RunnerTask, error)
+	GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error)
 }
 
 // an interface that allows models to be opinionated about how they manage

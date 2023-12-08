@@ -122,7 +122,7 @@ const Session: FC = () => {
 
   const onClone = useCallback(async (interactionID: string, mode: ICloneTextMode) => {
     if(!session.data) return
-    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/clone/${interactionID}/${mode}`, undefined)
+    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/text/clone/${interactionID}/${mode}`, undefined)
     if(!newSession) return
     console.log('--------------------------------------------')
     console.dir(newSession)
