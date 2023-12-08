@@ -11,11 +11,12 @@ import StepLabel from '@mui/material/StepLabel'
 import ReplayIcon from '@mui/icons-material/Replay'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
-import EditTextFineTunedQuestions from './EditTextFineTunedQuestions'
-import ForkFineTunedInteration from './ForkFineTunedInteraction'
+import EditCurrentQuestions from './EditCurrentQuestions'
+import CloneExistingQuestions from './CloneExistingQuestions'
 import Row from '../widgets/Row'
 
 import {
+  ICloneTextMode,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_CREATOR_USER,
@@ -43,14 +44,14 @@ export const InteractionFinetune: FC<{
   serverConfig: IServerConfig,
   interaction: IInteraction,
   session: ISession,
-  retryFinetuneErrors?: {
-    (): void
-  },
+  retryFinetuneErrors?: () => void,
+  onClone?: (mode: ICloneTextMode) => void,
 }> = ({
   serverConfig,
   interaction,
   session,
   retryFinetuneErrors,
+  onClone,
 }) => {
   const theme = useTheme()
   
@@ -219,7 +220,7 @@ export const InteractionFinetune: FC<{
               mt: 2,
             }}
           >
-            <EditTextFineTunedQuestions
+            <EditCurrentQuestions
               sessionID={ session.id }
               interactionID={ userFilesInteractionID }
             />
@@ -227,10 +228,11 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        hasFineTuned && (
-          <ForkFineTunedInteration
+        hasFineTuned && onClone && (
+          <CloneExistingQuestions
             sessionID={ session.id }
             interactionID={ userFilesInteractionID }
+            onClone={ onClone }
           />
         )
       }

@@ -13,7 +13,7 @@ import ConversationEditor from './ConversationEditor'
 import useSnackbar from '../../hooks/useSnackbar'
 import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
-export const EditTextFineTunedQuestions: FC<{
+export const EditCurrentQuestions: FC<{
   sessionID: string,
   interactionID: string,
 }> = ({
@@ -127,4 +127,4 @@ export const EditTextFineTunedQuestions: FC<{
   )  
 }
 
-export default EditTextFineTunedQuestions
+export default EditCurrentQuestions

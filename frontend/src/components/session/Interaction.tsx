@@ -10,12 +10,10 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
-} from '../../types'
-
-import {
   ISession,
   IInteraction,
   IServerConfig,
+  ICloneTextMode,
 } from '../../types'
 
 import {
@@ -27,15 +25,15 @@ export const Interaction: FC<{
   interaction: IInteraction,
   session: ISession,
   showFinetuning?: boolean,
-  retryFinetuneErrors?: {
-    (): void
-  },
+  retryFinetuneErrors?: () => void,
+  onClone?: (mode: ICloneTextMode) => void,
 }> = ({
   serverConfig,
   interaction,
   session,
   showFinetuning = true,
   retryFinetuneErrors,
+  onClone,
   children,
 }) => {
   let displayMessage: string = ''
@@ -79,6 +77,7 @@ export const Interaction: FC<{
             interaction={ interaction }
             session={ session }
             retryFinetuneErrors={ retryFinetuneErrors }
+            onClone={ onClone }
           />
         )
       }

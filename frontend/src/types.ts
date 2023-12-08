@@ -29,6 +29,11 @@ export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
 export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
 
+export type ICloneTextMode = 'just_data' | 'with_questions' | 'all'
+export const CLONE_TEXT_TYPE_JUST_DATA: ICloneTextMode = 'just_data'
+export const CLONE_TEXT_TYPE_WITH_QUESTIONS: ICloneTextMode = 'with_questions'
+export const CLONE_TEXT_TYPE_ALL: ICloneTextMode = 'all'
+
 export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
