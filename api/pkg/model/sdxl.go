@@ -31,7 +31,14 @@ func (l *SDXL) GetType() types.SessionType {
 }
 
 func (l *SDXL) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
-	return getGenericTask(session)
+	task, err := getGenericTask(session)
+	if err != nil {
+		return nil, err
+	}
+
+	task.DatasetDir = fileManager.GetFolder()
+
+	return task, nil
 }
 
 func (l *SDXL) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
@@ -113,8 +120,26 @@ func (l *SDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileM
 	// download all files across all interactions
 	// and accumulate them in the last user interaction
 	if session.Mode == types.SessionModeFinetune {
+		userInteractions := FilterUserInteractions(session.Interactions)
+		finetuneInteractions := FilterFinetuneInteractions(userInteractions)
 
+		allFiles := []string{}
+
+		for _, interaction := range finetuneInteractions {
+			if interaction.Files != nil {
+				allFiles = append(allFiles, interaction.Files...)
+			}
+		}
+
+		for _, file := range allFiles {
+			localPath := path.Join(fileManager.GetFolder(), path.Base(file))
+			err := fileManager.DownloadFile(file, localPath)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
+
 	return session, nil
 }
 
