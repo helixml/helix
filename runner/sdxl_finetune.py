@@ -42,6 +42,9 @@ def do_inference():
 
         # print out the response content to stdout
         print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
+        print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
+        print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
+        print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
         print(currentJobData)
 
         task = json.loads(currentJobData)

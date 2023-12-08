@@ -39,7 +39,7 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 		return nil, err
 	}
 
-	task.DatasetDir = path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+	task.DatasetDir = fileManager.GetFolder()
 
 	var turns int
 	var messages []string
@@ -135,8 +135,6 @@ func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSess
 		if err != nil {
 			return nil, err
 		}
-
-		// now we need to inject this into the session
 	}
 
 	return session, nil
