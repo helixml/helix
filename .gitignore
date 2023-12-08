@@ -4,3 +4,4 @@ node_modules
 frontend/lib
 gradio/__pycache__
 venv
+*.tar

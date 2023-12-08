@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -32,11 +33,13 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask, error) {
+func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
 	}
+
+	task.DatasetDir = path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
 
 	var turns int
 	var messages []string
@@ -110,8 +113,32 @@ func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSess
 	// accumulate all JSONL files across all interactions
 	// and append them to one large JSONL file
 	if session.Mode == types.SessionModeFinetune {
+		userInteractions := FilterUserInteractions(session.Interactions)
+		finetuneInteractions := FilterFinetuneInteractions(userInteractions)
+		jsonLFiles := []string{}
+		for _, interaction := range finetuneInteractions {
+			for _, file := range interaction.Files {
+				if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
+					localPath := path.Join(fileManager.GetFolder(), localFilename)
+					err := fileManager.DownloadFile(file, localPath)
+					if err != nil {
+						return nil, err
+					}
+					jsonLFiles = append(jsonLFiles, localPath)
+				}
+			}
+		}
 
+		combinedFile := path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+		err = system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
+		if err != nil {
+			return nil, err
+		}
+
+		// now we need to inject this into the session
 	}
+
 	return session, nil
 }
 

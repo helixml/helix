@@ -41,6 +41,9 @@ func (handler *SessionFileHandler) DownloadFolder(remotePath string, localPath s
 	return handler.downloadFolder(handler.sessionID, remotePath, localPath)
 }
 
+// Compile-time interface check:
+var _ model.ModelSessionFileManager = (*SessionFileHandler)(nil)
+
 type FileHandler struct {
 	runnerID          string
 	httpClientOptions system.ClientOptions
@@ -89,36 +92,6 @@ func (handler *FileHandler) uploadWorkerResponse(res *types.RunnerTaskResponse) 
 		Msgf("🟢 worker response uploaded: %+v", res)
 
 	return res, nil
-}
-
-// download the lora dir and the most recent user interaction files for a session
-func (handler *FileHandler) downloadSession(model model.Model, session *types.Session, isInitialSession bool) (*types.Session, error) {
-	sessionFileHandler := &SessionFileHandler{
-		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
-		sessionID: session.ID,
-		downloadFile: func(sessionID string, remotePath string, localPath string) error {
-			return handler.downloadFile(sessionID, remotePath, localPath)
-		},
-		downloadFolder: func(sessionID string, remotePath string, localPath string) error {
-			return handler.downloadFolder(sessionID, remotePath, localPath)
-		},
-	}
-
-	return model.PrepareFiles(session, isInitialSession, sessionFileHandler)
-	// var err error
-
-	// if isInitialSession {
-	// 	session, err = handler.downloadLoraDir(session)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-
-	// session, err = handler.downloadUserInteractionFiles(session)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return session, nil
 }
 
 func (handler *FileHandler) downloadFile(sessionID string, remotePath string, localPath string) error {

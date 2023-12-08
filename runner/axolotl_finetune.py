@@ -30,6 +30,11 @@ def do_inference():
         
         session = json.loads(response.content)
         waiting_for_initial_session = False
+        print("🟣🟣🟣 INITIAL SESSION Finetine --------------------------------------------------")
+        print("🟣🟣🟣 INITIAL SESSION Finetine --------------------------------------------------")
+        print("🟣🟣🟣 INITIAL SESSION Finetine --------------------------------------------------")
+        print("🟣🟣🟣 INITIAL SESSION Finetine --------------------------------------------------")
+        import pprint; pprint.pprint(session)
         lora_dir = session["lora_dir"]
 
     session_id = ""

@@ -6,7 +6,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
@@ -16,11 +15,6 @@ const MB uint64 = 1024 * 1024
 
 func GetInteractionFinetuneFile(session *types.Session, interactionID string) (string, error) {
 	interaction, err := GetInteraction(session, interactionID)
-
-	fmt.Printf("interaction --------------------------------------\n")
-	spew.Dump(interaction)
-	fmt.Printf("interactionID --------------------------------------\n")
-	spew.Dump(interactionID)
 	if err != nil {
 		return "", err
 	}
@@ -43,6 +37,9 @@ func GetInteractionFinetuneFile(session *types.Session, interactionID string) (s
 }
 
 func GetInteraction(session *types.Session, id string) (*types.Interaction, error) {
+	if id == "" {
+		return nil, fmt.Errorf("interaction id is required")
+	}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == id {
 			return &interaction, nil
