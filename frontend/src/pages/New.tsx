@@ -8,6 +8,7 @@ import Box from '@mui/material/Box'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
+import SendIcon from '@mui/icons-material/Send'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -345,6 +346,7 @@ const New: FC = () => {
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
               sx={{ ml: 2 }}
+              endIcon={<SendIcon />}
             >
               Send
             </Button>

@@ -9,9 +9,9 @@ import CardActions from '@mui/material/CardActions'
 
 import FileCopyIcon from '@mui/icons-material/FileCopy'
 import ViewIcon from '@mui/icons-material/Visibility'
-import CloneIcon from '@mui/icons-material/ContentCopy';
-import DataIcon from '@mui/icons-material/DataUsage';
-import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
+import CloneIcon from '@mui/icons-material/ContentCopy'
+import DataIcon from '@mui/icons-material/DataUsage'
+import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer'
 
 import Window from '../widgets/Window'
 import FineTuneTextQuestionEditor from './FineTuneTextQuestionEditor'
@@ -19,17 +19,22 @@ import FineTuneTextQuestionEditor from './FineTuneTextQuestionEditor'
 import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
 import {
+  ISessionType,
   ICloneTextMode,
   CLONE_TEXT_TYPE_JUST_DATA,
   CLONE_TEXT_TYPE_WITH_QUESTIONS,
   CLONE_TEXT_TYPE_ALL,
+  SESSION_TYPE_IMAGE,
+  SESSION_TYPE_TEXT,
 } from '../../types'
 
 export const FineTuneCloneInteraction: FC<{
+  type: ISessionType,
   sessionID: string,
   interactionID: string,
   onClone: (mode: ICloneTextMode) => void,
 }> = ({
+  type,
   sessionID,
   interactionID,
   onClone,
@@ -55,7 +60,7 @@ export const FineTuneCloneInteraction: FC<{
       <Grid container spacing={ 0 }>
         <Grid item sm={ 12 } md={ 6 } sx={{pr:2}}>
           <Typography gutterBottom>
-            You have completed a fine tuning session on these documents.
+            You have completed a fine tuning session on these { type == SESSION_TYPE_IMAGE ? 'images' : 'documents' }.
           </Typography>
           <Typography gutterBottom>
             You can "Clone" from this point in time to create a new session and continue training from here.
@@ -65,21 +70,25 @@ export const FineTuneCloneInteraction: FC<{
           textAlign: 'right',
           pt: 2,
         }}>
+          {
+            type == SESSION_TYPE_TEXT && (
+              <Button
+                variant="outlined"
+                color="primary"
+                size="small"
+                sx={{
+                  mr: 1,
+                  mb: 1,
+                }}
+                endIcon={<ViewIcon />}
+                onClick={ () => setViewMode(true) }
+              >
+                View Questions
+              </Button>
+            )
+          }
           <Button
-            variant="contained"
-            color="primary"
-            size="small"
-            sx={{
-              mr: 1,
-              mb: 1,
-            }}
-            endIcon={<ViewIcon />}
-            onClick={ () => setViewMode(true) }
-          >
-            View Questions
-          </Button>
-          <Button
-            variant="contained"
+            variant="outlined"
             color="secondary"
             size="small"
             sx={{
