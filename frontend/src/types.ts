@@ -1,3 +1,63 @@
+export type ISessionCreator = 'system' | 'user'
+
+export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
+export const SESSION_CREATOR_USER: ISessionCreator = 'user'
+
+export type ISessionMode = 'inference' | 'finetune'
+
+export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
+export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
+
+export type ISessionType = 'text' | 'image'
+
+export const SESSION_TYPE_TEXT: ISessionType = 'text'
+export const SESSION_TYPE_IMAGE: ISessionType = 'image'
+
+export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
+
+export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
+export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
+export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
+export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
+
+export type IWebSocketEventType = 'session_update' | 'worker_task_response'
+export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
+export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
+
+export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
+export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
+export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
+export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
+
+export type ICloneTextMode = 'just_data' | 'with_questions' | 'all'
+export const CLONE_TEXT_TYPE_JUST_DATA: ICloneTextMode = 'just_data'
+export const CLONE_TEXT_TYPE_WITH_QUESTIONS: ICloneTextMode = 'with_questions'
+export const CLONE_TEXT_TYPE_ALL: ICloneTextMode = 'all'
+
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
+export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
+
+export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
+export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
+export const TEXT_DATA_PREP_STAGE_EDIT_FILES: ITextDataPrepStage = 'edit_files'
+export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
+export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage = 'generate_questions'
+export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_questions'
+export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
+export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
+
+export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
+  TEXT_DATA_PREP_STAGE_EDIT_FILES,
+  TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
+  TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_FINETUNE,
+  TEXT_DATA_PREP_STAGE_COMPLETE,
+]
+
+export const SESSION_PAGINATION_PAGE_LIMIT = 30
+
 export interface IUser {
   id: string,
   email: string,
@@ -52,57 +112,6 @@ export interface IFileStoreConfig {
   folders: IFileStoreFolder[],
 }
 
-export type ISessionCreator = 'system' | 'user'
-
-export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
-export const SESSION_CREATOR_USER: ISessionCreator = 'user'
-
-export type ISessionMode = 'inference' | 'finetune'
-
-export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
-export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
-
-export type ISessionType = 'text' | 'image'
-
-export const SESSION_TYPE_TEXT: ISessionType = 'text'
-export const SESSION_TYPE_IMAGE: ISessionType = 'image'
-
-export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
-
-export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
-export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
-export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
-export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
-
-export type IWebSocketEventType = 'session_update' | 'worker_task_response'
-export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType = 'session_update'
-export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType = 'worker_task_response'
-
-export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
-export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType = 'stream'
-export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType = 'progress'
-export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType = 'result'
-
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
-export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
-export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
-
-export type ITextDataPrepStage = '' | 'extract_text' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
-export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
-export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
-export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage = 'generate_questions'
-export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_questions'
-export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
-export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
-
-export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
-  TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
-  TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
-  TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
-  TEXT_DATA_PREP_STAGE_FINETUNE,
-  TEXT_DATA_PREP_STAGE_COMPLETE,
-]
-
 export interface IWorkerTaskResponse {
   type: IWorkerTaskResponseType,
   session_id: string,
@@ -139,18 +148,23 @@ export interface IInteraction {
   scheduled: string,
   completed: string,
   creator: ISessionCreator,
+  mode: ISessionMode,
   runner: string,
   message: string,
   progress: number,
-  status: string,
-  state: IInteractionState,
   files: string[],
-  lora_dir: string,
   finished: boolean,
   metadata: Record<string, string>,
+  state: IInteractionState,
+  status: string,
   error: string,
+  lora_dir: string,
   data_prep_chunks: Record<string, IDataPrepChunk[]>,
   data_prep_stage: ITextDataPrepStage,
+}
+
+export interface ISessionConfig {
+  original_mode: ISessionMode,
 }
 
 export interface ISession {
@@ -159,6 +173,9 @@ export interface ISession {
   created: string,
   updated: string,
   parent_session: string,
+  parent_bot: string,
+  child_bot: string,
+  config: ISessionConfig,
   mode: ISessionMode,
   type: ISessionType,
   model_name: string,
@@ -166,6 +183,24 @@ export interface ISession {
   interactions: IInteraction[],
   owner: string,
   owner_type: IOwnerType,
+}
+
+export interface IBotForm {
+  name: string,
+}
+
+export interface IBotConfig {
+
+}
+
+export interface IBot {
+  id: string,
+  name: string,
+  created: string,
+  updated: string,
+  owner: string,
+  owner_type: IOwnerType,
+  config: IBotConfig,
 }
 
 export interface IWebsocketEvent {
@@ -271,4 +306,53 @@ export interface ISessionMetaUpdate {
   name: string,
   owner?: string,
   owner_type?: string,
+}
+
+
+export interface ISerlializedFile {
+  filename: string
+  content: string
+  mimeType: string
+}
+
+export interface ISerializedPage {
+  files: ISerlializedFile[],
+  labels: Record<string, string>,
+  fineTuneStep: number,
+  manualTextFileCounter: number,
+  inputValue: string,
+}
+
+export interface ICounter {
+  count: number,
+}
+
+export interface ISessionsList {
+  sessions: ISessionSummary[],
+  counter: ICounter,
+}
+
+export interface IPaginationState {
+  total: number,
+  limit: number,
+  offset: number,
+}
+
+export type IButtonStateColor = 'primary' | 'secondary'
+export interface IButtonStates {
+  addTextColor: IButtonStateColor,
+  addTextLabel: string,
+  addUrlColor: IButtonStateColor,
+  addUrlLabel: string,
+  uploadFilesColor: IButtonStateColor,
+  uploadFilesLabel: string,
+}
+
+export const buttonStates: IButtonStates = {
+  addUrlColor: 'primary',
+  addUrlLabel: 'Add URL',
+  addTextColor: 'primary',
+  addTextLabel: 'Add Text',
+  uploadFilesColor: 'primary',
+  uploadFilesLabel: 'Or Choose Files',
 }

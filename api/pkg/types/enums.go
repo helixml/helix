@@ -27,6 +27,18 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	}
 }
 
+type SessionOriginType string
+
+const (
+	SessionOriginTypeNone        SessionOriginType = ""
+	SessionOriginTypeUserCreated SessionOriginType = "user_created"
+	SessionOriginTypeCloned      SessionOriginType = "cloned"
+)
+
+// this will change from finetune to inference (so the user can chat to their fine tuned model)
+// if they then turn back to "add more documents" / "add more images", then it will change back to finetune
+// we keep OriginalSessionMode in the session config so we can know:
+// "this is an inference session that is actually a finetune session in chat mode"
 type SessionMode string
 
 const (
@@ -73,6 +85,32 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type CloneTextType string
+
+const (
+	CloneTextTypeNone          CloneTextType = ""
+	CloneTextTypeJustData      CloneTextType = "just_data"
+	CloneTextTypeWithQuestions CloneTextType = "with_questions"
+	CloneTextTypeAll           CloneTextType = "all"
+)
+
+func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneTextType, error) {
+	switch cloneTextType {
+	case string(CloneTextTypeJustData):
+		return CloneTextTypeJustData, nil
+	case string(CloneTextTypeWithQuestions):
+		return CloneTextTypeWithQuestions, nil
+	case string(CloneTextTypeAll):
+		return CloneTextTypeAll, nil
+	default:
+		if acceptEmpty && cloneTextType == string(CloneTextTypeNone) {
+			return CloneTextTypeNone, nil
+		} else {
+			return CloneTextTypeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
+		}
+	}
+}
+
 type InteractionState string
 
 const (
@@ -107,7 +145,6 @@ const (
 type WebsocketEventType string
 
 const (
-	WebsocketEventSessionPing        WebsocketEventType = "ping"
 	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
 	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
 )
@@ -119,6 +156,9 @@ const (
 	WorkerTaskResponseTypeProgress WorkerTaskResponseType = "progress"
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
+
+const FILESTORE_RESULTS_DIR = "results"
+const FILESTORE_LORA_DIR = "lora"
 
 const LORA_DIR_NONE = "none"
 
@@ -139,6 +179,7 @@ type TextDataPrepStage string
 
 const (
 	TextDataPrepStageNone             TextDataPrepStage = ""
+	TextDataPrepStageEditFiles        TextDataPrepStage = "edit_files"
 	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
 	TextDataPrepStageConvertQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"

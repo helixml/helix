@@ -8,7 +8,6 @@ import useSnackbar from '../../hooks/useSnackbar'
 
 interface JsonWindowProps {
   data: any,
-  copyToClipboard?: boolean,
   size?: DialogProps["maxWidth"],
   onClose: {
     (): void,
@@ -17,7 +16,6 @@ interface JsonWindowProps {
 
 const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
   data,
-  copyToClipboard = true,
   size = 'md',
   onClose,
 }) => {
@@ -25,6 +23,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
   return (
     <Window
       open
+      compact
       withCancel
       size={ size }
       cancelTitle="Close"

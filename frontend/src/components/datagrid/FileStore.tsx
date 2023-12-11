@@ -116,7 +116,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
     {
       name: 'updated',
       header: 'Updated',
-      defaultFlex: 1,
+      defaultWidth: 140,
       render: ({ data }) => {
         return (
           <Box
@@ -132,7 +132,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
     {
       name: 'size',
       header: 'Size',
-      defaultFlex: 1,
+      defaultWidth: 120,
       render: ({ data }) => {
         return data.directory ? null : (
           <Box

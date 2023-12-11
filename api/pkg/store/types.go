@@ -24,16 +24,31 @@ type OwnerQuery struct {
 type GetSessionsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
+	Offset    int             `json:"offset"`
+	Limit     int             `json:"limit"`
+}
+
+type GetBotsQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
 }
 
 type Store interface {
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
 	GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error)
+	GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error)
 	CreateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
+
+	// bots
+	GetBot(ctx context.Context, id string) (*types.Bot, error)
+	GetBots(ctx context.Context, query GetBotsQuery) ([]*types.Bot, error)
+	CreateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
+	UpdateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
+	DeleteBot(ctx context.Context, id string) (*types.Bot, error)
 
 	// balance transfers
 	GetBalanceTransfers(ctx context.Context, query OwnerQuery) ([]*types.BalanceTransfer, error)

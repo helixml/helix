@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
 	"github.com/inhies/go-bytesize"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/server"
@@ -64,6 +64,10 @@ type RunnerOptions struct {
 
 	SchedulingDecisionBufferSize int
 	JobHistoryBufferSize         int
+
+	// used when we are developing platform code without a GPU
+	// it will run local python scripts that fake the output
+	MockRunner bool
 }
 
 type Runner struct {
@@ -645,14 +649,14 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	}
 	parsedURL.RawQuery = queryParams.Encode()
 
-	req, err := http.NewRequest("GET", parsedURL.String(), nil)
+	req, err := retryablehttp.NewRequest("GET", parsedURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	system.AddAutheaders(req, r.httpClientOptions.Token)
+	system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
 
-	client := &http.Client{}
+	client := system.NewRetryClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

@@ -44,8 +44,8 @@ func GetSessionFolder(sessionID string) string {
 	return filepath.Join("sessions", sessionID)
 }
 
-func GetSessionInputsFolder(sessionID string) string {
-	return filepath.Join(GetSessionFolder(sessionID), "inputs")
+func GetInteractionInputsFolder(sessionID string, interactionID string) string {
+	return filepath.Join(GetSessionFolder(sessionID), "inputs", interactionID)
 }
 
 func GetSessionResultsFolder(sessionID string) string {
@@ -148,12 +148,12 @@ func (c *Controller) FilestoreCreateFolder(ctx types.RequestContext, path string
 	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreDownload(ctx types.RequestContext, path string) (io.Reader, error) {
+func (c *Controller) FilestoreDownloadFile(ctx types.RequestContext, path string) (io.Reader, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	return c.Options.Filestore.Download(c.Ctx, filePath)
+	return c.Options.Filestore.DownloadFile(c.Ctx, filePath)
 }
 
 func (c *Controller) FilestoreDownloadFolder(ctx types.RequestContext, path string) (io.Reader, error) {
@@ -164,12 +164,12 @@ func (c *Controller) FilestoreDownloadFolder(ctx types.RequestContext, path stri
 	return c.Options.Filestore.DownloadFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreUpload(ctx types.RequestContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreUploadFile(ctx types.RequestContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return filestore.FileStoreItem{}, err
 	}
-	return c.Options.Filestore.Upload(c.Ctx, filePath, r)
+	return c.Options.Filestore.UploadFile(c.Ctx, filePath, r)
 }
 
 func (c *Controller) FilestoreRename(ctx types.RequestContext, path string, newPath string) (filestore.FileStoreItem, error) {

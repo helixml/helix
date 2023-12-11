@@ -99,9 +99,11 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		return nil, fmt.Errorf("inference sessions require a message")
 	}
 
+	interactionID := system.GenerateUUID()
+
 	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]
-	inputPath := controller.GetSessionInputsFolder(sessionID)
+	inputPath := controller.GetInteractionInputsFolder(sessionID, interactionID)
 
 	metadata := map[string]string{}
 
@@ -116,7 +118,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
 
 			log.Debug().Msgf("uploading file %s", filePath)
-			imageItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), filePath, file)
+			imageItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -136,7 +138,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUpload(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
+				labelItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
@@ -152,12 +154,13 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}
 
 	return &types.Interaction{
-		ID:             system.GenerateUUID(),
+		ID:             interactionID,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Scheduled:      time.Now(),
 		Completed:      time.Now(),
 		Creator:        types.CreatorTypeUser,
+		Mode:           sessionMode,
 		Message:        message,
 		Files:          filePaths,
 		State:          types.InteractionStateComplete,

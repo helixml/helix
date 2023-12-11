@@ -15,7 +15,7 @@ import Interaction from '../components/session/Interaction'
 import Window from '../components/widgets/Window'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
-import SessionHeader from '../components/session/Header'
+import SessionHeader from '../components/session/SessionHeader'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 
@@ -249,13 +249,10 @@ const Dashboard: FC = () => {
                 return (
                   <Interaction
                     key={ i }
-                    session_id={ viewingSession.id }
-                    type={ viewingSession.type }
-                    mode={ viewingSession.mode }
-                    interaction={ interaction }
-                    error={ interaction.error }
+                    showFinetuning={ false }
                     serverConfig={ account.serverConfig }
-                    isLast={ i === viewingSession.interactions.length - 1 }
+                    interaction={ interaction }
+                    session={ viewingSession }
                   />
                 )   
               })

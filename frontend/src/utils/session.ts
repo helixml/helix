@@ -35,6 +35,7 @@ export const getSystemMessage = (message: string): IInteraction => {
     updated: '',
     scheduled: '',
     completed: '',
+    mode: SESSION_MODE_INFERENCE,
     creator: SESSION_CREATOR_SYSTEM,
     runner: '',
     error: '',
@@ -61,6 +62,21 @@ export const getSystemInteraction = (session: ISession): IInteraction | undefine
   const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_SYSTEM)
   if(userInteractions.length <=0) return undefined
   return userInteractions[userInteractions.length - 1]
+}
+
+export const getSystemFinetuneInteraction = (session: ISession): IInteraction | undefined => {
+  const userInteractions = session.interactions.filter(i => {
+    return i.creator == SESSION_CREATOR_SYSTEM && i.mode == SESSION_MODE_FINETUNE
+  })
+  if(userInteractions.length <=0) return undefined
+  return userInteractions[userInteractions.length - 1]
+}
+
+export const hasFinishedFinetune = (session: ISession): boolean => {
+  if(session.config.original_mode != SESSION_MODE_FINETUNE) return false
+  const systemInteraction = getSystemFinetuneInteraction(session)
+  if(!systemInteraction) return false
+  return systemInteraction.finished
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {

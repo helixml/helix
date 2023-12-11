@@ -2,14 +2,19 @@
 
  
  - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
- - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
  - [ ] retry button for errors
  - [ ] render markdown
  - [ ] plugin sentry
+ - [ ] the delete button shows for read only folders in filestore
  - [ ] auto-scroll broken
  - [ ] reverse the color of the active session
  - [ ] put the name of the session in topbar
  - [ ] rather than system as the username, put the name of the session
+ - [ ] why do finetunes stick around in GPU memory? once they're done they should exit right?
+ - [ ] the session page scrolls to the bottom randomly
+ - [ ] quite often there's a model ready to serve and a new one gets spun up on the other node - maybe the clocks are drifting between the machines so the 2 second head start doesn't work? or the python processes aren't polling every 100ms or something?
+ - [ ] speedway empty error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701725991656799
+ - [ ] empty response messages error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701727773319809
  - [ ] performance of auto-save before login (image fine tune text is slow)
  - [ ] for session updates check we are on the same page
    - [ ] whilst we are on one page and another session is processing - it's updating the page we are on with the wrong session
@@ -69,4 +74,21 @@
  - [x] performance on text fine tuning (add concurrency to openAI calls)
  - [x] URL to fetch text for text fine tuning
  - [x] homepage uncomment buttons
+ 
+
+## bots, sharing and editing
+
+ - [ ] server and controller handlers for create / update bot
+ - [ ] page / controller for list bots
+ - [ ] show bot at top of session
+ - [ ] form fields for description, icon and pre-prompt
+ - [ ] re-train, will add more interactions to add files to
+ - [ ] we should keep previous Lora files at the interaction level
+ - [ ] we hoist lora_dir from the latest interaction to the session
+ - [ ] /bot/XXX page that will spawn new session
+ - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
+ - [ ] share as well as create bot
+   - [ ] readonly view
+   - [ ] ready to spawn own chat from that place
+ 
  

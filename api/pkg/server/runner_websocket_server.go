@@ -93,11 +93,6 @@ func StartRunnerWebSocketServer(
 				continue
 			}
 
-			// we don't need to tell anyone about ping events
-			if event.Type == types.WebsocketEventSessionPing {
-				continue
-			}
-
 			websocketEventChan <- &event
 		}
 

@@ -132,3 +132,38 @@ func ExpandTarBuffer(buf *bytes.Buffer, localPath string) error {
 	}
 	return nil
 }
+
+func ConcatenateFiles(outputFile string, inputFiles []string, delimiter string) error {
+	// Open the output file in append mode
+	out, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Loop over the input files
+	for i, inputFile := range inputFiles {
+		// Open each input file
+		in, err := os.Open(inputFile)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+
+		// Copy the contents of the input file to the output file
+		_, err = io.Copy(out, in)
+		if err != nil {
+			return err
+		}
+
+		// Write the delimiter after each file, except for the last file
+		if i < len(inputFiles)-1 {
+			_, err = out.WriteString(delimiter)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

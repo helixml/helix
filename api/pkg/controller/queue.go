@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/model"
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -124,7 +124,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 			continue
 		}
 
-		summary, err := model.GetSessionSummary(session)
+		summary, err := data.GetSessionSummary(session)
 		if err != nil {
 			return err
 		}
@@ -160,7 +160,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 			return nil, fmt.Errorf("no interactions found")
 		}
 
-		session, err := model.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+		session, err := data.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
 			targetInteraction.Scheduled = time.Now()
 			return targetInteraction, nil
 		})
@@ -178,7 +178,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 }
 
 func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
-	systemInteraction, err := model.GetSystemInteraction(session)
+	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		log.Error().Msgf("error adding scheduling decision: %s", err)
 		return

@@ -10,6 +10,18 @@ function psql() {
   docker-compose exec postgres psql --user postgres "$@"
 }
 
+function mock-runner() {
+   go run . runner \
+    --mock-runner \
+    --api-host http://localhost \
+    --api-token apples \
+    --memory 24GB \
+    --runner-id mock \
+    --timeout-seconds 20 \
+    --label gpu=4090 \
+    --label fruit=apples
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "Session $TMUX_SESSION already exists. Attaching..."

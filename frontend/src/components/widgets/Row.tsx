@@ -4,8 +4,10 @@ import { SxProps } from '@mui/system'
 
 const Row: FC<{
   sx?: SxProps,
+  center?: boolean,
 }> = ({
   sx = {},
+  center = false,
   children,
 }) => {
   return (
@@ -15,7 +17,7 @@ const Row: FC<{
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'flex-start',
+        justifyContent: center ? 'center' : 'flex-start',
         ...sx
       }}
     >

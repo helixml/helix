@@ -210,7 +210,7 @@ func getFileContent(
 	path string,
 ) (string, error) {
 	// load the actual file contents
-	reader, err := fs.Download(ctx, path)
+	reader, err := fs.DownloadFile(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -244,8 +244,9 @@ func appendQuestionsToFile(
 	if err != nil {
 		return err
 	}
-	newContent := fmt.Sprintf("%s\n%s", existingContent, strings.Join(jsonLines, "\n"))
-	_, err = fs.Upload(ctx, path, strings.NewReader(newContent))
+	existingParts := strings.Split(existingContent, "\n")
+	newParts := append(existingParts, jsonLines...)
+	_, err = fs.UploadFile(ctx, path, strings.NewReader(strings.Join(newParts, "\n")))
 	if err != nil {
 		return err
 	}

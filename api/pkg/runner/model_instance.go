@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"syscall"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -152,6 +154,19 @@ func NewModelInstance(
 
 */
 
+func (instance *ModelInstance) getSessionFileHander(session *types.Session) *SessionFileHandler {
+	return &SessionFileHandler{
+		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
+		sessionID: session.ID,
+		downloadFile: func(sessionID string, remotePath string, localPath string) error {
+			return instance.fileHandler.downloadFile(sessionID, remotePath, localPath)
+		},
+		downloadFolder: func(sessionID string, remotePath string, localPath string) error {
+			return instance.fileHandler.downloadFolder(sessionID, remotePath, localPath)
+		},
+	}
+}
+
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
 func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
@@ -159,7 +174,7 @@ func (instance *ModelInstance) assignSessionTask(ctx context.Context, session *t
 	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
 
-	task, err := instance.model.GetTask(session)
+	task, err := instance.model.GetTask(session, instance.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error getting task: %s", err.Error())
 		return nil, err
@@ -176,8 +191,7 @@ func (instance *ModelInstance) queueSession(session *types.Session, isInitialSes
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.fileHandler.downloadSession(session, isInitialSession)
-
+	preparedSession, err := instance.model.PrepareFiles(session, isInitialSession, instance.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
 		instance.queuedSession = nil
@@ -246,10 +260,17 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 		return
 	}
 
+	var err error
+
+	systemInteraction, err := data.GetSystemInteraction(instance.currentSession)
+	if err != nil {
+		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		return
+	}
+
+	taskResponse.InteractionID = systemInteraction.ID
 	taskResponse.Owner = instance.currentSession.Owner
 	instance.lastActivityTimestamp = time.Now().Unix()
-
-	var err error
 
 	// if it's the final result then we need to upload the files first
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
@@ -279,7 +300,11 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		InstanceID:        instance.id,
 		NextTaskURL:       instance.nextTaskURL,
 		InitialSessionURL: instance.initialSessionURL,
+		MockRunner:        instance.runnerOptions.MockRunner,
 	})
+
+	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
+
 	if err != nil {
 		return err
 	}
@@ -405,7 +430,7 @@ func (instance *ModelInstance) isStale() bool {
 }
 
 func (instance *ModelInstance) addJobToHistory(session *types.Session) error {
-	summary, err := model.GetSessionSummary(session)
+	summary, err := data.GetSessionSummary(session)
 	if err != nil {
 		return err
 	}
@@ -437,7 +462,7 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	var err error
 
 	if currentSession != nil {
-		sessionSummary, err = model.GetSessionSummary(currentSession)
+		sessionSummary, err = data.GetSessionSummary(currentSession)
 		if err != nil {
 			return nil, err
 		}

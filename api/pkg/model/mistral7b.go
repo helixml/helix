@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -32,11 +34,13 @@ func (l *Mistral7bInstruct01) GetType() types.SessionType {
 	return types.SessionTypeText
 }
 
-func (l *Mistral7bInstruct01) GetTask(session *types.Session) (*types.RunnerTask, error) {
+func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error) {
 	task, err := getGenericTask(session)
 	if err != nil {
 		return nil, err
 	}
+
+	task.DatasetDir = fileManager.GetFolder()
 
 	var turns int
 	var messages []string
@@ -98,7 +102,85 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 	return nil, nil, nil
 }
 
+func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
+	var err error
+	if isInitialSession && session.Mode == types.SessionModeInference && session.LoraDir != "" {
+		session, err = downloadLoraDir(session, fileManager)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// accumulate all JSONL files across all interactions
+	// and append them to one large JSONL file
+	if session.Mode == types.SessionModeFinetune {
+		userInteractions := data.FilterUserInteractions(session.Interactions)
+		finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
+		jsonLFiles := []string{}
+		for _, interaction := range finetuneInteractions {
+			for _, file := range interaction.Files {
+				if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+					localFilename := fmt.Sprintf("%s.jsonl", interaction.ID)
+					localPath := path.Join(fileManager.GetFolder(), localFilename)
+					err := fileManager.DownloadFile(file, localPath)
+					if err != nil {
+						return nil, err
+					}
+					jsonLFiles = append(jsonLFiles, localPath)
+				}
+			}
+		}
+
+		combinedFile := path.Join(fileManager.GetFolder(), types.TEXT_DATA_PREP_QUESTIONS_FILE)
+		err = system.ConcatenateFiles(combinedFile, jsonLFiles, "\n")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return session, nil
+}
+
+func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	var cmd *exec.Cmd
+	if sessionFilter.Mode == types.SessionModeInference {
+		args := []string{
+			"./runner/axolotl_inference.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else {
+		args := []string{
+			"./runner/axolotl_finetune.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
+		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
+		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+	}
+
+	return cmd, nil
+}
+
 func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
+	if config.MockRunner {
+		return l.getMockCommand(ctx, sessionFilter, config)
+	}
 	var cmd *exec.Cmd
 	if sessionFilter.Mode == types.SessionModeInference {
 		cmd = exec.CommandContext(
