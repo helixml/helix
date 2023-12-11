@@ -66,6 +66,31 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 	return nil
 }
 
+func (c *Controller) BeginTextFineTune(session *types.Session) error {
+	systemInteraction, err := model.GetSystemInteraction(session)
+	if err != nil {
+		return err
+	}
+
+	systemInteraction.Finished = false
+	systemInteraction.Progress = 1
+	systemInteraction.Message = "fine tuning on data..."
+	systemInteraction.Status = "fine tuning on data..."
+	systemInteraction.State = types.InteractionStateWaiting
+	systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
+	systemInteraction.Files = []string{}
+
+	session = updateSessionInteractions(session, []types.Interaction{
+		*systemInteraction,
+	})
+
+	c.WriteSession(session)
+	c.AddSessionToQueue(session)
+	c.BroadcastProgress(session, 1, "fine tuning on data...")
+
+	return nil
+}
+
 type convertDocumentsToChunksRequest struct {
 	URL string `json:"url"`
 }
