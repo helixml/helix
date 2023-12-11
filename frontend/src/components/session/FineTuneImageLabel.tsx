@@ -3,7 +3,7 @@ import TextField from '@mui/material/TextField'
 
 // this is it's own component because it turns out that rendering the images from
 // the seriliazed file uploads was re-rendering slowly
-export const ImageFineTuneLabel: FC<{
+export const FineTuneImageLabel: FC<{
   value: string,
   filename: string,
   error?: boolean,
@@ -35,4 +35,4 @@ export const ImageFineTuneLabel: FC<{
   )   
 }
 
-export default ImageFineTuneLabel
+export default FineTuneImageLabel

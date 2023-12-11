@@ -9,9 +9,9 @@ import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 
-import TextFineTuneInputs from '../components/session/TextFineTuneInputs'
-import ImageFineTuneInputs from '../components/session/ImageFineTuneInputs'
-import ImageFineTuneLabels from '../components/session/ImageFineTuneLabels'
+import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
+import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
 import Window from '../components/widgets/Window'
 import Disclaimer from '../components/widgets/Disclaimer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
@@ -258,7 +258,7 @@ const New: FC = () => {
           </Grid>
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
-              <ImageFineTuneInputs
+              <FineTuneImageInputs
                 showButton
                 initialFiles={ inputs.files }
                 onChange={ (files) => {
@@ -270,7 +270,7 @@ const New: FC = () => {
           }
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
-              <TextFineTuneInputs
+              <FineTuneTextInputs
                 showButton
                 initialCounter={ inputs.manualTextFileCounter }
                 initialFiles={ inputs.files }
@@ -284,7 +284,7 @@ const New: FC = () => {
           }
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1 && (
-              <ImageFineTuneLabels
+              <FineTuneImageLabels
                 showButton
                 showImageLabelErrors={ inputs.showImageLabelErrors }
                 initialLabels={ inputs.labels }

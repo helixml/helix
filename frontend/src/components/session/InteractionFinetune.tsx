@@ -12,7 +12,7 @@ import ReplayIcon from '@mui/icons-material/Replay'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import EditCurrentQuestions from './EditCurrentQuestions'
-import CloneExistingQuestions from './CloneExistingQuestions'
+import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
 import {
@@ -229,7 +229,7 @@ export const InteractionFinetune: FC<{
       }
       {
         hasFineTuned && onClone && (
-          <CloneExistingQuestions
+          <FineTuneCloneInteraction
             sessionID={ session.id }
             interactionID={ userFilesInteractionID }
             onClone={ onClone }

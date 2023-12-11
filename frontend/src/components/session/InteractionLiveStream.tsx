@@ -9,7 +9,7 @@ import {
   IInteraction,
 } from '../../types'
 
-export const LiveInteraction: FC<{
+export const InteractionLiveStream: FC<{
   session_id: string,
   interaction: IInteraction,
   onMessageChange?: {
@@ -65,4 +65,4 @@ export const LiveInteraction: FC<{
   )   
 }
 
-export default LiveInteraction
+export default InteractionLiveStream

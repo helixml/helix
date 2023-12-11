@@ -7,10 +7,10 @@ import Typography from '@mui/material/Typography'
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 
 import useAccount from '../../hooks/useAccount'
-import ImageFineTuneLabel from './ImageFineTuneLabel'
+import FineTuneImageLabel from './FineTuneImageLabel'
 import InteractionContainer from './InteractionContainer'
 
-export const ImageFineTuneLabels: FC<{
+export const FineTuneImageLabels: FC<{
   showImageLabelErrors: boolean,
   initialLabels?: Record<string, string>,
   files: File[],
@@ -80,7 +80,7 @@ export const ImageFineTuneLabels: FC<{
                       mb: 1,
                     }}
                   />
-                  <ImageFineTuneLabel
+                  <FineTuneImageLabel
                     value={ labels[file.name] || '' }
                     filename={ file.name }
                     error={ showImageLabelErrors && !labels[file.name] }
@@ -120,4 +120,4 @@ export const ImageFineTuneLabels: FC<{
   )   
 }
 
-export default ImageFineTuneLabels
+export default FineTuneImageLabels
