@@ -42,6 +42,8 @@ export const FineTuneCloneInteraction: FC<{
   const interactionQuestions = useInteractionQuestions()
   const [ viewMode, setViewMode ] = useState(false)
   const [ cloneMode, setCloneMode ] = useState(false)
+
+  const colSize = type == SESSION_TYPE_IMAGE ? 6 : 4
   
   useEffect(() => {
     if(!viewMode) {
@@ -63,7 +65,7 @@ export const FineTuneCloneInteraction: FC<{
             You have completed a fine tuning session on these { type == SESSION_TYPE_IMAGE ? 'images' : 'documents' }.
           </Typography>
           <Typography gutterBottom>
-            You can "Clone" from this point in time to create a new session and continue training from here.
+            You can now chat to your model or you can "Clone" from this point in time to create a new session and continue training from here.
           </Typography>
         </Grid>
         <Grid item sm={ 12 } md={ 6 } sx={{
@@ -130,7 +132,7 @@ export const FineTuneCloneInteraction: FC<{
               }}
             >
               <Grid container spacing={ 2 }>
-                <Grid item xs={ 12 } md={ 4 }>
+                <Grid item xs={ 12 } md={ colSize }>
                   <Card
                     sx={{
                       height: '100%',
@@ -143,11 +145,22 @@ export const FineTuneCloneInteraction: FC<{
                     }}>
                       <QuestionAnswerIcon fontSize="large" />
                       <Typography gutterBottom variant="h5" component="div">
-                          Only data
+                          Just Data
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                          Clones without the question-answer pairs or the training data.  Use this to start again with the original data.
+                      <Typography gutterBottom variant="body2" color="text.secondary">
+                          Start again with the original data.
                       </Typography>
+                      {
+                        type == SESSION_TYPE_TEXT ? (
+                          <Typography variant="body2" color="text.secondary">
+                            Both the trained model and question answer pairs will be removed.
+                          </Typography>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            The trained model will be removed.
+                          </Typography>
+                        )
+                      }
                     </CardContent>
                     <CardActions
                       sx={{
@@ -155,39 +168,43 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_JUST_DATA)}>Clone Only Data</Button>
+                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_JUST_DATA)}>Clone</Button>
                     </CardActions>
                   </Card>
                 </Grid>
-                <Grid item xs={ 12 } md={ 4 }>
-                  <Card
-                    sx={{
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <CardContent sx={{
-                      flexGrow: 1,
-                    }}>
-                      <DataIcon fontSize="large" />
-                      <Typography gutterBottom variant="h5" component="div">
-                          Re-train
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                          Copies only the question-answer pairs, excluding the training data.  You can edit the question and answer pairs and re-train.
-                      </Typography>
-                    </CardContent>
-                    <CardActions
-                      sx={{
-                        justifyContent: 'flex-end',
-                      }}
-                    >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_WITH_QUESTIONS)}>Clone With Questions</Button>
-                    </CardActions>
-                  </Card>
-                </Grid>
-                <Grid item xs={ 12 } md={ 4 }>
+                {
+                  type == SESSION_TYPE_TEXT && (
+                    <Grid item xs={ 12 } md={ colSize }>
+                      <Card
+                        sx={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}
+                      >
+                        <CardContent sx={{
+                          flexGrow: 1,
+                        }}>
+                          <DataIcon fontSize="large" />
+                          <Typography gutterBottom variant="h5" component="div">
+                              With Questions
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                              The question & answer pairs will be retained but the trained model will be removed.
+                          </Typography>
+                        </CardContent>
+                        <CardActions
+                          sx={{
+                            justifyContent: 'flex-end',
+                          }}
+                        >
+                            <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_WITH_QUESTIONS)}>Clone</Button>
+                        </CardActions>
+                      </Card>
+                    </Grid>
+                  )
+                }
+                <Grid item xs={ 12 } md={ colSize }>
                   <Card
                     sx={{
                       height: '100%',
@@ -200,10 +217,10 @@ export const FineTuneCloneInteraction: FC<{
                     }}>
                       <CloneIcon fontSize="large" />
                       <Typography gutterBottom variant="h5" component="div">
-                          Clone all
+                          With Training
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                          Includes both training data and question-answer pairs, replicating the entire data preparation stage.
+                          Clone everything including the trained model.
                       </Typography>
                     </CardContent>
                     <CardActions
@@ -211,7 +228,7 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_ALL)}>Clone All</Button>
+                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_ALL)}>Clone</Button>
                     </CardActions>
                   </Card>
                   
