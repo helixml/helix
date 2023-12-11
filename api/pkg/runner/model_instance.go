@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -261,7 +262,7 @@ func (instance *ModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 	var err error
 
-	systemInteraction, err := model.GetSystemInteraction(instance.currentSession)
+	systemInteraction, err := data.GetSystemInteraction(instance.currentSession)
 	if err != nil {
 		log.Error().Msgf("error getting system interaction: %s", err.Error())
 		return
@@ -429,7 +430,7 @@ func (instance *ModelInstance) isStale() bool {
 }
 
 func (instance *ModelInstance) addJobToHistory(session *types.Session) error {
-	summary, err := model.GetSessionSummary(session)
+	summary, err := data.GetSessionSummary(session)
 	if err != nil {
 		return err
 	}
@@ -461,7 +462,7 @@ func (instance *ModelInstance) getState() (*types.ModelInstanceState, error) {
 	var err error
 
 	if currentSession != nil {
-		sessionSummary, err = model.GetSessionSummary(currentSession)
+		sessionSummary, err = data.GetSessionSummary(currentSession)
 		if err != nil {
 			return nil, err
 		}

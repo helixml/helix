@@ -26,7 +26,7 @@ export const Interaction: FC<{
   session: ISession,
   showFinetuning?: boolean,
   retryFinetuneErrors?: () => void,
-  onClone?: (mode: ICloneTextMode) => void,
+  onClone?: (mode: ICloneTextMode, interactionID: string) => void,
 }> = ({
   serverConfig,
   interaction,

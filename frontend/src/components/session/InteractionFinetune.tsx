@@ -19,6 +19,7 @@ import {
   ICloneTextMode,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
   TEXT_DATA_PREP_STAGE_NONE,
@@ -45,7 +46,7 @@ export const InteractionFinetune: FC<{
   interaction: IInteraction,
   session: ISession,
   retryFinetuneErrors?: () => void,
-  onClone?: (mode: ICloneTextMode) => void,
+  onClone?: (mode: ICloneTextMode, interactionID: string) => void,
 }> = ({
   serverConfig,
   interaction,
@@ -55,8 +56,10 @@ export const InteractionFinetune: FC<{
 }) => {
   const theme = useTheme()
   
-  const isImageFinetune = interaction.creator == SESSION_CREATOR_USER && session.type == SESSION_TYPE_IMAGE
-  const isTextFinetune = interaction.creator == SESSION_CREATOR_USER && session.type == SESSION_TYPE_TEXT
+  const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
+  const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
+  const isImageFinetune = isUserInteraction && session.type == SESSION_TYPE_IMAGE
+  const isTextFinetune = isUserInteraction && session.type == SESSION_TYPE_TEXT
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
   const hasFineTuned = interaction.lora_dir ? true : false
 
@@ -228,11 +231,12 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        hasFineTuned && onClone && (
+        isSystemInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction
             type={ session.type }
             sessionID={ session.id }
-            interactionID={ userFilesInteractionID }
+            systemInteractionID={ interaction.id }
+            userInteractionID={ userFilesInteractionID }
             onClone={ onClone }
           />
         )

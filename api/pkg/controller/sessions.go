@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/model"
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -124,13 +124,24 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
-func (c *Controller) CloneTextFinetuneInteraction(
+// the user interaction is the thing we are cloning
+func (c *Controller) CloneFinetuneInteraction(
 	ctx context.Context,
 	session *types.Session,
-	userInteraction *types.Interaction,
+	// this is the system interaction we are cloning
+	// we will also need to adjust the user interaction
+	// based on the mode - e.g. are we removing the questions file?
+	interaction *types.Interaction,
 	mode types.CloneTextType,
 ) (*types.Session, error) {
 	// sessionID := system.GenerateUUID()
+
+	// * copy the interactions
+	// * adjust the system and user interactions based on the mode
+	//   * this might need the data prep stage to change
+	// * create a new session
+	// * adjust the session mode
+	// * return the new session
 
 	return session, nil
 }
@@ -261,7 +272,7 @@ func (c *Controller) BroadcastProgress(
 }
 
 func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
-	userInteraction, err := model.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return
 	}
@@ -269,7 +280,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	userInteraction.Finished = true
 	userInteraction.State = types.InteractionStateComplete
 
-	errorInteraction, err := model.GetSystemInteraction(session)
+	errorInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return
 	}
@@ -292,7 +303,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 // we mark the session as "preparing" here to give text fine tuning
 // a chance to sort itself out in the background
 func (c *Controller) AddSessionToQueue(session *types.Session) {
-	sessionSummary, err := model.GetSessionSummary(session)
+	sessionSummary, err := data.GetSessionSummary(session)
 	if err != nil {
 		log.Error().Msgf("error getting session summary: %s", err.Error())
 		return
@@ -337,7 +348,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return nil, fmt.Errorf("session not found: %s", taskResponse.SessionID)
 	}
 
-	session, err = model.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+	session, err = data.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
 		// mark the interaction as complete if we are a fully finished response
 		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
 			targetInteraction.Finished = true

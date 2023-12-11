@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -113,8 +114,8 @@ func (l *Mistral7bInstruct01) PrepareFiles(session *types.Session, isInitialSess
 	// accumulate all JSONL files across all interactions
 	// and append them to one large JSONL file
 	if session.Mode == types.SessionModeFinetune {
-		userInteractions := FilterUserInteractions(session.Interactions)
-		finetuneInteractions := FilterFinetuneInteractions(userInteractions)
+		userInteractions := data.FilterUserInteractions(session.Interactions)
+		finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
 		jsonLFiles := []string{}
 		for _, interaction := range finetuneInteractions {
 			for _, file := range interaction.Files {
