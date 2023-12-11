@@ -71,7 +71,7 @@ export const Interaction: FC<{
       name={ useName }
     >
       {
-        interaction.mode == SESSION_MODE_FINETUNE && showFinetuning && (
+        showFinetuning && (
           <InteractionFinetune
             serverConfig={ serverConfig }
             interaction={ interaction }
@@ -81,16 +81,14 @@ export const Interaction: FC<{
           />
         )
       }
-      {
-        interaction.mode == SESSION_MODE_INFERENCE && (
-          <InteractionInference
-            serverConfig={ serverConfig }
-            imageURLs={ imageURLs }
-            message={ displayMessage }
-            error={ interaction?.error }
-          />
-        )
-      }
+      
+      <InteractionInference
+        serverConfig={ serverConfig }
+        imageURLs={ imageURLs }
+        message={ displayMessage }
+        error={ interaction?.error }
+      />
+
       {
         children
       }
