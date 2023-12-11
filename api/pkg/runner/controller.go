@@ -670,7 +670,7 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 	}
 
 	if resp.StatusCode != 200 {
-		log.Error().Msgf("error from runner getNextApiSession: %s", buffer.String())
+		log.Error().Msgf("error from runner getNextApiSession GET %s: %s", parsedURL.String(), buffer.String())
 		return nil, nil
 	}
 
