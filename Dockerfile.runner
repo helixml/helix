@@ -1,8 +1,11 @@
-FROM winglian/axolotl:main-py3.10-cu118-2.0.1
+FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af62f627429a8a83eabbb84e18096490b1661d3c
 
 WORKDIR /workspace
-
-# TODO: integrate chatbot in here as well (build on axolotl image)
+RUN cd /workspace/axolotl && \
+    git remote rm origin && \
+    git remote add lukefork https://github.com/lukemarsden/axolotl && \
+    git fetch --all && \
+    git checkout lukefork/long-running
 
 RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
     git clone https://github.com/lukemarsden/sd-scripts && \
@@ -13,6 +16,7 @@ RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget p
     pip install -r requirements.txt && \
     pip install bitsandbytes==0.41.1 && \
     pip install xformers==0.0.22.post4 && \
+    pip install scipy==1.11.4 && \
     mkdir sdxl && ( \
         cd sdxl; wget -q --show-progress https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
     )
