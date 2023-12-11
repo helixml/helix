@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -120,8 +121,8 @@ func (l *SDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileM
 	// download all files across all interactions
 	// and accumulate them in the last user interaction
 	if session.Mode == types.SessionModeFinetune {
-		userInteractions := FilterUserInteractions(session.Interactions)
-		finetuneInteractions := FilterFinetuneInteractions(userInteractions)
+		userInteractions := data.FilterUserInteractions(session.Interactions)
+		finetuneInteractions := data.FilterFinetuneInteractions(userInteractions)
 
 		allFiles := []string{}
 

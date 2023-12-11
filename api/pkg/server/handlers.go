@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -389,7 +390,7 @@ func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req 
 	if err != nil {
 		return nil, err
 	}
-	return model.GetSessionSummary(session)
+	return data.GetSessionSummary(session)
 }
 
 func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
@@ -426,17 +427,17 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 		return nil, err
 	}
 
-	data := []*types.SessionSummary{}
+	sessionSummaries := []*types.SessionSummary{}
 	for _, session := range sessions {
-		summary, err := model.GetSessionSummary(session)
+		summary, err := data.GetSessionSummary(session)
 		if err != nil {
 			return nil, err
 		}
-		data = append(data, summary)
+		sessionSummaries = append(sessionSummaries, summary)
 	}
 
 	return &types.SessionsList{
-		Sessions: data,
+		Sessions: sessionSummaries,
 		Counter:  counter,
 	}, nil
 }
@@ -462,7 +463,7 @@ func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseW
 	if err != nil {
 		return nil, err
 	}
-	interaction, err := model.GetInteraction(session, vars["interaction"])
+	interaction, err := data.GetInteraction(session, vars["interaction"])
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +471,7 @@ func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseW
 	if err != nil {
 		return nil, err
 	}
-	return apiServer.Controller.CloneTextFinetuneInteraction(req.Context(), session, interaction, mode)
+	return apiServer.Controller.CloneFinetuneInteraction(req.Context(), session, interaction, mode)
 }
 
 func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -512,7 +513,7 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
 		return nil, fmt.Errorf("access denied")
 	}
-	foundFile, err := model.GetInteractionFinetuneFile(session, interactionID)
+	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -533,7 +534,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 		return nil, fmt.Errorf("access denied")
 	}
 
-	foundFile, err := model.GetInteractionFinetuneFile(session, interactionID)
+	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
 		return nil, err
 	}

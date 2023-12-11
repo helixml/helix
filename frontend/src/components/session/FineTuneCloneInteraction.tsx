@@ -31,12 +31,18 @@ import {
 export const FineTuneCloneInteraction: FC<{
   type: ISessionType,
   sessionID: string,
-  interactionID: string,
-  onClone: (mode: ICloneTextMode) => void,
+
+  // this is used to load the questions
+  userInteractionID: string,
+
+  // this is used to target the clone action
+  systemInteractionID: string,
+  onClone: (mode: ICloneTextMode, interactionID: string) => void,
 }> = ({
   type,
   sessionID,
-  interactionID,
+  userInteractionID,
+  systemInteractionID,
   onClone,
 }) => {
   const interactionQuestions = useInteractionQuestions()
@@ -50,11 +56,12 @@ export const FineTuneCloneInteraction: FC<{
       interactionQuestions.setQuestions([])
       return
     }
-    interactionQuestions.loadQuestions(sessionID, interactionID)
+    interactionQuestions.loadQuestions(sessionID, userInteractionID)
   }, [
     viewMode,
     sessionID,
-    interactionID,
+    userInteractionID,
+    systemInteractionID,
   ])
 
   return (
@@ -168,7 +175,7 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_JUST_DATA)}>Clone</Button>
+                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)}>Clone</Button>
                     </CardActions>
                   </Card>
                 </Grid>
@@ -198,7 +205,7 @@ export const FineTuneCloneInteraction: FC<{
                             justifyContent: 'flex-end',
                           }}
                         >
-                            <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_WITH_QUESTIONS)}>Clone</Button>
+                            <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_WITH_QUESTIONS, systemInteractionID)}>Clone</Button>
                         </CardActions>
                       </Card>
                     </Grid>
@@ -228,7 +235,7 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_ALL)}>Clone</Button>
+                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_ALL, systemInteractionID)}>Clone</Button>
                     </CardActions>
                   </Card>
                   

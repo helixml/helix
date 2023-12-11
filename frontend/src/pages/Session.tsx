@@ -124,9 +124,9 @@ const Session: FC = () => {
     inputValue,
   ])
 
-  const onClone = useCallback(async (interactionID: string, mode: ICloneTextMode) => {
+  const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string) => {
     if(!session.data) return
-    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/text/clone/${interactionID}/${mode}`, undefined)
+    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined)
     if(!newSession) return
     console.log('--------------------------------------------')
     console.dir(newSession)
@@ -300,7 +300,7 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
-                        onClone={ (mode) => onClone(interaction.id, mode) }
+                        onClone={ onClone }
                       >
                         {
                           isLast && !interaction.finished && (

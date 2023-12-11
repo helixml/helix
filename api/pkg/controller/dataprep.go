@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
-	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -67,7 +67,7 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 }
 
 func (c *Controller) BeginTextFineTune(session *types.Session) error {
-	systemInteraction, err := model.GetSystemInteraction(session)
+	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return err
 	}
@@ -107,12 +107,12 @@ type convertTextItem struct {
 // in the case of a text fine tune - we need to convert all the documents first
 // TODO: there is no rate limiting on this path
 func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Session, error) {
-	userInteraction, err := model.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
 
-	systemInteraction, err := model.GetSystemInteraction(session)
+	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -265,12 +265,12 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 }
 
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, error) {
-	userInteraction, err := model.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
 
-	systemInteraction, err := model.GetSystemInteraction(session)
+	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
@@ -29,7 +30,7 @@ func downloadUserInteractionFiles(
 	session *types.Session,
 	fileManager ModelSessionFileManager,
 ) (*types.Session, error) {
-	interaction, err := GetUserInteraction(session)
+	interaction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
