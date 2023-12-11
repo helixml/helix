@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useCallback } from 'react'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
@@ -37,7 +37,7 @@ export const FineTuneCloneInteraction: FC<{
 
   // this is used to target the clone action
   systemInteractionID: string,
-  onClone: (mode: ICloneTextMode, interactionID: string) => void,
+  onClone: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
 }> = ({
   type,
   sessionID,
@@ -50,6 +50,14 @@ export const FineTuneCloneInteraction: FC<{
   const [ cloneMode, setCloneMode ] = useState(false)
 
   const colSize = type == SESSION_TYPE_IMAGE ? 6 : 4
+
+  const handleClone = useCallback(async (mode: ICloneTextMode, interactionID: string) => {
+    const result = await onClone(mode, interactionID)
+    if(!result) return
+    setCloneMode(false)
+  }, [
+    onClone,
+  ])
   
   useEffect(() => {
     if(!viewMode) {
@@ -72,7 +80,7 @@ export const FineTuneCloneInteraction: FC<{
             You have completed a fine tuning session on these { type == SESSION_TYPE_IMAGE ? 'images' : 'documents' }.
           </Typography>
           <Typography gutterBottom>
-            You can now chat to your model or you can "Clone" from this point in time to create a new session and continue training from here.
+            You can now chat to your model, add some more documents and re-train or you can "Clone" from this point in time to create a new session and continue training from there.
           </Typography>
         </Grid>
         <Grid item sm={ 12 } md={ 6 } sx={{
@@ -175,7 +183,10 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)}>Clone</Button>
+                        <Button size="small" variant="contained" onClick={() => {
+                          alert('coming soon')
+                          //handleClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)}
+                        }}>Clone</Button>
                     </CardActions>
                   </Card>
                 </Grid>
@@ -205,7 +216,7 @@ export const FineTuneCloneInteraction: FC<{
                             justifyContent: 'flex-end',
                           }}
                         >
-                            <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_WITH_QUESTIONS, systemInteractionID)}>Clone</Button>
+                            <Button size="small" variant="contained" onClick={() => handleClone(CLONE_TEXT_TYPE_WITH_QUESTIONS, systemInteractionID)}>Clone</Button>
                         </CardActions>
                       </Card>
                     </Grid>
@@ -235,7 +246,7 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => onClone(CLONE_TEXT_TYPE_ALL, systemInteractionID)}>Clone</Button>
+                        <Button size="small" variant="contained" onClick={() => handleClone(CLONE_TEXT_TYPE_ALL, systemInteractionID)}>Clone</Button>
                     </CardActions>
                   </Card>
                   

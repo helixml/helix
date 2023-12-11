@@ -15,6 +15,7 @@ export const FineTuneImageLabels: FC<{
   initialLabels?: Record<string, string>,
   files: File[],
   showButton?: boolean,
+  showSystemInteraction?: boolean,
   onChange?: {
     (labels: Record<string, string>): void
   },
@@ -26,6 +27,7 @@ export const FineTuneImageLabels: FC<{
   initialLabels,
   files,
   showButton = false,
+  showSystemInteraction = true,
   onChange,
   onDone,
 }) => {
@@ -39,21 +41,25 @@ export const FineTuneImageLabels: FC<{
         mt: 2,
       }}
     >
-      <Box
-        sx={{
-          mt: 4,
-          mb: 4,
-        }}
-      >
-        <InteractionContainer
-          name="System"
-        >
-          <Typography className="interactionMessage">
-            Now, add a label to each of your images.  Try to add as much detail as possible to each image:
-          </Typography>
-        </InteractionContainer>
-      </Box>
-    
+      {
+        showSystemInteraction && (
+          <Box
+            sx={{
+              mt: 4,
+              mb: 4,
+            }}
+          >
+            <InteractionContainer
+              name="System"
+            >
+              <Typography className="interactionMessage">
+                Now, add a label to each of your images.  Try to add as much detail as possible to each image:
+              </Typography>
+            </InteractionContainer>
+          </Box>
+        )
+      }
+
       <Grid container spacing={3} direction="row" justifyContent="flex-start">
         {
           files.length > 0 && files.map((file) => {

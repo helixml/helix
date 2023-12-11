@@ -18,6 +18,28 @@ import {
   deleteFile,
 } from '../utils/filestore'
 
+export interface IFinetuneInputs {
+  inputValue: string,
+  setInputValue: (value: string) => void,
+  manualTextFileCounter: number,
+  setManualTextFileCounter: (value: number) => void,
+  fineTuneStep: number,
+  setFineTuneStep: (value: number) => void,
+  showImageLabelErrors: boolean,
+  setShowImageLabelErrors: (value: boolean) => void,
+  files: File[],
+  setFiles: (value: File[]) => void,
+  labels: Record<string, string>,
+  setLabels: (value: Record<string, string>) => void,
+  uploadProgress: IFilestoreUploadProgress | undefined,
+  setUploadProgress: (value: IFilestoreUploadProgress | undefined) => void,
+  serializePage: () => Promise<void>,
+  loadFromLocalStorage: () => Promise<void>,
+  getFormData: (mode: string, type: string) => FormData,
+  uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
+  reset: () => Promise<void>,
+}
+
 export const useFinetuneInputs = () => {
   const [inputValue, setInputValue] = useState('')
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)

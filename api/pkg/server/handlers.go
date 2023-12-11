@@ -471,7 +471,7 @@ func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseW
 	if err != nil {
 		return nil, err
 	}
-	return apiServer.Controller.CloneFinetuneInteraction(req.Context(), session, interaction, mode)
+	return apiServer.Controller.CloneFinetuneInteraction(reqContext, session, interaction, mode)
 }
 
 func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, error) {

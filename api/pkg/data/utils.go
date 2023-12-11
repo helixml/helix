@@ -5,6 +5,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
@@ -43,10 +44,9 @@ func GetInteraction(session *types.Session, id string) (*types.Interaction, erro
 	return nil, fmt.Errorf("interaction not found: %s", id)
 }
 
-// get the most recent user interaction
-func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
-	for i := len(session.Interactions) - 1; i >= 0; i-- {
-		interaction := session.Interactions[i]
+func GetLastUserInteraction(interactions []types.Interaction) (*types.Interaction, error) {
+	for i := len(interactions) - 1; i >= 0; i-- {
+		interaction := interactions[i]
 		if interaction.Creator == types.CreatorTypeUser {
 			return &interaction, nil
 		}
@@ -54,14 +54,23 @@ func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
 	return nil, fmt.Errorf("no user interaction found")
 }
 
-func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
-	for i := len(session.Interactions) - 1; i >= 0; i-- {
-		interaction := session.Interactions[i]
+// get the most recent user interaction
+func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
+	return GetLastUserInteraction(session.Interactions)
+}
+
+func GetLastSystemInteraction(interactions []types.Interaction) (*types.Interaction, error) {
+	for i := len(interactions) - 1; i >= 0; i-- {
+		interaction := interactions[i]
 		if interaction.Creator == types.CreatorTypeSystem {
 			return &interaction, nil
 		}
 	}
 	return nil, fmt.Errorf("no system interaction found")
+}
+
+func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
+	return GetLastSystemInteraction(session.Interactions)
 }
 
 func FilterUserInteractions(interactions []types.Interaction) []types.Interaction {
@@ -102,6 +111,17 @@ func FilterInferenceInteractions(interactions []types.Interaction) []types.Inter
 		}
 	}
 	return filtered
+}
+
+func CopyInteractionsUntil(interactions []types.Interaction, id string) []types.Interaction {
+	copied := []types.Interaction{}
+	for _, interaction := range interactions {
+		copied = append(copied, interaction)
+		if interaction.ID == id {
+			break
+		}
+	}
+	return copied
 }
 
 // update the most recent system interaction
@@ -170,4 +190,68 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Completed:     systemInteraction.Completed,
 		Summary:       summary,
 	}, nil
+}
+
+func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
+	systemInteraction := types.Interaction{
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Creator:        types.CreatorTypeSystem,
+		Mode:           req.SessionMode,
+		Message:        "",
+		Files:          []string{},
+		State:          types.InteractionStateWaiting,
+		Finished:       false,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
+	}
+
+	session := types.Session{
+		ID:            req.SessionID,
+		Name:          system.GenerateAmusingName(),
+		ModelName:     req.ModelName,
+		Type:          req.SessionType,
+		Mode:          req.SessionMode,
+		ParentSession: req.ParentSession,
+		Owner:         req.Owner,
+		OwnerType:     req.OwnerType,
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Interactions: []types.Interaction{
+			req.UserInteraction,
+			systemInteraction,
+		},
+		Config: types.SessionConfig{
+			OriginalMode: req.SessionMode,
+			Origin: types.SessionOrigin{
+				Type: types.SessionOriginTypeUserCreated,
+			},
+		},
+	}
+
+	return session, nil
+}
+
+func CloneSession(oldSession types.Session, interactionID string) (types.Session, error) {
+	session := types.Session{
+		ID:            system.GenerateUUID(),
+		Name:          system.GenerateAmusingName(),
+		ModelName:     oldSession.ModelName,
+		Type:          oldSession.Type,
+		Mode:          oldSession.Mode,
+		ParentSession: oldSession.ParentSession,
+		Owner:         oldSession.Owner,
+		OwnerType:     oldSession.OwnerType,
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Config:        oldSession.Config,
+	}
+
+	session.Interactions = CopyInteractionsUntil(oldSession.Interactions, interactionID)
+	session.Config.Origin.Type = types.SessionOriginTypeCloned
+	session.Config.Origin.ClonedSessionID = oldSession.ID
+	session.Config.Origin.ClonedInteractionID = interactionID
+
+	return session, nil
 }

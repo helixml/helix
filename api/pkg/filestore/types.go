@@ -62,4 +62,5 @@ type FileStore interface {
 	UploadFolder(ctx context.Context, path string, r io.Reader) error
 	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
 	Delete(ctx context.Context, path string) error
+	CopyFile(ctx context.Context, from string, to string) error
 }

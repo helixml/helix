@@ -12,6 +12,7 @@ import ReplayIcon from '@mui/icons-material/Replay'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import FineTuneTextQuestions from './FineTuneTextQuestions'
+import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
@@ -23,6 +24,8 @@ import {
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
   TEXT_DATA_PREP_STAGE_NONE,
+  TEXT_DATA_PREP_STAGE_EDIT_FILES,
+  TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
 } from '../../types'
 
 import {
@@ -46,7 +49,7 @@ export const InteractionFinetune: FC<{
   interaction: IInteraction,
   session: ISession,
   retryFinetuneErrors?: () => void,
-  onClone?: (mode: ICloneTextMode, interactionID: string) => void,
+  onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
 }> = ({
   serverConfig,
   interaction,
@@ -55,13 +58,16 @@ export const InteractionFinetune: FC<{
   onClone,
 }) => {
   const theme = useTheme()
-  
+
   const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
   const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
   const isImageFinetune = isUserInteraction && session.type == SESSION_TYPE_IMAGE
   const isTextFinetune = isUserInteraction && session.type == SESSION_TYPE_TEXT
-  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING ? true : false
+  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS ? true : false
+  const isAddingFiles = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_FILES ? true : false
   const hasFineTuned = interaction.lora_dir ? true : false
+
+  console.log(interaction.state + ' - ' + interaction.data_prep_stage)
 
   const dataPrepErrors = useMemo(() => {
     return getTextDataPrepErrors(interaction)
@@ -192,7 +198,7 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && (
+        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
           <Box
             sx={{
               mt: 4,
@@ -230,6 +236,20 @@ export const InteractionFinetune: FC<{
           </Box>
         )
       }
+      {/* {
+        isAddingFiles && (
+          <Box
+            sx={{
+              mt: 2,
+            }}
+          >
+            <FineTuneAddFiles
+              sessionID={ session.id }
+              interactionID={ userFilesInteractionID }
+            />
+          </Box>
+        )
+      } */}
       {
         isSystemInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction

@@ -27,6 +27,14 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	}
 }
 
+type SessionOriginType string
+
+const (
+	SessionOriginTypeNone        SessionOriginType = ""
+	SessionOriginTypeUserCreated SessionOriginType = "user_created"
+	SessionOriginTypeCloned      SessionOriginType = "cloned"
+)
+
 // this will change from finetune to inference (so the user can chat to their fine tuned model)
 // if they then turn back to "add more documents" / "add more images", then it will change back to finetune
 // we keep OriginalSessionMode in the session config so we can know:
@@ -171,6 +179,7 @@ type TextDataPrepStage string
 
 const (
 	TextDataPrepStageNone             TextDataPrepStage = ""
+	TextDataPrepStageEditFiles        TextDataPrepStage = "edit_files"
 	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
 	TextDataPrepStageConvertQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"

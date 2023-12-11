@@ -58,9 +58,16 @@ type Interaction struct {
 	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
 }
 
+type SessionOrigin struct {
+	Type                SessionOriginType `json:"type"`
+	ClonedSessionID     string            `json:"cloned_session_id"`
+	ClonedInteractionID string            `json:"cloned_interaction_id"`
+}
+
 // gives us a quick way to add settings
 type SessionConfig struct {
-	OriginalMode SessionMode `json:"original_mode"`
+	OriginalMode SessionMode   `json:"original_mode"`
+	Origin       SessionOrigin `json:"origin"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount

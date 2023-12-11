@@ -31,6 +31,7 @@ export const FineTuneTextInputs: FC<{
   initialCounter?: number,
   initialFiles?: File[],
   showButton?: boolean,
+  showSystemInteraction?: boolean,
   onChange?: {
     (counter: number, files: File[]): void
   },
@@ -41,6 +42,7 @@ export const FineTuneTextInputs: FC<{
   initialCounter,
   initialFiles,
   showButton = false,
+  showSystemInteraction = true,
   onChange,
   onDone,
 }) => {
@@ -111,20 +113,24 @@ export const FineTuneTextInputs: FC<{
         mt: 2,
       }}
     >
-      <Box
-        sx={{
-          mt: 4,
-          mb: 4,
-        }}
-      >
-        <InteractionContainer
-          name="System"
-        >
-          <Typography className="interactionMessage">
-            Add URLs, paste some text or upload some files you want your model to learn from:
-          </Typography>
-        </InteractionContainer>
-      </Box>
+      {
+        showSystemInteraction && (
+          <Box
+            sx={{
+              mt: 4,
+              mb: 4,
+            }}
+          >
+            <InteractionContainer
+              name="System"
+            >
+              <Typography className="interactionMessage">
+                Add URLs, paste some text or upload some files you want your model to learn from:
+              </Typography>
+            </InteractionContainer>
+          </Box>
+        )
+      }
       <Row
         sx={{
           mb: 2,

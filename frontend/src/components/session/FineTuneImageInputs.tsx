@@ -17,6 +17,7 @@ import {
 export const FineTuneImageInputs: FC<{
   initialFiles?: File[],
   showButton?: boolean,
+  showSystemInteraction?: boolean,
   onChange?: {
     (files: File[]): void
   },
@@ -26,6 +27,7 @@ export const FineTuneImageInputs: FC<{
 }> = ({
   initialFiles,
   showButton = false,
+  showSystemInteraction = true,
   onChange,
   onDone,
 }) => {
@@ -55,20 +57,24 @@ export const FineTuneImageInputs: FC<{
         mt: 2,
       }}
     >
-      <Box
-        sx={{
-          mt: 4,
-          mb: 4,
-        }}
-      >
-        <InteractionContainer
-          name="System"
-        >
-          <Typography className="interactionMessage">
-            Upload some images you want your model to learn from:
-          </Typography>
-        </InteractionContainer>
-      </Box>
+      {
+        showSystemInteraction && (
+          <Box
+            sx={{
+              mt: 4,
+              mb: 4,
+            }}
+          >
+            <InteractionContainer
+              name="System"
+            >
+              <Typography className="interactionMessage">
+                Upload some images you want your model to learn from:
+              </Typography>
+            </InteractionContainer>
+          </Box>
+        )
+      }
       <FileUpload
         sx={{
           width: '100%',
