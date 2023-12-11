@@ -23,6 +23,10 @@ RUN apt-get install -y software-properties-common && add-apt-repository -y ppa:l
 
 RUN mkdir -p /workspace/sd-scripts/output_images
 
+# Fake venv - helix runner expects one but axolotl is the "root venv" (actually, default conda env) in the image
+RUN mkdir -p /workspace/axolotl/venv/bin
+RUN echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate
+
 RUN mkdir -p /workspace/helix
 ADD . /workspace/helix/
 WORKDIR /workspace/helix
