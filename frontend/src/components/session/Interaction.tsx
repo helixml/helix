@@ -269,13 +269,13 @@ export const Interaction: FC<{
         {
           useErrorText && (
             <Alert severity="error">
-              The system has encountered an error - 
+              The system has encountered an error -&nbsp;
               <ClickLink onClick={ () => {
                 setViewingError(true)
               }}>
                 click here
               </ClickLink>
-              to view the details.
+              &nbsp;to view the details.
             </Alert>
           ) 
         }
