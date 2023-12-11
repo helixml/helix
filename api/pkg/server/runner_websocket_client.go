@@ -33,6 +33,16 @@ func ConnectRunnerWebSocketClient(
 					conn.Close()
 				}
 				return
+			// ping every 10 seconds to keep the connection alive
+			case <-time.After(10 * time.Second):
+				if conn == nil {
+					continue
+				}
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					conn.WriteMessage(websocket.PingMessage, []byte{})
+				}()
 			case <-finished:
 				return
 			case ev := <-websocketEventChan:

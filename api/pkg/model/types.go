@@ -24,13 +24,6 @@ type Model interface {
 	// tells you if this model is text or image based
 	GetType() types.SessionType
 
-	// convert a session (which has an active mode i.e. inference or finetune) into a task
-	// this primarily means constructing the prompt
-	// and downloading files from the filestore
-	// we don't need to fill in the SessionID and Session fields
-	// the runner controller will do that for us
-	GetTask(session *types.Session) (*types.RunnerTask, error)
-
 	// the function we call to get the python process booted and
 	// asking us for work
 	// this relies on the axotl and sd-script repos existing
@@ -45,4 +38,39 @@ type Model interface {
 	// the eventHandler is the function that is wired up to the runner controller
 	// and will update the api with changes to the given session
 	GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error)
+
+	// before we run a session, do we need to download files in preparation
+	// for it?
+	// isInitialSession is for when we are running Lora based sessions
+	// and we need to download the Lora dir
+	// this should convert all downloaded remote file paths into local file paths once it has done
+	// it can remove any file paths it has not downloaded
+	// GetTask will be called on the session return from this function
+	// so PrepareFiles and GetTask very much work in tandem
+	// TODO: add the same for uploading files - i.e. the model shold have control over what happens
+	PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error)
+
+	// convert a session (which has an active mode i.e. inference or finetune) into a task
+	// this primarily means constructing the prompt
+	// and downloading files from the filestore
+	// we don't need to fill in the SessionID and Session fields
+	// the runner controller will do that for us
+	GetTask(session *types.Session, fileManager ModelSessionFileManager) (*types.RunnerTask, error)
+}
+
+// an interface that allows models to be opinionated about how they manage
+// a sessions files
+// for example, for text fine tuning - we want to download all JSONL files
+// across interactions and then concatenate them into one file
+// a ModelSessionFileManager implmentation will be per session and so have
+// allocated a folder for each session
+type ModelSessionFileManager interface {
+	// tell the model what folder we are saving local files to
+	GetFolder() string
+	// given remote filestore path and local path
+	// download the file
+	DownloadFile(remotePath string, localPath string) error
+	// given remote filestore path and local path
+	// download the folder
+	DownloadFolder(remotePath string, localPath string) error
 }

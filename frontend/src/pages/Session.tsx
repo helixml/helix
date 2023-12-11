@@ -1,30 +1,67 @@
-import React, { FC, useState, useEffect, useRef, useMemo } from 'react'
-
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+
+import SendIcon from '@mui/icons-material/Send'
+import AddIcon from '@mui/icons-material/Add'
+
+import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
-import SessionHeader from '../components/session/Header'
+import SessionHeader from '../components/session/SessionHeader'
+import CreateBotWindow from '../components/session/CreateBotWindow'
+import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
+import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
+import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+
+import Window from '../components/widgets/Window'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
+import UploadingOverlay from '../components/widgets/UploadingOverlay'
+
+import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
+import useSessions from '../hooks/useSessions'
+import useWebsocket from '../hooks/useWebsocket'
+import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
 import {
+  ICloneTextMode,
+  ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  IBotForm,
 } from '../types'
 
+import {
+  hasFinishedFinetune,
+} from '../utils/session'
+
 const Session: FC = () => {
+  const snackbar = useSnackbar()
   const api = useApi()
   const router = useRouter()
   const account = useAccount()
-  const session = useSession(router.params.session_id)
+  const session = useSession()
+  const sessions = useSessions()
+
+  const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
+  const isImage = session.data?.type === SESSION_TYPE_IMAGE
+  const isText = session.data?.type === SESSION_TYPE_TEXT
+
+  const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
+  const inputs = useFinetuneInputs()
 
   const divRef = useRef<HTMLDivElement>()
 
@@ -35,6 +72,19 @@ const Session: FC = () => {
     setInputValue(event.target.value)
   }
 
+  const addDocumentsSubmitTitle = useMemo(() => {
+    if(isFinetune && isImage && inputs.fineTuneStep == 0) {
+      return "Next Step"
+    } else {
+      return "Upload"
+    }
+  }, [
+    isFinetune,
+    isImage,
+    inputs.fineTuneStep,
+  ])
+
+
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
     const interaction = session.data?.interactions[session.data?.interactions.length - 1]
@@ -44,8 +94,18 @@ const Session: FC = () => {
     session.data,
   ])
 
-  const onSend = async () => {
+  const botForm = useMemo<IBotForm | undefined>(() => {
     if(!session) return
+    if(!session.bot) return
+    return session.bot ? {
+      name: session.bot.name,
+    } : undefined
+  }, [
+    session.bot,
+  ])
+
+  const onSend = useCallback(async () => {
+    if(!session.data) return
     
     const formData = new FormData()
     files.forEach((file) => {
@@ -60,14 +120,35 @@ const Session: FC = () => {
 
     setFiles([])
     setInputValue("")
-  }
+  }, [
+    session.data,
+    session.reload,
+    files,
+    inputValue,
+  ])
 
-  const retryFinetuneErrors = async () => {
+  const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string): Promise<boolean> => {
+    if(!session.data) return false
+    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
+      loading: true,
+    })
+    if(!newSession) return false
+    await sessions.loadSessions()
+    snackbar.success('Session cloned...')
+    router.navigate('session', {session_id: newSession.id})
+    return true
+  }, [
+    session.data,
+  ])
+
+  const retryFinetuneErrors = useCallback(async () => {
     if(!session.data) return
     await session.retryTextFinetune(session.data.id)
-  }
+  }, [
+    session.data,
+  ])
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
         setInputValue(current => current + "\n")
@@ -78,6 +159,57 @@ const Session: FC = () => {
       }
       event.preventDefault()
     }
+  }, [
+    onSend,
+  ])
+
+  const scrollToBottom = useCallback(() => {
+    const divElement = divRef.current
+    if(!divElement) return
+    divElement.scrollTo({
+      top: divElement.scrollHeight - divElement.clientHeight,
+      behavior: "smooth"
+    })
+  }, [])
+
+
+  // this is for text finetune
+  const onAddDocuments = async () => {
+    if(!session.data) return
+
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+
+    try {
+      const formData = inputs.getFormData(session.data.mode, session.data.type)
+      await api.put(`/api/v1/sessions/${sessionID}/finetune/documents`, formData, {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+      if(!session) {
+        inputs.setUploadProgress(undefined)
+        return
+      }
+      session.reload()
+      router.removeParams(['addDocuments'])
+      snackbar.success('Documents added...')
+    } catch(e: any) {}
+
+    inputs.setUploadProgress(undefined)
+  }
+
+  // this is for image finetune
+  const onAddImageDocuments = async () => {
+    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
+    if(errorFiles.length > 0) {
+      inputs.setShowImageLabelErrors(true)
+      snackbar.error('Please add a label to each image')
+      return
+    }
+    inputs.setShowImageLabelErrors(false)
+    onAddDocuments()
   }
 
   useEffect(() => {
@@ -94,16 +226,31 @@ const Session: FC = () => {
   ])
 
   useEffect(() => {
-    if(!session) return
-    const divElement = divRef.current
-    if(!divElement) return
-    divElement.scrollTo({
-      top: divElement.scrollHeight - divElement.clientHeight,
-      behavior: "smooth"
-    })
+    if(!session.data) return
+    setTimeout(() => {
+      scrollToBottom()
+    }, 10) 
   }, [
-    session,
+    session.data,
   ])
+
+  useEffect(() => {
+    if(!account.user) return
+    if(sessionID) {
+      session.loadSession(sessionID)
+    }
+  }, [
+    account.user,
+    sessionID,
+  ])
+
+  useWebsocket(sessionID, (parsedData) => {
+    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      session.setData(newSession)
+    }
+  })
+
 
   if(!session.data) return null
 
@@ -119,6 +266,24 @@ const Session: FC = () => {
       }}
     >
       <Box
+        sx={{
+          width: '100%',
+          flexGrow: 0,
+          p: 2,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Container maxWidth="lg">
+          <SessionHeader
+            session={ session.data }
+          />
+        </Container>
+      </Box>
+      <Box
+        id="helix-session-scroller"
         ref={ divRef }
         sx={{
           width: '100%',
@@ -131,25 +296,30 @@ const Session: FC = () => {
           {
             session.data && (
               <>
-                <SessionHeader
-                  session={ session.data }
-                />
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
+                    const isLast = i == interactionsLength - 1
                     if(!session.data) return null
                     return (
                       <Interaction
                         key={ i }
-                        session_id={ session.data.id }
-                        type={ session.data?.type || SESSION_TYPE_TEXT}
-                        mode={ session.data?.mode || SESSION_MODE_INFERENCE }
-                        interaction={ interaction }
-                        error={ interaction.error }
                         serverConfig={ account.serverConfig }
-                        isLast={ i === interactionsLength - 1 }
+                        interaction={ interaction }
+                        session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
-                      />
+                        onClone={ onClone }
+                      >
+                        {
+                          isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
+                            <InteractionLiveStream
+                              session_id={ session.data.id }
+                              interaction={ interaction }
+                              onMessageChange={ scrollToBottom }
+                            />
+                          )
+                        }
+                      </Interaction>
                     )   
                   })
                 }
@@ -170,43 +340,59 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Box
-            sx={{
-              width: '100%',
-              flexGrow: 0,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              label={(
-                (
-                  session.data?.type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
-                    'Describe what you want to see in an image...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputValue}
-              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-            />
-            <Button
-              variant='contained'
-              disabled={loading}
-              onClick={ onSend }
-              sx={{ ml: 2 }}
-            >
-              Send
-            </Button>
-          </Box>
+          <Row>
+            <Cell flexGrow={1}>
+              <TextField
+                id="textEntry"
+                fullWidth
+                inputRef={textFieldRef}
+                label={(
+                  (
+                    session.data?.type == SESSION_TYPE_TEXT ?
+                      'Chat with Helix...' :
+                      'Describe what you want to see in an image...'
+                  ) + " (shift+enter to add a newline)"
+                )}
+                value={inputValue}
+                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                onChange={handleInputChange}
+                name="ai_submit"
+                multiline={true}
+                onKeyDown={handleKeyDown}
+              />
+            </Cell>
+            <Cell>
+              <Button
+                variant='contained'
+                disabled={loading}
+                onClick={ onSend }
+                sx={{ ml: 2 }}
+                endIcon={<SendIcon />}
+              >
+                Send
+              </Button>
+            </Cell>
+            {
+              hasFinishedFinetune(session.data) && (
+                <Cell>
+                  <Button
+                    variant='outlined'
+                    size="small"
+                    disabled={ loading }
+                    onClick={ () => {
+                      router.setParams({
+                        addDocuments: 'yes',
+                      })
+                    }}
+                    sx={{ ml: 2 }}
+                    endIcon={<AddIcon />}
+                  >
+                    Add More { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
+                  </Button>
+                </Cell>
+              )
+            }
+          </Row>
           <Box
             sx={{
               mt: 2,
@@ -218,6 +404,114 @@ const Session: FC = () => {
         </Container>
         
       </Box>
+
+      {
+        router.params.editBot && (
+          <CreateBotWindow
+            bot={ botForm }
+            onSubmit={ (newBotForm) => {} }
+            onCancel={ () => {
+              router.removeParams(['editBot'])
+            }}
+          />
+        )
+      }
+
+      {
+        router.params.cloneInteraction && (
+          <Window
+            open
+            size="sm"
+            title={`Clone ${session.data.name}?`}
+            withCancel
+            submitTitle="Clone"
+            onSubmit={ () => {
+              session.clone(sessionID, router.params.cloneInteraction)
+            } }
+            onCancel={ () => {
+              router.removeParams(['cloneInteraction'])
+            }}
+          >
+            <Typography gutterBottom>
+              Are you sure you want to clone {session.data.name} from this point in time?
+            </Typography>
+            <Typography variant="caption" gutterBottom>
+              This will create a new session.
+            </Typography>
+          </Window>
+        )
+      }
+
+      {
+        router.params.addDocuments && session.data && (
+          <Window
+            open
+            size="lg"
+            title={`Add Documents to ${session.data.name}?`}
+            withCancel
+            submitTitle={ addDocumentsSubmitTitle }
+            onSubmit={ () => {
+              if(isFinetune && isImage && inputs.fineTuneStep == 0) {
+                inputs.setFineTuneStep(1)
+              } else if(isFinetune && isText && inputs.fineTuneStep == 0) {
+                onAddDocuments()
+              } else if(isFinetune && isImage && inputs.fineTuneStep == 1) {
+                onAddImageDocuments()
+              }
+            } }
+            onCancel={ () => {
+              router.removeParams(['addDocuments'])
+              inputs.reset()
+            }}
+          >
+            {
+              isFinetune && isImage && inputs.fineTuneStep == 0 && (
+                <FineTuneImageInputs
+                  initialFiles={ inputs.files }
+                  showSystemInteraction={ false }
+                  onChange={ (files) => {
+                    inputs.setFiles(files)
+                  }}
+                />
+              )
+            }
+            {
+              isFinetune && isText && inputs.fineTuneStep == 0 && (
+                <FineTuneTextInputs
+                  initialCounter={ inputs.manualTextFileCounter }
+                  initialFiles={ inputs.files }
+                  showSystemInteraction={ false }
+                  onChange={ (counter, files) => {
+                    inputs.setManualTextFileCounter(counter)
+                    inputs.setFiles(files)
+                  }}
+                />
+              )
+            }
+            {
+              isFinetune && isImage && inputs.fineTuneStep == 1 && (
+                <FineTuneImageLabels
+                  showImageLabelErrors={ inputs.showImageLabelErrors }
+                  initialLabels={ inputs.labels }
+                  showSystemInteraction={ false }
+                  files={ inputs.files }
+                  onChange={ (labels) => {
+                    inputs.setLabels(labels)
+                  }}
+                />
+              )
+            }
+          </Window>
+        )
+      }
+
+      {
+        inputs.uploadProgress && (
+          <UploadingOverlay
+            percent={ inputs.uploadProgress.percent }
+          />
+        )
+      }
 
     </Box>
   )

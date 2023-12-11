@@ -2,7 +2,6 @@ import React, { FC, useState } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
-import GlobalStyles from '@mui/material/GlobalStyles'
 import MuiDrawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
@@ -19,7 +18,6 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 
-import HomeIcon from '@mui/icons-material/Home'
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
@@ -34,6 +32,7 @@ import useAccount from '../hooks/useAccount'
 import Snackbar from '../components/system/Snackbar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import GlobalLoading from '../components/system/GlobalLoading'
+
 import useThemeConfig from '../hooks/useThemeConfig'
 
 const drawerWidth: number = 280
@@ -95,6 +94,7 @@ const Layout: FC = ({
     meta,
     navigate,
     getToolbarElement,
+    getTitle,
     name,
   } = useRouter()
   
@@ -341,22 +341,28 @@ const Layout: FC = ({
                   alignItems: 'center',
                 }}
               >
-                <Typography
-                  component="h1"
-                  variant="h6"
-                  color="inherit"
-                  noWrap
-                  sx={{
-                    flexGrow: 1,
-                    ml: 1,
-                    color: 'text.primary',
-                  }}
-                >
-                  { meta.title || '' }
-                </Typography>
-                
+                {
+                  getTitle ?
+
+                    getTitle() :
+
+                    (
+                      <Typography
+                        component="h1"
+                        variant="h6"
+                        color="inherit"
+                        noWrap
+                        sx={{
+                          flexGrow: 1,
+                          ml: 1,
+                          color: 'text.primary',
+                        }}
+                      >
+                        { meta.title || '' }
+                      </Typography>
+                    )
+                }
               </Box>
-              
             ) : (
               <Box
                 sx={{

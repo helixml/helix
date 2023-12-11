@@ -31,6 +31,7 @@ func NewRunnerOptions() *RunnerOptions {
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
 			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
+			MockRunner:                   getDefaultServeOptionBool("MOCK_RUNNER", false),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -77,16 +78,6 @@ func newRunnerCmd() *cobra.Command {
 		`Short notation for the amount of GPU memory available - e.g. 1GB`,
 	)
 
-	runnerCmd.PersistentFlags().StringToStringVar(
-		&allOptions.Runner.Labels, "label", allOptions.Runner.Labels,
-		`Labels to attach to this runner`,
-	)
-
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.Runner.SchedulingDecisionBufferSize,
-		`How many scheduling decisions to buffer before we start dropping them.`,
-	)
-
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Runner.ModelInstanceTimeoutSeconds, "timeout-seconds", allOptions.Runner.ModelInstanceTimeoutSeconds,
 		`How many seconds without a task before we shutdown a running model instance`,
@@ -105,6 +96,26 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().BoolVar(
 		&allOptions.Runner.LocalMode, "local-mode", allOptions.Runner.LocalMode,
 		`Are we running in local mode?`,
+	)
+
+	runnerCmd.PersistentFlags().StringToStringVar(
+		&allOptions.Runner.Labels, "label", allOptions.Runner.Labels,
+		`Labels to attach to this runner`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.Runner.SchedulingDecisionBufferSize,
+		`How many scheduling decisions to buffer before we start dropping them.`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.JobHistoryBufferSize, "job-history-buffer-size", allOptions.Runner.JobHistoryBufferSize,
+		`How many jobs do we keep in the history buffer for the runner.`,
+	)
+
+	runnerCmd.PersistentFlags().BoolVar(
+		&allOptions.Runner.MockRunner, "mock-runner", allOptions.Runner.MockRunner,
+		`Are we running a mock runner?`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(

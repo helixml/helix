@@ -7,7 +7,7 @@ interface StyleProps {
 
 const useStyles = makeStyles(theme => ({
   root: ({scrolling}: StyleProps) => ({
-    padding: 2,
+    padding: 10,
     background: '#000000',
     color: '#FFFFFF',
     fontFamily: 'Courier New',

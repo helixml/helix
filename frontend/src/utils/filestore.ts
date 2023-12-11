@@ -3,6 +3,7 @@ import {
   IFileStoreItem,
   IFileStoreFolder,
   IFileStoreConfig,
+  ISerlializedFile,
 } from '../types'
 
 export const getRelativePath = (config: IFileStoreConfig, file: IFileStoreItem) =>{
@@ -55,12 +56,6 @@ export const isImage = (filename: string) => {
   if(!filename) return false
   if(filename.match(/\.(jpg)|(png)|(jpeg)|(gif)$/i)) return true
   return false
-}
-
-export interface ISerlializedFile {
-  filename: string
-  content: string
-  mimeType: string
 }
 
 // return a JSON representation of the file
