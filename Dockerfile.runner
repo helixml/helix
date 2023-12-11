@@ -29,4 +29,4 @@ WORKDIR /workspace/helix
 RUN go build -o helix
 
 # TODO: autodetect available GPU memory
-ENTRYPOINT ["/workspace/helix/helix", "runner", "--timeout-seconds", "600", "--memory", "24GB", "--local-mode"]
+ENTRYPOINT ["/workspace/helix/helix", "runner"]
