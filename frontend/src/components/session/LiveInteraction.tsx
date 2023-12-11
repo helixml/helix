@@ -20,7 +20,6 @@ export const LiveInteraction: FC<{
   interaction,
   onMessageChange,
 }) => {
-
   const {
     message,
     progress,

@@ -286,30 +286,6 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	c.WriteSession(session)
 }
 
-func (c *Controller) BeginTextFineTune(session *types.Session) error {
-	systemInteraction, err := model.GetSystemInteraction(session)
-	if err != nil {
-		return err
-	}
-
-	systemInteraction.Finished = false
-	systemInteraction.Progress = 1
-	systemInteraction.Message = "fine tuning on data..."
-	systemInteraction.Status = ""
-	systemInteraction.State = types.InteractionStateWaiting
-	systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
-	systemInteraction.Files = []string{}
-
-	session = updateSessionInteractions(session, []types.Interaction{
-		*systemInteraction,
-	})
-
-	c.WriteSession(session)
-	c.AddSessionToQueue(session)
-
-	return nil
-}
-
 // add the given session onto the end of the queue
 // unless it's already waiting and present in the queue
 // in which case let's replace it at it's current position
