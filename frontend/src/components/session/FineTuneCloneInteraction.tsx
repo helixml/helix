@@ -25,7 +25,7 @@ import {
   CLONE_TEXT_TYPE_ALL,
 } from '../../types'
 
-export const CloneExistingQuestions: FC<{
+export const FineTuneCloneInteraction: FC<{
   sessionID: string,
   interactionID: string,
   onClone: (mode: ICloneTextMode) => void,
@@ -217,4 +217,4 @@ export const CloneExistingQuestions: FC<{
   )  
 }
 
-export default CloneExistingQuestions
+export default FineTuneCloneInteraction

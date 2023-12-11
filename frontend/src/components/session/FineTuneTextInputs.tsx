@@ -27,7 +27,7 @@ import {
   mapFileExtension,
 } from '../../utils/filestore'
 
-export const TextFineTuneInputs: FC<{
+export const FineTuneTextInputs: FC<{
   initialCounter?: number,
   initialFiles?: File[],
   showButton?: boolean,
@@ -135,6 +135,7 @@ export const TextFineTuneInputs: FC<{
           sx={{
             flexGrow: 1,
             pr: 2,
+            
           }}
         >
           <TextField
@@ -339,4 +340,4 @@ export const TextFineTuneInputs: FC<{
   )   
 }
 
-export default TextFineTuneInputs
+export default FineTuneTextInputs

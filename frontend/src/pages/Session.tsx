@@ -5,14 +5,15 @@ import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
-import LiveInteraction from '../components/session/LiveInteraction'
+import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/Header'
 import CreateBotWindow from '../components/session/CreateBotWindow'
-import TextFineTuneInputs from '../components/session/TextFineTuneInputs'
-import ImageFineTuneInputs from '../components/session/ImageFineTuneInputs'
-import ImageFineTuneLabels from '../components/session/ImageFineTuneLabels'
+import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
+import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
+import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
@@ -299,7 +300,7 @@ const Session: FC = () => {
                       >
                         {
                           isLast && !interaction.finished && (
-                            <LiveInteraction
+                            <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
                               onMessageChange={ scrollToBottom }
@@ -450,7 +451,7 @@ const Session: FC = () => {
           >
             {
               isFinetune && isImage && inputs.fineTuneStep == 0 && (
-                <ImageFineTuneInputs
+                <FineTuneImageInputs
                   initialFiles={ inputs.files }
                   onChange={ (files) => {
                     inputs.setFiles(files)
@@ -460,7 +461,7 @@ const Session: FC = () => {
             }
             {
               isFinetune && isText && inputs.fineTuneStep == 0 && (
-                <TextFineTuneInputs
+                <FineTuneTextInputs
                   initialCounter={ inputs.manualTextFileCounter }
                   initialFiles={ inputs.files }
                   onChange={ (counter, files) => {
@@ -472,7 +473,7 @@ const Session: FC = () => {
             }
             {
               isFinetune && isImage && inputs.fineTuneStep == 1 && (
-                <ImageFineTuneLabels
+                <FineTuneImageLabels
                   showImageLabelErrors={ inputs.showImageLabelErrors }
                   initialLabels={ inputs.labels }
                   files={ inputs.files }

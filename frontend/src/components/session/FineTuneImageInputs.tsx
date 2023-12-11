@@ -8,15 +8,13 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 
 import FileUpload from '../widgets/FileUpload'
-
-import useAccount from '../../hooks/useAccount'
 import InteractionContainer from './InteractionContainer'
 
 import {
   buttonStates,
 } from '../../types'
 
-export const ImageFineTuneInputs: FC<{
+export const FineTuneImageInputs: FC<{
   initialFiles?: File[],
   showButton?: boolean,
   onChange?: {
@@ -31,8 +29,6 @@ export const ImageFineTuneInputs: FC<{
   onChange,
   onDone,
 }) => {
-  const account = useAccount()
-
   const [files, setFiles] = useState<File[]>(initialFiles || [])
 
   const onDropFiles = useCallback(async (newFiles: File[]) => {
@@ -176,4 +172,4 @@ export const ImageFineTuneInputs: FC<{
   )   
 }
 
-export default ImageFineTuneInputs
+export default FineTuneImageInputs
