@@ -15,7 +15,7 @@ import Interaction from '../components/session/Interaction'
 import Window from '../components/widgets/Window'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
-import SessionHeader from '../components/session/Header'
+import SessionHeader from '../components/session/SessionHeader'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 

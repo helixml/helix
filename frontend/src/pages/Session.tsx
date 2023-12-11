@@ -11,7 +11,7 @@ import AddIcon from '@mui/icons-material/Add'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
-import SessionHeader from '../components/session/Header'
+import SessionHeader from '../components/session/SessionHeader'
 import CreateBotWindow from '../components/session/CreateBotWindow'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
 import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
@@ -27,6 +27,7 @@ import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
+import useSessions from '../hooks/useSessions'
 import useWebsocket from '../hooks/useWebsocket'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
@@ -37,6 +38,7 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
+  SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
@@ -51,6 +53,7 @@ const Session: FC = () => {
   const router = useRouter()
   const account = useAccount()
   const session = useSession()
+  const sessions = useSessions()
 
   const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
   const isImage = session.data?.type === SESSION_TYPE_IMAGE
@@ -124,12 +127,16 @@ const Session: FC = () => {
     inputValue,
   ])
 
-  const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string) => {
-    if(!session.data) return
-    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined)
-    if(!newSession) return
-    console.log('--------------------------------------------')
-    console.dir(newSession)
+  const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string): Promise<boolean> => {
+    if(!session.data) return false
+    const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
+      loading: true,
+    })
+    if(!newSession) return false
+    await sessions.loadSessions()
+    snackbar.success('Session cloned...')
+    router.navigate('session', {session_id: newSession.id})
+    return true
   }, [
     session.data,
   ])
@@ -170,7 +177,6 @@ const Session: FC = () => {
   const onAddDocuments = async () => {
     if(!session.data) return
 
-    router.removeParams(['addDocuments'])
     inputs.setUploadProgress({
       percent: 0,
       totalBytes: 0,
@@ -187,6 +193,8 @@ const Session: FC = () => {
         return
       }
       session.reload()
+      router.removeParams(['addDocuments'])
+      snackbar.success('Documents added...')
     } catch(e: any) {}
 
     inputs.setUploadProgress(undefined)
@@ -303,7 +311,7 @@ const Session: FC = () => {
                         onClone={ onClone }
                       >
                         {
-                          isLast && !interaction.finished && (
+                          isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
@@ -460,6 +468,7 @@ const Session: FC = () => {
               isFinetune && isImage && inputs.fineTuneStep == 0 && (
                 <FineTuneImageInputs
                   initialFiles={ inputs.files }
+                  showSystemInteraction={ false }
                   onChange={ (files) => {
                     inputs.setFiles(files)
                   }}
@@ -471,6 +480,7 @@ const Session: FC = () => {
                 <FineTuneTextInputs
                   initialCounter={ inputs.manualTextFileCounter }
                   initialFiles={ inputs.files }
+                  showSystemInteraction={ false }
                   onChange={ (counter, files) => {
                     inputs.setManualTextFileCounter(counter)
                     inputs.setFiles(files)
@@ -483,6 +493,7 @@ const Session: FC = () => {
                 <FineTuneImageLabels
                   showImageLabelErrors={ inputs.showImageLabelErrors }
                   initialLabels={ inputs.labels }
+                  showSystemInteraction={ false }
                   files={ inputs.files }
                   onChange={ (labels) => {
                     inputs.setLabels(labels)

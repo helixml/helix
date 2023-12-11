@@ -5,6 +5,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/data"
@@ -17,40 +19,7 @@ import (
 const DEBUG = true
 
 func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
-	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := types.Interaction{
-		ID:             system.GenerateUUID(),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		Creator:        types.CreatorTypeSystem,
-		Mode:           req.SessionMode,
-		Message:        "",
-		Files:          []string{},
-		State:          types.InteractionStateWaiting,
-		Finished:       false,
-		Metadata:       map[string]string{},
-		DataPrepChunks: map[string][]types.DataPrepChunk{},
-	}
-
-	session := types.Session{
-		ID:            req.SessionID,
-		Name:          system.GenerateAmusingName(),
-		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
-		ParentSession: req.ParentSession,
-		Owner:         req.Owner,
-		OwnerType:     req.OwnerType,
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Interactions: []types.Interaction{
-			req.UserInteraction,
-			systemInteraction,
-		},
-		Config: types.SessionConfig{
-			OriginalMode: req.SessionMode,
-		},
-	}
+	session, err := data.CreateSession(req)
 
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx, session)
@@ -120,28 +89,6 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 
 	c.WriteSession(session)
 	go c.SessionRunner(session)
-
-	return session, nil
-}
-
-// the user interaction is the thing we are cloning
-func (c *Controller) CloneFinetuneInteraction(
-	ctx context.Context,
-	session *types.Session,
-	// this is the system interaction we are cloning
-	// we will also need to adjust the user interaction
-	// based on the mode - e.g. are we removing the questions file?
-	interaction *types.Interaction,
-	mode types.CloneTextType,
-) (*types.Session, error) {
-	// sessionID := system.GenerateUUID()
-
-	// * copy the interactions
-	// * adjust the system and user interactions based on the mode
-	//   * this might need the data prep stage to change
-	// * create a new session
-	// * adjust the session mode
-	// * return the new session
 
 	return session, nil
 }
@@ -389,6 +336,8 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			session.LoraDir = taskResponse.LoraDir
 			targetInteraction.LoraDir = taskResponse.LoraDir
 			targetInteraction.DataPrepStage = types.TextDataPrepStageComplete
+			targetInteraction.Progress = 0
+			targetInteraction.Status = ""
 		}
 
 		return targetInteraction, nil
@@ -397,4 +346,120 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	c.WriteSession(session)
 
 	return taskResponse, nil
+}
+
+func (c *Controller) cloneUserInteractionFiles(
+	ctx types.RequestContext,
+	fromSessionID string,
+	toSessionID string,
+	interactionID string,
+	files []string,
+	filter func(filePath string) bool,
+) ([]string, error) {
+	newFiles := []string{}
+	oldFolder := GetInteractionInputsFolder(fromSessionID, interactionID)
+	newFolder := GetInteractionInputsFolder(toSessionID, interactionID)
+	for _, file := range files {
+		if !filter(file) {
+			continue
+		}
+		newFile := strings.Replace(file, oldFolder, newFolder, 1)
+		err := c.Options.Filestore.CopyFile(ctx.Ctx, file, newFile)
+		if err != nil {
+			return nil, err
+		}
+		newFiles = append(newFiles, newFile)
+	}
+	return newFiles, nil
+}
+
+// the user interaction is the thing we are cloning
+func (c *Controller) CloneFinetuneInteraction(
+	ctx types.RequestContext,
+	session *types.Session,
+	// this is the system interaction we are cloning
+	// we will also need to adjust the user interaction
+	// based on the mode - e.g. are we removing the questions file?
+	interaction *types.Interaction,
+	mode types.CloneTextType,
+) (*types.Session, error) {
+	newSession, err := data.CloneSession(*session, interaction.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	userInteraction, err := data.GetLastUserInteraction(newSession.Interactions)
+	if err != nil {
+		return nil, err
+	}
+	systemInteraction, err := data.GetLastSystemInteraction(newSession.Interactions)
+	if err != nil {
+		return nil, err
+	}
+
+	// copy the user files across - we don't bring the questions file depending on the mode
+	newUserInteractionFiles, err := c.cloneUserInteractionFiles(ctx, session.ID, newSession.ID, userInteraction.ID, userInteraction.Files, func(filePath string) bool {
+		if path.Base(filePath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
+			if mode == types.CloneTextTypeJustData {
+				return false
+			} else {
+				return true
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	userInteraction.Files = newUserInteractionFiles
+
+	systemInteraction.Progress = 0
+	systemInteraction.Created = time.Now()
+	systemInteraction.Updated = time.Now()
+	systemInteraction.Message = ""
+	systemInteraction.Status = ""
+
+	userInteraction.Progress = 0
+	userInteraction.Created = time.Now()
+	userInteraction.Updated = time.Now()
+	userInteraction.Message = ""
+	userInteraction.Status = ""
+
+	if mode == types.CloneTextTypeJustData {
+		// remove the fine tune file
+		systemInteraction.LoraDir = ""
+		systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
+		systemInteraction.State = types.InteractionStateEditing
+		systemInteraction.Finished = false
+	} else if mode == types.CloneTextTypeWithQuestions {
+		// remove the fine tune file
+		systemInteraction.LoraDir = ""
+		systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
+		systemInteraction.State = types.InteractionStateEditing
+		systemInteraction.Finished = false
+	} else if mode == types.CloneTextTypeAll {
+		// we need to bring the fine tune file with us
+	} else {
+		return nil, fmt.Errorf("invalid clone mode")
+	}
+
+	newInteractions := []types.Interaction{}
+	for _, interaction := range newSession.Interactions {
+		if interaction.ID == userInteraction.ID {
+			newInteractions = append(newInteractions, *userInteraction)
+		} else if interaction.ID == systemInteraction.ID {
+			newInteractions = append(newInteractions, *systemInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	newSession.Interactions = newInteractions
+
+	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, newSession)
+	if err != nil {
+		return nil, err
+	}
+
+	return createdSession, nil
 }

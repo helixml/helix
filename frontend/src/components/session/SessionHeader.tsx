@@ -72,7 +72,7 @@ export const SessionHeader: FC<{
               Info
             </Typography>
           </JsonWindowLink>
-          {
+          {/* {
             session.lora_dir && !session.parent_bot && (
               <>
                 <Typography
@@ -107,7 +107,7 @@ export const SessionHeader: FC<{
                 </Link>
               </>
             )
-          }
+          } */}
         </Row>
       </Cell>
     </Row>

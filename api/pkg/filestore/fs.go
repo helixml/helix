@@ -184,5 +184,36 @@ func (s *FileSystemStorage) CreateFolder(ctx context.Context, path string) (File
 	return s.Get(ctx, path)
 }
 
+func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPath string) error {
+	fullFromPath := filepath.Join(s.basePath, fromPath)
+	fullToPath := filepath.Join(s.basePath, toPath)
+
+	srcFile, err := os.Open(fullFromPath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Create the destination directory if it doesn't exist
+	destDir := filepath.Dir(fullToPath)
+	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Create the destination file
+	destFile, err := os.Create(fullToPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	// Copy the contents from source to destination
+	if _, err := io.Copy(destFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
+}
+
 // Compile-time interface check:
 var _ FileStore = (*FileSystemStorage)(nil)

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -277,6 +278,36 @@ func (s *GCSStorage) CreateFolder(ctx context.Context, path string) (FileStoreIt
 		Created:   attrs.Created.Unix(),
 		Size:      attrs.Size,
 	}, nil
+}
+
+func (s *GCSStorage) CopyFile(ctx context.Context, fromPath string, toPath string) error {
+	// Check if the fromPath exists
+	_, err := s.Get(ctx, fromPath)
+	if err != nil {
+		return fmt.Errorf("failed to get source file: %w", err)
+	}
+
+	// Create the folder for the toPath if it doesn't exist
+	toFolder := filepath.Dir(toPath)
+	_, err = s.CreateFolder(ctx, toFolder)
+	if err != nil {
+		return fmt.Errorf("failed to create destination folder: %w", err)
+	}
+
+	// Copy the file
+	fromReader, err := s.DownloadFile(ctx, fromPath)
+	if err != nil {
+		return fmt.Errorf("failed to download source file: %w", err)
+	}
+
+	toWriter := s.bucket.Object(toPath).NewWriter(ctx)
+	defer toWriter.Close()
+
+	if _, err := io.Copy(toWriter, fromReader); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	return nil
 }
 
 // Compile-time interface check:
