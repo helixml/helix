@@ -19,7 +19,7 @@ import {
   IQuestionAnswer,
 } from '../../types'
 
-export const ConversationEditor: FC<{
+export const FineTuneTextQuestionEditor: FC<{
   readOnly?: boolean,
   title?: string,
   cancelTitle?: string,
@@ -236,4 +236,4 @@ export const ConversationEditor: FC<{
   )  
 }
 
-export default ConversationEditor
+export default FineTuneTextQuestionEditor
