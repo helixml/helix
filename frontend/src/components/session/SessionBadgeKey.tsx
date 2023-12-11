@@ -15,6 +15,8 @@ export const SessionBadgeKey: FC<{
 }> = ({
   
 }) => {
+  // ATTN TODO: will need to add Yi here to make it show up in the dashboard
+  // properly (not user facing, so not super high priority)
   return (
     <Box
       sx={{
