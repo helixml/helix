@@ -9,6 +9,8 @@ import (
 func GetModel(modelName types.ModelName) (Model, error) {
 	if modelName == types.Model_Mistral7b {
 		return &Mistral7bInstruct01{}, nil
+	} else if modelName == types.Model_Yi34b {
+		return &Yi34B{}, nil
 	} else if modelName == types.Model_SDXL {
 		return &SDXL{}, nil
 	} else {
@@ -21,7 +23,11 @@ func GetModel(modelName types.ModelName) (Model, error) {
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
+	// XXX having exactly one instance per process might be causing the
+	// occasional missing output bug if multiple inferences are running (or
+	// trying to run) concurrently?
 	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
+	models[types.Model_Yi34b] = &Yi34B{}
 	models[types.Model_SDXL] = &SDXL{}
 	return models, nil
 }
@@ -30,6 +36,10 @@ func GetModelNameForSession(sessionType types.SessionType) (types.ModelName, err
 	if sessionType == types.SessionTypeImage {
 		return types.Model_SDXL, nil
 	} else if sessionType == types.SessionTypeText {
+		// ATTN TODO: change this to types.Model_Yi34b to test the UI against
+		// the updated model we'll need to do some more work to expose choosing
+		// between different models in the UI, for now just hardcode it in your
+		// branch
 		return types.Model_Mistral7b, nil
 	}
 	return types.Model_None, fmt.Errorf("no model for session type %s", sessionType)

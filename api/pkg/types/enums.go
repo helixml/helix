@@ -9,6 +9,7 @@ type ModelName string
 const (
 	Model_None      ModelName = ""
 	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
+	Model_Yi34b     ModelName = "01-ai/Yi-34B-Chat"
 	Model_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
 )
 
@@ -16,6 +17,8 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	switch modelName {
 	case string(Model_Mistral7b):
 		return Model_Mistral7b, nil
+	case string(Model_Yi34b):
+		return Model_Yi34b, nil
 	case string(Model_SDXL):
 		return Model_SDXL, nil
 	default:
