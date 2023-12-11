@@ -14,7 +14,7 @@ import DataIcon from '@mui/icons-material/DataUsage';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 
 import Window from '../widgets/Window'
-import ConversationEditor from './ConversationEditor'
+import FineTuneTextQuestionEditor from './FineTuneTextQuestionEditor'
 
 import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
@@ -97,7 +97,7 @@ export const FineTuneCloneInteraction: FC<{
 
       {
         viewMode && interactionQuestions.loaded && (
-          <ConversationEditor
+          <FineTuneTextQuestionEditor
             title="View Questions"
             cancelTitle="Close"
             readOnly

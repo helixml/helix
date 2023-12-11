@@ -8,12 +8,12 @@ import EditIcon from '@mui/icons-material/Edit'
 
 import useApi from '../../hooks/useApi'
 import Window from '../widgets/Window'
-import ConversationEditor from './ConversationEditor'
+import FineTuneTextQuestionEditor from './FineTuneTextQuestionEditor'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
-export const EditCurrentQuestions: FC<{
+export const FineTuneTextQuestions: FC<{
   sessionID: string,
   interactionID: string,
 }> = ({
@@ -107,7 +107,7 @@ export const EditCurrentQuestions: FC<{
           >
             {
               interactionQuestions.questions.length > 0 && (
-                <ConversationEditor
+                <FineTuneTextQuestionEditor
                   initialQuestions={ interactionQuestions.questions }
                   onSubmit={ async (questions) => {
                     const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
@@ -127,4 +127,4 @@ export const EditCurrentQuestions: FC<{
   )  
 }
 
-export default EditCurrentQuestions
+export default FineTuneTextQuestions

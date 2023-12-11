@@ -11,7 +11,7 @@ import StepLabel from '@mui/material/StepLabel'
 import ReplayIcon from '@mui/icons-material/Replay'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import VisibilityIcon from '@mui/icons-material/Visibility'
-import EditCurrentQuestions from './EditCurrentQuestions'
+import FineTuneTextQuestions from './FineTuneTextQuestions'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
@@ -220,7 +220,7 @@ export const InteractionFinetune: FC<{
               mt: 2,
             }}
           >
-            <EditCurrentQuestions
+            <FineTuneTextQuestions
               sessionID={ session.id }
               interactionID={ userFilesInteractionID }
             />
