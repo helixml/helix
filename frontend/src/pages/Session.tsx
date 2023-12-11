@@ -5,6 +5,9 @@ import TextField from '@mui/material/TextField'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
+import SendIcon from '@mui/icons-material/Send'
+import AddIcon from '@mui/icons-material/Add'
+
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
@@ -167,6 +170,7 @@ const Session: FC = () => {
   const onAddDocuments = async () => {
     if(!session.data) return
 
+    router.removeParams(['addDocuments'])
     inputs.setUploadProgress({
       percent: 0,
       totalBytes: 0,
@@ -355,6 +359,7 @@ const Session: FC = () => {
                 disabled={loading}
                 onClick={ onSend }
                 sx={{ ml: 2 }}
+                endIcon={<SendIcon />}
               >
                 Send
               </Button>
@@ -364,6 +369,7 @@ const Session: FC = () => {
                 <Cell>
                   <Button
                     variant='outlined'
+                    size="small"
                     disabled={ loading }
                     onClick={ () => {
                       router.setParams({
@@ -371,8 +377,9 @@ const Session: FC = () => {
                       })
                     }}
                     sx={{ ml: 2 }}
+                    endIcon={<AddIcon />}
                   >
-                    Add More Training { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
+                    Add More { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
                   </Button>
                 </Cell>
               )

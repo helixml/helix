@@ -230,6 +230,7 @@ export const InteractionFinetune: FC<{
       {
         hasFineTuned && onClone && (
           <FineTuneCloneInteraction
+            type={ session.type }
             sessionID={ session.id }
             interactionID={ userFilesInteractionID }
             onClone={ onClone }
