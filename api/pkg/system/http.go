@@ -50,9 +50,30 @@ func (e *HTTPError) Error() string {
 	return e.Message
 }
 
-func NewHTTPError(statusCode int, message string) *HTTPError {
+func NewHTTPError(err error) *HTTPError {
 	return &HTTPError{
-		StatusCode: statusCode,
+		StatusCode: http.StatusInternalServerError,
+		Message:    err.Error(),
+	}
+}
+
+func NewHTTPError400(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusBadRequest,
+		Message:    message,
+	}
+}
+
+func NewHTTPError401(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusUnauthorized,
+		Message:    message,
+	}
+}
+
+func NewHTTPError403(message string) *HTTPError {
+	return &HTTPError{
+		StatusCode: http.StatusForbidden,
 		Message:    message,
 	}
 }
@@ -60,20 +81,6 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 func NewHTTPError404(message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusNotFound,
-		Message:    message,
-	}
-}
-
-func NewHTTPError401(statusCode int, message string) *HTTPError {
-	return &HTTPError{
-		StatusCode: http.StatusUnauthorized,
-		Message:    message,
-	}
-}
-
-func NewHTTPError403(statusCode int, message string) *HTTPError {
-	return &HTTPError{
-		StatusCode: http.StatusForbidden,
 		Message:    message,
 	}
 }
@@ -125,6 +132,19 @@ func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func
 		}
 	}
 	return ret
+}
+
+// this is a wrapper for any function that just returns some data and a normal error
+// it is used because we want control over http status codes but lots of controller
+// functions just return a normal error - so, if we get one of these we just do a 500
+// it's up to the server handlers to decide they want to care about the http status code
+// and if they do then they should be handling the error themselves
+// this method is used for controllers that just return a result and an error
+func DefaultController[T any](result T, err error) (T, *HTTPError) {
+	if err != nil {
+		return result, NewHTTPError500(err.Error())
+	}
+	return result, nil
 }
 
 func DefaultWrapper[T any](handler defaultWrapper[T]) func(res http.ResponseWriter, req *http.Request) {
