@@ -178,11 +178,11 @@ const TEXT_DATA_PREP_QUESTIONS_FILE = "finetune_dataset.jsonl"
 type TextDataPrepStage string
 
 const (
-	TextDataPrepStageNone             TextDataPrepStage = ""
-	TextDataPrepStageEditFiles        TextDataPrepStage = "edit_files"
-	TextDataPrepStageExtractText      TextDataPrepStage = "extract_text"
-	TextDataPrepStageConvertQuestions TextDataPrepStage = "generate_questions"
-	TextDataPrepStageEditQuestions    TextDataPrepStage = "edit_questions"
-	TextDataPrepStageFineTune         TextDataPrepStage = "finetune"
-	TextDataPrepStageComplete         TextDataPrepStage = "complete"
+	TextDataPrepStageNone              TextDataPrepStage = ""
+	TextDataPrepStageEditFiles         TextDataPrepStage = "edit_files"
+	TextDataPrepStageExtractText       TextDataPrepStage = "extract_text"
+	TextDataPrepStageGenerateQuestions TextDataPrepStage = "generate_questions"
+	TextDataPrepStageEditQuestions     TextDataPrepStage = "edit_questions"
+	TextDataPrepStageFineTune          TextDataPrepStage = "finetune"
+	TextDataPrepStageComplete          TextDataPrepStage = "complete"
 )
