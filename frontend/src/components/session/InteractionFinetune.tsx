@@ -67,8 +67,6 @@ export const InteractionFinetune: FC<{
   const isAddingFiles = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_FILES ? true : false
   const hasFineTuned = interaction.lora_dir ? true : false
 
-  console.log(interaction.state + ' - ' + interaction.data_prep_stage)
-
   const dataPrepErrors = useMemo(() => {
     return getTextDataPrepErrors(interaction)
   }, [
@@ -236,7 +234,7 @@ export const InteractionFinetune: FC<{
           </Box>
         )
       }
-      {/* {
+      {
         isAddingFiles && (
           <Box
             sx={{
@@ -249,7 +247,7 @@ export const InteractionFinetune: FC<{
             />
           </Box>
         )
-      } */}
+      }
       {
         isSystemInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction

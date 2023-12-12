@@ -184,8 +184,7 @@ export const FineTuneCloneInteraction: FC<{
                       }}
                     >
                         <Button size="small" variant="contained" onClick={() => {
-                          alert('coming soon')
-                          //handleClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)}
+                          handleClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)
                         }}>Clone</Button>
                     </CardActions>
                   </Card>

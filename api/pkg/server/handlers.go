@@ -510,8 +510,9 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	if session == nil || err != nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
@@ -530,8 +531,9 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 	if session == nil || err != nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 
 	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
@@ -567,8 +569,9 @@ func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, r
 	if session == nil {
 		return nil, fmt.Errorf("no session found with id %v", id)
 	}
-	if session.OwnerType != reqContext.OwnerType || session.Owner != reqContext.Owner {
-		return nil, fmt.Errorf("access denied")
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 
 	// now we switch the session into training mode

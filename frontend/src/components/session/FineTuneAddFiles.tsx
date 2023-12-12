@@ -22,13 +22,13 @@ import {
 } from '../../types'
 
 export const FineTuneAddFiles: FC<{
-  session: ISession,
+  sessionID: string,
   interactionID: string,
-  onCancel: () => void,
+  //onCancel: () => void,
 }> = ({
-  session,
+  sessionID,
   interactionID,
-  onCancel,
+  // onCancel,
 }) => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -40,14 +40,14 @@ export const FineTuneAddFiles: FC<{
       <Grid container spacing={ 0 }>
         <Grid item sm={ 12 } md={ 6 } sx={{pr:2}}>
           <Typography gutterBottom>
-            You have a chance to add more files to the training data or you can start the training process.
+            You can add files to this stage or begin the data prep right away.
           </Typography>
         </Grid>
         <Grid item sm={ 12 } md={ 6 } sx={{
           textAlign: 'right',
           pt: 2,
         }}>
-          {/* <Button
+          <Button
             variant="contained"
             color="primary"
             size="small"
@@ -58,7 +58,7 @@ export const FineTuneAddFiles: FC<{
             onClick={ () => setEditMode(true) }
           >
             Add Files
-          </Button> */}
+          </Button>
           <Button
             variant="contained"
             color="secondary"
@@ -66,7 +66,7 @@ export const FineTuneAddFiles: FC<{
             endIcon={<NavigateNextIcon />}
             onClick={ () => {} }
           >
-            Start Training
+            Start Data Prep
           </Button>
         </Grid>
 
