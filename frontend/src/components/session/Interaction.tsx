@@ -29,6 +29,7 @@ export const Interaction: FC<{
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onAddDocuments?: () => void,
   onRestart?: () => void,
 }> = ({
   serverConfig,
@@ -39,6 +40,7 @@ export const Interaction: FC<{
   retryFinetuneErrors,
   onReloadSession,
   onClone,
+  onAddDocuments,
   onRestart,
   children,
 }) => {
@@ -86,6 +88,7 @@ export const Interaction: FC<{
             retryFinetuneErrors={ retryFinetuneErrors }
             onReloadSession={ onReloadSession }
             onClone={ onClone }
+            onAddDocuments={ onAddDocuments }
           />
         )
       }

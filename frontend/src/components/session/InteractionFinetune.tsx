@@ -51,6 +51,7 @@ export const InteractionFinetune: FC<{
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onAddDocuments?: () => void,
 }> = ({
   serverConfig,
   interaction,
@@ -58,6 +59,7 @@ export const InteractionFinetune: FC<{
   retryFinetuneErrors,
   onReloadSession,
   onClone,
+  onAddDocuments,
 }) => {
   const theme = useTheme()
 
@@ -252,13 +254,14 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        isSystemInteraction && hasFineTuned && onClone && (
+        isSystemInteraction && hasFineTuned && onClone && onAddDocuments && (
           <FineTuneCloneInteraction
             type={ session.type }
             sessionID={ session.id }
             systemInteractionID={ interaction.id }
             userInteractionID={ userFilesInteractionID }
             onClone={ onClone }
+            onAddDocuments={ onAddDocuments }
           />
         )
       }

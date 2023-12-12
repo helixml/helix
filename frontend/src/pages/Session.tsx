@@ -7,6 +7,7 @@ import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
+import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -140,6 +141,12 @@ const Session: FC = () => {
   }, [
     session.data,
   ])
+
+  const onAddDocuments = useCallback(() => {
+    router.setParams({
+      addDocuments: 'yes',
+    })
+  }, [])
 
   const retryFinetuneErrors = useCallback(async () => {
     if(!session.data) return
@@ -286,6 +293,7 @@ const Session: FC = () => {
                         ) : undefined }
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
+                        onAddDocuments={ isLast ? onAddDocuments : undefined }
                         onRestart={ isLast ? onRestart : undefined }
                       >
                         {
@@ -350,26 +358,6 @@ const Session: FC = () => {
                 Send
               </Button>
             </Cell>
-            {
-              hasFinishedFinetune(session.data) && (
-                <Cell>
-                  <Button
-                    variant='outlined'
-                    size="small"
-                    disabled={ loading }
-                    onClick={ () => {
-                      router.setParams({
-                        addDocuments: 'yes',
-                      })
-                    }}
-                    sx={{ ml: 2 }}
-                    endIcon={<AddIcon />}
-                  >
-                    Add More { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
-                  </Button>
-                </Cell>
-              )
-            }
           </Row>
           <Box
             sx={{
