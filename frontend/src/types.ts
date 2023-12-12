@@ -1,20 +1,20 @@
 export type ISessionCreator = 'system' | 'user'
-
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 export const SESSION_CREATOR_USER: ISessionCreator = 'user'
 
 export type ISessionMode = 'inference' | 'finetune'
-
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
 export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
 
 export type ISessionType = 'text' | 'image'
-
 export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
-export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
+export type ISessionOriginType = 'user_created' | 'cloned'
+export const SESSION_ORIGIN_TYPE_USER_CREATED: ISessionOriginType = 'user_created'
+export const SESSION_ORIGIN_TYPE_CLONED: ISessionOriginType = 'cloned'
 
+export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
 export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
 export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
 export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
@@ -163,8 +163,16 @@ export interface IInteraction {
   data_prep_stage: ITextDataPrepStage,
 }
 
+export interface ISessionOrigin {
+  type: ISessionOriginType,
+  cloned_session_id?: string,
+  cloned_interaction_id?: string,
+}
+
 export interface ISessionConfig {
   original_mode: ISessionMode,
+  origin: ISessionOrigin,
+  shared?: boolean,
 }
 
 export interface ISession {

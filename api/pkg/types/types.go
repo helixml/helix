@@ -68,6 +68,7 @@ type SessionOrigin struct {
 type SessionConfig struct {
 	OriginalMode SessionMode   `json:"original_mode"`
 	Origin       SessionOrigin `json:"origin"`
+	Shared       bool          `json:"shared"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount

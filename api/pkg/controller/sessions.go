@@ -141,6 +141,21 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
+func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Session, config *types.SessionConfig) (*types.SessionConfig, error) {
+	session.Updated = time.Now()
+	session.Config = *config
+
+	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debug().
+		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Config)
+
+	return &sessionData.Config, nil
+}
+
 func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *types.Session, newFiles []string) (*types.Session, error) {
 	session, err := data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 		userInteraction.Files = append(userInteraction.Files, newFiles...)
