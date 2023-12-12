@@ -136,6 +136,7 @@ const Session: FC = () => {
     if(!newSession) return
     session.reload()
     setRestartWindowOpen(false)
+    snackbar.success('Session restarted...')
   }, [
     session.data,
   ])

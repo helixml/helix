@@ -263,7 +263,7 @@ func CloneSession(oldSession types.Session, interactionID string) (*types.Sessio
 		Name:          system.GenerateAmusingName(),
 		ModelName:     oldSession.ModelName,
 		Type:          oldSession.Type,
-		Mode:          oldSession.Mode,
+		Mode:          oldSession.Config.OriginalMode,
 		ParentSession: oldSession.ParentSession,
 		Owner:         oldSession.Owner,
 		OwnerType:     oldSession.OwnerType,

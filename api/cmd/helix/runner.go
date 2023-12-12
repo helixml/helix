@@ -33,6 +33,7 @@ func NewRunnerOptions() *RunnerOptions {
 			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
 			MockRunner:                   getDefaultServeOptionBool("MOCK_RUNNER", false),
 			MockRunnerError:              getDefaultServeOptionString("MOCK_RUNNER_ERROR", ""),
+			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -122,6 +123,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.MockRunnerError, "mock-runner-error", allOptions.Runner.MockRunnerError,
 		`If defined, the runner will always throw this error for all jobs.`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.MockRunnerDelay, "mock-runner-delay", allOptions.Runner.MockRunnerDelay,
+		`How many seconds to delay the mock runner process.`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(

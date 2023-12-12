@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"path"
 	"strings"
 	"sync"
@@ -16,78 +14,6 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
-
-// return the JSON of some fine tune conversation data
-func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
-	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	var conversations []types.DataPrepTextQuestion
-	lines := strings.Split(string(data), "\n")
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var conversation types.DataPrepTextQuestion
-		err := json.Unmarshal([]byte(line), &conversation)
-		if err != nil {
-			return nil, err
-		}
-		conversations = append(conversations, conversation)
-	}
-
-	return conversations, nil
-}
-
-func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.DataPrepTextQuestion) error {
-	jsonLines := []string{}
-
-	for _, conversationEntry := range data {
-		jsonLine, err := json.Marshal(conversationEntry)
-		if err != nil {
-			return err
-		}
-		jsonLines = append(jsonLines, string(jsonLine))
-	}
-
-	_, err := c.Options.Filestore.UploadFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *Controller) BeginTextFineTune(session *types.Session) error {
-	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.Finished = false
-		systemInteraction.Progress = 1
-		systemInteraction.Message = "fine tuning on data..."
-		systemInteraction.Status = "fine tuning on data..."
-		systemInteraction.State = types.InteractionStateWaiting
-		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
-		systemInteraction.Files = []string{}
-		return systemInteraction, nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	c.WriteSession(session)
-	c.AddSessionToQueue(session)
-	c.BroadcastProgress(session, 1, "fine tuning on data...")
-
-	return nil
-}
 
 type convertDocumentsToChunksRequest struct {
 	URL string `json:"url"`
@@ -102,15 +28,8 @@ type convertTextItem struct {
 	Content string `json:"content"`
 }
 
-// in the case of a text fine tune - we need to convert all the documents first
-// TODO: there is no rate limiting on this path
-func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Session, error) {
+func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]string, error) {
 	userInteraction, err := data.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +79,31 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 		if shouldConvertFile(file) {
 			filesToConvert = append(filesToConvert, file)
 		}
+	}
+
+	return filesToConvert, nil
+}
+
+// in the case of a text fine tune - we need to convert all the documents first
+// TODO: there is no rate limiting on this path
+func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Session, int, error) {
+	userInteraction, err := data.GetUserInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	filesToConvert, err := c.getDocumentsToConvertToText(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(filesToConvert) == 0 {
+		return session, 0, nil
 	}
 
 	runningFileList := copyFileList(userInteraction.Files)
@@ -241,7 +185,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	)
 
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	finishedMessage := fmt.Sprintf("extracted %d files", len(filesToConvert))
@@ -259,10 +203,10 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	// for cases where the text conversion is very fast, give the UI a chance to display the text stage
 	time.Sleep(1 * time.Second)
 
-	return session, nil
+	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, error) {
+func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
@@ -285,7 +229,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		}
 	}
 
-	dataprep, splitter, err := c.Options.DataPrepTextFactory(session)
+	_, splitter, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, err
 	}
@@ -307,6 +251,34 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
+	}
+
+	return chunksToProcess, nil
+}
+
+func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
+	userInteraction, err := data.GetUserInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chunksToProcess, err := c.getChunksToProcess(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(chunksToProcess) == 0 {
+		return session, 0, nil
 	}
 
 	// get the progress bar to display
@@ -400,7 +372,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	// if this error is hit - it means something has actually gone wrong rather than a data prep error
 	// we catch the data prep errors and present them to the user once all processing is done
 	if outerError != nil {
-		return nil, outerError
+		return nil, 0, outerError
 	}
 
 	finishedMessage := fmt.Sprintf("converted %d text chunks", len(chunksToProcess))
@@ -413,5 +385,5 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
 
-	return session, nil
+	return session, len(chunksToProcess), nil
 }

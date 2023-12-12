@@ -302,6 +302,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		InitialSessionURL: instance.initialSessionURL,
 		MockRunner:        instance.runnerOptions.MockRunner,
 		MockRunnerError:   instance.runnerOptions.MockRunnerError,
+		MockRunnerDelay:   instance.runnerOptions.MockRunnerDelay,
 	})
 	if err != nil {
 		return err

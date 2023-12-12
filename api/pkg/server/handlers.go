@@ -619,7 +619,7 @@ func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, r
 	}
 
 	// now we switch the session into training mode
-	err = apiServer.Controller.BeginTextFineTune(session)
+	err = apiServer.Controller.BeginFineTune(session)
 	if err != nil {
 		return nil, err
 	}

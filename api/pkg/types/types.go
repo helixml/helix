@@ -231,6 +231,7 @@ type RunnerProcessConfig struct {
 	InitialSessionURL string `json:"initial_session_url"`
 	MockRunner        bool
 	MockRunnerError   string
+	MockRunnerDelay   int
 }
 
 // a session will run "tasks" on runners
