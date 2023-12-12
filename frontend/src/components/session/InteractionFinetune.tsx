@@ -254,7 +254,7 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        isSystemInteraction && hasFineTuned && onClone && onAddDocuments && (
+        isSystemInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction
             type={ session.type }
             sessionID={ session.id }

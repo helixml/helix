@@ -39,7 +39,7 @@ export const FineTuneCloneInteraction: FC<{
   // this is used to target the clone action
   systemInteractionID: string,
   onClone: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
-  onAddDocuments: () => void,
+  onAddDocuments?: () => void,
 }> = ({
   type,
   sessionID,
@@ -121,18 +121,23 @@ export const FineTuneCloneInteraction: FC<{
             Clone
           </Button>
 
-          <Button
-            variant='outlined'
-            size="small"
-            sx={{
-              ml: 1,
-              mb: 1,
-            }}
-            onClick={ onAddDocuments }
-            endIcon={<AddIcon />}
-          >
-            Add { type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
-          </Button>
+          {
+            onAddDocuments && (
+              <Button
+                variant='outlined'
+                size="small"
+                sx={{
+                  ml: 1,
+                  mb: 1,
+                }}
+                onClick={ onAddDocuments }
+                endIcon={<AddIcon />}
+              >
+                Add { type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
+              </Button>
+            )
+          }
+          
         </Grid>
 
       </Grid>
