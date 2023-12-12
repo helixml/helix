@@ -301,16 +301,15 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 		NextTaskURL:       instance.nextTaskURL,
 		InitialSessionURL: instance.initialSessionURL,
 		MockRunner:        instance.runnerOptions.MockRunner,
+		MockRunnerError:   instance.runnerOptions.MockRunnerError,
 	})
-
-	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
-
 	if err != nil {
 		return err
 	}
 	if cmd == nil {
 		return fmt.Errorf("no command to run")
 	}
+	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
 
 	log.Info().
 		Msgf("🟢 run model instance: %s, %+v", cmd.Dir, cmd.Args)

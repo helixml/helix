@@ -7,6 +7,7 @@ import json
 def do_inference():
     getJobURL = os.environ.get("HELIX_NEXT_TASK_URL", None)
     readSessionURL = os.environ.get("HELIX_INITIAL_SESSION_URL", "")
+    mockError = os.environ.get("HELIX_MOCK_ERROR", "")
 
     if getJobURL is None:
         sys.exit("HELIX_NEXT_TASK_URL is not set")
@@ -46,6 +47,9 @@ def do_inference():
         print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
         print("🟣🟣🟣 SDXL Finetune --------------------------------------------------")
         print(currentJobData)
+
+        if mockError != "":
+            sys.exit(f"Mock error {mockError}")
 
         task = json.loads(currentJobData)
         instruction: str = task["prompt"]

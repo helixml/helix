@@ -68,6 +68,9 @@ type RunnerOptions struct {
 	// used when we are developing platform code without a GPU
 	// it will run local python scripts that fake the output
 	MockRunner bool
+	// if this is defined then we will throw an error for any jobs
+	// the error will be the value of this string
+	MockRunnerError string
 }
 
 type Runner struct {

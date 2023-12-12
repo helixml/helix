@@ -13,12 +13,13 @@ import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
 import CreateBotWindow from '../components/session/CreateBotWindow'
-import AddMoreFiles from '../components/session/AddMoreFiles'
+import AddFilesWindow from '../components/session/AddFilesWindow'
 
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
+import ClickLink from '../components/widgets/ClickLink'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
-
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -52,35 +53,18 @@ const Session: FC = () => {
   const session = useSession()
   const sessions = useSessions()
 
-  const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
-  const isImage = session.data?.type === SESSION_TYPE_IMAGE
-  const isText = session.data?.type === SESSION_TYPE_TEXT
-
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
-  const inputs = useFinetuneInputs()
 
   const divRef = useRef<HTMLDivElement>()
 
+  const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-
-  const addDocumentsSubmitTitle = useMemo(() => {
-    if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-      return "Next Step"
-    } else {
-      return "Upload"
-    }
-  }, [
-    isFinetune,
-    isImage,
-    inputs.fineTuneStep,
-  ])
-
 
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
@@ -124,6 +108,10 @@ const Session: FC = () => {
     inputValue,
   ])
 
+  const onRestart = useCallback(() => {
+    setRestartWindowOpen(true)
+  }, [])
+
   const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string): Promise<boolean> => {
     if(!session.data) return false
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
@@ -134,6 +122,18 @@ const Session: FC = () => {
     snackbar.success('Session cloned...')
     router.navigate('session', {session_id: newSession.id})
     return true
+  }, [
+    session.data,
+  ])
+
+  const onRestartConfirm = useCallback(async () => {
+    if(!session.data) return
+    const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
+      loading: true,
+    })
+    if(!newSession) return
+    session.reload()
+    setRestartWindowOpen(false)
   }, [
     session.data,
   ])
@@ -208,7 +208,6 @@ const Session: FC = () => {
     }
   })
 
-
   if(!session.data) return null
 
   return (    
@@ -265,15 +264,40 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        onReloadSession={ () => session.reload() }
                         onClone={ onClone }
+                        onRestart={ isLast ? onRestart : undefined }
                       >
                         {
                           isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
-                            <InteractionLiveStream
-                              session_id={ session.data.id }
-                              interaction={ interaction }
-                              onMessageChange={ scrollToBottom }
-                            />
+                            <Row>
+                              <Cell grow>
+                                <InteractionLiveStream
+                                  session_id={ session.data.id }
+                                  interaction={ interaction }
+                                  onMessageChange={ scrollToBottom }
+                                />
+                              </Cell>
+                              {
+                                (interaction.mode == SESSION_MODE_FINETUNE || account.admin) && (
+                                  <Cell>
+                                    <ClickLink
+                                      onClick={ onRestart }
+                                    >
+                                      <Typography
+                                        sx={{
+                                          fontSize: "small",
+                                          flexGrow: 0,
+                                          textDecoration: 'underline',
+                                        }}
+                                      >
+                                        Restart
+                                      </Typography>
+                                    </ClickLink>
+                                  </Cell>
+                                )
+                              }
+                            </Row>
                           )
                         }
                       </Interaction>
@@ -401,7 +425,7 @@ const Session: FC = () => {
 
       {
         router.params.addDocuments && session.data && (
-          <AddMoreFiles
+          <AddFilesWindow
             session={ session.data }
             onClose={ (filesAdded) => {
               router.removeParams(['addDocuments'])
@@ -409,6 +433,17 @@ const Session: FC = () => {
                 session.reload()
               }
             } }
+          />
+        )
+      }
+      {
+        restartWindowOpen && (
+          <SimpleConfirmWindow
+            title="Restart Session"
+            message="Are you sure you want to restart this session?"
+            confirmTitle="Restart"
+            onCancel={ () => setRestartWindowOpen(false) }
+            onSubmit={ onRestartConfirm }
           />
         )
       }
