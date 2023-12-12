@@ -47,7 +47,6 @@ const Session: FC = () => {
   const session = useSession()
   const sessions = useSessions()
 
-  console.log(session.data)
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 

@@ -18,7 +18,9 @@ export const useSession = () => {
   const [ bot, setBot ] = useState<IBot>()
 
   const loadSession = useCallback(async (id: string) => {
-    const result = await api.get<ISession>(`/api/v1/sessions/${id}`)
+    const result = await api.get<ISession>(`/api/v1/sessions/${id}`, undefined, {
+      snackbar: true,
+    })
     if(!result) return
     setData(result)
     if(result.parent_bot) {

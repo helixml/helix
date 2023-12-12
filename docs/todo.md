@@ -17,6 +17,7 @@
  - [ ] quite often there's a model ready to serve and a new one gets spun up on the other node - maybe the clocks are drifting between the machines so the 2 second head start doesn't work? or the python processes aren't polling every 100ms or something?
  - [ ] speedway empty error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701725991656799
  - [ ] empty response messages error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701727773319809
+ - [ ] dashboard not showing finetune interactions
  - [ ] we are getting nignx 500's in the runner "load session from api" handler https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702369315736539
  - [ ] performance of auto-save before login (image fine tune text is slow)
  - [ ] autoscale spot runpod instances to match our queue depth: https://graphql-spec.runpod.io/ https://docs.runpod.io/recipes/ 
