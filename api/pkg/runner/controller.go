@@ -71,6 +71,9 @@ type RunnerOptions struct {
 	// if this is defined then we will throw an error for any jobs
 	// the error will be the value of this string
 	MockRunnerError string
+
+	// how many seconds to delay the mock runner
+	MockRunnerDelay int
 }
 
 type Runner struct {

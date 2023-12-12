@@ -4,7 +4,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -164,7 +166,8 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 	return session, nil
 }
 
-// called once we've done the pre-processing for both create and update calls to sessions
+// the idempotent function to "run" the session
+// it should work out what this means - i.e. have we prepared the data yet?
 func (c *Controller) SessionRunner(sessionData *types.Session) {
 	// first we prepare the seession - which could mean whatever the model implementation wants
 	// so we have to wait for that to complete before adding to the queue
@@ -204,17 +207,16 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
-	var err error
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, err = c.convertDocumentsToText(session)
+		session, convertedTextDocuments, err := c.convertDocumentsToText(session)
 		if err != nil {
 			return nil, err
 		}
-		session, err = c.convertChunksToQuestions(session)
+		session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
 		if err != nil {
 			return nil, err
 		}
@@ -223,9 +225,38 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
+		if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+			return nil, nil
+		}
+
+		// otherwise lets kick off the fine tune
+		c.BeginFineTune(session)
 		return nil, nil
 	}
 	return session, nil
+}
+
+func (c *Controller) BeginFineTune(session *types.Session) error {
+	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.Finished = false
+		systemInteraction.Progress = 1
+		systemInteraction.Message = "fine tuning on data..."
+		systemInteraction.Status = "fine tuning on data..."
+		systemInteraction.State = types.InteractionStateWaiting
+		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
+		systemInteraction.Files = []string{}
+		return systemInteraction, nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	c.WriteSession(session)
+	c.AddSessionToQueue(session)
+	c.BroadcastProgress(session, 1, "fine tuning on data...")
+
+	return nil
 }
 
 // generic "update this session handler"
@@ -500,4 +531,53 @@ func (c *Controller) CloneFinetuneInteraction(
 	}
 
 	return createdSession, nil
+}
+
+// return the JSON of some fine tune conversation data
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
+	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var conversations []types.DataPrepTextQuestion
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var conversation types.DataPrepTextQuestion
+		err := json.Unmarshal([]byte(line), &conversation)
+		if err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, conversation)
+	}
+
+	return conversations, nil
+}
+
+func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.DataPrepTextQuestion) error {
+	jsonLines := []string{}
+
+	for _, conversationEntry := range data {
+		jsonLine, err := json.Marshal(conversationEntry)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+
+	_, err := c.Options.Filestore.UploadFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

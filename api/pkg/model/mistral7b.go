@@ -173,6 +173,7 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
 		fmt.Sprintf("HELIX_MOCK_ERROR=%s", config.MockRunnerError),
+		fmt.Sprintf("HELIX_MOCK_DELAY=%d", config.MockRunnerDelay),
 	}
 
 	return cmd, nil
