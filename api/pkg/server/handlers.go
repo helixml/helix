@@ -481,7 +481,7 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	return session, nil
 }
 
-func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
