@@ -81,10 +81,15 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		}
 
 		if session.Mode == types.SessionModeFinetune {
-			systemInteraction.Message = "restarted: fine tuning on data..."
-			systemInteraction.Status = "restarted: fine tuning on data..."
-			systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
-			systemInteraction.Files = []string{}
+			if systemInteraction.DataPrepStage == types.TextDataPrepStageExtractText || systemInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
+				// in this case we are restarting the data prep
+				systemInteraction.Message = ""
+				systemInteraction.Status = ""
+			} else if systemInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
+				// in this case we are restarting the fine tuning itself
+				systemInteraction.Message = "restarted: fine tuning on data..."
+				systemInteraction.Status = "restarted: fine tuning on data..."
+			}
 		}
 
 		return systemInteraction, nil
@@ -95,7 +100,13 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	}
 
 	c.WriteSession(session)
-	c.AddSessionToQueue(session)
+
+	// this will re-run the data prep preparation
+	// but that is idempotent so we should be able to
+	// not care and just say "start again"
+	// if there is more data prep to do, it will carry on
+	// if we go staight into the queue then it's a fine tune restart
+	go c.SessionRunner(session)
 
 	return session, nil
 }

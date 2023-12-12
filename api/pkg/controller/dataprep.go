@@ -313,7 +313,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
-	systemInteraction.DataPrepStage = types.TextDataPrepStageConvertQuestions
+	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
 	session = c.WriteInteraction(session, systemInteraction)
 	c.BroadcastProgress(session, 1, initialMessage)
 
