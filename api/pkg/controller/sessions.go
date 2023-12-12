@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lukemarsden/helix/api/pkg/data"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -428,22 +427,9 @@ func (c *Controller) CloneFinetuneInteraction(
 	newFiles := []string{}
 	oldFolder := GetInteractionInputsFolder(session.ID, userInteraction.ID)
 	newFolder := GetInteractionInputsFolder(newSession.ID, userInteraction.ID)
-
-	fmt.Printf("oldsession --------------------------------------\n")
-	spew.Dump(session.ID)
-	fmt.Printf("newsession --------------------------------------\n")
-	spew.Dump(newSession.ID)
-	fmt.Printf("oldFolder --------------------------------------\n")
-	spew.Dump(oldFolder)
-	fmt.Printf("newFolder --------------------------------------\n")
-	spew.Dump(newFolder)
 	for _, file := range userInteraction.Files {
 		if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && mode == types.CloneTextTypeJustData {
 			continue
-		}
-		if !strings.Contains(file, oldFolder) {
-			log.Debug().
-				Msgf("🔵 does not have folder: %s %s", file, oldFolder)
 		}
 		newFile := strings.Replace(file, oldFolder, newFolder, 1)
 		log.Debug().
@@ -455,7 +441,7 @@ func (c *Controller) CloneFinetuneInteraction(
 		newFiles = append(newFiles, newFile)
 	}
 
-	session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+	newSession, err = data.UpdateUserInteraction(newSession, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 		userInteraction.Files = newFiles
 		userInteraction.Progress = 0
 		userInteraction.Created = time.Now()
@@ -468,7 +454,7 @@ func (c *Controller) CloneFinetuneInteraction(
 		return nil, err
 	}
 
-	session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+	newSession, err = data.UpdateSystemInteraction(newSession, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Progress = 0
 		systemInteraction.Created = time.Now()
 		systemInteraction.Updated = time.Now()
@@ -480,6 +466,10 @@ func (c *Controller) CloneFinetuneInteraction(
 			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
 			systemInteraction.State = types.InteractionStateEditing
 			systemInteraction.Finished = false
+
+			// remove the metadata that keeps track of processed questions
+			// (because we have deleted the questions file)
+			systemInteraction.DataPrepChunks = map[string][]types.DataPrepChunk{}
 		} else if mode == types.CloneTextTypeWithQuestions {
 			// remove the fine tune file
 			systemInteraction.LoraDir = ""
@@ -493,7 +483,7 @@ func (c *Controller) CloneFinetuneInteraction(
 		return nil, err
 	}
 
-	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, newSession)
+	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, *newSession)
 	if err != nil {
 		return nil, err
 	}

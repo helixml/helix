@@ -257,7 +257,7 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 	return session, nil
 }
 
-func CloneSession(oldSession types.Session, interactionID string) (types.Session, error) {
+func CloneSession(oldSession types.Session, interactionID string) (*types.Session, error) {
 	session := types.Session{
 		ID:            system.GenerateUUID(),
 		Name:          system.GenerateAmusingName(),
@@ -277,5 +277,5 @@ func CloneSession(oldSession types.Session, interactionID string) (types.Session
 	session.Config.Origin.ClonedSessionID = oldSession.ID
 	session.Config.Origin.ClonedInteractionID = interactionID
 
-	return session, nil
+	return &session, nil
 }
