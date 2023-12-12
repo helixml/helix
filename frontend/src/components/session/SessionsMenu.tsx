@@ -158,7 +158,7 @@ export const SessionsMenu: FC<{
               />
             </ListItemIcon>
             <ListItemText>
-              Edit Name
+              Rename
             </ListItemText>
           </MenuItem>
           <MenuItem

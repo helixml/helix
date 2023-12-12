@@ -67,22 +67,20 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 }
 
 func (c *Controller) BeginTextFineTune(session *types.Session) error {
-	systemInteraction, err := data.GetSystemInteraction(session)
+	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.Finished = false
+		systemInteraction.Progress = 1
+		systemInteraction.Message = "fine tuning on data..."
+		systemInteraction.Status = "fine tuning on data..."
+		systemInteraction.State = types.InteractionStateWaiting
+		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
+		systemInteraction.Files = []string{}
+		return systemInteraction, nil
+	})
+
 	if err != nil {
 		return err
 	}
-
-	systemInteraction.Finished = false
-	systemInteraction.Progress = 1
-	systemInteraction.Message = "fine tuning on data..."
-	systemInteraction.Status = "fine tuning on data..."
-	systemInteraction.State = types.InteractionStateWaiting
-	systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
-	systemInteraction.Files = []string{}
-
-	session = updateSessionInteractions(session, []types.Interaction{
-		*systemInteraction,
-	})
 
 	c.WriteSession(session)
 	c.AddSessionToQueue(session)

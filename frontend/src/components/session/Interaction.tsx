@@ -26,14 +26,18 @@ export const Interaction: FC<{
   session: ISession,
   showFinetuning?: boolean,
   retryFinetuneErrors?: () => void,
+  onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onRestart?: () => void,
 }> = ({
   serverConfig,
   interaction,
   session,
   showFinetuning = true,
   retryFinetuneErrors,
+  onReloadSession,
   onClone,
+  onRestart,
   children,
 }) => {
   let displayMessage: string = ''
@@ -77,6 +81,7 @@ export const Interaction: FC<{
             interaction={ interaction }
             session={ session }
             retryFinetuneErrors={ retryFinetuneErrors }
+            onReloadSession={ onReloadSession }
             onClone={ onClone }
           />
         )
@@ -87,6 +92,7 @@ export const Interaction: FC<{
         imageURLs={ imageURLs }
         message={ displayMessage }
         error={ interaction?.error }
+        onRestart={ onRestart }
       />
 
       {

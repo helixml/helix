@@ -80,7 +80,7 @@ export const FineTuneCloneInteraction: FC<{
             You have completed a fine tuning session on these { type == SESSION_TYPE_IMAGE ? 'images' : 'documents' }.
           </Typography>
           <Typography gutterBottom>
-            You can now chat to your model, add some more documents and re-train or you can "Clone" from this point in time to create a new session and continue training from there.
+            You can now chat to your model, add some more documents and re-train or you can "Clone" from this point in time.
           </Typography>
         </Grid>
         <Grid item sm={ 12 } md={ 6 } sx={{

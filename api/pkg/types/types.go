@@ -230,6 +230,7 @@ type RunnerProcessConfig struct {
 	// this is readonly and will not pop the session(task) from the queue
 	InitialSessionURL string `json:"initial_session_url"`
 	MockRunner        bool
+	MockRunnerError   string
 }
 
 // a session will run "tasks" on runners

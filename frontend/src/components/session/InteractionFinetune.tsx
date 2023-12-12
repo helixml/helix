@@ -49,12 +49,14 @@ export const InteractionFinetune: FC<{
   interaction: IInteraction,
   session: ISession,
   retryFinetuneErrors?: () => void,
+  onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
 }> = ({
   serverConfig,
   interaction,
   session,
   retryFinetuneErrors,
+  onReloadSession,
   onClone,
 }) => {
   const theme = useTheme()
@@ -199,8 +201,8 @@ export const InteractionFinetune: FC<{
         session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
           <Box
             sx={{
-              mt: 4,
-              mb: 4,
+              mt: 1.5,
+              mb: 3,
             }}
           >
             <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
@@ -235,15 +237,16 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        isAddingFiles && (
+        isAddingFiles && onReloadSession && (
           <Box
             sx={{
               mt: 2,
             }}
           >
             <FineTuneAddFiles
-              sessionID={ session.id }
+              session={ session }
               interactionID={ userFilesInteractionID }
+              onReloadSession={ onReloadSession }
             />
           </Box>
         )

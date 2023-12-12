@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react'
+import React, { FC, useState } from 'react'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
@@ -6,34 +6,22 @@ import Grid from '@mui/material/Grid'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import AddIcon from '@mui/icons-material/Add'
 
-import useApi from '../../hooks/useApi'
-import Window from '../widgets/Window'
-import UploadingOverlay from '../widgets/UploadingOverlay'
-import FineTuneImageInputs from './FineTuneImageInputs'
-import FineTuneImageLabels from './FineTuneImageLabels'
-import FineTuneTextInputs from './FineTuneTextInputs'
-
-import useSnackbar from '../../hooks/useSnackbar'
-import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import AddFilesWindow from './AddFilesWindow'
 
 import {
   ISession,
-  SESSION_TYPE_IMAGE,
 } from '../../types'
 
 export const FineTuneAddFiles: FC<{
-  sessionID: string,
-  interactionID: string,
-  //onCancel: () => void,
+  session: ISession,
+  interactionID?: string,
+  onReloadSession: () => void,
 }> = ({
-  sessionID,
+  session,
   interactionID,
-  // onCancel,
+  onReloadSession,
 }) => {
-  const snackbar = useSnackbar()
-  const api = useApi()
-  const inputs = useFinetuneInputs()
-  const [ editMode, setEditMode ] = useState(false)
+  const [ addFilesMode, setAddFilesMode ] = useState(false)
   
   return (
     <>
@@ -55,7 +43,7 @@ export const FineTuneAddFiles: FC<{
               mr: 2,
             }}
             endIcon={<AddIcon />}
-            onClick={ () => setEditMode(true) }
+            onClick={ () => setAddFilesMode(true) }
           >
             Add Files
           </Button>
@@ -71,6 +59,20 @@ export const FineTuneAddFiles: FC<{
         </Grid>
 
       </Grid>
+      {
+        addFilesMode && (
+          <AddFilesWindow
+            session={ session }
+            interactionID={ interactionID }
+            onClose={ (filesAdded) => {
+              setAddFilesMode(false)
+              if(filesAdded) {
+                onReloadSession()
+              }
+            } }
+          />
+        )
+      }
       
     </>
   )  

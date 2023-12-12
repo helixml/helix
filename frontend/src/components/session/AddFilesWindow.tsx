@@ -16,11 +16,14 @@ import {
   SESSION_TYPE_TEXT,
 } from '../../types'
 
-export const AddMoreFiles: FC<{
+export const AddFilesWindow: FC<{
   session: ISession,
+  // if this is defined it means "add the files to this specific interaction"
+  interactionID?: string,
   onClose: (filesAdded: boolean) => void,
 }> = ({
   session,
+  interactionID,
   onClose,
 }) => {
   const snackbar = useSnackbar()
@@ -50,6 +53,9 @@ export const AddMoreFiles: FC<{
       const formData = inputs.getFormData(session.mode, session.type)
       await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
+        params: {
+          interactionID: interactionID || '',
+        }
       })
       if(!session) {
         inputs.setUploadProgress(undefined)
@@ -143,4 +149,4 @@ export const AddMoreFiles: FC<{
   )
 }
 
-export default AddMoreFiles
+export default AddFilesWindow

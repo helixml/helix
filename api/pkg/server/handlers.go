@@ -52,7 +52,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	sessionID := system.GenerateUUID()
 
 	// the user interaction is the request from the user
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode)
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, sessionMode, "")
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("access dened for session id %s", session.ID)
 	}
 
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode)
+	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode, "")
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +442,27 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
+func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	reqContext := apiServer.getRequestContext(req)
+	session, err := apiServer.getSessionFromID(reqContext, id)
+	if err != nil {
+		return nil, err
+	}
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
+	}
+
+	session, err = apiServer.Controller.RestartSession(session)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
+}
+
 func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
@@ -449,6 +470,10 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	session, err := apiServer.getSessionFromID(reqContext, id)
 	if err != nil {
 		return nil, err
+	}
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	go func() {
 		apiServer.Controller.PrepareSession(session)
@@ -458,10 +483,15 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 
 func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
+	id := vars["id"]
 	reqContext := apiServer.getRequestContext(req)
-	session, err := apiServer.getSessionFromID(reqContext, vars["id"])
+	session, err := apiServer.getSessionFromID(reqContext, id)
 	if err != nil {
 		return nil, err
+	}
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 	interaction, err := data.GetInteraction(session, vars["interaction"])
 	if err != nil {
@@ -477,10 +507,18 @@ func (apiServer *HelixAPIServer) cloneTextFinetuneInteraction(res http.ResponseW
 func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	vars := mux.Vars(req)
 	id := vars["id"]
+
+	// if this is set then it means we are adding files to the existing interaction
+	interactionID := req.URL.Query().Get("interactionID")
+
 	reqContext := apiServer.getRequestContext(req)
 	session, err := apiServer.getSessionFromID(reqContext, id)
 	if err != nil {
 		return nil, err
+	}
+	canSee := apiServer.canSeeSession(reqContext, session)
+	if !canSee {
+		return nil, fmt.Errorf("access dened for session id %s", id)
 	}
 
 	err = req.ParseMultipartForm(10 << 20)
@@ -489,15 +527,21 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	}
 
 	// the user interaction is the request from the user
-	userInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune)
+	newUserInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune, interactionID)
 	if err != nil {
 		return nil, err
 	}
-	if userInteraction == nil {
+	if newUserInteraction == nil {
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	return apiServer.Controller.AddDocumentsToSession(req.Context(), session, *userInteraction)
+	// this means we are adding the files to an existing interaction
+	// rather than appending new interactions
+	if interactionID != "" {
+		return apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files)
+	} else {
+		return apiServer.Controller.AddDocumentsToSession(req.Context(), session, *newUserInteraction)
+	}
 }
 
 func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.ResponseWriter, req *http.Request) ([]types.DataPrepTextQuestion, error) {
