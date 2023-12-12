@@ -6,6 +6,7 @@ import {
   ISession,
   ISessionSummary,
   IBot,
+  ISessionConfig,
 } from '../types'
 
 export const useSession = () => {
@@ -63,6 +64,15 @@ export const useSession = () => {
     // router.navigate("session", {session_id: result.id})
   }, [])
 
+  const updateConfig = useCallback(async (sessionID: string, config: ISessionConfig): Promise<undefined | ISessionConfig> => {
+    const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${sessionID}/config`, config, {}, {
+      loading: true,
+    })
+    if(!result) return
+    snackbar.success('Session sharing updated')
+    return result
+  }, [])
+
   return {
     data,
     summary,
@@ -73,6 +83,7 @@ export const useSession = () => {
     loadSessionSummary,
     clone,
     setData,
+    updateConfig,
   }
 }
 

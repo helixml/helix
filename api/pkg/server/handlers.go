@@ -98,7 +98,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 
 	canEdit := apiServer.canEditSession(reqContext, session)
 	if !canEdit {
-		return nil, fmt.Errorf("access dened for session id %s", session.ID)
+		return nil, fmt.Errorf("access denied for session id %s", session.ID)
 	}
 
 	userInteraction, err := apiServer.getUserInteractionFromForm(req, sessionID, session.Mode, "")
@@ -116,6 +116,44 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	})
 
 	return sessionData, nil
+}
+
+func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionConfig, error) {
+	reqContext := apiServer.getRequestContext(req)
+
+	vars := mux.Vars(req)
+	sessionID := vars["id"]
+	if sessionID == "" {
+		return nil, fmt.Errorf("cannot update session without id")
+	}
+
+	session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, fmt.Errorf("no session found with id %v", sessionID)
+	}
+
+	canEdit := apiServer.canEditSession(reqContext, session)
+	if !canEdit {
+		return nil, fmt.Errorf("access denied for session id %s", session.ID)
+	}
+
+	var data *types.SessionConfig
+
+	// Decode the JSON from the request body
+	err = json.NewDecoder(req.Body).Decode(&data)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := apiServer.Controller.UpdateSessionConfig(reqContext.Ctx, session, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
@@ -370,7 +408,7 @@ func (apiServer *HelixAPIServer) getSessionFromID(reqContext types.RequestContex
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 	return session, nil
 }
@@ -452,7 +490,7 @@ func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *ht
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 
 	session, err = apiServer.Controller.RestartSession(session)
@@ -473,7 +511,7 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 	go func() {
 		apiServer.Controller.PrepareSession(session)
@@ -491,7 +529,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 	interaction, err := data.GetInteraction(session, vars["interaction"])
 	if err != nil {
@@ -518,7 +556,7 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 
 	err = req.ParseMultipartForm(10 << 20)
@@ -556,7 +594,7 @@ func (apiServer *HelixAPIServer) getSessionFinetuneConversation(res http.Respons
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
 	if err != nil {
@@ -577,7 +615,7 @@ func (apiServer *HelixAPIServer) setSessionFinetuneConversation(res http.Respons
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 
 	foundFile, err := data.GetInteractionFinetuneFile(session, interactionID)
@@ -615,7 +653,7 @@ func (apiServer *HelixAPIServer) startSessionFinetune(res http.ResponseWriter, r
 	}
 	canSee := apiServer.canSeeSession(reqContext, session)
 	if !canSee {
-		return nil, fmt.Errorf("access dened for session id %s", id)
+		return nil, fmt.Errorf("access denied for session id %s", id)
 	}
 
 	// now we switch the session into training mode
@@ -651,7 +689,7 @@ func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req 
 
 	canEdit := apiServer.canEditSession(reqContext, session)
 	if !canEdit {
-		return nil, fmt.Errorf("access dened for session id %s", session.ID)
+		return nil, fmt.Errorf("access denied for session id %s", session.ID)
 	}
 
 	return apiServer.Store.UpdateSessionMeta(reqContext.Ctx, *update)
@@ -691,7 +729,7 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	}
 	canEdit := apiServer.canEditSession(reqContext, session)
 	if !canEdit {
-		return nil, fmt.Errorf("access dened for session id %s", session.ID)
+		return nil, fmt.Errorf("access denied for session id %s", session.ID)
 	}
 	return apiServer.Store.DeleteSession(reqContext.Ctx, id)
 }

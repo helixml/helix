@@ -6,14 +6,13 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
-import AddIcon from '@mui/icons-material/Add'
 import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
-import CreateBotWindow from '../components/session/CreateBotWindow'
+import ShareSessionWindow from '../components/session/ShareSessionWindow'
 import AddFilesWindow from '../components/session/AddFilesWindow'
 
 import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
@@ -29,22 +28,16 @@ import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSessions from '../hooks/useSessions'
 import useWebsocket from '../hooks/useWebsocket'
-import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
 import {
   ICloneTextMode,
   ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
-
-import {
-  hasFinishedFinetune,
-} from '../utils/session'
 
 const Session: FC = () => {
   const snackbar = useSnackbar()
@@ -55,7 +48,6 @@ const Session: FC = () => {
   const sessions = useSessions()
 
   console.log(session.data)
-
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
@@ -76,16 +68,6 @@ const Session: FC = () => {
     return interaction.state == INTERACTION_STATE_EDITING
   }, [
     session.data,
-  ])
-
-  const botForm = useMemo<IBotForm | undefined>(() => {
-    if(!session) return
-    if(!session.bot) return
-    return session.bot ? {
-      name: session.bot.name,
-    } : undefined
-  }, [
-    session.bot,
   ])
 
   const onSend = useCallback(async () => {
@@ -109,6 +91,17 @@ const Session: FC = () => {
     session.reload,
     files,
     inputValue,
+  ])
+
+  const onUpdateSharing = useCallback(async (value: boolean) => {
+    if(!session.data) return false
+    const result = await session.updateConfig(session.data?.id, Object.assign({}, session.data.config, {
+      shared: value,
+    }))
+    return result ? true : false
+  }, [
+    session.data,
+    session.updateConfig,
   ])
 
   const onRestart = useCallback(() => {
@@ -146,7 +139,17 @@ const Session: FC = () => {
     router.setParams({
       addDocuments: 'yes',
     })
-  }, [])
+  }, [
+    session.data,
+  ])
+
+  const onShare = useCallback(() => {
+    router.setParams({
+      sharing: 'yes',
+    })
+  }, [
+    session.data,
+  ])
 
   const retryFinetuneErrors = useCallback(async () => {
     if(!session.data) return
@@ -358,6 +361,17 @@ const Session: FC = () => {
                 Send
               </Button>
             </Cell>
+            <Cell>
+              <Button
+                variant='outlined'
+                disabled={loading}
+                onClick={ onShare }
+                sx={{ ml: 2 }}
+                endIcon={<ShareIcon />}
+              >
+                Share
+              </Button>
+            </Cell>
           </Row>
           <Box
             sx={{
@@ -370,18 +384,6 @@ const Session: FC = () => {
         </Container>
         
       </Box>
-
-      {
-        router.params.editBot && (
-          <CreateBotWindow
-            bot={ botForm }
-            onSubmit={ (newBotForm) => {} }
-            onCancel={ () => {
-              router.removeParams(['editBot'])
-            }}
-          />
-        )
-      }
 
       {
         router.params.cloneInteraction && (
@@ -421,6 +423,20 @@ const Session: FC = () => {
           />
         )
       }
+
+      {
+        router.params.sharing && session.data && (
+          <ShareSessionWindow
+            session={ session.data }
+            onShare={ async () => true }
+            onUpdateSharing={ onUpdateSharing }
+            onCancel={ () => {
+              router.removeParams(['sharing'])
+            }}
+          />
+        )
+      }
+      
       {
         restartWindowOpen && (
           <SimpleConfirmWindow
