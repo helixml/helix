@@ -39,7 +39,8 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
-      if(options?.snackbar === false) snackbar.setSnackbar(errorMessage, 'error')
+      console.error(errorMessage)
+      if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
     }
@@ -53,6 +54,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -67,6 +69,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -81,6 +84,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
