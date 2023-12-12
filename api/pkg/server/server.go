@@ -83,9 +83,14 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 
+	maybeAuthRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
+
 	keycloak := newKeycloak(apiServer.Options)
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
-	authRouter.Use(keyCloakMiddleware.verifyToken)
+	authRouter.Use(keyCloakMiddleware.enforceVerifyToken)
+	maybeAuthRouter.Use(keyCloakMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
 	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
@@ -106,6 +111,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", system.DefaultWrapper(apiServer.getTransactions)).Methods("GET")
 
+	// TODO: auth based on session ID permissions
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods("GET")
 	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods("GET")
@@ -119,6 +125,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods("DELETE")
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods("GET")
 
+	// filestore viewer
+	// TODO: auth
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
 		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,8 +136,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
-	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
+	maybeAuthRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
+	maybeAuthRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
 	authRouter.HandleFunc("/sessions/{id}/restart", system.Wrapper(apiServer.restartSession)).Methods("PUT")

@@ -113,6 +113,9 @@ func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, erro
 }
 
 func getUserIdFromJWT(tok *jwt.Token) string {
+	if tok == nil {
+		return ""
+	}
 	mc := tok.Claims.(jwt.MapClaims)
 	uid := mc["sub"].(string)
 	return uid
@@ -130,18 +133,17 @@ func getRequestUser(req *http.Request) string {
 	return val.(string)
 }
 
-func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
-
+func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		maybeOwner, err := auth.maybeOwnerFromRequest(r)
-		if err != nil {
+		if err != nil && enforce {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 		if maybeOwner == nil {
 			// check keycloak JWT
 			token, err := auth.jwtFromRequest(r)
-			if err != nil {
+			if err != nil && enforce {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
@@ -155,4 +157,12 @@ func (auth *keyCloakMiddleware) verifyToken(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(f)
+}
+
+func (auth *keyCloakMiddleware) maybeVerifyToken(next http.Handler) http.Handler {
+	return auth.verifyToken(next, false)
+}
+
+func (auth *keyCloakMiddleware) enforceVerifyToken(next http.Handler) http.Handler {
+	return auth.verifyToken(next, true)
 }
