@@ -128,8 +128,8 @@ func CopyInteractionsUntil(interactions []types.Interaction, id string) []types.
 
 type InteractionUpdater func(*types.Interaction) (*types.Interaction, error)
 
-func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
-	targetInteraction, err := GetSystemInteraction(session)
+func UpdateInteraction(session *types.Session, id string, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetInteraction(session, id)
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +156,30 @@ func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater)
 	session.Updated = time.Now()
 
 	return session, nil
+}
+
+func UpdateUserInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if targetInteraction == nil {
+		return nil, fmt.Errorf("interaction not found: %s", session.ID)
+	}
+
+	return UpdateInteraction(session, targetInteraction.ID, updater)
+}
+
+func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	if targetInteraction == nil {
+		return nil, fmt.Errorf("interaction not found: %s", session.ID)
+	}
+
+	return UpdateInteraction(session, targetInteraction.ID, updater)
 }
 
 func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
@@ -233,13 +257,13 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 	return session, nil
 }
 
-func CloneSession(oldSession types.Session, interactionID string) (types.Session, error) {
+func CloneSession(oldSession types.Session, interactionID string) (*types.Session, error) {
 	session := types.Session{
 		ID:            system.GenerateUUID(),
 		Name:          system.GenerateAmusingName(),
 		ModelName:     oldSession.ModelName,
 		Type:          oldSession.Type,
-		Mode:          oldSession.Mode,
+		Mode:          oldSession.Config.OriginalMode,
 		ParentSession: oldSession.ParentSession,
 		Owner:         oldSession.Owner,
 		OwnerType:     oldSession.OwnerType,
@@ -253,5 +277,5 @@ func CloneSession(oldSession types.Session, interactionID string) (types.Session
 	session.Config.Origin.ClonedSessionID = oldSession.ID
 	session.Config.Origin.ClonedInteractionID = interactionID
 
-	return session, nil
+	return &session, nil
 }

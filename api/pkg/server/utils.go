@@ -92,6 +92,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	req *http.Request,
 	sessionID string,
 	sessionMode types.SessionMode,
+	interactionID string,
 ) (*types.Interaction, error) {
 	message := req.FormValue("input")
 
@@ -99,7 +100,9 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 		return nil, fmt.Errorf("inference sessions require a message")
 	}
 
-	interactionID := system.GenerateUUID()
+	if interactionID == "" {
+		interactionID = system.GenerateUUID()
+	}
 
 	filePaths := []string{}
 	files, okFiles := req.MultipartForm.File["files"]

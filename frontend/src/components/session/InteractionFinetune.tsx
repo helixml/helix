@@ -49,13 +49,17 @@ export const InteractionFinetune: FC<{
   interaction: IInteraction,
   session: ISession,
   retryFinetuneErrors?: () => void,
+  onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onAddDocuments?: () => void,
 }> = ({
   serverConfig,
   interaction,
   session,
   retryFinetuneErrors,
+  onReloadSession,
   onClone,
+  onAddDocuments,
 }) => {
   const theme = useTheme()
 
@@ -66,8 +70,6 @@ export const InteractionFinetune: FC<{
   const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS ? true : false
   const isAddingFiles = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_FILES ? true : false
   const hasFineTuned = interaction.lora_dir ? true : false
-
-  console.log(interaction.state + ' - ' + interaction.data_prep_stage)
 
   const dataPrepErrors = useMemo(() => {
     return getTextDataPrepErrors(interaction)
@@ -201,8 +203,8 @@ export const InteractionFinetune: FC<{
         session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
           <Box
             sx={{
-              mt: 4,
-              mb: 4,
+              mt: 1.5,
+              mb: 3,
             }}
           >
             <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
@@ -236,20 +238,21 @@ export const InteractionFinetune: FC<{
           </Box>
         )
       }
-      {/* {
-        isAddingFiles && (
+      {
+        isAddingFiles && onReloadSession && (
           <Box
             sx={{
               mt: 2,
             }}
           >
             <FineTuneAddFiles
-              sessionID={ session.id }
+              session={ session }
               interactionID={ userFilesInteractionID }
+              onReloadSession={ onReloadSession }
             />
           </Box>
         )
-      } */}
+      }
       {
         isSystemInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction
@@ -258,6 +261,7 @@ export const InteractionFinetune: FC<{
             systemInteractionID={ interaction.id }
             userInteractionID={ userFilesInteractionID }
             onClone={ onClone }
+            onAddDocuments={ onAddDocuments }
           />
         )
       }

@@ -7,20 +7,20 @@ import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
 import AddIcon from '@mui/icons-material/Add'
+import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
 import CreateBotWindow from '../components/session/CreateBotWindow'
-import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
-import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
-import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+import AddFilesWindow from '../components/session/AddFilesWindow'
 
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
+import ClickLink from '../components/widgets/ClickLink'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
-import UploadingOverlay from '../components/widgets/UploadingOverlay'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -38,7 +38,6 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
@@ -55,35 +54,20 @@ const Session: FC = () => {
   const session = useSession()
   const sessions = useSessions()
 
-  const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
-  const isImage = session.data?.type === SESSION_TYPE_IMAGE
-  const isText = session.data?.type === SESSION_TYPE_TEXT
+  console.log(session.data)
 
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
-  const inputs = useFinetuneInputs()
 
   const divRef = useRef<HTMLDivElement>()
 
+  const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-
-  const addDocumentsSubmitTitle = useMemo(() => {
-    if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-      return "Next Step"
-    } else {
-      return "Upload"
-    }
-  }, [
-    isFinetune,
-    isImage,
-    inputs.fineTuneStep,
-  ])
-
 
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
@@ -127,6 +111,10 @@ const Session: FC = () => {
     inputValue,
   ])
 
+  const onRestart = useCallback(() => {
+    setRestartWindowOpen(true)
+  }, [])
+
   const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string): Promise<boolean> => {
     if(!session.data) return false
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
@@ -140,6 +128,25 @@ const Session: FC = () => {
   }, [
     session.data,
   ])
+
+  const onRestartConfirm = useCallback(async () => {
+    if(!session.data) return
+    const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
+      loading: true,
+    })
+    if(!newSession) return
+    session.reload()
+    setRestartWindowOpen(false)
+    snackbar.success('Session restarted...')
+  }, [
+    session.data,
+  ])
+
+  const onAddDocuments = useCallback(() => {
+    router.setParams({
+      addDocuments: 'yes',
+    })
+  }, [])
 
   const retryFinetuneErrors = useCallback(async () => {
     if(!session.data) return
@@ -171,46 +178,6 @@ const Session: FC = () => {
       behavior: "smooth"
     })
   }, [])
-
-
-  // this is for text finetune
-  const onAddDocuments = async () => {
-    if(!session.data) return
-
-    inputs.setUploadProgress({
-      percent: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-    })
-
-    try {
-      const formData = inputs.getFormData(session.data.mode, session.data.type)
-      await api.put(`/api/v1/sessions/${sessionID}/finetune/documents`, formData, {
-        onUploadProgress: inputs.uploadProgressHandler,
-      })
-      if(!session) {
-        inputs.setUploadProgress(undefined)
-        return
-      }
-      session.reload()
-      router.removeParams(['addDocuments'])
-      snackbar.success('Documents added...')
-    } catch(e: any) {}
-
-    inputs.setUploadProgress(undefined)
-  }
-
-  // this is for image finetune
-  const onAddImageDocuments = async () => {
-    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
-    if(errorFiles.length > 0) {
-      inputs.setShowImageLabelErrors(true)
-      snackbar.error('Please add a label to each image')
-      return
-    }
-    inputs.setShowImageLabelErrors(false)
-    onAddDocuments()
-  }
 
   useEffect(() => {
     if(loading) return
@@ -250,7 +217,6 @@ const Session: FC = () => {
       session.setData(newSession)
     }
   })
-
 
   if(!session.data) return null
 
@@ -300,6 +266,8 @@ const Session: FC = () => {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
                     const isLast = i == interactionsLength - 1
+                    const isLive = isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+
                     if(!session.data) return null
                     return (
                       <Interaction
@@ -308,10 +276,28 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        headerButtons={ isLive ? (
+                          <ClickLink
+                            onClick={ onRestart }
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: "small",
+                                flexGrow: 0,
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              Restart
+                            </Typography>
+                          </ClickLink>
+                        ) : undefined }
+                        onReloadSession={ () => session.reload() }
                         onClone={ onClone }
+                        onAddDocuments={ isLast ? onAddDocuments : undefined }
+                        onRestart={ isLast ? onRestart : undefined }
                       >
                         {
-                          isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
+                          isLive && (
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
@@ -372,26 +358,6 @@ const Session: FC = () => {
                 Send
               </Button>
             </Cell>
-            {
-              hasFinishedFinetune(session.data) && (
-                <Cell>
-                  <Button
-                    variant='outlined'
-                    size="small"
-                    disabled={ loading }
-                    onClick={ () => {
-                      router.setParams({
-                        addDocuments: 'yes',
-                      })
-                    }}
-                    sx={{ ml: 2 }}
-                    endIcon={<AddIcon />}
-                  >
-                    Add More { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
-                  </Button>
-                </Cell>
-              )
-            }
           </Row>
           <Box
             sx={{
@@ -444,75 +410,28 @@ const Session: FC = () => {
 
       {
         router.params.addDocuments && session.data && (
-          <Window
-            open
-            size="lg"
-            title={`Add Documents to ${session.data.name}?`}
-            withCancel
-            submitTitle={ addDocumentsSubmitTitle }
-            onSubmit={ () => {
-              if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-                inputs.setFineTuneStep(1)
-              } else if(isFinetune && isText && inputs.fineTuneStep == 0) {
-                onAddDocuments()
-              } else if(isFinetune && isImage && inputs.fineTuneStep == 1) {
-                onAddImageDocuments()
+          <AddFilesWindow
+            session={ session.data }
+            onClose={ (filesAdded) => {
+              router.removeParams(['addDocuments'])
+              if(filesAdded) {
+                session.reload()
               }
             } }
-            onCancel={ () => {
-              router.removeParams(['addDocuments'])
-              inputs.reset()
-            }}
-          >
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 0 && (
-                <FineTuneImageInputs
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (files) => {
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isText && inputs.fineTuneStep == 0 && (
-                <FineTuneTextInputs
-                  initialCounter={ inputs.manualTextFileCounter }
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (counter, files) => {
-                    inputs.setManualTextFileCounter(counter)
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 1 && (
-                <FineTuneImageLabels
-                  showImageLabelErrors={ inputs.showImageLabelErrors }
-                  initialLabels={ inputs.labels }
-                  showSystemInteraction={ false }
-                  files={ inputs.files }
-                  onChange={ (labels) => {
-                    inputs.setLabels(labels)
-                  }}
-                />
-              )
-            }
-          </Window>
-        )
-      }
-
-      {
-        inputs.uploadProgress && (
-          <UploadingOverlay
-            percent={ inputs.uploadProgress.percent }
           />
         )
       }
-
+      {
+        restartWindowOpen && (
+          <SimpleConfirmWindow
+            title="Restart Session"
+            message="Are you sure you want to restart this session?"
+            confirmTitle="Restart"
+            onCancel={ () => setRestartWindowOpen(false) }
+            onSubmit={ onRestartConfirm }
+          />
+        )
+      }
     </Box>
   )
 }

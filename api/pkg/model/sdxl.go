@@ -103,6 +103,8 @@ func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFi
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+		fmt.Sprintf("HELIX_MOCK_ERROR=%s", config.MockRunnerError),
+		fmt.Sprintf("HELIX_MOCK_DELAY=%d", config.MockRunnerDelay),
 		"PYTHONUNBUFFERED=1",
 	}
 

@@ -269,24 +269,3 @@ func hasQuestionsFile(interaction *types.Interaction, sourceFilename string) boo
 	}
 	return false
 }
-
-func updateSessionInteractions(session *types.Session, interactions []types.Interaction) *types.Session {
-	newInteractions := []types.Interaction{}
-	newInteractionMap := map[string]types.Interaction{}
-	for _, interaction := range interactions {
-		newInteractionMap[interaction.ID] = interaction
-	}
-	for _, existingInteraction := range session.Interactions {
-		newInteraction, ok := newInteractionMap[existingInteraction.ID]
-		if ok {
-			newInteractions = append(newInteractions, newInteraction)
-		} else {
-			newInteractions = append(newInteractions, existingInteraction)
-		}
-	}
-
-	session.Interactions = newInteractions
-	session.Updated = time.Now()
-
-	return session
-}
