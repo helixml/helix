@@ -4,8 +4,11 @@ import Window from '../widgets/Window'
 import FineTuneImageInputs from './FineTuneImageInputs'
 import FineTuneImageLabels from './FineTuneImageLabels'
 import FineTuneTextInputs from './FineTuneTextInputs'
+import UploadingOverlay from '../widgets/UploadingOverlay'
 
-import { IFinetuneInputs } from '../../hooks/useFinetuneInputs'
+import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useSnackbar from '../../hooks/useSnackbar'
+import useApi from '../../hooks/useApi'
 
 import {
   ISession,
@@ -15,17 +18,15 @@ import {
 
 export const AddMoreFiles: FC<{
   session: ISession,
-  sessionID: string,
-  interactionID: string,
-  inputs: IFinetuneInputs,
-  onSubmit: () => Promise<boolean>,
-  onCancel: () => void,
+  onClose: (filesAdded: boolean) => void,
 }> = ({
   session,
-  inputs,
-  onSubmit,
-  onCancel,
+  onClose,
 }) => {
+  const snackbar = useSnackbar()
+  const api = useApi()
+  const inputs = useFinetuneInputs()
+
   const addDocumentsSubmitTitle = useMemo(() => {
     if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {
       return "Next Step"
@@ -37,6 +38,43 @@ export const AddMoreFiles: FC<{
     inputs.fineTuneStep,
   ])
 
+  // this is for text finetune
+  const onAddDocuments = async () => {
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+
+    try {
+      const formData = inputs.getFormData(session.mode, session.type)
+      await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+      if(!session) {
+        inputs.setUploadProgress(undefined)
+        return
+      }
+      snackbar.success('Documents added...')
+      onClose(true)
+      return
+    } catch(e: any) {}
+
+    inputs.setUploadProgress(undefined)
+  }
+
+  // this is for image finetune
+  const onAddImageDocuments = async () => {
+    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
+    if(errorFiles.length > 0) {
+      inputs.setShowImageLabelErrors(true)
+      snackbar.error('Please add a label to each image')
+      return
+    }
+    inputs.setShowImageLabelErrors(false)
+    onAddDocuments()
+  }
+
   return (
     <>
       <Window
@@ -45,13 +83,22 @@ export const AddMoreFiles: FC<{
         title={`Add Documents to ${session.name}?`}
         withCancel
         submitTitle={ addDocumentsSubmitTitle }
-        onSubmit={ onSubmit }
-        onCancel={ onCancel }
+        onSubmit={ () => {
+          if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {
+            inputs.setFineTuneStep(1)
+          } else if(session.type == SESSION_TYPE_TEXT && inputs.fineTuneStep == 0) {
+            onAddDocuments()
+          } else if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1) {
+            onAddImageDocuments()
+          }
+        }}
+        onCancel={ () => onClose(false) }
       >
         {
           session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
             <FineTuneImageInputs
               initialFiles={ inputs.files }
+              showSystemInteraction={ false }
               onChange={ (files) => {
                 inputs.setFiles(files)
               }}
@@ -63,6 +110,7 @@ export const AddMoreFiles: FC<{
             <FineTuneTextInputs
               initialCounter={ inputs.manualTextFileCounter }
               initialFiles={ inputs.files }
+              showSystemInteraction={ false }
               onChange={ (counter, files) => {
                 inputs.setManualTextFileCounter(counter)
                 inputs.setFiles(files)
@@ -75,6 +123,7 @@ export const AddMoreFiles: FC<{
             <FineTuneImageLabels
               showImageLabelErrors={ inputs.showImageLabelErrors }
               initialLabels={ inputs.labels }
+              showSystemInteraction={ false }
               files={ inputs.files }
               onChange={ (labels) => {
                 inputs.setLabels(labels)
@@ -83,6 +132,13 @@ export const AddMoreFiles: FC<{
           )
         }
       </Window>
+      {
+        inputs.uploadProgress && (
+          <UploadingOverlay
+            percent={ inputs.uploadProgress.percent }
+          />
+        )
+      }
     </>
   )
 }

@@ -13,14 +13,12 @@ import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
 import CreateBotWindow from '../components/session/CreateBotWindow'
-import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
-import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
-import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+import AddMoreFiles from '../components/session/AddMoreFiles'
 
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
-import UploadingOverlay from '../components/widgets/UploadingOverlay'
+
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -38,7 +36,6 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   IBotForm,
 } from '../types'
@@ -171,46 +168,6 @@ const Session: FC = () => {
       behavior: "smooth"
     })
   }, [])
-
-
-  // this is for text finetune
-  const onAddDocuments = async () => {
-    if(!session.data) return
-
-    inputs.setUploadProgress({
-      percent: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-    })
-
-    try {
-      const formData = inputs.getFormData(session.data.mode, session.data.type)
-      await api.put(`/api/v1/sessions/${sessionID}/finetune/documents`, formData, {
-        onUploadProgress: inputs.uploadProgressHandler,
-      })
-      if(!session) {
-        inputs.setUploadProgress(undefined)
-        return
-      }
-      session.reload()
-      router.removeParams(['addDocuments'])
-      snackbar.success('Documents added...')
-    } catch(e: any) {}
-
-    inputs.setUploadProgress(undefined)
-  }
-
-  // this is for image finetune
-  const onAddImageDocuments = async () => {
-    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
-    if(errorFiles.length > 0) {
-      inputs.setShowImageLabelErrors(true)
-      snackbar.error('Please add a label to each image')
-      return
-    }
-    inputs.setShowImageLabelErrors(false)
-    onAddDocuments()
-  }
 
   useEffect(() => {
     if(loading) return
@@ -444,75 +401,17 @@ const Session: FC = () => {
 
       {
         router.params.addDocuments && session.data && (
-          <Window
-            open
-            size="lg"
-            title={`Add Documents to ${session.data.name}?`}
-            withCancel
-            submitTitle={ addDocumentsSubmitTitle }
-            onSubmit={ () => {
-              if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-                inputs.setFineTuneStep(1)
-              } else if(isFinetune && isText && inputs.fineTuneStep == 0) {
-                onAddDocuments()
-              } else if(isFinetune && isImage && inputs.fineTuneStep == 1) {
-                onAddImageDocuments()
+          <AddMoreFiles
+            session={ session.data }
+            onClose={ (filesAdded) => {
+              router.removeParams(['addDocuments'])
+              if(filesAdded) {
+                session.reload()
               }
             } }
-            onCancel={ () => {
-              router.removeParams(['addDocuments'])
-              inputs.reset()
-            }}
-          >
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 0 && (
-                <FineTuneImageInputs
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (files) => {
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isText && inputs.fineTuneStep == 0 && (
-                <FineTuneTextInputs
-                  initialCounter={ inputs.manualTextFileCounter }
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (counter, files) => {
-                    inputs.setManualTextFileCounter(counter)
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 1 && (
-                <FineTuneImageLabels
-                  showImageLabelErrors={ inputs.showImageLabelErrors }
-                  initialLabels={ inputs.labels }
-                  showSystemInteraction={ false }
-                  files={ inputs.files }
-                  onChange={ (labels) => {
-                    inputs.setLabels(labels)
-                  }}
-                />
-              )
-            }
-          </Window>
-        )
-      }
-
-      {
-        inputs.uploadProgress && (
-          <UploadingOverlay
-            percent={ inputs.uploadProgress.percent }
           />
         )
       }
-
     </Box>
   )
 }
