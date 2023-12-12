@@ -25,6 +25,7 @@ export const Interaction: FC<{
   interaction: IInteraction,
   session: ISession,
   showFinetuning?: boolean,
+  headerButtons?: React.ReactNode,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
   onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
@@ -34,6 +35,7 @@ export const Interaction: FC<{
   interaction,
   session,
   showFinetuning = true,
+  headerButtons,
   retryFinetuneErrors,
   onReloadSession,
   onClone,
@@ -73,6 +75,7 @@ export const Interaction: FC<{
   return (
     <InteractionContainer
       name={ useName }
+      buttons={ headerButtons }
     >
       {
         showFinetuning && (
