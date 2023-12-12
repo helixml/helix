@@ -47,6 +47,7 @@ const Session: FC = () => {
   const session = useSession()
   const sessions = useSessions()
 
+  const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
 
@@ -204,12 +205,12 @@ const Session: FC = () => {
   ])
 
   useEffect(() => {
-    if(!account.user) return
+    // if(!account.user) return
     if(sessionID) {
       session.loadSession(sessionID)
     }
   }, [
-    account.user,
+    // account.user,
     sessionID,
   ])
 
