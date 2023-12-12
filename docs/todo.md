@@ -19,6 +19,7 @@
  - [ ] empty response messages error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701727773319809
  - [ ] we are getting nignx 500's in the runner "load session from api" handler https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702369315736539
  - [ ] performance of auto-save before login (image fine tune text is slow)
+ - [ ] autoscale spot runpod instances to match our queue depth: https://graphql-spec.runpod.io/ https://docs.runpod.io/recipes/ 
  - [ ] for session updates check we are on the same page
    - [ ] whilst we are on one page and another session is processing - it's updating the page we are on with the wrong session
  - [x] react is rendering streaming updates to the sessions slowly
