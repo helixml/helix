@@ -7,6 +7,7 @@ import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import CardActions from '@mui/material/CardActions'
 
+import AddIcon from '@mui/icons-material/Add'
 import FileCopyIcon from '@mui/icons-material/FileCopy'
 import ViewIcon from '@mui/icons-material/Visibility'
 import CloneIcon from '@mui/icons-material/ContentCopy'
@@ -38,12 +39,14 @@ export const FineTuneCloneInteraction: FC<{
   // this is used to target the clone action
   systemInteractionID: string,
   onClone: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onAddDocuments: () => void,
 }> = ({
   type,
   sessionID,
   userInteractionID,
   systemInteractionID,
   onClone,
+  onAddDocuments,
 }) => {
   const interactionQuestions = useInteractionQuestions()
   const [ viewMode, setViewMode ] = useState(false)
@@ -94,7 +97,7 @@ export const FineTuneCloneInteraction: FC<{
                 color="primary"
                 size="small"
                 sx={{
-                  mr: 1,
+                  ml: 1,
                   mb: 1,
                 }}
                 endIcon={<ViewIcon />}
@@ -109,13 +112,26 @@ export const FineTuneCloneInteraction: FC<{
             color="secondary"
             size="small"
             sx={{
-              mr: 1,
+              ml: 1,
               mb: 1,
             }}
             endIcon={<FileCopyIcon />}
             onClick={ () => setCloneMode(true) }
           >
-            Clone From Here
+            Clone
+          </Button>
+
+          <Button
+            variant='outlined'
+            size="small"
+            sx={{
+              ml: 1,
+              mb: 1,
+            }}
+            onClick={ onAddDocuments }
+            endIcon={<AddIcon />}
+          >
+            Add { type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
           </Button>
         </Grid>
 
