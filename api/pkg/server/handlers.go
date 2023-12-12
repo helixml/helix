@@ -164,7 +164,7 @@ func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Reque
 	}
 
 	// TODO: work out what to do for object storage here
-	return types.ServerConfig{}, fmt.Errorf("we currently only support local filestore")
+	return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
 }
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {

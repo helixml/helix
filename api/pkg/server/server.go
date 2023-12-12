@@ -99,25 +99,25 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)
 
-	subrouter.HandleFunc("/config", system.WrapperWithConfig(apiServer.config, system.WrapperConfig{
+	subrouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	authRouter.HandleFunc("/status", system.Wrapper(apiServer.status)).Methods("GET")
-	authRouter.HandleFunc("/transactions", system.Wrapper(apiServer.getTransactions)).Methods("GET")
+	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
+	authRouter.HandleFunc("/transactions", system.DefaultWrapper(apiServer.getTransactions)).Methods("GET")
 
-	authRouter.HandleFunc("/filestore/config", system.Wrapper(apiServer.filestoreConfig)).Methods("GET")
-	authRouter.HandleFunc("/filestore/list", system.Wrapper(apiServer.filestoreList)).Methods("GET")
-	authRouter.HandleFunc("/filestore/get", system.Wrapper(apiServer.filestoreGet)).Methods("GET")
-	authRouter.HandleFunc("/filestore/folder", system.Wrapper(apiServer.filestoreCreateFolder)).Methods("POST")
-	authRouter.HandleFunc("/filestore/upload", system.Wrapper(apiServer.filestoreUpload)).Methods("POST")
-	authRouter.HandleFunc("/filestore/rename", system.Wrapper(apiServer.filestoreRename)).Methods("PUT")
-	authRouter.HandleFunc("/filestore/delete", system.Wrapper(apiServer.filestoreDelete)).Methods("DELETE")
+	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods("GET")
+	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods("GET")
+	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods("GET")
+	authRouter.HandleFunc("/filestore/folder", system.DefaultWrapper(apiServer.filestoreCreateFolder)).Methods("POST")
+	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods("POST")
+	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods("PUT")
+	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods("DELETE")
 
-	authRouter.HandleFunc("/api_keys", system.Wrapper(apiServer.createAPIKey)).Methods("POST")
-	authRouter.HandleFunc("/api_keys", system.Wrapper(apiServer.getAPIKeys)).Methods("GET")
-	authRouter.HandleFunc("/api_keys", system.Wrapper(apiServer.deleteAPIKey)).Methods("DELETE")
-	authRouter.HandleFunc("/api_keys/check", system.Wrapper(apiServer.checkAPIKey)).Methods("GET")
+	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods("POST")
+	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods("GET")
+	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods("DELETE")
+	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods("GET")
 
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
@@ -126,32 +126,32 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		})))
 	}
 
-	authRouter.HandleFunc("/sessions", system.Wrapper(apiServer.getSessions)).Methods("GET")
-	authRouter.HandleFunc("/sessions", system.Wrapper(apiServer.createSession)).Methods("POST")
-	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
-	authRouter.HandleFunc("/sessions/{id}/restart", system.Wrapper(apiServer.restartSession)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}/config", system.Wrapper(apiServer.updateSessionConfig)).Methods("PUT")
+	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
+	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}", system.DefaultWrapper(apiServer.getSession)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/summary", system.DefaultWrapper(apiServer.getSessionSummary)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}", system.DefaultWrapper(apiServer.updateSession)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}", system.DefaultWrapper(apiServer.deleteSession)).Methods("DELETE")
+	authRouter.HandleFunc("/sessions/{id}/restart", system.DefaultWrapper(apiServer.restartSession)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/config", system.DefaultWrapper(apiServer.updateSessionConfig)).Methods("PUT")
 
-	authRouter.HandleFunc("/sessions/{id}/meta", system.Wrapper(apiServer.updateSessionMeta)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}/finetune/start", system.Wrapper(apiServer.startSessionFinetune)).Methods("POST")
-	authRouter.HandleFunc("/sessions/{id}/finetune/documents", system.Wrapper(apiServer.finetuneAddDocuments)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}/finetune/clone/{interaction}/{mode}", system.Wrapper(apiServer.cloneFinetuneInteraction)).Methods("POST")
-	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.Wrapper(apiServer.retryTextFinetune)).Methods("PUT")
-	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
-	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/meta", system.DefaultWrapper(apiServer.updateSessionMeta)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/start", system.DefaultWrapper(apiServer.startSessionFinetune)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}/finetune/documents", system.DefaultWrapper(apiServer.finetuneAddDocuments)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/clone/{interaction}/{mode}", system.DefaultWrapper(apiServer.cloneFinetuneInteraction)).Methods("POST")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.DefaultWrapper(apiServer.retryTextFinetune)).Methods("PUT")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.DefaultWrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.DefaultWrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
-	adminRouter.HandleFunc("/dashboard", system.Wrapper(apiServer.dashboard)).Methods("GET")
+	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
-	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.Wrapper(apiServer.getNextRunnerSession)).Methods("GET")
-	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.Wrapper(apiServer.handleRunnerResponse)).Methods("POST")
-	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.Wrapper(apiServer.handleRunnerMetrics)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")
+	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/file", apiServer.runnerSessionDownloadFile).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/download/folder", apiServer.runnerSessionDownloadFolder).Methods("GET")
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.Wrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
-	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.Wrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
+	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
 	StartUserWebSocketServer(
 		ctx,
