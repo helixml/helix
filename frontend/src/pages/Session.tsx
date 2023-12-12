@@ -256,6 +256,8 @@ const Session: FC = () => {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
                     const isLast = i == interactionsLength - 1
+                    const isLive = isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+
                     if(!session.data) return null
                     return (
                       <Interaction
@@ -264,40 +266,32 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        headerButtons={ isLive ? (
+                          <ClickLink
+                            onClick={ onRestart }
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: "small",
+                                flexGrow: 0,
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              Restart
+                            </Typography>
+                          </ClickLink>
+                        ) : undefined }
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
                         onRestart={ isLast ? onRestart : undefined }
                       >
                         {
-                          isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
-                            <Row>
-                              <Cell grow>
-                                <InteractionLiveStream
-                                  session_id={ session.data.id }
-                                  interaction={ interaction }
-                                  onMessageChange={ scrollToBottom }
-                                />
-                              </Cell>
-                              {
-                                (interaction.mode == SESSION_MODE_FINETUNE || account.admin) && (
-                                  <Cell>
-                                    <ClickLink
-                                      onClick={ onRestart }
-                                    >
-                                      <Typography
-                                        sx={{
-                                          fontSize: "small",
-                                          flexGrow: 0,
-                                          textDecoration: 'underline',
-                                        }}
-                                      >
-                                        Restart
-                                      </Typography>
-                                    </ClickLink>
-                                  </Cell>
-                                )
-                              }
-                            </Row>
+                          isLive && (
+                            <InteractionLiveStream
+                              session_id={ session.data.id }
+                              interaction={ interaction }
+                              onMessageChange={ scrollToBottom }
+                            />
                           )
                         }
                       </Interaction>
