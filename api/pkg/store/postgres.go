@@ -516,6 +516,10 @@ func (d *PostgresStore) UpdateBot(
 	if err != nil {
 		return nil, err
 	}
+
+	// prepend the ID to the values
+	values = append([]interface{}{bot.ID}, values...)
+
 	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		UPDATE bot SET
 			%s
@@ -537,6 +541,9 @@ func (d *PostgresStore) UpdateUserMeta(
 	if err != nil {
 		return nil, err
 	}
+	// prepend the ID to the values
+	values = append([]interface{}{user.ID}, values...)
+
 	_, err = d.pgDb.Exec(fmt.Sprintf(`
 		UPDATE usermeta SET
 			%s

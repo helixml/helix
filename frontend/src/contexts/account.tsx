@@ -80,9 +80,6 @@ export const useAccountContext = (): IAccountContext => {
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
-
-    console.log('--------------------------------------------')
-    console.dir(statusResult)
     setCredits(statusResult.credits)
     setAdmin(statusResult.admin)
     setUserConfig(statusResult.config)
@@ -91,7 +88,6 @@ export const useAccountContext = (): IAccountContext => {
   const loadServerConfig = useCallback(async () => {
     const configResult = await api.get('/api/v1/config')
     if(!configResult) return
-    console.dir(configResult)
     setServerConfig(configResult)
   }, [])
   

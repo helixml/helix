@@ -166,7 +166,7 @@ func (c *Controller) SubscribeUser(userID string, stripeCustomerID string, strip
 }
 
 func (c *Controller) UnsubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
-	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, true)
+	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, false)
 	if err != nil {
 		return err
 	}
