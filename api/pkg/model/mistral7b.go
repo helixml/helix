@@ -190,7 +190,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"bash", "runner/venv_command.sh",
 			"python", "-u", "-m",
 			"axolotl.cli.inference",
-			"examples/mistral/qlora-instruct.yml",
+			"helix-mistral-instruct-v1.yml",
 		)
 	} else {
 		cmd = exec.CommandContext(
@@ -198,7 +198,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"bash", "runner/venv_command.sh",
 			"python", "-u", "-m",
 			"axolotl.cli.train",
-			"examples/mistral/qlora-instruct.yml",
+			"helix-mistral-instruct-v1.yml",
 		)
 	}
 

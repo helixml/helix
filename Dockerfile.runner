@@ -1,11 +1,13 @@
 FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af62f627429a8a83eabbb84e18096490b1661d3c
 
 WORKDIR /workspace
+
+# Checkout https://github.com/lukemarsden/axolotl/tree/new-long-running (see the hash for the specific version)
 RUN cd /workspace/axolotl && \
     git remote rm origin && \
     git remote add lukefork https://github.com/lukemarsden/axolotl && \
     git fetch --all && \
-    git checkout lukefork/long-running
+    git checkout 555c7116d58da4ccd742bd2be8dd70680d1056aa
 
 RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
     git clone https://github.com/lukemarsden/sd-scripts && \
