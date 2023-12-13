@@ -435,11 +435,11 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	options.StripeOptions.AppURL = options.ServerOptions.URL
 	stripe := stripe.NewStripe(
 		options.StripeOptions,
-		func(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
-			return appController.SubscribeUser(userID, stripeCustomerID, stripeSubscriptionID)
+		func(userID string, customer string, subscription string, url string) error {
+			return appController.SubscribeUser(userID, customer, subscription, url)
 		},
-		func(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
-			return appController.UnsubscribeUser(userID, stripeCustomerID, stripeSubscriptionID)
+		func(userID string, customer string, subscription string, url string) error {
+			return appController.UnsubscribeUser(userID, customer, subscription, url)
 		},
 	)
 

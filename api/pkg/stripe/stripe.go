@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/stripe/stripe-go/v76"
@@ -15,7 +16,7 @@ import (
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
-type StripeEventWriter func(userID string, stripeCustomerID string, stripeSubscriptionID string) error
+type StripeEventWriter func(userID string, stripeCustomerID string, stripeSubscriptionID string, stripeSubscriptionURL string) error
 
 type StripeOptions struct {
 	AppURL               string
@@ -57,6 +58,14 @@ func (s *Stripe) EnabledError() error {
 		return fmt.Errorf("stripe webhook signing secret is required")
 	}
 	return nil
+}
+
+func (s *Stripe) getSubscriptionURL(id string) string {
+	testMode := ""
+	if strings.HasPrefix(s.Options.SecretKey, "sk_test_") {
+		testMode = "/test"
+	}
+	return fmt.Sprintf("https://dashboard.stripe.com%s/subscriptions/%s", testMode, id)
 }
 
 func (s *Stripe) GetCheckoutSessionURL(
@@ -157,7 +166,7 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		err = s.onUnsubscribe(userID, subscription.Customer.ID, subscription.ID)
+		err = s.onUnsubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
 		if err != nil {
 			log.Error().Msgf("Error writing event: %s\n", err.Error())
 		}
@@ -176,7 +185,7 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID)
+		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
 		if err != nil {
 			log.Error().Msgf("Error writing event: %s\n", err.Error())
 		}
@@ -195,7 +204,7 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID)
+		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
 		if err != nil {
 			log.Error().Msgf("Error writing event: %s\n", err.Error())
 		}
