@@ -68,6 +68,7 @@ const Dashboard: FC = () => {
   ])
 
   useEffect(() => {
+    if(!account.user) return
     const loadDashboard = async () => {
       if(!activeRef.current) return
       const data = await api.get<IDashboardData>(`/api/v1/dashboard`)
@@ -81,7 +82,9 @@ const Dashboard: FC = () => {
     return () => {
       clearInterval(intervalId)
     }
-  }, [])
+  }, [
+    account.user,
+  ])
 
   if(!account.user) return null
   if(!data) return null
@@ -249,7 +252,7 @@ const Dashboard: FC = () => {
                 return (
                   <Interaction
                     key={ i }
-                    showFinetuning={ false }
+                    showFinetuning={ true }
                     serverConfig={ account.serverConfig }
                     interaction={ interaction }
                     session={ viewingSession }
