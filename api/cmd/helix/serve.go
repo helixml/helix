@@ -11,6 +11,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -23,6 +24,7 @@ type ServeOptions struct {
 	DataPrepTextOptions text.DataPrepTextOptions
 	ControllerOptions   controller.ControllerOptions
 	FilestoreOptions    filestore.FileStoreOptions
+	JanitorOptions      janitor.JanitorOptions
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
 }
@@ -70,6 +72,10 @@ func NewServeOptions() *ServeOptions {
 			// if this is defined it means runner auth is enabled
 			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+		},
+		JanitorOptions: janitor.JanitorOptions{
+			SlackEnabled:    getDefaultServeOptionBool("JANITOR_SLACK_ENABLED", false),
+			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
 		},
 	}
 }
@@ -227,6 +233,17 @@ func newServeCmd() *cobra.Command {
 		`Keycloak admin IDs`,
 	)
 
+	// JanitorOptions
+	serveCmd.PersistentFlags().BoolVar(
+		&allOptions.JanitorOptions.SlackEnabled, "janitor-slack-enabled", allOptions.JanitorOptions.SlackEnabled,
+		`Should we ping messages to slack?`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
+		`The slack webhook URL to ping messages to.`,
+	)
+
 	return serveCmd
 }
 
@@ -318,10 +335,14 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("openai api key is required")
 	}
 
+	options.JanitorOptions.AppURL = options.ServerOptions.URL
+	janitor := janitor.NewJanitor(options.JanitorOptions)
+
 	var appController *controller.Controller
 
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
+	options.ControllerOptions.Janitor = janitor
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom

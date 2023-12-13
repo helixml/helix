@@ -9,6 +9,7 @@ import (
 
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -19,6 +20,7 @@ import (
 type ControllerOptions struct {
 	Store               store.Store
 	Filestore           filestore.FileStore
+	Janitor             *janitor.Janitor
 	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
@@ -90,6 +92,9 @@ func NewController(
 	}
 	if options.TextExtractionURL == "" {
 		return nil, fmt.Errorf("text extraction URL is required")
+	}
+	if options.Janitor == nil {
+		return nil, fmt.Errorf("janitor is required")
 	}
 	models, err := model.GetModels()
 	if err != nil {

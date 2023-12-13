@@ -623,10 +623,10 @@ func (apiServer *HelixAPIServer) isAdmin(req *http.Request) bool {
 	adminUserIDs := strings.Split(os.Getenv("ADMIN_USER_IDS"), ",")
 	for _, a := range adminUserIDs {
 		// development mode everyone is an admin
-		if a == "*" {
+		if a == "all" {
 			return true
 		}
-		if a == user {
+		if a == user.ID {
 			return true
 		}
 	}
