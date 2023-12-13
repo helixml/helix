@@ -1,15 +1,20 @@
 ## kai
 
  
+ - [ ] when continuing a cloned session, the messages are missing
+ - [ ] if there are no files - the "view files" button shows an error
+
  - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
  - [ ] retry button for errors
  - [ ] render markdown
  - [ ] plugin sentry
+ - [ ] share mode where original training data is not copied
  - [ ] the delete button shows for read only folders in filestore
  - [ ] auto-scroll broken
  - [ ] reverse the color of the active session
  - [ ] put the name of the session in topbar
  - [ ] rather than system as the username, put the name of the session
+ - [ ] sessions are updating other sessions https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702476943225859
  - [ ] why do finetunes stick around in GPU memory? once they're done they should exit right?
  - [ ] add a restart button whilst doing a fine-tune so if things get stuck we can restart
    - [ ] possibly only show this if we've not seen any progress for > 30 seconds

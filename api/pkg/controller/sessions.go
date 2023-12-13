@@ -641,11 +641,11 @@ func (c *Controller) CloneUntilInteraction(
 		if req.Mode != types.CloneInteractionModeAll {
 			userInteraction.Created = time.Now()
 			userInteraction.Updated = time.Now()
+			userInteraction.Message = ""
+			userInteraction.Status = ""
+			userInteraction.Progress = 0
 		}
 
-		userInteraction.Progress = 0
-		userInteraction.Message = ""
-		userInteraction.Status = ""
 		return userInteraction, nil
 	})
 	if err != nil {
@@ -657,11 +657,11 @@ func (c *Controller) CloneUntilInteraction(
 		if req.Mode != types.CloneInteractionModeAll {
 			systemInteraction.Created = time.Now()
 			systemInteraction.Updated = time.Now()
+			systemInteraction.Message = ""
+			systemInteraction.Status = ""
+			systemInteraction.Progress = 0
 		}
 
-		systemInteraction.Progress = 0
-		systemInteraction.Message = ""
-		systemInteraction.Status = ""
 		if req.Mode == types.CloneInteractionModeJustData {
 			// remove the fine tune file
 			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
