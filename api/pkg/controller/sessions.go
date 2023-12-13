@@ -461,48 +461,189 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	return taskResponse, nil
 }
 
+type CloneUntilInteractionRequest struct {
+	InteractionID string
+	Mode          types.CloneInteractionMode
+	CopyAllFiles  bool
+}
+
+// func (c *Controller) cloneInteractionFiles(
+
+// } error {
+
+// }
+
 // the user interaction is the thing we are cloning
-func (c *Controller) CloneFinetuneInteraction(
+func (c *Controller) CloneUntilInteraction(
 	ctx types.RequestContext,
-	session *types.Session,
-	// this is the system interaction we are cloning
-	// we will also need to adjust the user interaction
-	// based on the mode - e.g. are we removing the questions file?
-	systemInteraction *types.Interaction,
-	mode types.CloneTextType,
+	oldSession *types.Session,
+	req CloneUntilInteractionRequest,
 ) (*types.Session, error) {
-	newSession, err := data.CloneSession(*session, systemInteraction.ID)
+	// * get a top level session object
+	//   * against the correct account
+	//   * only include interactions up until the given interaction
+	// * loop over each interaction files
+	//   * if CopyAllFiles then copy all interaction files into our file store
+	//   * otherwise only copy the
+	newSession, err := data.CloneSession(*oldSession, req.InteractionID, data.OwnerContextFromRequestContext(ctx))
 	if err != nil {
 		return nil, err
 	}
 
+	// for anything other than 'all' mode - we should revert the type to the original type
+	// this is for when we are editing a finetune session that has since become an inference session
+	// but now we are going back into finetine land by editing the interaction (somehow)
+	// put another way - if we are cloning a session in all mode - we can copy the mode as is
+	if req.Mode != types.CloneInteractionModeAll {
+		newSession.Mode = oldSession.Config.OriginalMode
+	}
+
+	// these two interactions are the ones we will change based on the clone mode
 	userInteraction, err := data.GetLastUserInteraction(newSession.Interactions)
 	if err != nil {
 		return nil, err
 	}
 
-	newFiles := []string{}
-	oldFolder := GetInteractionInputsFolder(session.ID, userInteraction.ID)
-	newFolder := GetInteractionInputsFolder(newSession.ID, userInteraction.ID)
-	for _, file := range userInteraction.Files {
-		if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && mode == types.CloneTextTypeJustData {
-			continue
-		}
-		newFile := strings.Replace(file, oldFolder, newFolder, 1)
-		log.Debug().
-			Msgf("🔵 clone interaction file: %s %s -> %s", session.ID, file, newFile)
-		err := c.Options.Filestore.CopyFile(ctx.Ctx, file, newFile)
-		if err != nil {
-			return nil, err
-		}
-		newFiles = append(newFiles, newFile)
+	systemInteraction, err := data.GetLastSystemInteraction(newSession.Interactions)
+	if err != nil {
+		return nil, err
 	}
 
+	// the full filestore prefix for old user & old session
+	// we can copy all files by just replacing the higher level prefixes
+	// e.g. /users/123/sessions/456/inputs/789 -> /users/123/sessions/999/inputs/789
+	oldPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(oldSession.Owner), oldSession.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.Owner), newSession.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	copyFile := func(filePath string) (string, error) {
+		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
+		log.Debug().
+			Msgf("🔵 clone interaction file: %s -> %s", filePath, newFile)
+		err := c.Options.Filestore.CopyFile(ctx.Ctx, filePath, newFile)
+		if err != nil {
+			return "", err
+		}
+		return newFile, nil
+	}
+
+	copyFolder := func(folderPath string) (string, error) {
+		newFolder := strings.Replace(folderPath, oldPrefix, newPrefix, 1)
+		log.Debug().
+			Msgf("🔵 clone folder: %s -> %s", folderPath, newFolder)
+		reader, err := c.Options.Filestore.DownloadFolder(ctx.Ctx, folderPath)
+		if err != nil {
+			return "", err
+		}
+		err = c.Options.Filestore.UploadFolder(ctx.Ctx, newFolder, reader)
+		if err != nil {
+			return "", err
+		}
+		return newFolder, nil
+	}
+
+	// this will actually copy files so only call this if you want to remap
+	copyInteractionFiles := func(interaction types.Interaction) (types.Interaction, error) {
+		newFiles := []string{}
+		for _, file := range interaction.Files {
+			if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
+				// this means we are only copying the data and we've just come across the questions file
+				// in the last user interaction so we don't copy it
+				continue
+			}
+			newFile, err := copyFile(file)
+			if err != nil {
+				return interaction, err
+			}
+			newFiles = append(newFiles, newFile)
+		}
+		interaction.Files = newFiles
+		return interaction, nil
+	}
+
+	// this will actually copy files so only call this if you want to remap
+	copyLoraDir := func(interaction types.Interaction) (types.Interaction, error) {
+		if interaction.LoraDir != "" {
+			shouldCopyLora := false
+			if interaction.ID == systemInteraction.ID {
+				// we are on the latest system interaction
+				// let's check the mode to see if we should bring the lora with us
+				if req.Mode == types.CloneInteractionModeAll {
+					shouldCopyLora = true
+				}
+			} else {
+				shouldCopyLora = true
+			}
+
+			if shouldCopyLora {
+				newLoraDir, err := copyFolder(interaction.LoraDir)
+				if err != nil {
+					return interaction, err
+				}
+				interaction.LoraDir = newLoraDir
+			} else {
+				interaction.LoraDir = ""
+			}
+		}
+		return interaction, nil
+	}
+
+	// the result files are always copied if we are in a different user account
+	// but not if we are in the same account
+	// and the interaction file list will be pointing at a different session folder
+	// but that is OK because the file store is immutable
+	newInteractions := []types.Interaction{}
+	for _, interaction := range newSession.Interactions {
+		if req.CopyAllFiles {
+			newInteraction, err := copyInteractionFiles(interaction)
+			if err != nil {
+				return nil, err
+			}
+			newInteraction, err = copyLoraDir(newInteraction)
+			if err != nil {
+				return nil, err
+			}
+			newInteractions = append(newInteractions, newInteraction)
+		} else if interaction.ID == userInteraction.ID || interaction.ID == systemInteraction.ID {
+			// these are the last 2 interactions of a session being cloned within the same account
+			newInteraction, err := copyInteractionFiles(interaction)
+			if err != nil {
+				return nil, err
+			}
+			newInteraction, err = copyLoraDir(newInteraction)
+			if err != nil {
+				return nil, err
+			}
+			newInteractions = append(newInteractions, newInteraction)
+		} else {
+			newInteractions = append(newInteractions, interaction)
+		}
+	}
+
+	newSession.Interactions = newInteractions
+
+	// the folder is already copied over
+	if req.Mode != types.CloneInteractionModeAll {
+		newSession.LoraDir = ""
+	} else {
+		newSession.LoraDir = strings.Replace(newSession.LoraDir, oldPrefix, newPrefix, 1)
+	}
+
+	// always copy the session results folder otherwise we have split brain on results
 	newSession, err = data.UpdateUserInteraction(newSession, func(userInteraction *types.Interaction) (*types.Interaction, error) {
-		userInteraction.Files = newFiles
+		// only touch if we are not cloning as is
+		if req.Mode != types.CloneInteractionModeAll {
+			userInteraction.Created = time.Now()
+			userInteraction.Updated = time.Now()
+		}
+
 		userInteraction.Progress = 0
-		userInteraction.Created = time.Now()
-		userInteraction.Updated = time.Now()
 		userInteraction.Message = ""
 		userInteraction.Status = ""
 		return userInteraction, nil
@@ -512,24 +653,25 @@ func (c *Controller) CloneFinetuneInteraction(
 	}
 
 	newSession, err = data.UpdateSystemInteraction(newSession, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		// only touch if we are not cloning as is
+		if req.Mode != types.CloneInteractionModeAll {
+			systemInteraction.Created = time.Now()
+			systemInteraction.Updated = time.Now()
+		}
+
 		systemInteraction.Progress = 0
-		systemInteraction.Created = time.Now()
-		systemInteraction.Updated = time.Now()
 		systemInteraction.Message = ""
 		systemInteraction.Status = ""
-		if mode == types.CloneTextTypeJustData {
+		if req.Mode == types.CloneInteractionModeJustData {
 			// remove the fine tune file
-			systemInteraction.LoraDir = ""
 			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
 			systemInteraction.State = types.InteractionStateEditing
 			systemInteraction.Finished = false
-
 			// remove the metadata that keeps track of processed questions
 			// (because we have deleted the questions file)
 			systemInteraction.DataPrepChunks = map[string][]types.DataPrepChunk{}
-		} else if mode == types.CloneTextTypeWithQuestions {
+		} else if req.Mode == types.CloneInteractionModeWithQuestions {
 			// remove the fine tune file
-			systemInteraction.LoraDir = ""
 			systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
 			systemInteraction.State = types.InteractionStateEditing
 			systemInteraction.Finished = false

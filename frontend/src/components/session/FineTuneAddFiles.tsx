@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useCallback } from 'react'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
@@ -7,6 +7,9 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import AddIcon from '@mui/icons-material/Add'
 
 import AddFilesWindow from './AddFilesWindow'
+
+import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useApi from '../../hooks/useApi'
 
 import {
   ISession,
@@ -21,8 +24,31 @@ export const FineTuneAddFiles: FC<{
   interactionID,
   onReloadSession,
 }) => {
+  const api = useApi()
+  const inputs = useFinetuneInputs()
   const [ addFilesMode, setAddFilesMode ] = useState(false)
-  
+
+  // this is for text finetune
+  const onStartDataPrep = async () => {
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+    try {
+      const formData = inputs.getFormData(session.mode, session.type)
+      await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
+        onUploadProgress: inputs.uploadProgressHandler,
+        params: {
+          interactionID: interactionID || '',
+        }
+      })
+      inputs.setUploadProgress(undefined)
+    } catch(e: any) {}
+
+    inputs.setUploadProgress(undefined)
+  }
+
   return (
     <>
       <Grid container spacing={ 0 }>
@@ -52,7 +78,7 @@ export const FineTuneAddFiles: FC<{
             color="secondary"
             size="small"
             endIcon={<NavigateNextIcon />}
-            onClick={ () => {} }
+            onClick={ onStartDataPrep }
           >
             Start Data Prep
           </Button>

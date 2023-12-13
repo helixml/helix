@@ -238,28 +238,28 @@ func (apiServer *HelixAPIServer) getTransactions(res http.ResponseWriter, req *h
 }
 
 func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
-	return apiServer.Controller.FilestoreConfig(apiServer.getRequestContext(req))
+	return apiServer.Controller.FilestoreConfig(apiServer.getOwnerContext(req))
 }
 
 func (apiServer *HelixAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreList(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreList(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreGet(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreGet(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreCreateFolder(apiServer.getRequestContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreCreateFolder(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreRename(apiServer.getRequestContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
+	return apiServer.Controller.FilestoreRename(apiServer.getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
-	err := apiServer.Controller.FilestoreDelete(apiServer.getRequestContext(req), path)
+	err := apiServer.Controller.FilestoreDelete(apiServer.getOwnerContext(req), path)
 	return path, err
 }
 
@@ -278,7 +278,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), filepath.Join(path, fileHeader.Filename), file)
+		_, err = apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -299,11 +299,11 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 		Msgf("🔵 download file: %s", filePath)
 
 	err := func() error {
-		filePath, requestContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
+		filePath, ownerContext, err := apiServer.convertFilestorePath(req.Context(), sessionid, filePath)
 		if err != nil {
 			return err
 		}
-		stream, err := apiServer.Controller.FilestoreDownloadFile(requestContext, filePath)
+		stream, err := apiServer.Controller.FilestoreDownloadFile(ownerContext, filePath)
 		if err != nil {
 			return err
 		}
@@ -383,8 +383,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 
 	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
 
-	reqContext := types.RequestContext{
-		Ctx:       req.Context(),
+	ownerContext := types.OwnerContext{
 		Owner:     session.Owner,
 		OwnerType: session.OwnerType,
 	}
@@ -400,7 +399,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFiles(res http.ResponseWrite
 		}
 		defer file.Close()
 
-		item, err := apiServer.Controller.FilestoreUploadFile(reqContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
+		item, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, fileHeader.Filename), file)
 		if err != nil {
 			return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -422,8 +421,7 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 
 	uploadFolder := filepath.Join(controller.GetSessionFolder(session.ID), filePath)
 
-	reqContext := types.RequestContext{
-		Ctx:       req.Context(),
+	ownerContext := types.OwnerContext{
 		Owner:     session.Owner,
 		OwnerType: session.OwnerType,
 	}
@@ -445,14 +443,14 @@ func (apiServer *HelixAPIServer) runnerSessionUploadFolder(res http.ResponseWrit
 
 			// Create a virtual file from the buffer to upload
 			vFile := bytes.NewReader(buffer.Bytes())
-			_, err := apiServer.Controller.FilestoreUploadFile(reqContext, filepath.Join(uploadFolder, header.Name), vFile)
+			_, err := apiServer.Controller.FilestoreUploadFile(ownerContext, filepath.Join(uploadFolder, header.Name), vFile)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
 		}
 	}
 
-	finalFolder, err := apiServer.Controller.FilestoreGet(reqContext, uploadFolder)
+	finalFolder, err := apiServer.Controller.FilestoreGet(ownerContext, uploadFolder)
 	if err != nil {
 		return nil, err
 	}
@@ -482,9 +480,19 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	vars := mux.Vars(req)
 	reqContext := apiServer.getRequestContext(req)
-	session, httpError := apiServer.sessionLoader(req, true)
+
+	// we only need to check for read only access here because
+	// we are only reading the original session and then writing a new one
+	// into our account
+	session, httpError := apiServer.sessionLoader(req, false)
 	if httpError != nil {
 		return nil, httpError
+	}
+
+	// if we own the session then we don't need to copy all files
+	copyAllFiles := true
+	if apiServer.doesOwnSession(reqContext, session) {
+		copyAllFiles = false
 	}
 
 	interaction, err := data.GetInteraction(session, vars["interaction"])
@@ -495,7 +503,11 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	if err != nil {
 		return nil, system.NewHTTPError404(err.Error())
 	}
-	return system.DefaultController(apiServer.Controller.CloneFinetuneInteraction(reqContext, session, interaction, mode))
+	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
+		InteractionID: interaction.ID,
+		Mode:          mode,
+		CopyAllFiles:  copyAllFiles,
+	}))
 }
 
 func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
@@ -514,7 +526,7 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 
 	// the user interaction is the request from the user
 	newUserInteraction, err := apiServer.getUserInteractionFromForm(req, session.ID, types.SessionModeFinetune, interactionID)
-	if httpError != nil {
+	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
 	if newUserInteraction == nil {

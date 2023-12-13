@@ -85,28 +85,28 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
-type CloneTextType string
+type CloneInteractionMode string
 
 const (
-	CloneTextTypeNone          CloneTextType = ""
-	CloneTextTypeJustData      CloneTextType = "just_data"
-	CloneTextTypeWithQuestions CloneTextType = "with_questions"
-	CloneTextTypeAll           CloneTextType = "all"
+	CloneInteractionModeNone          CloneInteractionMode = ""
+	CloneInteractionModeJustData      CloneInteractionMode = "just_data"
+	CloneInteractionModeWithQuestions CloneInteractionMode = "with_questions"
+	CloneInteractionModeAll           CloneInteractionMode = "all"
 )
 
-func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneTextType, error) {
+func ValidateCloneTextType(cloneTextType string, acceptEmpty bool) (CloneInteractionMode, error) {
 	switch cloneTextType {
-	case string(CloneTextTypeJustData):
-		return CloneTextTypeJustData, nil
-	case string(CloneTextTypeWithQuestions):
-		return CloneTextTypeWithQuestions, nil
-	case string(CloneTextTypeAll):
-		return CloneTextTypeAll, nil
+	case string(CloneInteractionModeJustData):
+		return CloneInteractionModeJustData, nil
+	case string(CloneInteractionModeWithQuestions):
+		return CloneInteractionModeWithQuestions, nil
+	case string(CloneInteractionModeAll):
+		return CloneInteractionModeAll, nil
 	default:
-		if acceptEmpty && cloneTextType == string(CloneTextTypeNone) {
-			return CloneTextTypeNone, nil
+		if acceptEmpty && cloneTextType == string(CloneInteractionModeNone) {
+			return CloneInteractionModeNone, nil
 		} else {
-			return CloneTextTypeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
+			return CloneInteractionModeNone, fmt.Errorf("invalid clone text type: %s", cloneTextType)
 		}
 	}
 }
