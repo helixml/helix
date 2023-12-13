@@ -41,7 +41,7 @@ func (s *GCSStorage) List(ctx context.Context, prefix string) ([]FileStoreItem, 
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("error iterating over GCS objects: %w", err)
+			return []FileStoreItem{}, nil
 		}
 
 		item := FileStoreItem{

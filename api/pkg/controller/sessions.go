@@ -68,6 +68,20 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 }
 
 func (c *Controller) RestartSession(session *types.Session) (*types.Session, error) {
+	// let's see if this session is currently active as far as runners are aware
+	activeSessions := map[string]bool{}
+	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
+		for _, modelInstance := range metrics.ModelInstances {
+			activeSessions[modelInstance.CurrentSession.SessionID] = true
+		}
+		return true
+	})
+
+	_, ok := activeSessions[session.ID]
+	if ok {
+		return nil, fmt.Errorf("session is currently active")
+	}
+
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Error = ""
 		systemInteraction.Finished = false
@@ -641,11 +655,11 @@ func (c *Controller) CloneUntilInteraction(
 		if req.Mode != types.CloneInteractionModeAll {
 			userInteraction.Created = time.Now()
 			userInteraction.Updated = time.Now()
+			userInteraction.Message = ""
+			userInteraction.Status = ""
+			userInteraction.Progress = 0
 		}
 
-		userInteraction.Progress = 0
-		userInteraction.Message = ""
-		userInteraction.Status = ""
 		return userInteraction, nil
 	})
 	if err != nil {
@@ -657,11 +671,11 @@ func (c *Controller) CloneUntilInteraction(
 		if req.Mode != types.CloneInteractionModeAll {
 			systemInteraction.Created = time.Now()
 			systemInteraction.Updated = time.Now()
+			systemInteraction.Message = ""
+			systemInteraction.Status = ""
+			systemInteraction.Progress = 0
 		}
 
-		systemInteraction.Progress = 0
-		systemInteraction.Message = ""
-		systemInteraction.Status = ""
 		if req.Mode == types.CloneInteractionModeJustData {
 			// remove the fine tune file
 			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
