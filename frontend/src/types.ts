@@ -58,10 +58,16 @@ export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
 
-export interface IUser {
+export interface IKeycloakUser {
   id: string,
   email: string,
   token: string,
+}
+
+export interface IUserConfig {
+  stripe_subscription_active?: boolean,
+  stripe_customer_id?: string,
+  stripe_subscription_id?: string,
 }
 
 export interface IBalanceTransferData {
@@ -221,6 +227,7 @@ export interface IWebsocketEvent {
 
 export interface IServerConfig {
   filestore_prefix: string,
+  stripe_enabled: boolean,
 }
 
 export interface IConversation {

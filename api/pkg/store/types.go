@@ -50,6 +50,12 @@ type Store interface {
 	UpdateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
 	DeleteBot(ctx context.Context, id string) (*types.Bot, error)
 
+	// usermeta
+	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
+	CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
+	UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
+	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
+
 	// balance transfers
 	GetBalanceTransfers(ctx context.Context, query OwnerQuery) ([]*types.BalanceTransfer, error)
 	CreateBalanceTransfer(ctx context.Context, balanceTransfer types.BalanceTransfer) error

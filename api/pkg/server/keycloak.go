@@ -112,15 +112,15 @@ func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, erro
 	return getUserIdFromJWT(token), nil
 }
 
-func getUserFromJWT(tok *jwt.Token) types.User {
+func getUserFromJWT(tok *jwt.Token) types.UserData {
 	if tok == nil {
-		return types.User{}
+		return types.UserData{}
 	}
 	mc := tok.Claims.(jwt.MapClaims)
 	uid := mc["sub"].(string)
 	email := mc["email"].(string)
 	name := mc["name"].(string)
-	return types.User{
+	return types.UserData{
 		ID:       uid,
 		Email:    email,
 		FullName: name,
@@ -132,18 +132,18 @@ func getUserIdFromJWT(tok *jwt.Token) string {
 	return user.ID
 }
 
-func setRequestUser(ctx context.Context, user types.User) context.Context {
+func setRequestUser(ctx context.Context, user types.UserData) context.Context {
 	ctx = context.WithValue(ctx, "userid", user.ID)
 	ctx = context.WithValue(ctx, "email", user.Email)
 	ctx = context.WithValue(ctx, "fullname", user.FullName)
 	return ctx
 }
 
-func getRequestUser(req *http.Request) types.User {
+func getRequestUser(req *http.Request) types.UserData {
 	id := req.Context().Value("userid")
 	email := req.Context().Value("email")
 	fullname := req.Context().Value("fullname")
-	return types.User{
+	return types.UserData{
 		ID:       id.(string),
 		Email:    email.(string),
 		FullName: fullname.(string),
@@ -169,7 +169,7 @@ func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) htt
 			return
 		}
 		// successful api_key auth
-		r = r.WithContext(setRequestUser(r.Context(), types.User{
+		r = r.WithContext(setRequestUser(r.Context(), types.UserData{
 			ID: maybeOwner.Owner,
 		}))
 		next.ServeHTTP(w, r)

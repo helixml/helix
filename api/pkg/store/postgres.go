@@ -220,6 +220,41 @@ func getBotValues(bot *types.Bot) ([]interface{}, error) {
 	}, nil
 }
 
+var USERMETA_FIELDS = []string{
+	"id",
+	"config",
+}
+
+var USERMETA_FIELDS_STRING = strings.Join(USERMETA_FIELDS, ", ")
+
+func scanUserMetaRow(row Scanner) (*types.UserMeta, error) {
+	user := &types.UserMeta{}
+	var config []byte
+	err := row.Scan(
+		&user.ID,
+		&config,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(config, &user.Config)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
+	config, err := json.Marshal(user.Config)
+	if err != nil {
+		return nil, err
+	}
+	return []interface{}{
+		user.ID,
+		config,
+	}, nil
+}
+
 func (d *PostgresStore) GetSession(
 	ctx context.Context,
 	sessionID string,
@@ -248,6 +283,21 @@ func (d *PostgresStore) GetBot(
 	`, BOT_FIELDS_STRING), botID)
 
 	return scanBotRow(row)
+}
+
+func (d *PostgresStore) GetUserMeta(
+	ctx context.Context,
+	userID string,
+) (*types.UserMeta, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("userID cannot be empty")
+	}
+	row := d.pgDb.QueryRow(fmt.Sprintf(`
+		SELECT %s
+		FROM usermeta WHERE id = $1
+	`, USERMETA_FIELDS_STRING), userID)
+
+	return scanUserMetaRow(row)
 }
 
 func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
@@ -409,6 +459,28 @@ func (d *PostgresStore) CreateBot(
 	return &bot, nil
 }
 
+func (d *PostgresStore) CreateUserMeta(
+	ctx context.Context,
+	user types.UserMeta,
+) (*types.UserMeta, error) {
+	values, err := getUserMetaValues(&user)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
+		INSERT INTO usermeta (
+			%s
+		) VALUES (
+			%s
+		)
+	`, USERMETA_FIELDS_STRING, getValueIndexes(USERMETA_FIELDS)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // NOTE: yes we are updating the ID based on the ID
 // TODO: use a library!?!
 func (d *PostgresStore) UpdateSession(
@@ -455,6 +527,39 @@ func (d *PostgresStore) UpdateBot(
 	}
 
 	return &bot, nil
+}
+
+func (d *PostgresStore) UpdateUserMeta(
+	ctx context.Context,
+	user types.UserMeta,
+) (*types.UserMeta, error) {
+	values, err := getUserMetaValues(&user)
+	if err != nil {
+		return nil, err
+	}
+	_, err = d.pgDb.Exec(fmt.Sprintf(`
+		UPDATE usermeta SET
+			%s
+		WHERE id = $1
+	`, getKeyValueIndexes(USERMETA_FIELDS, 1)), values...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+func (d *PostgresStore) EnsureUserMeta(
+	ctx context.Context,
+	user types.UserMeta,
+) (*types.UserMeta, error) {
+	existing, err := d.GetUserMeta(ctx, user.ID)
+	if err != nil || existing == nil {
+		return d.CreateUserMeta(ctx, user)
+	} else {
+		return d.UpdateUserMeta(ctx, user)
+	}
 }
 
 func (d *PostgresStore) DeleteSession(

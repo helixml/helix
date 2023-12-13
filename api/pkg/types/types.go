@@ -210,10 +210,24 @@ type OwnerContext struct {
 	OwnerType OwnerType
 }
 
-type User struct {
+type UserData struct {
 	ID       string
 	Email    string
 	FullName string
+}
+
+type UserConfig struct {
+	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
+	StripeCustomerID         string `json:"stripe_customer_id"`
+	StripeSubscriptionID     string `json:"stripe_subscription_id"`
+}
+
+// this lives in the database
+// the ID is the keycloak user ID
+// there might not be a record for every user
+type UserMeta struct {
+	ID     string     `json:"id"`
+	Config UserConfig `json:"config"`
 }
 
 // passed between the api server and the controller
@@ -227,9 +241,10 @@ type RequestContext struct {
 }
 
 type UserStatus struct {
-	Admin   bool   `json:"admin"`
-	User    string `json:"user"`
-	Credits int    `json:"credits"`
+	Admin   bool       `json:"admin"`
+	User    string     `json:"user"`
+	Credits int        `json:"credits"`
+	Config  UserConfig `json:"config"`
 }
 
 // a single envelope that is broadcast to users
@@ -305,6 +320,7 @@ type ServerConfig struct {
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
 	FilestorePrefix string `json:"filestore_prefix"`
+	StripeEnabled   bool   `json:"stripe_enabled"`
 }
 
 type CreateSessionRequest struct {

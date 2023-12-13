@@ -7,11 +7,12 @@ import useLoading from '../hooks/useLoading'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 import {
-  IUser,
+  IKeycloakUser,
   IBalanceTransfer,
   ISession,
   IApiKey,
   IServerConfig,
+  IUserConfig,
 } from '../types'
 
 const REALM = 'helix'
@@ -22,8 +23,9 @@ export interface IAccountContext {
   initialized: boolean,
   credits: number,
   admin: boolean,
-  user?: IUser,
+  user?: IKeycloakUser,
   serverConfig: IServerConfig,
+  userConfig: IUserConfig,
   transactions: IBalanceTransfer[],
   apiKeys: IApiKey[],
   onLogin: () => void,
@@ -36,7 +38,9 @@ export const AccountContext = createContext<IAccountContext>({
   admin: false,
   serverConfig: {
     filestore_prefix: '',
+    stripe_enabled: false,
   },
+  userConfig: {},
   transactions: [],
   apiKeys: [],
   onLogin: () => {},
@@ -49,13 +53,14 @@ export const useAccountContext = (): IAccountContext => {
   const loading = useLoading()
   const [ admin, setAdmin ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
-  const [ user, setUser ] = useState<IUser>()
+  const [ user, setUser ] = useState<IKeycloakUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
+    stripe_enabled: false,
   })
   const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
-  const [ sessions, setSessions ] = useState<ISession[]>([])
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
   const keycloak = useMemo(() => {
@@ -75,13 +80,18 @@ export const useAccountContext = (): IAccountContext => {
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
+
+    console.log('--------------------------------------------')
+    console.dir(statusResult)
     setCredits(statusResult.credits)
     setAdmin(statusResult.admin)
+    setUserConfig(statusResult.config)
   }, [])
 
-  const loadConfig = useCallback(async () => {
+  const loadServerConfig = useCallback(async () => {
     const configResult = await api.get('/api/v1/config')
     if(!configResult) return
+    console.dir(configResult)
     setServerConfig(configResult)
   }, [])
   
@@ -96,13 +106,13 @@ export const useAccountContext = (): IAccountContext => {
     await bluebird.all([
       loadTransactions(),
       loadStatus(),
-      loadConfig(),
+      loadServerConfig(),
       loadApiKeys(),
     ])
   }, [
     loadTransactions,
     loadStatus,
-    loadConfig,
+    loadServerConfig,
     loadApiKeys,
   ])
 
@@ -129,7 +139,7 @@ export const useAccountContext = (): IAccountContext => {
         if(!keycloak.tokenParsed?.sub) throw new Error(`no user id found from keycloak`)
         if(!keycloak.tokenParsed?.preferred_username) throw new Error(`no user email found from keycloak`)
         if(!keycloak.token) throw new Error(`no user token found from keycloak`)
-        const user: IUser = {
+        const user: IKeycloakUser = {
           id: keycloak.tokenParsed?.sub,
           email: keycloak.tokenParsed?.preferred_username, 
           token: keycloak.token,
@@ -165,7 +175,7 @@ export const useAccountContext = (): IAccountContext => {
 
   useEffect(() => {
     if(!user) {
-      loadConfig()
+      loadServerConfig()
     } else {
       loadAll()
     }
@@ -179,8 +189,8 @@ export const useAccountContext = (): IAccountContext => {
     user,
     admin,
     serverConfig,
+    userConfig,
     credits,
-    sessions,
     transactions,
     apiKeys,
     onLogin,
@@ -190,8 +200,8 @@ export const useAccountContext = (): IAccountContext => {
     user,
     admin,
     serverConfig,
+    userConfig,
     credits,
-    sessions,
     transactions,
     apiKeys,
     onLogin,
