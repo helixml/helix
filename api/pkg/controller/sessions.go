@@ -72,6 +72,9 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	activeSessions := map[string]bool{}
 	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
 		for _, modelInstance := range metrics.ModelInstances {
+			if modelInstance.CurrentSession == nil {
+				continue
+			}
 			activeSessions[modelInstance.CurrentSession.SessionID] = true
 		}
 		return true
