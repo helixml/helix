@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/stripe"
 	"github.com/lukemarsden/helix/api/pkg/system"
 )
 
@@ -36,6 +37,7 @@ type ServerOptions struct {
 type HelixAPIServer struct {
 	Options    ServerOptions
 	Store      store.Store
+	Stripe     *stripe.Stripe
 	Controller *controller.Controller
 	runnerAuth *runnerAuth
 	adminAuth  *adminAuth
@@ -44,6 +46,7 @@ type HelixAPIServer struct {
 func NewServer(
 	options ServerOptions,
 	store store.Store,
+	stripe *stripe.Stripe,
 	controller *controller.Controller,
 ) (*HelixAPIServer, error) {
 	if options.URL == "" {
@@ -61,10 +64,10 @@ func NewServer(
 	if options.KeyCloakToken == "" {
 		return nil, fmt.Errorf("keycloak token is required")
 	}
-
 	return &HelixAPIServer{
 		Options:    options,
 		Store:      store,
+		Stripe:     stripe,
 		Controller: controller,
 		runnerAuth: newRunnerAuth(options.RunnerToken),
 		adminAuth:  newAdminAuth(options.AdminIDs),
@@ -108,6 +111,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		SilenceErrors: true,
 	})).Methods("GET")
 
+	// this is not authenticated because we use the webhook signing secret
+	// the stripe library handles http management
+	subrouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
+
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", system.DefaultWrapper(apiServer.getTransactions)).Methods("GET")
 
@@ -119,6 +126,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/filestore/upload", system.DefaultWrapper(apiServer.filestoreUpload)).Methods("POST")
 	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods("PUT")
 	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods("DELETE")
+
+	authRouter.HandleFunc("/subscription", system.DefaultWrapper(apiServer.subscriptionCreate)).Methods("POST")
+	authRouter.HandleFunc("/subscription/manage", system.DefaultWrapper(apiServer.subscriptionManage)).Methods("POST")
 
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.createAPIKey)).Methods("POST")
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.getAPIKeys)).Methods("GET")

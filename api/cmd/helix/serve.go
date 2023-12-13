@@ -14,6 +14,7 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/stripe"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -27,6 +28,7 @@ type ServeOptions struct {
 	JanitorOptions      janitor.JanitorOptions
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
+	StripeOptions       stripe.StripeOptions
 }
 
 func NewServeOptions() *ServeOptions {
@@ -75,6 +77,11 @@ func NewServeOptions() *ServeOptions {
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+		},
+		StripeOptions: stripe.StripeOptions{
+			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
+			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
+			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
 	}
 }
@@ -236,6 +243,22 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
+	)
+
+	// StripeOptions
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.SecretKey, "stripe-secret-key", allOptions.StripeOptions.SecretKey,
+		`The secret key for stripe.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.WebhookSigningSecret, "stripe-webhook-signing-secret", allOptions.StripeOptions.WebhookSigningSecret,
+		`The webhook signing secret for stripe.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.PriceLookupKey, "stripe-price-lookup-key", allOptions.StripeOptions.PriceLookupKey,
+		`The lookup key for the stripe price.`,
 	)
 
 	return serveCmd
@@ -409,7 +432,18 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	go appController.StartLooping()
 
-	server, err := server.NewServer(options.ServerOptions, store, appController)
+	options.StripeOptions.AppURL = options.ServerOptions.URL
+	stripe := stripe.NewStripe(
+		options.StripeOptions,
+		func(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
+			return appController.SubscribeUser(userID, stripeCustomerID, stripeSubscriptionID)
+		},
+		func(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
+			return appController.UnsubscribeUser(userID, stripeCustomerID, stripeSubscriptionID)
+		},
+	)
+
+	server, err := server.NewServer(options.ServerOptions, store, stripe, appController)
 	if err != nil {
 		return err
 	}

@@ -68,6 +68,9 @@ services:
       - KEYCLOAK_URL=http://keycloak:8080/auth
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
+      - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       # lock down dashboard in production
@@ -80,7 +83,13 @@ services:
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
-
+  webhook_relay_stripe:
+    image: webhookrelay/webhookrelayd
+    entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
+    environment:
+      - KEY=${WEBHOOK_RELAY_KEY:-}
+      - SECRET=${WEBHOOK_RELAY_SECRET:-}
+      - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   unstructured:
     ports:
       - 5000:5000

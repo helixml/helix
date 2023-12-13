@@ -219,14 +219,16 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 }
 
 func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
+	filestorePrefix := ""
 	if apiServer.Options.LocalFilestorePath != "" {
-		return types.ServerConfig{
-			FilestorePrefix: fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX),
-		}, nil
+		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
+	} else {
+		return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
 	}
-
-	// TODO: work out what to do for object storage here
-	return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
+	return types.ServerConfig{
+		FilestorePrefix: filestorePrefix,
+		StripeEnabled:   apiServer.Stripe.Enabled(),
+	}, nil
 }
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
@@ -801,4 +803,28 @@ func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.
 		return nil, err
 	}
 	return key, nil
+}
+
+func (apiServer *HelixAPIServer) subscriptionCreate(res http.ResponseWriter, req *http.Request) (string, error) {
+	reqContext := apiServer.getRequestContext(req)
+	return apiServer.Stripe.GetCheckoutSessionURL(reqContext.Owner, reqContext.Email)
+}
+
+func (apiServer *HelixAPIServer) subscriptionManage(res http.ResponseWriter, req *http.Request) (string, error) {
+	reqContext := apiServer.getRequestContext(req)
+	userMeta, err := apiServer.Store.GetUserMeta(reqContext.Ctx, reqContext.Owner)
+	if err != nil {
+		return "", err
+	}
+	if userMeta == nil {
+		return "", fmt.Errorf("no such user")
+	}
+	if userMeta.Config.StripeCustomerID == "" {
+		return "", fmt.Errorf("no stripe customer id found")
+	}
+	return apiServer.Stripe.GetPortalSessionURL(userMeta.Config.StripeCustomerID)
+}
+
+func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
+	apiServer.Stripe.ProcessWebhook(res, req)
 }
