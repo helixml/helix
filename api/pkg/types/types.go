@@ -69,6 +69,7 @@ type SessionConfig struct {
 	OriginalMode SessionMode   `json:"original_mode"`
 	Origin       SessionOrigin `json:"origin"`
 	Shared       bool          `json:"shared"`
+	Avatar       string        `json:"avatar"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -112,7 +113,16 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
+type BotSessions struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+	PrePrompt string `json:"pre_prompt"`
+}
+
 type BotConfig struct {
+	Description string        `json:"description"`
+	Avatar      string        `json:"avatar"`
+	Sessions    []BotSessions `json:"sessions"`
 }
 
 // a bot can spawn new sessions from it's finetune dir
