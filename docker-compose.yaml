@@ -70,7 +70,7 @@ services:
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       # lock down dashboard in production
-      - ADMIN_USER_IDS=${ADMIN_USER_IDS-*}
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}

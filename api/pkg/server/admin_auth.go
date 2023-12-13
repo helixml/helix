@@ -42,7 +42,8 @@ func (auth *adminAuth) isUserAdmin(user string) bool {
 }
 
 func (auth *adminAuth) isRequestAuthenticated(r *http.Request) bool {
-	return auth.isUserAdmin(getRequestUser(r))
+	reqUser := getRequestUser(r)
+	return auth.isUserAdmin(reqUser.ID)
 }
 
 func (auth *adminAuth) middleware(next http.Handler) http.Handler {

@@ -210,12 +210,20 @@ type OwnerContext struct {
 	OwnerType OwnerType
 }
 
+type User struct {
+	ID       string
+	Email    string
+	FullName string
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
 	Admin     bool
 	Owner     string
 	OwnerType OwnerType
+	Email     string
+	FullName  string
 }
 
 type UserStatus struct {

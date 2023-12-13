@@ -50,16 +50,16 @@ func extractBearerToken(token string) string {
 }
 
 func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
-	// in case the request is authenticated with an lp- token, rather than a
-	// keycloak JWT, return the owner. Returns nil if it's not an lp- token.
+	// in case the request is authenticated with an hl- token, rather than a
+	// keycloak JWT, return the owner. Returns nil if it's not an hl- token.
 	token := r.Header.Get("Authorization")
 	token = extractBearerToken(token)
 
-	if strings.HasPrefix(token, "lp-") {
+	if strings.HasPrefix(token, types.API_KEY_PREIX) {
 		if owner, err := auth.store.CheckAPIKey(r.Context(), token); err != nil {
 			return nil, fmt.Errorf("error checking API key: %s", err.Error())
 		} else if owner == nil {
-			// user claimed to provide lp- token, but it was invalid
+			// user claimed to provide hl- token, but it was invalid
 			return nil, fmt.Errorf("invalid API key")
 		} else {
 			return owner, nil
@@ -112,25 +112,42 @@ func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, erro
 	return getUserIdFromJWT(token), nil
 }
 
-func getUserIdFromJWT(tok *jwt.Token) string {
+func getUserFromJWT(tok *jwt.Token) types.User {
 	if tok == nil {
-		return ""
+		return types.User{}
 	}
 	mc := tok.Claims.(jwt.MapClaims)
 	uid := mc["sub"].(string)
-	return uid
-}
-
-func setRequestUser(ctx context.Context, userid string) context.Context {
-	return context.WithValue(ctx, "userid", userid)
-}
-
-func getRequestUser(req *http.Request) string {
-	val := req.Context().Value("userid")
-	if val == nil {
-		return ""
+	email := mc["email"].(string)
+	name := mc["name"].(string)
+	return types.User{
+		ID:       uid,
+		Email:    email,
+		FullName: name,
 	}
-	return val.(string)
+}
+
+func getUserIdFromJWT(tok *jwt.Token) string {
+	user := getUserFromJWT(tok)
+	return user.ID
+}
+
+func setRequestUser(ctx context.Context, user types.User) context.Context {
+	ctx = context.WithValue(ctx, "userid", user.ID)
+	ctx = context.WithValue(ctx, "email", user.Email)
+	ctx = context.WithValue(ctx, "fullname", user.FullName)
+	return ctx
+}
+
+func getRequestUser(req *http.Request) types.User {
+	id := req.Context().Value("userid")
+	email := req.Context().Value("email")
+	fullname := req.Context().Value("fullname")
+	return types.User{
+		ID:       id.(string),
+		Email:    email.(string),
+		FullName: fullname.(string),
+	}
 }
 
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) http.Handler {
@@ -147,12 +164,14 @@ func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) htt
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
-			r = r.WithContext(setRequestUser(r.Context(), getUserIdFromJWT(token)))
+			r = r.WithContext(setRequestUser(r.Context(), getUserFromJWT(token)))
 			next.ServeHTTP(w, r)
 			return
 		}
 		// successful api_key auth
-		r = r.WithContext(setRequestUser(r.Context(), maybeOwner.Owner))
+		r = r.WithContext(setRequestUser(r.Context(), types.User{
+			ID: maybeOwner.Owner,
+		}))
 		next.ServeHTTP(w, r)
 	}
 

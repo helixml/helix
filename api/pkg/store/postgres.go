@@ -655,7 +655,7 @@ func generateAPIKey() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "lp-" + base64.URLEncoding.EncodeToString(key), nil
+	return types.API_KEY_PREIX + base64.URLEncoding.EncodeToString(key), nil
 }
 
 func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
