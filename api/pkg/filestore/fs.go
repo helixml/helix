@@ -27,7 +27,7 @@ func (s *FileSystemStorage) List(ctx context.Context, prefix string) ([]FileStor
 	fullPath := filepath.Join(s.basePath, prefix)
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading directory: %w", err)
+		return []FileStoreItem{}, nil
 	}
 
 	items := []FileStoreItem{}
