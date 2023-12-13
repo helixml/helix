@@ -157,18 +157,18 @@ func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID stri
 	return err
 }
 
-func (c *Controller) SubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
+func (c *Controller) SubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
 	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, true)
 	if err != nil {
 		return err
 	}
-	return c.Options.Janitor.SendMessage(fmt.Sprintf("💰 NEW subscription: %s", userID))
+	return c.Options.Janitor.SendMessage(fmt.Sprintf("💰 NEW subscription: [%s](%s)", stripeSubscriptionID, url))
 }
 
-func (c *Controller) UnsubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string) error {
+func (c *Controller) UnsubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
 	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, false)
 	if err != nil {
 		return err
 	}
-	return c.Options.Janitor.SendMessage(fmt.Sprintf("🛑 CANCEL subscription: %s", userID))
+	return c.Options.Janitor.SendMessage(fmt.Sprintf("🛑 CANCEL subscription: [%s](%s)", stripeSubscriptionID, url))
 }
