@@ -74,7 +74,6 @@ func NewServeOptions() *ServeOptions {
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
-			SlackEnabled:    getDefaultServeOptionBool("JANITOR_SLACK_ENABLED", false),
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
 		},
 	}
@@ -234,11 +233,6 @@ func newServeCmd() *cobra.Command {
 	)
 
 	// JanitorOptions
-	serveCmd.PersistentFlags().BoolVar(
-		&allOptions.JanitorOptions.SlackEnabled, "janitor-slack-enabled", allOptions.JanitorOptions.SlackEnabled,
-		`Should we ping messages to slack?`,
-	)
-
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
@@ -372,7 +366,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 				options.DataPrepTextOptions,
 				session,
 				func(req types.CreateSessionRequest) (*types.Session, error) {
-					return appController.CreateSession(context.Background(), req)
+					return appController.CreateSession(types.RequestContext{}, req)
 				},
 				func(id string) (*types.Session, error) {
 					return appController.Options.Store.GetSession(context.Background(), id)

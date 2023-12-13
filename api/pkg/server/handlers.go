@@ -152,7 +152,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	sessionData, err := apiServer.Controller.CreateSession(req.Context(), types.CreateSessionRequest{
+	sessionData, err := apiServer.Controller.CreateSession(apiServer.getRequestContext(req), types.CreateSessionRequest{
 		SessionID:       sessionID,
 		SessionMode:     sessionMode,
 		SessionType:     sessionType,
@@ -185,7 +185,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError404("no interaction found")
 	}
 
-	sessionData, err := apiServer.Controller.UpdateSession(req.Context(), types.UpdateSessionRequest{
+	sessionData, err := apiServer.Controller.UpdateSession(apiServer.getRequestContext(req), types.UpdateSessionRequest{
 		SessionID:       session.ID,
 		UserInteraction: *userInteraction,
 		SessionMode:     session.Mode,

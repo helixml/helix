@@ -20,21 +20,24 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) CreateSession(ctx context.Context, req types.CreateSessionRequest) (*types.Session, error) {
+func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	session, err := data.CreateSession(req)
 
 	// create session in database
-	sessionData, err := c.Options.Store.CreateSession(ctx, session)
+	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
 	if err != nil {
 		return nil, err
 	}
 
 	go c.SessionRunner(sessionData)
-
+	err = c.Options.Janitor.WriteSessionEvent("created a session", ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
 	return sessionData, nil
 }
 
-func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionRequest) (*types.Session, error) {
+func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
 	systemInteraction := types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
@@ -47,7 +50,7 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 		Finished: false,
 		Metadata: map[string]string{},
 	}
-	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
+	session, err := c.Options.Store.GetSession(ctx.Ctx, req.SessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,12 +60,16 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 	log.Debug().
 		Msgf("🟢 update session: %+v", session)
 
-	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
+	sessionData, err := c.Options.Store.UpdateSession(ctx.Ctx, *session)
 	if err != nil {
 		return nil, err
 	}
 
 	go c.SessionRunner(sessionData)
+	err = c.Options.Janitor.WriteSessionEvent("updated a session", ctx, sessionData)
+	if err != nil {
+		return nil, err
+	}
 
 	return sessionData, nil
 }
