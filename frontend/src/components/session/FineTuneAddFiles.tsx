@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react'
+import React, { FC, useState, useCallback } from 'react'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
@@ -6,48 +6,62 @@ import Grid from '@mui/material/Grid'
 import NavigateNextIcon from '@mui/icons-material/NavigateNext'
 import AddIcon from '@mui/icons-material/Add'
 
-import useApi from '../../hooks/useApi'
-import Window from '../widgets/Window'
-import UploadingOverlay from '../widgets/UploadingOverlay'
-import FineTuneImageInputs from './FineTuneImageInputs'
-import FineTuneImageLabels from './FineTuneImageLabels'
-import FineTuneTextInputs from './FineTuneTextInputs'
+import AddFilesWindow from './AddFilesWindow'
 
-import useSnackbar from '../../hooks/useSnackbar'
 import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useApi from '../../hooks/useApi'
 
 import {
   ISession,
-  SESSION_TYPE_IMAGE,
 } from '../../types'
 
 export const FineTuneAddFiles: FC<{
   session: ISession,
-  interactionID: string,
-  onCancel: () => void,
+  interactionID?: string,
+  onReloadSession: () => void,
 }> = ({
   session,
   interactionID,
-  onCancel,
+  onReloadSession,
 }) => {
-  const snackbar = useSnackbar()
   const api = useApi()
   const inputs = useFinetuneInputs()
-  const [ editMode, setEditMode ] = useState(false)
-  
+  const [ addFilesMode, setAddFilesMode ] = useState(false)
+
+  // this is for text finetune
+  const onStartDataPrep = async () => {
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+    try {
+      const formData = inputs.getFormData(session.mode, session.type)
+      await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
+        onUploadProgress: inputs.uploadProgressHandler,
+        params: {
+          interactionID: interactionID || '',
+        }
+      })
+      inputs.setUploadProgress(undefined)
+    } catch(e: any) {}
+
+    inputs.setUploadProgress(undefined)
+  }
+
   return (
     <>
       <Grid container spacing={ 0 }>
         <Grid item sm={ 12 } md={ 6 } sx={{pr:2}}>
           <Typography gutterBottom>
-            You have a chance to add more files to the training data or you can start the training process.
+            You can add files to this stage or begin the data prep right away.
           </Typography>
         </Grid>
         <Grid item sm={ 12 } md={ 6 } sx={{
           textAlign: 'right',
           pt: 2,
         }}>
-          {/* <Button
+          <Button
             variant="contained"
             color="primary"
             size="small"
@@ -55,22 +69,36 @@ export const FineTuneAddFiles: FC<{
               mr: 2,
             }}
             endIcon={<AddIcon />}
-            onClick={ () => setEditMode(true) }
+            onClick={ () => setAddFilesMode(true) }
           >
             Add Files
-          </Button> */}
+          </Button>
           <Button
             variant="contained"
             color="secondary"
             size="small"
             endIcon={<NavigateNextIcon />}
-            onClick={ () => {} }
+            onClick={ onStartDataPrep }
           >
-            Start Training
+            Start Data Prep
           </Button>
         </Grid>
 
       </Grid>
+      {
+        addFilesMode && (
+          <AddFilesWindow
+            session={ session }
+            interactionID={ interactionID }
+            onClose={ (filesAdded) => {
+              setAddFilesMode(false)
+              if(filesAdded) {
+                onReloadSession()
+              }
+            } }
+          />
+        )
+      }
       
     </>
   )  

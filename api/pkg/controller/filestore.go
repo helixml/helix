@@ -54,7 +54,7 @@ func GetSessionResultsFolder(sessionID string) string {
 
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
-func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, error) {
+func (c *Controller) getFilestoreUserPrefix(ctx types.OwnerContext) (string, error) {
 	tmpl, err := template.New("user_path").Parse(c.Options.FilePrefixUser)
 	if err != nil {
 		return "", err
@@ -70,7 +70,7 @@ func (c *Controller) getFilestoreUserPrefix(ctx types.RequestContext) (string, e
 	return buf.String(), nil
 }
 
-func (c *Controller) GetFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
 	userPrefix, err := c.getFilestoreUserPrefix(ctx)
 	if err != nil {
 		return "", err
@@ -78,10 +78,22 @@ func (c *Controller) GetFilestoreUserPath(ctx types.RequestContext, path string)
 	return filepath.Join(c.Options.FilePrefixGlobal, userPrefix, path), nil
 }
 
+func (c *Controller) GetFilestoreSessionPath(ctx types.OwnerContext, sessionID string) (string, error) {
+	return c.GetFilestoreUserPath(ctx, GetSessionFolder(sessionID))
+}
+
+func (c *Controller) GetFilestoreInteractionInputsPath(ctx types.OwnerContext, sessionID string, interactionID string) (string, error) {
+	return c.GetFilestoreUserPath(ctx, GetInteractionInputsFolder(sessionID, interactionID))
+}
+
+func (c *Controller) GetFilestoreResultsPath(ctx types.OwnerContext, sessionID string, interactionID string) (string, error) {
+	return c.GetFilestoreUserPath(ctx, GetSessionResultsFolder(sessionID))
+}
+
 // given a path - we might have never seen this filestore yet
 // so, we must ensure that the users base path is created and then create each
 // special folder as listed above
-func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path string) (string, error) {
+func (c *Controller) ensureFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
 	userPath, err := c.GetFilestoreUserPath(ctx, "")
 	if err != nil {
 		return "", err
@@ -109,7 +121,7 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.RequestContext, path stri
 	return retPath, nil
 }
 
-func (c *Controller) FilestoreConfig(ctx types.RequestContext) (filestore.FilestoreConfig, error) {
+func (c *Controller) FilestoreConfig(ctx types.OwnerContext) (filestore.FilestoreConfig, error) {
 	userPrefix, err := c.getFilestoreUserPrefix(ctx)
 	if err != nil {
 		return filestore.FilestoreConfig{}, err
@@ -124,7 +136,7 @@ func (c *Controller) FilestoreConfig(ctx types.RequestContext) (filestore.Filest
 	}, nil
 }
 
-func (c *Controller) FilestoreList(ctx types.RequestContext, path string) ([]filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreList(ctx types.OwnerContext, path string) ([]filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -132,7 +144,7 @@ func (c *Controller) FilestoreList(ctx types.RequestContext, path string) ([]fil
 	return c.Options.Filestore.List(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreGet(ctx types.RequestContext, path string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreGet(ctx types.OwnerContext, path string) (filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return filestore.FileStoreItem{}, err
@@ -140,7 +152,7 @@ func (c *Controller) FilestoreGet(ctx types.RequestContext, path string) (filest
 	return c.Options.Filestore.Get(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreCreateFolder(ctx types.RequestContext, path string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreCreateFolder(ctx types.OwnerContext, path string) (filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return filestore.FileStoreItem{}, err
@@ -148,7 +160,7 @@ func (c *Controller) FilestoreCreateFolder(ctx types.RequestContext, path string
 	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreDownloadFile(ctx types.RequestContext, path string) (io.Reader, error) {
+func (c *Controller) FilestoreDownloadFile(ctx types.OwnerContext, path string) (io.Reader, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -156,7 +168,7 @@ func (c *Controller) FilestoreDownloadFile(ctx types.RequestContext, path string
 	return c.Options.Filestore.DownloadFile(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreDownloadFolder(ctx types.RequestContext, path string) (io.Reader, error) {
+func (c *Controller) FilestoreDownloadFolder(ctx types.OwnerContext, path string) (io.Reader, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -164,7 +176,7 @@ func (c *Controller) FilestoreDownloadFolder(ctx types.RequestContext, path stri
 	return c.Options.Filestore.DownloadFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreUploadFile(ctx types.RequestContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreUploadFile(ctx types.OwnerContext, path string, r io.Reader) (filestore.FileStoreItem, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return filestore.FileStoreItem{}, err
@@ -172,7 +184,7 @@ func (c *Controller) FilestoreUploadFile(ctx types.RequestContext, path string, 
 	return c.Options.Filestore.UploadFile(c.Ctx, filePath, r)
 }
 
-func (c *Controller) FilestoreRename(ctx types.RequestContext, path string, newPath string) (filestore.FileStoreItem, error) {
+func (c *Controller) FilestoreRename(ctx types.OwnerContext, path string, newPath string) (filestore.FileStoreItem, error) {
 	fullPath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return filestore.FileStoreItem{}, err
@@ -184,7 +196,7 @@ func (c *Controller) FilestoreRename(ctx types.RequestContext, path string, newP
 	return c.Options.Filestore.Rename(c.Ctx, fullPath, fullNewPath)
 }
 
-func (c *Controller) FilestoreDelete(ctx types.RequestContext, path string) error {
+func (c *Controller) FilestoreDelete(ctx types.OwnerContext, path string) error {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return err

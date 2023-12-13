@@ -164,8 +164,12 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   useEffect(() => {
-    if(!user) return
-    loadAll()
+    if(!user) {
+      loadConfig()
+    } else {
+      loadAll()
+    }
+    
   }, [
     user,
   ])
