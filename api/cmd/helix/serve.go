@@ -11,8 +11,10 @@ import (
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
 	"github.com/lukemarsden/helix/api/pkg/filestore"
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/server"
 	"github.com/lukemarsden/helix/api/pkg/store"
+	"github.com/lukemarsden/helix/api/pkg/stripe"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -23,8 +25,10 @@ type ServeOptions struct {
 	DataPrepTextOptions text.DataPrepTextOptions
 	ControllerOptions   controller.ControllerOptions
 	FilestoreOptions    filestore.FileStoreOptions
+	JanitorOptions      janitor.JanitorOptions
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
+	StripeOptions       stripe.StripeOptions
 }
 
 func NewServeOptions() *ServeOptions {
@@ -70,6 +74,14 @@ func NewServeOptions() *ServeOptions {
 			// if this is defined it means runner auth is enabled
 			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+		},
+		JanitorOptions: janitor.JanitorOptions{
+			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+		},
+		StripeOptions: stripe.StripeOptions{
+			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
+			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
+			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
 	}
 }
@@ -227,6 +239,28 @@ func newServeCmd() *cobra.Command {
 		`Keycloak admin IDs`,
 	)
 
+	// JanitorOptions
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
+		`The slack webhook URL to ping messages to.`,
+	)
+
+	// StripeOptions
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.SecretKey, "stripe-secret-key", allOptions.StripeOptions.SecretKey,
+		`The secret key for stripe.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.WebhookSigningSecret, "stripe-webhook-signing-secret", allOptions.StripeOptions.WebhookSigningSecret,
+		`The webhook signing secret for stripe.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.StripeOptions.PriceLookupKey, "stripe-price-lookup-key", allOptions.StripeOptions.PriceLookupKey,
+		`The lookup key for the stripe price.`,
+	)
+
 	return serveCmd
 }
 
@@ -318,10 +352,14 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("openai api key is required")
 	}
 
+	options.JanitorOptions.AppURL = options.ServerOptions.URL
+	janitor := janitor.NewJanitor(options.JanitorOptions)
+
 	var appController *controller.Controller
 
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
+	options.ControllerOptions.Janitor = janitor
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
@@ -351,7 +389,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 				options.DataPrepTextOptions,
 				session,
 				func(req types.CreateSessionRequest) (*types.Session, error) {
-					return appController.CreateSession(context.Background(), req)
+					return appController.CreateSession(types.RequestContext{}, req)
 				},
 				func(id string) (*types.Session, error) {
 					return appController.Options.Store.GetSession(context.Background(), id)
@@ -394,7 +432,18 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	go appController.StartLooping()
 
-	server, err := server.NewServer(options.ServerOptions, store, appController)
+	options.StripeOptions.AppURL = options.ServerOptions.URL
+	stripe := stripe.NewStripe(
+		options.StripeOptions,
+		func(userID string, customer string, subscription string, url string) error {
+			return appController.SubscribeUser(userID, customer, subscription, url)
+		},
+		func(userID string, customer string, subscription string, url string) error {
+			return appController.UnsubscribeUser(userID, customer, subscription, url)
+		},
+	)
+
+	server, err := server.NewServer(options.ServerOptions, store, stripe, appController)
 	if err != nil {
 		return err
 	}
