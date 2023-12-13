@@ -17,7 +17,7 @@ import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
 import {
-  ICloneTextMode,
+  ICloneInteractionMode,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_CREATOR_SYSTEM,
@@ -50,7 +50,7 @@ export const InteractionFinetune: FC<{
   session: ISession,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
-  onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
 }> = ({
   serverConfig,
@@ -305,7 +305,7 @@ export const InteractionFinetune: FC<{
                 )
               }
               
-              <Button
+              {/* <Button
                 variant="contained"
                 color="primary"
                 sx={{
@@ -317,7 +317,7 @@ export const InteractionFinetune: FC<{
                 }}
               >
                 View Errors
-              </Button>
+              </Button> */}
               <Button
                 variant="contained"
                 color="primary"

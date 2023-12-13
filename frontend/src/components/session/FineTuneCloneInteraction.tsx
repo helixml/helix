@@ -21,10 +21,10 @@ import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 
 import {
   ISessionType,
-  ICloneTextMode,
-  CLONE_TEXT_TYPE_JUST_DATA,
-  CLONE_TEXT_TYPE_WITH_QUESTIONS,
-  CLONE_TEXT_TYPE_ALL,
+  ICloneInteractionMode,
+  CLONE_INTERACTION_MODE_JUST_DATA,
+  CLONE_INTERACTION_MODE_WITH_QUESTIONS,
+  CLONE_INTERACTION_MODE_ALL,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
 } from '../../types'
@@ -38,7 +38,7 @@ export const FineTuneCloneInteraction: FC<{
 
   // this is used to target the clone action
   systemInteractionID: string,
-  onClone: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
 }> = ({
   type,
@@ -54,7 +54,7 @@ export const FineTuneCloneInteraction: FC<{
 
   const colSize = type == SESSION_TYPE_IMAGE ? 6 : 4
 
-  const handleClone = useCallback(async (mode: ICloneTextMode, interactionID: string) => {
+  const handleClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string) => {
     const result = await onClone(mode, interactionID)
     if(!result) return
     setCloneMode(false)
@@ -205,7 +205,7 @@ export const FineTuneCloneInteraction: FC<{
                       }}
                     >
                         <Button size="small" variant="contained" onClick={() => {
-                          handleClone(CLONE_TEXT_TYPE_JUST_DATA, systemInteractionID)
+                          handleClone(CLONE_INTERACTION_MODE_JUST_DATA, systemInteractionID)
                         }}>Clone</Button>
                     </CardActions>
                   </Card>
@@ -236,7 +236,7 @@ export const FineTuneCloneInteraction: FC<{
                             justifyContent: 'flex-end',
                           }}
                         >
-                            <Button size="small" variant="contained" onClick={() => handleClone(CLONE_TEXT_TYPE_WITH_QUESTIONS, systemInteractionID)}>Clone</Button>
+                            <Button size="small" variant="contained" onClick={() => handleClone(CLONE_INTERACTION_MODE_WITH_QUESTIONS, systemInteractionID)}>Clone</Button>
                         </CardActions>
                       </Card>
                     </Grid>
@@ -266,7 +266,7 @@ export const FineTuneCloneInteraction: FC<{
                         justifyContent: 'flex-end',
                       }}
                     >
-                        <Button size="small" variant="contained" onClick={() => handleClone(CLONE_TEXT_TYPE_ALL, systemInteractionID)}>Clone</Button>
+                        <Button size="small" variant="contained" onClick={() => handleClone(CLONE_INTERACTION_MODE_ALL, systemInteractionID)}>Clone</Button>
                     </CardActions>
                   </Card>
                   

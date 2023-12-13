@@ -13,7 +13,7 @@ import {
   ISession,
   IInteraction,
   IServerConfig,
-  ICloneTextMode,
+  ICloneInteractionMode,
 } from '../../types'
 
 import {
@@ -28,7 +28,7 @@ export const Interaction: FC<{
   headerButtons?: React.ReactNode,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
-  onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
   onRestart?: () => void,
 }> = ({

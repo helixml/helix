@@ -21,7 +21,7 @@ export interface ISessionsContext {
   pagination: IPaginationState,
   sessions: ISessionSummary[],
   advancePage: () => void,
-  loadSessions: () => Promise<void>,
+  loadSessions: (reload?: boolean) => Promise<void>,
   addSesssion: (session: ISession) => void,
   deleteSession: (id: string) => Promise<boolean>,
   renameSession: (id: string, name: string) => Promise<boolean>,
@@ -60,10 +60,10 @@ export const useSessionsContext = (): ISessionsContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ sessions, setSessions ] = useState<ISessionSummary[]>([])
 
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (reload = false) => {
     const limit = page * SESSION_PAGINATION_PAGE_LIMIT
     // this means we have already loaded all the sessions
-    if(limit > pagination.total && pagination.total > 0) return
+    if(limit > pagination.total && pagination.total > 0 && !reload) return
     setLoading(true)
     const result = await api.get<ISessionsList>('/api/v1/sessions', {
       params: {

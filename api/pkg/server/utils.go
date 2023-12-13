@@ -33,6 +33,18 @@ func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.Requ
 	}
 }
 
+func (apiServer *HelixAPIServer) getOwnerContext(req *http.Request) types.OwnerContext {
+	user := getRequestUser(req)
+	return types.OwnerContext{
+		Owner:     user,
+		OwnerType: types.OwnerTypeUser,
+	}
+}
+
+func (apiServer *HelixAPIServer) doesOwnSession(reqContext types.RequestContext, session *types.Session) bool {
+	return session.OwnerType == reqContext.OwnerType && session.Owner == reqContext.Owner
+}
+
 func (apiServer *HelixAPIServer) canSeeSession(reqContext types.RequestContext, session *types.Session) bool {
 	canEdit := apiServer.canEditSession(reqContext, session)
 	if canEdit {
@@ -131,7 +143,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
 
 			log.Debug().Msgf("uploading file %s", filePath)
-			imageItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), filePath, file)
+			imageItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -151,7 +163,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getRequestContext(req), labelFilepath, strings.NewReader(label))
+				labelItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
@@ -160,10 +172,6 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			}
 		}
 		log.Debug().Msgf("success uploading files")
-	}
-
-	if sessionMode == types.SessionModeFinetune && len(filePaths) == 0 {
-		return nil, fmt.Errorf("finetune sessions require some files")
 	}
 
 	return &types.Interaction{
@@ -183,32 +191,31 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.RequestContext, error) {
+func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.OwnerContext, error) {
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {
-		return "", types.RequestContext{}, err
+		return "", types.OwnerContext{}, err
 	}
 
 	if session == nil {
-		return "", types.RequestContext{}, fmt.Errorf("no session found with id %v", sessionID)
+		return "", types.OwnerContext{}, fmt.Errorf("no session found with id %v", sessionID)
 	}
 
-	requestContext := types.RequestContext{
-		Ctx:       ctx,
+	ownerContext := types.OwnerContext{
 		Owner:     session.Owner,
 		OwnerType: session.OwnerType,
 	}
 	// let's remove the /dev/users/XXX part of the path if it's there
-	userPath, err := apiServer.Controller.GetFilestoreUserPath(requestContext, "")
+	userPath, err := apiServer.Controller.GetFilestoreUserPath(ownerContext, "")
 	if err != nil {
-		return "", types.RequestContext{}, err
+		return "", types.OwnerContext{}, err
 	}
 
 	if strings.HasPrefix(filePath, userPath) {
 		filePath = strings.TrimPrefix(filePath, userPath)
 	}
 
-	return filePath, requestContext, nil
+	return filePath, ownerContext, nil
 }
 
 func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {

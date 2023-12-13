@@ -195,6 +195,11 @@ type ApiKey struct {
 	Name      string    `json:"name"`
 }
 
+type OwnerContext struct {
+	Owner     string
+	OwnerType OwnerType
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
@@ -398,19 +403,3 @@ type DataPrepTextQuestion struct {
 type Counter struct {
 	Count int64 `json:"count"`
 }
-
-// func ConvertConversation(data DataPrepTextConversation) ShareGPTConversations {
-// 	res := ShareGPTConversations{
-// 		Conversations: []ShareGPTConversation{
-// 			{
-// 				From:  "human",
-// 				Value: data.Question,
-// 			},
-// 			{
-// 				From:  "gpt",
-// 				Value: data.Answer,
-// 			},
-// 		},
-// 	}
-// 	return res
-// }
