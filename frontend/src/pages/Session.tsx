@@ -6,21 +6,20 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
-import AddIcon from '@mui/icons-material/Add'
+import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
-import CreateBotWindow from '../components/session/CreateBotWindow'
-import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
-import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
-import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
+import ShareSessionWindow from '../components/session/ShareSessionWindow'
+import AddFilesWindow from '../components/session/AddFilesWindow'
 
+import SimpleConfirmWindow from '../components/widgets/SimpleConfirmWindow'
+import ClickLink from '../components/widgets/ClickLink'
 import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
-import UploadingOverlay from '../components/widgets/UploadingOverlay'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -29,22 +28,20 @@ import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSessions from '../hooks/useSessions'
 import useWebsocket from '../hooks/useWebsocket'
-import useFinetuneInputs from '../hooks/useFinetuneInputs'
+import useLoading from '../hooks/useLoading'
 
 import {
-  ICloneTextMode,
+  ICloneInteractionMode,
   ISession,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
   SESSION_MODE_FINETUNE,
-  SESSION_MODE_INFERENCE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
-  IBotForm,
+  IShareSessionInstructions,
 } from '../types'
 
 import {
-  hasFinishedFinetune,
+  getSystemInteraction,
 } from '../utils/session'
 
 const Session: FC = () => {
@@ -54,36 +51,23 @@ const Session: FC = () => {
   const account = useAccount()
   const session = useSession()
   const sessions = useSessions()
+  const loadingHelpers = useLoading()
 
-  const isFinetune = session.data?.config.original_mode === SESSION_MODE_FINETUNE
-  const isImage = session.data?.type === SESSION_TYPE_IMAGE
-  const isText = session.data?.type === SESSION_TYPE_TEXT
-
+  const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
   const textFieldRef = useRef<HTMLTextAreaElement>()
-  const inputs = useFinetuneInputs()
 
   const divRef = useRef<HTMLDivElement>()
 
+  const [showCloneWindow, setShowCloneWindow] = useState(false)
+  const [showLoginWindow, setShowLoginWindow] = useState(false)
+  const [restartWindowOpen, setRestartWindowOpen] = useState(false)
+  const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
-  const [files, setFiles] = useState<File[]>([])
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
   }
-
-  const addDocumentsSubmitTitle = useMemo(() => {
-    if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-      return "Next Step"
-    } else {
-      return "Upload"
-    }
-  }, [
-    isFinetune,
-    isImage,
-    inputs.fineTuneStep,
-  ])
-
 
   const loading = useMemo(() => {
     if(!session.data || !session.data?.interactions || session.data?.interactions.length === 0) return false
@@ -94,49 +78,173 @@ const Session: FC = () => {
     session.data,
   ])
 
-  const botForm = useMemo<IBotForm | undefined>(() => {
-    if(!session) return
-    if(!session.bot) return
-    return session.bot ? {
-      name: session.bot.name,
-    } : undefined
-  }, [
-    session.bot,
-  ])
-
-  const onSend = useCallback(async () => {
+  const onSend = useCallback(async (prompt: string) => {
     if(!session.data) return
+    if(!checkOwnership({
+      inferencePrompt: prompt,
+    })) return
     
     const formData = new FormData()
-    files.forEach((file) => {
-      formData.append("files", file)
-    })
-
-    formData.set('input', inputValue)
+    formData.set('input', prompt)
 
     const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     if(!newSession) return
     session.reload()
 
-    setFiles([])
     setInputValue("")
   }, [
     session.data,
     session.reload,
-    files,
-    inputValue,
   ])
 
-  const onClone = useCallback(async (mode: ICloneTextMode, interactionID: string): Promise<boolean> => {
+  const onUpdateSharing = useCallback(async (value: boolean) => {
+    if(!session.data) return false
+    const result = await session.updateConfig(session.data?.id, Object.assign({}, session.data.config, {
+      shared: value,
+    }))
+    return result ? true : false
+  }, [
+    isOwner,
+    session.data,
+    session.updateConfig,
+  ])
+
+  const onRestart = useCallback(() => {
+    setRestartWindowOpen(true)
+  }, [])
+
+  const checkOwnership = useCallback((instructions: IShareSessionInstructions): boolean => {
+    if(!session.data) return false
+    setShareInstructions(instructions)
+    if(!account.user) {
+      setShowLoginWindow(true)
+      return false
+    }
+    if(session.data.owner != account.user.id) {
+      setShowCloneWindow(true)
+      return false
+    }
+    return true
+  }, [
+    session.data,
+    account.user,
+    isOwner,
+  ])
+
+  const proceedToLogin = useCallback(() => {
+    localStorage.setItem('shareSessionInstructions', JSON.stringify(shareInstructions))
+    account.onLogin()
+  }, [
+    shareInstructions,
+  ])
+
+  const onRestartConfirm = useCallback(async () => {
+    if(!session.data) return
+    const newSession = await api.put<undefined, ISession>(`/api/v1/sessions/${session.data.id}/restart`, undefined, undefined, {
+      loading: true,
+    })
+    if(!newSession) return
+    session.reload()
+    setRestartWindowOpen(false)
+    snackbar.success('Session restarted...')
+  }, [
+    account.user,
+    session.data,
+  ])
+
+  const onClone = useCallback(async (mode: ICloneInteractionMode, interactionID: string): Promise<boolean> => {
+    if(!checkOwnership({
+      cloneMode: mode,
+      cloneInteractionID: interactionID,
+    })) return true
     if(!session.data) return false
     const newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${interactionID}/${mode}`, undefined, undefined, {
       loading: true,
     })
     if(!newSession) return false
-    await sessions.loadSessions()
+    await sessions.loadSessions(true)
     snackbar.success('Session cloned...')
     router.navigate('session', {session_id: newSession.id})
     return true
+  }, [
+    checkOwnership,
+    isOwner,
+    account.user,
+    session.data,
+  ])
+
+  const onCloneIntoAccount = useCallback(async () => {
+    const handler = async (): Promise<boolean> => {
+      if(!session.data) return false
+      if(!shareInstructions) return false
+      let cloneInteractionID = ''
+      let cloneInteractionMode: ICloneInteractionMode = 'all'
+      if(shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
+        const interaction = getSystemInteraction(session.data)
+        if(!interaction) return false
+        cloneInteractionID = interaction.id
+      } else if(shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
+        cloneInteractionID = shareInstructions.cloneInteractionID
+        cloneInteractionMode = shareInstructions.cloneMode
+      }
+      let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${cloneInteractionID}/${cloneInteractionMode}`, undefined)
+      if(!newSession) return false
+
+      // send the next prompt
+      if(shareInstructions.inferencePrompt) {
+        const formData = new FormData()
+        formData.set('input', inputValue)
+        newSession = await api.put(`/api/v1/sessions/${newSession.id}`, formData)
+        if(!newSession) return false
+        setInputValue("")
+      }
+      await sessions.loadSessions(true)
+      snackbar.success('Session cloned...')
+      const params: Record<string, string> = {
+        session_id: newSession.id
+      }
+      if(shareInstructions.addDocumentsMode) {
+        params.addDocuments = 'yes'
+      }
+      setShareInstructions(undefined)
+      router.navigate('session', params)
+      return true
+    }
+
+    loadingHelpers.setLoading(true)
+    try {
+      await handler()
+      setShowCloneWindow(false)
+    } catch(e: any) {
+      console.error(e)
+      snackbar.error(e.toString())
+    }
+    loadingHelpers.setLoading(false)
+    
+  }, [
+    account.user,
+    session.data,
+    shareInstructions,
+  ])
+
+  const onAddDocuments = useCallback(() => {
+    if(!session.data) return
+    if(!checkOwnership({
+      addDocumentsMode: true,
+    })) return false
+    router.setParams({
+      addDocuments: 'yes',
+    })
+  }, [
+    isOwner,
+    account.user,
+    session.data,
+  ])
+
+  const onShare = useCallback(() => {
+    router.setParams({
+      sharing: 'yes',
+    })
   }, [
     session.data,
   ])
@@ -154,12 +262,13 @@ const Session: FC = () => {
         setInputValue(current => current + "\n")
       } else {
         if(!loading) {
-          onSend()
+          onSend(inputValue)
         }
       }
       event.preventDefault()
     }
   }, [
+    inputValue,
     onSend,
   ])
 
@@ -171,46 +280,6 @@ const Session: FC = () => {
       behavior: "smooth"
     })
   }, [])
-
-
-  // this is for text finetune
-  const onAddDocuments = async () => {
-    if(!session.data) return
-
-    inputs.setUploadProgress({
-      percent: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-    })
-
-    try {
-      const formData = inputs.getFormData(session.data.mode, session.data.type)
-      await api.put(`/api/v1/sessions/${sessionID}/finetune/documents`, formData, {
-        onUploadProgress: inputs.uploadProgressHandler,
-      })
-      if(!session) {
-        inputs.setUploadProgress(undefined)
-        return
-      }
-      session.reload()
-      router.removeParams(['addDocuments'])
-      snackbar.success('Documents added...')
-    } catch(e: any) {}
-
-    inputs.setUploadProgress(undefined)
-  }
-
-  // this is for image finetune
-  const onAddImageDocuments = async () => {
-    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
-    if(errorFiles.length > 0) {
-      inputs.setShowImageLabelErrors(true)
-      snackbar.error('Please add a label to each image')
-      return
-    }
-    inputs.setShowImageLabelErrors(false)
-    onAddDocuments()
-  }
 
   useEffect(() => {
     if(loading) return
@@ -235,13 +304,41 @@ const Session: FC = () => {
   ])
 
   useEffect(() => {
-    if(!account.user) return
+    // we need this because if a session is not shared
+    // we need to wait for the user token to have arrived before
+    // we can ask for the session
+    // if the session IS shared but we are not logged in
+    // this just means we have waited to confirm that we are not actually logged in
+    // before then asking for the shared session
+    if(!account.initialized) return
     if(sessionID) {
       session.loadSession(sessionID)
     }
   }, [
-    account.user,
+    account.initialized,
     sessionID,
+  ])
+
+  // this is for where we tried to do something to a shared session
+  // but we were not logged in - so now we've gone off and logged in
+  // and we end up back here - this will trigger the attempt to do it again
+  // and then ask "do you want to clone this session"
+  useEffect(() => {
+    if(!session.data) return
+    if(!account.user) return
+    const instructionsString = localStorage.getItem('shareSessionInstructions')
+    if(!instructionsString) return
+    localStorage.removeItem('shareSessionInstructions')
+    const instructions = JSON.parse(instructionsString || '{}') as IShareSessionInstructions
+    if(instructions.cloneMode && instructions.cloneInteractionID) {
+      onClone(instructions.cloneMode, instructions.cloneInteractionID)
+    } else if(instructions.inferencePrompt) {
+      setInputValue(instructions.inferencePrompt)
+      onSend(instructions.inferencePrompt)
+    }
+  }, [
+    account.user,
+    session.data,
   ])
 
   useWebsocket(sessionID, (parsedData) => {
@@ -250,7 +347,6 @@ const Session: FC = () => {
       session.setData(newSession)
     }
   })
-
 
   if(!session.data) return null
 
@@ -277,9 +373,13 @@ const Session: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <SessionHeader
-            session={ session.data }
-          />
+          {
+            isOwner && (
+              <SessionHeader
+                session={ session.data }
+              />
+            )
+          }
         </Container>
       </Box>
       <Box
@@ -300,6 +400,8 @@ const Session: FC = () => {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
                     const isLast = i == interactionsLength - 1
+                    const isLive = isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+
                     if(!session.data) return null
                     return (
                       <Interaction
@@ -308,10 +410,28 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
+                        headerButtons={ isLive && isOwner ? (
+                          <ClickLink
+                            onClick={ onRestart }
+                          >
+                            <Typography
+                              sx={{
+                                fontSize: "small",
+                                flexGrow: 0,
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              Restart
+                            </Typography>
+                          </ClickLink>
+                        ) : undefined }
+                        onReloadSession={ () => session.reload() }
                         onClone={ onClone }
+                        onAddDocuments={ isLast ? onAddDocuments : undefined }
+                        onRestart={ isLast ? onRestart : undefined }
                       >
                         {
-                          isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING && (
+                          isLive && isOwner && (
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
@@ -365,7 +485,7 @@ const Session: FC = () => {
               <Button
                 variant='contained'
                 disabled={loading}
-                onClick={ onSend }
+                onClick={ () => onSend(inputValue) }
                 sx={{ ml: 2 }}
                 endIcon={<SendIcon />}
               >
@@ -373,21 +493,16 @@ const Session: FC = () => {
               </Button>
             </Cell>
             {
-              hasFinishedFinetune(session.data) && (
+              isOwner && (
                 <Cell>
                   <Button
                     variant='outlined'
-                    size="small"
-                    disabled={ loading }
-                    onClick={ () => {
-                      router.setParams({
-                        addDocuments: 'yes',
-                      })
-                    }}
+                    disabled={loading}
+                    onClick={ onShare }
                     sx={{ ml: 2 }}
-                    endIcon={<AddIcon />}
+                    endIcon={<ShareIcon />}
                   >
-                    Add More { session.data?.type == SESSION_TYPE_TEXT ? 'Documents' : 'Images' }
+                    Share
                   </Button>
                 </Cell>
               )
@@ -404,18 +519,6 @@ const Session: FC = () => {
         </Container>
         
       </Box>
-
-      {
-        router.params.editBot && (
-          <CreateBotWindow
-            bot={ botForm }
-            onSubmit={ (newBotForm) => {} }
-            onCancel={ () => {
-              router.removeParams(['editBot'])
-            }}
-          />
-        )
-      }
 
       {
         router.params.cloneInteraction && (
@@ -444,75 +547,85 @@ const Session: FC = () => {
 
       {
         router.params.addDocuments && session.data && (
-          <Window
-            open
-            size="lg"
-            title={`Add Documents to ${session.data.name}?`}
-            withCancel
-            submitTitle={ addDocumentsSubmitTitle }
-            onSubmit={ () => {
-              if(isFinetune && isImage && inputs.fineTuneStep == 0) {
-                inputs.setFineTuneStep(1)
-              } else if(isFinetune && isText && inputs.fineTuneStep == 0) {
-                onAddDocuments()
-              } else if(isFinetune && isImage && inputs.fineTuneStep == 1) {
-                onAddImageDocuments()
+          <AddFilesWindow
+            session={ session.data }
+            onClose={ (filesAdded) => {
+              router.removeParams(['addDocuments'])
+              if(filesAdded) {
+                session.reload()
               }
             } }
-            onCancel={ () => {
-              router.removeParams(['addDocuments'])
-              inputs.reset()
-            }}
-          >
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 0 && (
-                <FineTuneImageInputs
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (files) => {
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isText && inputs.fineTuneStep == 0 && (
-                <FineTuneTextInputs
-                  initialCounter={ inputs.manualTextFileCounter }
-                  initialFiles={ inputs.files }
-                  showSystemInteraction={ false }
-                  onChange={ (counter, files) => {
-                    inputs.setManualTextFileCounter(counter)
-                    inputs.setFiles(files)
-                  }}
-                />
-              )
-            }
-            {
-              isFinetune && isImage && inputs.fineTuneStep == 1 && (
-                <FineTuneImageLabels
-                  showImageLabelErrors={ inputs.showImageLabelErrors }
-                  initialLabels={ inputs.labels }
-                  showSystemInteraction={ false }
-                  files={ inputs.files }
-                  onChange={ (labels) => {
-                    inputs.setLabels(labels)
-                  }}
-                />
-              )
-            }
-          </Window>
-        )
-      }
-
-      {
-        inputs.uploadProgress && (
-          <UploadingOverlay
-            percent={ inputs.uploadProgress.percent }
           />
         )
       }
 
+      {
+        router.params.sharing && session.data && (
+          <ShareSessionWindow
+            session={ session.data }
+            onShare={ async () => true }
+            onUpdateSharing={ onUpdateSharing }
+            onCancel={ () => {
+              router.removeParams(['sharing'])
+            }}
+          />
+        )
+      }
+      
+      {
+        restartWindowOpen && (
+          <SimpleConfirmWindow
+            title="Restart Session"
+            message="Are you sure you want to restart this session?"
+            confirmTitle="Restart"
+            onCancel={ () => setRestartWindowOpen(false) }
+            onSubmit={ onRestartConfirm }
+          />
+        )
+      }
+      {
+        showLoginWindow && (
+          <Window
+            open
+            size="md"
+            title="Please login to continue"
+            onCancel={ () => {
+              setShowLoginWindow(false)
+            }}
+            onSubmit={ proceedToLogin }
+            withCancel
+            cancelTitle="Close"
+            submitTitle="Login / Register"
+          >
+            <Typography gutterBottom>
+              You can login with your Google account or with your email address.
+            </Typography>
+            <Typography>
+              This session will be cloned into your account and you can continue from there.
+            </Typography>
+          </Window>
+        )
+      }
+      {
+        showCloneWindow && (
+          <Window
+            open
+            size="md"
+            title="Clone Session?"
+            onCancel={ () => {
+              setShowCloneWindow(false)
+            }}
+            onSubmit={ onCloneIntoAccount }
+            withCancel
+            cancelTitle="Close"
+            submitTitle="Clone Session"
+          >
+            <Typography>
+              This session will be cloned into your account where you will be able to continue this session.
+            </Typography>
+          </Window>
+        )
+      }
     </Box>
   )
 }

@@ -4,7 +4,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -65,6 +67,52 @@ func (c *Controller) UpdateSession(ctx context.Context, req types.UpdateSessionR
 	return sessionData, nil
 }
 
+func (c *Controller) RestartSession(session *types.Session) (*types.Session, error) {
+	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.Error = ""
+		systemInteraction.Finished = false
+
+		systemInteraction.State = types.InteractionStateWaiting
+
+		// if this is a text inference then don't set the progress to 1 because
+		// we don't show progress for text inference
+		if session.Mode == types.SessionModeFinetune || session.Type == types.SessionTypeImage {
+			systemInteraction.Progress = 1
+		} else {
+			systemInteraction.Progress = 0
+		}
+
+		if session.Mode == types.SessionModeFinetune {
+			if systemInteraction.DataPrepStage == types.TextDataPrepStageExtractText || systemInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
+				// in this case we are restarting the data prep
+				systemInteraction.Message = ""
+				systemInteraction.Status = ""
+			} else if systemInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
+				// in this case we are restarting the fine tuning itself
+				systemInteraction.Message = "restarted: fine tuning on data..."
+				systemInteraction.Status = "restarted: fine tuning on data..."
+			}
+		}
+
+		return systemInteraction, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	c.WriteSession(session)
+
+	// this will re-run the data prep preparation
+	// but that is idempotent so we should be able to
+	// not care and just say "start again"
+	// if there is more data prep to do, it will carry on
+	// if we go staight into the queue then it's a fine tune restart
+	go c.SessionRunner(session)
+
+	return session, nil
+}
+
 func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction types.Interaction) (*types.Session, error) {
 	// the system interaction is the task we will run on a GPU and update in place
 	systemInteraction := types.Interaction{
@@ -93,7 +141,48 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
-// called once we've done the pre-processing for both create and update calls to sessions
+func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Session, config *types.SessionConfig) (*types.SessionConfig, error) {
+	session.Updated = time.Now()
+	session.Config = *config
+
+	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debug().
+		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Config)
+
+	return &sessionData.Config, nil
+}
+
+func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *types.Session, newFiles []string) (*types.Session, error) {
+	session, err := data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+		userInteraction.Files = append(userInteraction.Files, newFiles...)
+		return userInteraction, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.State = types.InteractionStateWaiting
+		return systemInteraction, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	session.Mode = types.SessionModeFinetune
+
+	c.WriteSession(session)
+	go c.SessionRunner(session)
+
+	return session, nil
+}
+
+// the idempotent function to "run" the session
+// it should work out what this means - i.e. have we prepared the data yet?
 func (c *Controller) SessionRunner(sessionData *types.Session) {
 	// first we prepare the seession - which could mean whatever the model implementation wants
 	// so we have to wait for that to complete before adding to the queue
@@ -133,17 +222,16 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
-	var err error
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, err = c.convertDocumentsToText(session)
+		session, convertedTextDocuments, err := c.convertDocumentsToText(session)
 		if err != nil {
 			return nil, err
 		}
-		session, err = c.convertChunksToQuestions(session)
+		session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
 		if err != nil {
 			return nil, err
 		}
@@ -152,9 +240,38 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
+		if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+			return nil, nil
+		}
+
+		// otherwise lets kick off the fine tune
+		c.BeginFineTune(session)
 		return nil, nil
 	}
 	return session, nil
+}
+
+func (c *Controller) BeginFineTune(session *types.Session) error {
+	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.Finished = false
+		systemInteraction.Progress = 1
+		systemInteraction.Message = "fine tuning on data..."
+		systemInteraction.Status = "fine tuning on data..."
+		systemInteraction.State = types.InteractionStateWaiting
+		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
+		systemInteraction.Files = []string{}
+		return systemInteraction, nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	c.WriteSession(session)
+	c.AddSessionToQueue(session)
+	c.BroadcastProgress(session, 1, "fine tuning on data...")
+
+	return nil
 }
 
 // generic "update this session handler"
@@ -219,28 +336,24 @@ func (c *Controller) BroadcastProgress(
 }
 
 func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
-	userInteraction, err := data.GetUserInteraction(session)
-	if err != nil {
-		return
-	}
-
-	userInteraction.Finished = true
-	userInteraction.State = types.InteractionStateComplete
-
-	errorInteraction, err := data.GetSystemInteraction(session)
-	if err != nil {
-		return
-	}
-	errorInteraction.State = types.InteractionStateError
-	errorInteraction.Completed = time.Now()
-	errorInteraction.Error = sessionErr.Error()
-	errorInteraction.Finished = true
-
-	session = updateSessionInteractions(session, []types.Interaction{
-		*userInteraction,
-		*errorInteraction,
+	session, err := data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+		userInteraction.Finished = true
+		userInteraction.State = types.InteractionStateComplete
+		return userInteraction, nil
 	})
-
+	if err != nil {
+		return
+	}
+	session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		systemInteraction.State = types.InteractionStateError
+		systemInteraction.Completed = time.Now()
+		systemInteraction.Error = sessionErr.Error()
+		systemInteraction.Finished = true
+		return systemInteraction, nil
+	})
+	if err != nil {
+		return
+	}
 	c.WriteSession(session)
 }
 
@@ -348,107 +461,166 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	return taskResponse, nil
 }
 
-func (c *Controller) cloneUserInteractionFiles(
-	ctx types.RequestContext,
-	fromSessionID string,
-	toSessionID string,
-	interactionID string,
-	files []string,
-	filter func(filePath string) bool,
-) ([]string, error) {
-	newFiles := []string{}
-	oldFolder := GetInteractionInputsFolder(fromSessionID, interactionID)
-	newFolder := GetInteractionInputsFolder(toSessionID, interactionID)
-	for _, file := range files {
-		if !filter(file) {
-			continue
-		}
-		newFile := strings.Replace(file, oldFolder, newFolder, 1)
-		err := c.Options.Filestore.CopyFile(ctx.Ctx, file, newFile)
-		if err != nil {
-			return nil, err
-		}
-		newFiles = append(newFiles, newFile)
-	}
-	return newFiles, nil
+type CloneUntilInteractionRequest struct {
+	InteractionID string
+	Mode          types.CloneInteractionMode
+	CopyAllFiles  bool
 }
 
+// func (c *Controller) cloneInteractionFiles(
+
+// } error {
+
+// }
+
 // the user interaction is the thing we are cloning
-func (c *Controller) CloneFinetuneInteraction(
+func (c *Controller) CloneUntilInteraction(
 	ctx types.RequestContext,
-	session *types.Session,
-	// this is the system interaction we are cloning
-	// we will also need to adjust the user interaction
-	// based on the mode - e.g. are we removing the questions file?
-	interaction *types.Interaction,
-	mode types.CloneTextType,
+	oldSession *types.Session,
+	req CloneUntilInteractionRequest,
 ) (*types.Session, error) {
-	newSession, err := data.CloneSession(*session, interaction.ID)
+	// * get a top level session object
+	//   * against the correct account
+	//   * only include interactions up until the given interaction
+	// * loop over each interaction files
+	//   * if CopyAllFiles then copy all interaction files into our file store
+	//   * otherwise only copy the
+	newSession, err := data.CloneSession(*oldSession, req.InteractionID, data.OwnerContextFromRequestContext(ctx))
 	if err != nil {
 		return nil, err
 	}
 
+	// for anything other than 'all' mode - we should revert the type to the original type
+	// this is for when we are editing a finetune session that has since become an inference session
+	// but now we are going back into finetine land by editing the interaction (somehow)
+	// put another way - if we are cloning a session in all mode - we can copy the mode as is
+	if req.Mode != types.CloneInteractionModeAll {
+		newSession.Mode = oldSession.Config.OriginalMode
+	}
+
+	// these two interactions are the ones we will change based on the clone mode
 	userInteraction, err := data.GetLastUserInteraction(newSession.Interactions)
 	if err != nil {
 		return nil, err
 	}
+
 	systemInteraction, err := data.GetLastSystemInteraction(newSession.Interactions)
 	if err != nil {
 		return nil, err
 	}
 
-	// copy the user files across - we don't bring the questions file depending on the mode
-	newUserInteractionFiles, err := c.cloneUserInteractionFiles(ctx, session.ID, newSession.ID, userInteraction.ID, userInteraction.Files, func(filePath string) bool {
-		if path.Base(filePath) == types.TEXT_DATA_PREP_QUESTIONS_FILE {
-			if mode == types.CloneTextTypeJustData {
-				return false
-			} else {
-				return true
-			}
-		}
-		return true
-	})
+	// the full filestore prefix for old user & old session
+	// we can copy all files by just replacing the higher level prefixes
+	// e.g. /users/123/sessions/456/inputs/789 -> /users/123/sessions/999/inputs/789
+	oldPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(oldSession.Owner), oldSession.ID)
 	if err != nil {
 		return nil, err
 	}
-	userInteraction.Files = newUserInteractionFiles
 
-	systemInteraction.Progress = 0
-	systemInteraction.Created = time.Now()
-	systemInteraction.Updated = time.Now()
-	systemInteraction.Message = ""
-	systemInteraction.Status = ""
-
-	userInteraction.Progress = 0
-	userInteraction.Created = time.Now()
-	userInteraction.Updated = time.Now()
-	userInteraction.Message = ""
-	userInteraction.Status = ""
-
-	if mode == types.CloneTextTypeJustData {
-		// remove the fine tune file
-		systemInteraction.LoraDir = ""
-		systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
-		systemInteraction.State = types.InteractionStateEditing
-		systemInteraction.Finished = false
-	} else if mode == types.CloneTextTypeWithQuestions {
-		// remove the fine tune file
-		systemInteraction.LoraDir = ""
-		systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
-		systemInteraction.State = types.InteractionStateEditing
-		systemInteraction.Finished = false
-	} else if mode == types.CloneTextTypeAll {
-		// we need to bring the fine tune file with us
-	} else {
-		return nil, fmt.Errorf("invalid clone mode")
+	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.Owner), newSession.ID)
+	if err != nil {
+		return nil, err
 	}
 
+	copyFile := func(filePath string) (string, error) {
+		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
+		log.Debug().
+			Msgf("🔵 clone interaction file: %s -> %s", filePath, newFile)
+		err := c.Options.Filestore.CopyFile(ctx.Ctx, filePath, newFile)
+		if err != nil {
+			return "", err
+		}
+		return newFile, nil
+	}
+
+	copyFolder := func(folderPath string) (string, error) {
+		newFolder := strings.Replace(folderPath, oldPrefix, newPrefix, 1)
+		log.Debug().
+			Msgf("🔵 clone folder: %s -> %s", folderPath, newFolder)
+		reader, err := c.Options.Filestore.DownloadFolder(ctx.Ctx, folderPath)
+		if err != nil {
+			return "", err
+		}
+		err = c.Options.Filestore.UploadFolder(ctx.Ctx, newFolder, reader)
+		if err != nil {
+			return "", err
+		}
+		return newFolder, nil
+	}
+
+	// this will actually copy files so only call this if you want to remap
+	copyInteractionFiles := func(interaction types.Interaction) (types.Interaction, error) {
+		newFiles := []string{}
+		for _, file := range interaction.Files {
+			if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
+				// this means we are only copying the data and we've just come across the questions file
+				// in the last user interaction so we don't copy it
+				continue
+			}
+			newFile, err := copyFile(file)
+			if err != nil {
+				return interaction, err
+			}
+			newFiles = append(newFiles, newFile)
+		}
+		interaction.Files = newFiles
+		return interaction, nil
+	}
+
+	// this will actually copy files so only call this if you want to remap
+	copyLoraDir := func(interaction types.Interaction) (types.Interaction, error) {
+		if interaction.LoraDir != "" {
+			shouldCopyLora := false
+			if interaction.ID == systemInteraction.ID {
+				// we are on the latest system interaction
+				// let's check the mode to see if we should bring the lora with us
+				if req.Mode == types.CloneInteractionModeAll {
+					shouldCopyLora = true
+				}
+			} else {
+				shouldCopyLora = true
+			}
+
+			if shouldCopyLora {
+				newLoraDir, err := copyFolder(interaction.LoraDir)
+				if err != nil {
+					return interaction, err
+				}
+				interaction.LoraDir = newLoraDir
+			} else {
+				interaction.LoraDir = ""
+			}
+		}
+		return interaction, nil
+	}
+
+	// the result files are always copied if we are in a different user account
+	// but not if we are in the same account
+	// and the interaction file list will be pointing at a different session folder
+	// but that is OK because the file store is immutable
 	newInteractions := []types.Interaction{}
 	for _, interaction := range newSession.Interactions {
-		if interaction.ID == userInteraction.ID {
-			newInteractions = append(newInteractions, *userInteraction)
-		} else if interaction.ID == systemInteraction.ID {
-			newInteractions = append(newInteractions, *systemInteraction)
+		if req.CopyAllFiles {
+			newInteraction, err := copyInteractionFiles(interaction)
+			if err != nil {
+				return nil, err
+			}
+			newInteraction, err = copyLoraDir(newInteraction)
+			if err != nil {
+				return nil, err
+			}
+			newInteractions = append(newInteractions, newInteraction)
+		} else if interaction.ID == userInteraction.ID || interaction.ID == systemInteraction.ID {
+			// these are the last 2 interactions of a session being cloned within the same account
+			newInteraction, err := copyInteractionFiles(interaction)
+			if err != nil {
+				return nil, err
+			}
+			newInteraction, err = copyLoraDir(newInteraction)
+			if err != nil {
+				return nil, err
+			}
+			newInteractions = append(newInteractions, newInteraction)
 		} else {
 			newInteractions = append(newInteractions, interaction)
 		}
@@ -456,10 +628,113 @@ func (c *Controller) CloneFinetuneInteraction(
 
 	newSession.Interactions = newInteractions
 
-	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, newSession)
+	// the folder is already copied over
+	if req.Mode != types.CloneInteractionModeAll {
+		newSession.LoraDir = ""
+	} else {
+		newSession.LoraDir = strings.Replace(newSession.LoraDir, oldPrefix, newPrefix, 1)
+	}
+
+	// always copy the session results folder otherwise we have split brain on results
+	newSession, err = data.UpdateUserInteraction(newSession, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+		// only touch if we are not cloning as is
+		if req.Mode != types.CloneInteractionModeAll {
+			userInteraction.Created = time.Now()
+			userInteraction.Updated = time.Now()
+		}
+
+		userInteraction.Progress = 0
+		userInteraction.Message = ""
+		userInteraction.Status = ""
+		return userInteraction, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	newSession, err = data.UpdateSystemInteraction(newSession, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+		// only touch if we are not cloning as is
+		if req.Mode != types.CloneInteractionModeAll {
+			systemInteraction.Created = time.Now()
+			systemInteraction.Updated = time.Now()
+		}
+
+		systemInteraction.Progress = 0
+		systemInteraction.Message = ""
+		systemInteraction.Status = ""
+		if req.Mode == types.CloneInteractionModeJustData {
+			// remove the fine tune file
+			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
+			systemInteraction.State = types.InteractionStateEditing
+			systemInteraction.Finished = false
+			// remove the metadata that keeps track of processed questions
+			// (because we have deleted the questions file)
+			systemInteraction.DataPrepChunks = map[string][]types.DataPrepChunk{}
+		} else if req.Mode == types.CloneInteractionModeWithQuestions {
+			// remove the fine tune file
+			systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
+			systemInteraction.State = types.InteractionStateEditing
+			systemInteraction.Finished = false
+		}
+		return systemInteraction, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, *newSession)
 	if err != nil {
 		return nil, err
 	}
 
 	return createdSession, nil
+}
+
+// return the JSON of some fine tune conversation data
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
+	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	var conversations []types.DataPrepTextQuestion
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var conversation types.DataPrepTextQuestion
+		err := json.Unmarshal([]byte(line), &conversation)
+		if err != nil {
+			return nil, err
+		}
+		conversations = append(conversations, conversation)
+	}
+
+	return conversations, nil
+}
+
+func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.DataPrepTextQuestion) error {
+	jsonLines := []string{}
+
+	for _, conversationEntry := range data {
+		jsonLine, err := json.Marshal(conversationEntry)
+		if err != nil {
+			return err
+		}
+		jsonLines = append(jsonLines, string(jsonLine))
+	}
+
+	_, err := c.Options.Filestore.UploadFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -13,7 +13,7 @@ import {
   ISession,
   IInteraction,
   IServerConfig,
-  ICloneTextMode,
+  ICloneInteractionMode,
 } from '../../types'
 
 import {
@@ -25,15 +25,23 @@ export const Interaction: FC<{
   interaction: IInteraction,
   session: ISession,
   showFinetuning?: boolean,
+  headerButtons?: React.ReactNode,
   retryFinetuneErrors?: () => void,
-  onClone?: (mode: ICloneTextMode, interactionID: string) => Promise<boolean>,
+  onReloadSession?: () => void,
+  onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
+  onAddDocuments?: () => void,
+  onRestart?: () => void,
 }> = ({
   serverConfig,
   interaction,
   session,
   showFinetuning = true,
+  headerButtons,
   retryFinetuneErrors,
+  onReloadSession,
   onClone,
+  onAddDocuments,
+  onRestart,
   children,
 }) => {
   let displayMessage: string = ''
@@ -69,6 +77,7 @@ export const Interaction: FC<{
   return (
     <InteractionContainer
       name={ useName }
+      buttons={ headerButtons }
     >
       {
         showFinetuning && (
@@ -77,7 +86,9 @@ export const Interaction: FC<{
             interaction={ interaction }
             session={ session }
             retryFinetuneErrors={ retryFinetuneErrors }
+            onReloadSession={ onReloadSession }
             onClone={ onClone }
+            onAddDocuments={ onAddDocuments }
           />
         )
       }
@@ -87,6 +98,7 @@ export const Interaction: FC<{
         imageURLs={ imageURLs }
         message={ displayMessage }
         error={ interaction?.error }
+        onRestart={ onRestart }
       />
 
       {

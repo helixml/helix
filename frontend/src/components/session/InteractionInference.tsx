@@ -4,9 +4,14 @@ import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
+import Button from '@mui/material/Button'
+import ReplayIcon from '@mui/icons-material/Replay'
 
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
+import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
+
 
 import {
   IServerConfig,
@@ -19,11 +24,13 @@ export const InteractionMessage: FC<{
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
+  onRestart?: () => void,
 }> = ({
   imageURLs = [],
   message,
   error,
   serverConfig,
+  onRestart,
 }) => {
   const [ viewingError, setViewingError ] = useState(false)
   if(!serverConfig || !serverConfig.filestore_prefix) return null
@@ -37,21 +44,49 @@ export const InteractionMessage: FC<{
       }
       {
         error && (
-          <Alert severity="error">
-            The system has encountered an error - 
-            <ClickLink onClick={ () => {
-              setViewingError(true)
-            }}>
-              click here
-            </ClickLink>
-            to view the details.
-          </Alert>
+          <Row>
+            <Cell grow>
+              <Alert severity="error">
+                The system has encountered an error -
+                <ClickLink
+                  sx={{
+                    pl: 0.5,
+                    pr: 0.5,
+                  }}
+                  onClick={ () => {
+                    setViewingError(true)
+                  }}
+                >
+                  click here
+                </ClickLink>
+                to view the details.
+              </Alert>
+            </Cell>
+            {
+              onRestart && (
+                <Cell
+                  sx={{
+                    ml: 2,
+                  }}
+                >
+                  <Button                    
+                    variant="contained"
+                    color="secondary"
+                    size="small"
+                    endIcon={<ReplayIcon />}
+                    onClick={ onRestart }
+                  >
+                    Retry
+                  </Button>
+                </Cell>
+              )
+            }
+          </Row>
         ) 
       }
       {
         serverConfig?.filestore_prefix && imageURLs.map((imageURL: string) => {
           const useURL = `${serverConfig.filestore_prefix}/${imageURL}`
-
           return (
             <Box
               sx={{

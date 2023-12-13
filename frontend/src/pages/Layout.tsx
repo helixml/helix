@@ -287,7 +287,7 @@ const Layout: FC = ({
                   account.onLogin()
                 }}
               >
-                Login
+                Login / Register
               </Button>
             </>
           )

@@ -68,6 +68,8 @@ type SessionOrigin struct {
 type SessionConfig struct {
 	OriginalMode SessionMode   `json:"original_mode"`
 	Origin       SessionOrigin `json:"origin"`
+	Shared       bool          `json:"shared"`
+	Avatar       string        `json:"avatar"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -111,7 +113,16 @@ type Session struct {
 	OwnerType OwnerType `json:"owner_type"`
 }
 
+type BotSessions struct {
+	SessionID string `json:"session_id"`
+	Name      string `json:"name"`
+	PrePrompt string `json:"pre_prompt"`
+}
+
 type BotConfig struct {
+	Description string        `json:"description"`
+	Avatar      string        `json:"avatar"`
+	Sessions    []BotSessions `json:"sessions"`
 }
 
 // a bot can spawn new sessions from it's finetune dir
@@ -194,6 +205,11 @@ type ApiKey struct {
 	Name      string    `json:"name"`
 }
 
+type OwnerContext struct {
+	Owner     string
+	OwnerType OwnerType
+}
+
 // passed between the api server and the controller
 type RequestContext struct {
 	Ctx       context.Context
@@ -230,6 +246,8 @@ type RunnerProcessConfig struct {
 	// this is readonly and will not pop the session(task) from the queue
 	InitialSessionURL string `json:"initial_session_url"`
 	MockRunner        bool
+	MockRunnerError   string
+	MockRunnerDelay   int
 }
 
 // a session will run "tasks" on runners
@@ -395,19 +413,3 @@ type DataPrepTextQuestion struct {
 type Counter struct {
 	Count int64 `json:"count"`
 }
-
-// func ConvertConversation(data DataPrepTextConversation) ShareGPTConversations {
-// 	res := ShareGPTConversations{
-// 		Conversations: []ShareGPTConversation{
-// 			{
-// 				From:  "human",
-// 				Value: data.Question,
-// 			},
-// 			{
-// 				From:  "gpt",
-// 				Value: data.Answer,
-// 			},
-// 		},
-// 	}
-// 	return res
-// }

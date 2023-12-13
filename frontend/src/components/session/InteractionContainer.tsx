@@ -15,9 +15,9 @@ export const InteractionContainer: FC<{
 }) => {
   return (
     <Box sx={{
-      mb: 2,
+      mb: 3,
     }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', pb: 1.5, }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', pb: 1, }}>
         <Avatar sx={{ width: 24, height: 24 }}>{name.charAt(0).toUpperCase()}</Avatar>
         <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Row>
@@ -25,7 +25,8 @@ export const InteractionContainer: FC<{
               <Typography
                 variant="subtitle2"
                 sx={{
-                  fontWeight: 'bold'
+                  // fontWeight: 'bold',
+                  color: '#aaa'
                 }}
               >
                 { name.charAt(0).toUpperCase() + name.slice(1) }
