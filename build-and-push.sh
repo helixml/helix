@@ -1,5 +1,5 @@
 #!/bin/bash
 set -xeuo pipefail
-IMAGE="quay.io/lukemarsden/helix-runner:v0.1.1"
+IMAGE="europe-docker.pkg.dev/helixml/helix/runner:v0.1.2"
 docker build -f Dockerfile.runner -t $IMAGE .
 docker push $IMAGE
