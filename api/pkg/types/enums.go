@@ -186,3 +186,5 @@ const (
 	TextDataPrepStageFineTune          TextDataPrepStage = "finetune"
 	TextDataPrepStageComplete          TextDataPrepStage = "complete"
 )
+
+const API_KEY_PREIX = "hl-"
