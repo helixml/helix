@@ -23,7 +23,9 @@ export const ShareSessionWindow: FC<{
   onCancel,
 }) => {
   // this can be menu, share or bot
-  const [ optionShowing, setOptionShowing ] = useState(session.config.original_mode == SESSION_MODE_FINETUNE ? 'menu' : 'share')
+  // const initialShowingMode = session.config.original_mode == SESSION_MODE_FINETUNE ? 'menu' : 'share'
+  const initialShowingMode = 'share'
+  const [ optionShowing, setOptionShowing ] = useState(initialShowingMode)
   const [ shared, setShared ] = useState(session.config.shared ? true : false)
   const [ bot, setBot ] = useState<IBotForm>({
     name: '',

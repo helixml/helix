@@ -151,6 +151,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	maybeAuthRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
+	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.getBots)).Methods("GET")
+	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.createBot)).Methods("POST")
+	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.updateBot)).Methods("PUT")
+	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.deleteBot)).Methods("DELETE")
+
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")
