@@ -43,8 +43,8 @@ func (j *Janitor) SendMessage(userEmail string, message string) error {
 func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, ctx types.RequestContext, session *types.Session) error {
 	message := ""
 	if eventType == types.SessionEventTypeCreated {
-		sessionLink := fmt.Sprintf(`[%s](%s/session/%s)`, session.ID[:8], j.Options.AppURL, session.ID)
-		message = fmt.Sprintf("🚀 %s created a NEW session %s, mode=%s, model=%s", ctx.Email, sessionLink, session.Mode, session.ModelName)
+		sessionLink := fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
+		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.Email, sessionLink, session.Mode, session.ModelName)
 	}
 	return j.SendMessage(ctx.Email, message)
 }
