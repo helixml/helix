@@ -216,6 +216,14 @@ type UserData struct {
 	FullName string
 }
 
+type StripeUser struct {
+	StripeID        string
+	HelixID         string
+	Email           string
+	SubscriptionID  string
+	SubscriptionURL string
+}
+
 type UserConfig struct {
 	StripeSubscriptionActive bool   `json:"stripe_subscription_active"`
 	StripeCustomerID         string `json:"stripe_customer_id"`

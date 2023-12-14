@@ -30,7 +30,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	}
 
 	go c.SessionRunner(sessionData)
-	err = c.Options.Janitor.WriteSessionEvent("🚀 created a session", ctx, sessionData)
+	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, ctx, sessionData)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 	}
 
 	go c.SessionRunner(sessionData)
-	err = c.Options.Janitor.WriteSessionEvent("🚀 updated a session", ctx, sessionData)
+	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, ctx, sessionData)
 	if err != nil {
 		return nil, err
 	}

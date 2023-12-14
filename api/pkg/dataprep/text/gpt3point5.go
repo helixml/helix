@@ -8,6 +8,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const GPT3POINT5_CONCURRENCY = 20
+const GPT3POINT5_CHUNK_SIZE = 4096
+
 func NewDataPrepTextGPT3Point5(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
@@ -57,6 +60,8 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	return NewDataOpenAIGPT(
 		options,
 		openai.GPT3Dot5Turbo,
+		GPT3POINT5_CONCURRENCY,
+		GPT3POINT5_CHUNK_SIZE,
 		getSystemPromptFn,
 		getUserPromptFn,
 		parseResponseFn,
