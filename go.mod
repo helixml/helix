@@ -29,6 +29,7 @@ require github.com/davecgh/go-spew v1.1.1
 require (
 	github.com/doug-martin/goqu v5.0.0+incompatible // indirect
 	github.com/doug-martin/goqu/v9 v9.19.0 // indirect
+	github.com/getsentry/sentry-go v0.25.0 // indirect
 	github.com/stripe/stripe-go/v76 v76.8.0 // indirect
 )
 

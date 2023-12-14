@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/controller"
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/stripe"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -39,6 +40,7 @@ type HelixAPIServer struct {
 	Store      store.Store
 	Stripe     *stripe.Stripe
 	Controller *controller.Controller
+	Janitor    *janitor.Janitor
 	runnerAuth *runnerAuth
 	adminAuth  *adminAuth
 }
@@ -48,6 +50,7 @@ func NewServer(
 	store store.Store,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
+	janitor *janitor.Janitor,
 ) (*HelixAPIServer, error) {
 	if options.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -69,6 +72,7 @@ func NewServer(
 		Store:      store,
 		Stripe:     stripe,
 		Controller: controller,
+		Janitor:    janitor,
 		runnerAuth: newRunnerAuth(options.RunnerToken),
 		adminAuth:  newAdminAuth(options.AdminIDs),
 	}, nil
@@ -76,6 +80,10 @@ func NewServer(
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
 	router := mux.NewRouter()
+	err := apiServer.Janitor.InjectMiddleware(router)
+	if err != nil {
+		return err
+	}
 	router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
 
