@@ -19,7 +19,7 @@ function mock-runner() {
     --runner-id mock \
     --timeout-seconds 20 \
     --label gpu=4090 \
-    --label fruit=apples
+    --label fruit=apples "$@"
 }
 
 function start() {
