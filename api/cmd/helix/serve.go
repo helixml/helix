@@ -37,7 +37,6 @@ func NewServeOptions() *ServeOptions {
 			// for concurrency of requests to openAI - look in the dataprep module
 			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT4))),
 			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
-			ChunkSize:    getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			// we are exceeding openAI window size at > 30 questions
 			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 30),
@@ -110,11 +109,6 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.DataPrepTextOptions.APIKey, "openai-key", allOptions.DataPrepTextOptions.APIKey,
 		`The API Key for OpenAI`,
-	)
-
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.DataPrepTextOptions.ChunkSize, "dataprep-chunk-size", allOptions.DataPrepTextOptions.ChunkSize,
-		`The chunk size for the text data prep`,
 	)
 
 	serveCmd.PersistentFlags().IntVar(
@@ -404,7 +398,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		}
 
 		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-			ChunkSize: options.DataPrepTextOptions.ChunkSize,
+			ChunkSize: questionGenerator.GetChunkSize(),
 			Overflow:  options.DataPrepTextOptions.OverflowSize,
 		})
 

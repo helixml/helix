@@ -38,14 +38,13 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 type DataPrepTextOptions struct {
 	Module            DataPrepModule
 	APIKey            string
-	ChunkSize         int
 	OverflowSize      int
 	QuestionsPerChunk int
 	Temperature       float32
-	Concurrency       int
 }
 
 type DataPrepTextQuestionGenerator interface {
 	ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error)
 	GetConcurrency() int
+	GetChunkSize() int
 }
