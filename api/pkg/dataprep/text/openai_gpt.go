@@ -42,14 +42,14 @@ func NewDataOpenAIGPT(
 }
 
 func (gpt *DataOpenAIGPT) GetConcurrency() int {
-	return 5
+	return 20
 }
 
 func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
 	// use the data prep module to convert raw text into QA pairs
 
 	// a rough rate limiter
-	time.Sleep(2 * time.Second * time.Duration(index%gpt.Options.Concurrency))
+	time.Sleep(100 * time.Millisecond * time.Duration(index%gpt.Options.Concurrency))
 
 	systemPrompt := gpt.getSystemPromptFn(chunk, gpt.Options)
 	userPrompt := gpt.getUserPromptFn(chunk, gpt.Options)
