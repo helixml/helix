@@ -75,9 +75,10 @@ func NewServeOptions() *ServeOptions {
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
-			SentryDSN:       getDefaultServeOptionString("SENTRY_DSN", ""),
-			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
-			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
+			SentryDSNApi:      getDefaultServeOptionString("SENTRY_DSN_API", ""),
+			SentryDSNFrontend: getDefaultServeOptionString("SENTRY_DSN_FRONTEND", ""),
+			SlackWebhookURL:   getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+			IgnoreUsers:       getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},
 		StripeOptions: stripe.StripeOptions{
 			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
@@ -232,8 +233,13 @@ func newServeCmd() *cobra.Command {
 
 	// JanitorOptions
 	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SentryDSN, "janitor-sentry-dsn", allOptions.JanitorOptions.SentryDSN,
-		`The sentry DSN.`,
+		&allOptions.JanitorOptions.SentryDSNApi, "janitor-sentry-dsn-api", allOptions.JanitorOptions.SentryDSNApi,
+		`The api sentry DSN.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SentryDSNFrontend, "janitor-sentry-dsn-frontend", allOptions.JanitorOptions.SentryDSNFrontend,
+		`The frontend sentry DSN.`,
 	)
 
 	serveCmd.PersistentFlags().StringVar(

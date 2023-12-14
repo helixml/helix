@@ -13,10 +13,11 @@ import (
 )
 
 type JanitorOptions struct {
-	AppURL          string
-	SlackWebhookURL string
-	SentryDSN       string
-	IgnoreUsers     []string
+	AppURL            string
+	SlackWebhookURL   string
+	SentryDSNApi      string
+	SentryDSNFrontend string
+	IgnoreUsers       []string
 }
 
 type Janitor struct {
@@ -35,9 +36,9 @@ func NewJanitor(opts JanitorOptions) *Janitor {
 
 func (j *Janitor) Initialize() error {
 	var err error
-	if j.Options.SentryDSN != "" {
+	if j.Options.SentryDSNApi != "" {
 		err = sentry.Init(sentry.ClientOptions{
-			Dsn:              j.Options.SentryDSN,
+			Dsn:              j.Options.SentryDSNApi,
 			EnableTracing:    true,
 			TracesSampleRate: 1.0,
 		})
@@ -57,7 +58,7 @@ func (j *Janitor) Initialize() error {
 // allows the janitor to attach middleware to the router
 // before all the routes
 func (j *Janitor) InjectMiddleware(router *mux.Router) error {
-	if j.Options.SentryDSN != "" {
+	if j.Options.SentryDSNApi != "" {
 		router.Use(SentryMiddleware)
 	}
 	return nil

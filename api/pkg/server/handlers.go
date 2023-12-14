@@ -57,8 +57,7 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 }
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	return nil, system.NewHTTPError500("hello error world")
-	// return apiServer.sessionLoader(req, false)
+	return apiServer.sessionLoader(req, false)
 }
 
 func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
@@ -227,8 +226,9 @@ func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Reque
 		return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
 	}
 	return types.ServerConfig{
-		FilestorePrefix: filestorePrefix,
-		StripeEnabled:   apiServer.Stripe.Enabled(),
+		FilestorePrefix:   filestorePrefix,
+		StripeEnabled:     apiServer.Stripe.Enabled(),
+		FrontendSentryDSN: apiServer.Janitor.Options.SentryDSNFrontend,
 	}, nil
 }
 
