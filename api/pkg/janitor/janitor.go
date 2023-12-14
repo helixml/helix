@@ -44,8 +44,11 @@ func (j *Janitor) Initialize() error {
 		if err != nil {
 			return fmt.Errorf("Sentry initialization failed: %v\n", err)
 		}
-		system.SetErrorHandler(func(err *system.HTTPError) {
-			sentry.CaptureException(err)
+		system.SetHTTPErrorHandler(func(err *system.HTTPError, req *http.Request) {
+			reportErrorWithRequest(err, req, map[string]interface{}{})
+		})
+		system.SetErrorHandler(func(err error, req *http.Request) {
+			reportErrorWithRequest(err, req, map[string]interface{}{})
 		})
 	}
 	return nil
@@ -127,4 +130,33 @@ func SentryMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func reportErrorWithRequest(err error, req *http.Request, extraData map[string]interface{}) {
+	if err == nil || req == nil {
+		return
+	}
+
+	// Create a new Sentry event.
+	event := sentry.NewEvent()
+	event.Level = sentry.LevelError
+	event.Message = err.Error()
+
+	// Add stack trace.
+	event.Threads = []sentry.Thread{{
+		Stacktrace: sentry.NewStacktrace(),
+		Crashed:    false,
+		Current:    true,
+	}}
+
+	// Add HTTP request information.
+	event.Request = sentry.NewRequest(req)
+
+	// Add additional labels or metadata.
+	for key, value := range extraData {
+		event.Extra[key] = value
+	}
+
+	// Capture the event.
+	sentry.CaptureEvent(event)
 }
