@@ -41,11 +41,6 @@ type ControllerOptions struct {
 
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int
-
-	// how many data prep requests to run concurrently PER USER
-	// THIS IS NOT A GLOBAL SETTING
-	// TODO: the job queue
-	DataPrepConcurrency int
 }
 
 type Controller struct {
