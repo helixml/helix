@@ -82,7 +82,7 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		return stdout, nil, nil
 	} else if mode == types.SessionModeFinetune {
 		chunker := newMistral7bFinetuneChunker(eventHandler, mistral7bFinetuneChunkerOptions{
-			progressActivationWord: "[axolotl.train.train:108]",
+			progressActivationWord: "[axolotl.load_model:562]",
 		})
 		stdout := NewTextStream(bufio.ScanWords, func(line string) {
 			err := chunker.write(line)
