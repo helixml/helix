@@ -57,7 +57,8 @@ func (apiServer *HelixAPIServer) sessionLoader(req *http.Request, writeMode bool
 }
 
 func (apiServer *HelixAPIServer) getSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
-	return apiServer.sessionLoader(req, false)
+	return nil, system.NewHTTPError500("hello error world")
+	// return apiServer.sessionLoader(req, false)
 }
 
 func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req *http.Request) (*types.SessionSummary, *system.HTTPError) {
