@@ -41,6 +41,17 @@ type RunnerOptions struct {
 	// we just pass http://localhost:8080/api/v1/worker/session
 	InitialSessionURL string
 
+	// add this model to the global session query filter
+	// so we only run a single model
+	FilterModelName string
+
+	// if we only want to run fine-tuning or inference
+	// set this and it will be added to the global session filter
+	FilterMode string
+
+	// do we want to allow multiple models of the same type to run on this GPU?
+	AllowMultipleCopies bool
+
 	// how long without running a job before we close a model instance
 	ModelInstanceTimeoutSeconds int
 
@@ -423,22 +434,27 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	// do they have the model loaded into memory)
 	queryParams.Add("older", "2s")
 
-	// now let's loop over our running model instances and de-prioritise them
-	// we might still get sessions of this type but only if there isn't another
-	// type in the queue - this is to avoid running only one type of model
-	// because of the random order the requests arrived in
-	// (i.e. if we get 100 text inferences then the chance is we boot 100 model instances)
-	// before trying to run another type of model
+	if !r.Options.AllowMultipleCopies {
+		// if we are not allowed to run multiple copies of the same model
+		// then we need to tell the api what we are currently running
+		r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+			queryParams.Add("reject", fmt.Sprintf(
+				"%s:%s:%s",
+				modelInstance.filter.ModelName,
+				modelInstance.filter.Mode,
+				modelInstance.filter.LoraDir,
+			))
+			return true
+		})
+	}
 
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		queryParams.Add("reject", fmt.Sprintf(
-			"%s:%s:%s",
-			modelInstance.filter.ModelName,
-			modelInstance.filter.Mode,
-			modelInstance.filter.LoraDir,
-		))
-		return true
-	})
+	if r.Options.FilterModelName != "" {
+		queryParams.Add("model_name", string(r.Options.FilterModelName))
+	}
+
+	if r.Options.FilterMode != "" {
+		queryParams.Add("mode", string(r.Options.FilterMode))
+	}
 
 	session, err := r.getNextApiSession(ctx, queryParams)
 	if err != nil {
