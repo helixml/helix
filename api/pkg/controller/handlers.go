@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -157,18 +156,14 @@ func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID stri
 	return err
 }
 
-func (c *Controller) SubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
-	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, true)
+func (c *Controller) HandleSubscriptionEvent(eventType types.SubscriptionEventType, user types.StripeUser) error {
+	isSubscriptionActive := true
+	if eventType == types.SubscriptionEventTypeDeleted {
+		isSubscriptionActive = false
+	}
+	err := c.updateSubscriptionUser(user.HelixID, user.StripeID, user.SubscriptionID, isSubscriptionActive)
 	if err != nil {
 		return err
 	}
-	return c.Options.Janitor.SendMessage(fmt.Sprintf("💰 NEW subscription: [%s](%s)", stripeSubscriptionID, url))
-}
-
-func (c *Controller) UnsubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
-	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, false)
-	if err != nil {
-		return err
-	}
-	return c.Options.Janitor.SendMessage(fmt.Sprintf("🛑 CANCEL subscription: [%s](%s)", stripeSubscriptionID, url))
+	return c.Options.Janitor.WriteSubscriptionEvent(eventType, user)
 }

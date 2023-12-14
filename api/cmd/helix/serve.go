@@ -77,6 +77,7 @@ func NewServeOptions() *ServeOptions {
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},
 		StripeOptions: stripe.StripeOptions{
 			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
@@ -243,6 +244,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
+	)
+
+	serveCmd.PersistentFlags().StringArrayVar(
+		&allOptions.JanitorOptions.IgnoreUsers, "janitor-ignore-users", allOptions.JanitorOptions.IgnoreUsers,
+		`Keycloak admin IDs`,
 	)
 
 	// StripeOptions
@@ -435,11 +441,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	options.StripeOptions.AppURL = options.ServerOptions.URL
 	stripe := stripe.NewStripe(
 		options.StripeOptions,
-		func(userID string, customer string, subscription string, url string) error {
-			return appController.SubscribeUser(userID, customer, subscription, url)
-		},
-		func(userID string, customer string, subscription string, url string) error {
-			return appController.UnsubscribeUser(userID, customer, subscription, url)
+		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
+			return appController.HandleSubscriptionEvent(eventType, user)
 		},
 	)
 
