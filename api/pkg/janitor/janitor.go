@@ -2,12 +2,13 @@ package janitor
 
 import (
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
 	"github.com/getsentry/sentry-go"
-	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/gorilla/mux"
+	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
@@ -43,6 +44,9 @@ func (j *Janitor) Initialize() error {
 		if err != nil {
 			return fmt.Errorf("Sentry initialization failed: %v\n", err)
 		}
+		system.SetErrorHandler(func(err *system.HTTPError) {
+			sentry.CaptureException(err)
+		})
 	}
 	return nil
 }
@@ -51,8 +55,7 @@ func (j *Janitor) Initialize() error {
 // before all the routes
 func (j *Janitor) InjectMiddleware(router *mux.Router) error {
 	if j.Options.SentryDSN != "" {
-		sentryHandler := sentryhttp.New(sentryhttp.Options{})
-		router.Use(sentryHandler.Handle)
+		router.Use(SentryMiddleware)
 	}
 	return nil
 }
@@ -105,4 +108,23 @@ func (j *Janitor) WriteSubscriptionEvent(eventType types.SubscriptionEventType, 
 	}()
 
 	return j.SendMessage(user.Email, message)
+}
+
+func SentryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hub := sentry.GetHubFromContext(r.Context())
+		if hub == nil {
+			hub = sentry.CurrentHub().Clone()
+			r = r.WithContext(sentry.SetHubOnContext(r.Context(), hub))
+		}
+
+		defer func() {
+			if err := recover(); err != nil {
+				hub.Recover(err)
+				// Optionally, write a custom response here
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
 }
