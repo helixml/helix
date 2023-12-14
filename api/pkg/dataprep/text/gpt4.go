@@ -17,6 +17,9 @@ import (
 
 // ONLY include the JSON array of questions and answers.
 
+const GPT4_CONCURRENCY = 20
+const GPT4_CHUNK_SIZE = 4096
+
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
@@ -95,6 +98,8 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 	return NewDataOpenAIGPT(
 		options,
 		openai.GPT4TurboPreview,
+		GPT4_CONCURRENCY,
+		GPT4_CHUNK_SIZE,
 		getSystemPromptFn,
 		getUserPromptFn,
 		parseResponseFn,

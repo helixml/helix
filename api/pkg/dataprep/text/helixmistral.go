@@ -9,6 +9,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const HELIX_MISTRAL_CONCURRENCY = 20
+const HELIX_MISTRAL_CHUNK_SIZE = 4096
+
 type DataPrepTextHelixMistralSessionCreate func(req types.CreateSessionRequest) (*types.Session, error)
 type DataPrepTextHelixMistralSessionGet func(id string) (*types.Session, error)
 
@@ -38,7 +41,11 @@ func NewDataPrepTextHelixMistral(
 }
 
 func (helixMistral *DataPrepTextHelixMistral) GetConcurrency() int {
-	return 1000
+	return HELIX_MISTRAL_CONCURRENCY
+}
+
+func (helixMistral *DataPrepTextHelixMistral) GetChunkSize() int {
+	return HELIX_MISTRAL_CHUNK_SIZE
 }
 
 // TODO: getting a consistent output format that we can parse reliably is really hard
