@@ -7,6 +7,7 @@ import (
 
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,9 @@ func NewRunnerOptions() *RunnerOptions {
 			MockRunner:                   getDefaultServeOptionBool("MOCK_RUNNER", false),
 			MockRunnerError:              getDefaultServeOptionString("MOCK_RUNNER_ERROR", ""),
 			MockRunnerDelay:              getDefaultServeOptionInt("MOCK_RUNNER_DELAY", 0),
+			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
+			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
+			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -131,6 +135,21 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.FilterModelName, "filter-model-name", allOptions.Runner.FilterModelName,
+		`Only run jobs of this model name`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.FilterMode, "filter-mode", allOptions.Runner.FilterMode,
+		`Only run jobs of this mode`,
+	)
+
+	runnerCmd.PersistentFlags().BoolVar(
+		&allOptions.Runner.AllowMultipleCopies, "allow-multiple-copies", allOptions.Runner.AllowMultipleCopies,
+		`Should we allow multiple copies of the same model to run at the same time?`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Server.Host, "server-host", allOptions.Server.Host,
 		`The host to bind the runner server to.`,
 	)
@@ -144,6 +163,16 @@ func newRunnerCmd() *cobra.Command {
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
+
+	_, err := types.ValidateModelName(options.Runner.FilterModelName, true)
+	if err != nil {
+		return err
+	}
+
+	_, err = types.ValidateSessionMode(options.Runner.FilterMode, true)
+	if err != nil {
+		return err
+	}
 
 	// Cleanup manager ensures that resources are freed before exiting:
 	cm := system.NewCleanupManager()
