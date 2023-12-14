@@ -75,7 +75,7 @@ func NewServeOptions() *ServeOptions {
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
-			SentryDSN:       getDefaultServeOptionString("JANITOR_SENTRY_DSN", ""),
+			SentryDSN:       getDefaultServeOptionString("SENTRY_DSN", ""),
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
 			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},

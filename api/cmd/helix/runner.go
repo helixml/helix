@@ -145,11 +145,6 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Runner.FilterModelName, "filter-model-name", allOptions.Runner.FilterModelName,
-		`Only run jobs of this model name`,
-	)
-
-	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.FilterMode, "filter-mode", allOptions.Runner.FilterMode,
 		`Only run jobs of this mode`,
 	)
