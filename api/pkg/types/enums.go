@@ -157,6 +157,24 @@ const (
 	WorkerTaskResponseTypeResult   WorkerTaskResponseType = "result"
 )
 
+type SubscriptionEventType string
+
+const (
+	SubscriptionEventTypeNone    SubscriptionEventType = ""
+	SubscriptionEventTypeCreated SubscriptionEventType = "created"
+	SubscriptionEventTypeUpdated SubscriptionEventType = "updated"
+	SubscriptionEventTypeDeleted SubscriptionEventType = "deleted"
+)
+
+type SessionEventType string
+
+const (
+	SessionEventTypeNone    SessionEventType = ""
+	SessionEventTypeCreated SessionEventType = "created"
+	SessionEventTypeUpdated SessionEventType = "updated"
+	SessionEventTypeDeleted SessionEventType = "deleted"
+)
+
 const FILESTORE_RESULTS_DIR = "results"
 const FILESTORE_LORA_DIR = "lora"
 

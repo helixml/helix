@@ -8,15 +8,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/rs/zerolog/log"
+	"github.com/lukemarsden/helix/api/pkg/types"
 	"github.com/stripe/stripe-go/v76"
 	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
 	"github.com/stripe/stripe-go/v76/checkout/session"
+	"github.com/stripe/stripe-go/v76/customer"
 	"github.com/stripe/stripe-go/v76/price"
 	"github.com/stripe/stripe-go/v76/webhook"
 )
 
-type StripeEventWriter func(userID string, stripeCustomerID string, stripeSubscriptionID string, stripeSubscriptionURL string) error
+type StripeEventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
 type StripeOptions struct {
 	AppURL               string
@@ -26,23 +27,20 @@ type StripeOptions struct {
 }
 
 type Stripe struct {
-	Options       StripeOptions
-	onSubscribe   StripeEventWriter
-	onUnsubscribe StripeEventWriter
+	Options      StripeOptions
+	eventHandler StripeEventHandler
 }
 
 func NewStripe(
 	opts StripeOptions,
-	onSubscribe StripeEventWriter,
-	onUnsubscribe StripeEventWriter,
+	eventHandler StripeEventHandler,
 ) *Stripe {
 	if opts.SecretKey != "" {
 		stripe.Key = opts.SecretKey
 	}
 	return &Stripe{
-		Options:       opts,
-		onSubscribe:   onSubscribe,
-		onUnsubscribe: onUnsubscribe,
+		Options:      opts,
+		eventHandler: eventHandler,
 	}
 }
 
@@ -133,6 +131,49 @@ func (s *Stripe) GetPortalSessionURL(
 	return ps.URL, nil
 }
 
+func (s *Stripe) getCustomerEmail(id string) (string, error) {
+	data, err := customer.Get(id, nil)
+	if err != nil {
+		return "", err
+	}
+	return data.Email, nil
+}
+
+var eventMap = map[stripe.EventType]types.SubscriptionEventType{
+	"customer.subscription.deleted": types.SubscriptionEventTypeDeleted,
+	"customer.subscription.updated": types.SubscriptionEventTypeUpdated,
+	"customer.subscription.created": types.SubscriptionEventTypeCreated,
+}
+
+func (s *Stripe) handleSubscriptionEvent(event stripe.Event) error {
+	eventType, ok := eventMap[event.Type]
+	if !ok {
+		return fmt.Errorf("unhandled event type: %s", event.Type)
+	}
+	var subscription stripe.Subscription
+	err := json.Unmarshal(event.Data.Raw, &subscription)
+	if err != nil {
+		return fmt.Errorf("error parsing webhook JSON: %s", err.Error())
+	}
+	userID := subscription.Metadata["user_id"]
+	if userID == "" {
+		return fmt.Errorf("no user_id found in metadata")
+	}
+	customerData, err := customer.Get(subscription.Customer.ID, nil)
+	if err != nil {
+		return fmt.Errorf("error loading customer: %s", err.Error())
+	}
+	user := types.StripeUser{
+		HelixID:         userID,
+		StripeID:        customerData.ID,
+		Email:           customerData.Email,
+		SubscriptionID:  subscription.ID,
+		SubscriptionURL: s.getSubscriptionURL(subscription.ID),
+	}
+	s.eventHandler(eventType, user)
+	return nil
+}
+
 func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 	const MaxBodyBytes = int64(65536)
 	bodyReader := http.MaxBytesReader(w, req.Body, MaxBodyBytes)
@@ -151,66 +192,12 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	switch event.Type {
-	case "customer.subscription.deleted":
-		var subscription stripe.Subscription
-		err := json.Unmarshal(event.Data.Raw, &subscription)
-		if err != nil {
-			log.Error().Msgf("Error parsing webhook JSON: %s\n", err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		userID := subscription.Metadata["user_id"]
-		if userID == "" {
-			log.Error().Msgf("No user_id found in metadata")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		err = s.onUnsubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
-		if err != nil {
-			log.Error().Msgf("Error writing event: %s\n", err.Error())
-		}
-		log.Debug().Msgf("🟠 Subscription %s deleted for %s.", subscription.ID, userID)
-	case "customer.subscription.updated":
-		var subscription stripe.Subscription
-		err := json.Unmarshal(event.Data.Raw, &subscription)
-		if err != nil {
-			log.Error().Msgf("Error parsing webhook JSON: %s\n", err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		userID := subscription.Metadata["user_id"]
-		if userID == "" {
-			log.Error().Msgf("No user_id found in metadata")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
-		if err != nil {
-			log.Error().Msgf("Error writing event: %s\n", err.Error())
-		}
-		log.Debug().Msgf("🟠 Subscription %s updated for %s.", subscription.ID, userID)
-	case "customer.subscription.created":
-		var subscription stripe.Subscription
-		err := json.Unmarshal(event.Data.Raw, &subscription)
-		if err != nil {
-			log.Error().Msgf("Error parsing webhook JSON: %s\n", err.Error())
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		userID := subscription.Metadata["user_id"]
-		if userID == "" {
-			log.Error().Msgf("No user_id found in metadata")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		err = s.onSubscribe(userID, subscription.Customer.ID, subscription.ID, s.getSubscriptionURL(subscription.ID))
-		if err != nil {
-			log.Error().Msgf("Error writing event: %s\n", err.Error())
-		}
-		log.Debug().Msgf("🟠 Subscription %s created for %s.", subscription.ID, userID)
-	default:
-		fmt.Fprintf(os.Stderr, "Unhandled event type: %s\n", event.Type)
+	err = s.handleSubscriptionEvent(event)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Handling event failed. %s\n", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
+
 	w.WriteHeader(http.StatusOK)
 }
