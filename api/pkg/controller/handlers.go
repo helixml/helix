@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/store"
@@ -18,6 +19,15 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 		return types.UserStatus{}, err
 	}
 
+	usermeta, err := c.Options.Store.GetUserMeta(ctx.Ctx, ctx.Owner)
+
+	if err != nil || usermeta == nil {
+		usermeta = &types.UserMeta{
+			ID:     ctx.Owner,
+			Config: types.UserConfig{},
+		}
+	}
+
 	// add up the total value of all balance transfers
 	credits := 0
 	for _, balanceTransfer := range balanceTransfers {
@@ -27,6 +37,7 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 		Admin:   ctx.Admin,
 		User:    ctx.Owner,
 		Credits: credits,
+		Config:  usermeta.Config,
 	}, nil
 }
 
@@ -128,4 +139,36 @@ func (c *Controller) GetDashboardData(ctx context.Context) (*types.DashboardData
 		Runners:                   runners,
 		GlobalSchedulingDecisions: c.schedulingDecisions,
 	}, nil
+}
+
+func (c *Controller) updateSubscriptionUser(userID string, stripeCustomerID string, stripeSubscriptionID string, active bool) error {
+	existingUser, err := c.Options.Store.GetUserMeta(context.Background(), userID)
+	if err != nil || existingUser != nil {
+		existingUser = &types.UserMeta{
+			ID: userID,
+			Config: types.UserConfig{
+				StripeCustomerID:     stripeCustomerID,
+				StripeSubscriptionID: stripeSubscriptionID,
+			},
+		}
+	}
+	existingUser.Config.StripeSubscriptionActive = active
+	_, err = c.Options.Store.EnsureUserMeta(context.Background(), *existingUser)
+	return err
+}
+
+func (c *Controller) SubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
+	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, true)
+	if err != nil {
+		return err
+	}
+	return c.Options.Janitor.SendMessage(fmt.Sprintf("💰 NEW subscription: [%s](%s)", stripeSubscriptionID, url))
+}
+
+func (c *Controller) UnsubscribeUser(userID string, stripeCustomerID string, stripeSubscriptionID string, url string) error {
+	err := c.updateSubscriptionUser(userID, stripeCustomerID, stripeSubscriptionID, false)
+	if err != nil {
+		return err
+	}
+	return c.Options.Janitor.SendMessage(fmt.Sprintf("🛑 CANCEL subscription: [%s](%s)", stripeSubscriptionID, url))
 }

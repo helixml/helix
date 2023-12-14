@@ -27,16 +27,18 @@ func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.Requ
 	user := getRequestUser(req)
 	return types.RequestContext{
 		Ctx:       req.Context(),
-		Owner:     user,
+		Owner:     user.ID,
 		OwnerType: types.OwnerTypeUser,
-		Admin:     apiServer.adminAuth.isUserAdmin(user),
+		Admin:     apiServer.adminAuth.isUserAdmin(user.ID),
+		Email:     user.Email,
+		FullName:  user.FullName,
 	}
 }
 
 func (apiServer *HelixAPIServer) getOwnerContext(req *http.Request) types.OwnerContext {
 	user := getRequestUser(req)
 	return types.OwnerContext{
-		Owner:     user,
+		Owner:     user.ID,
 		OwnerType: types.OwnerTypeUser,
 	}
 }
