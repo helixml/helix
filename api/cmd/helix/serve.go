@@ -34,9 +34,9 @@ type ServeOptions struct {
 func NewServeOptions() *ServeOptions {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
+			// for concurrency of requests to openAI - look in the dataprep module
 			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT4))),
 			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
-			ChunkSize:    getDefaultServeOptionInt("DATA_PREP_TEXT_CHUNK_SIZE", 4096),
 			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			// we are exceeding openAI window size at > 30 questions
 			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 30),
@@ -47,7 +47,6 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
-			DataPrepConcurrency:          getDefaultServeOptionInt("DATA_PREP_CONCURRENCY", 20),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
@@ -77,6 +76,7 @@ func NewServeOptions() *ServeOptions {
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},
 		StripeOptions: stripe.StripeOptions{
 			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
@@ -112,11 +112,6 @@ func newServeCmd() *cobra.Command {
 	)
 
 	serveCmd.PersistentFlags().IntVar(
-		&allOptions.DataPrepTextOptions.ChunkSize, "dataprep-chunk-size", allOptions.DataPrepTextOptions.ChunkSize,
-		`The chunk size for the text data prep`,
-	)
-
-	serveCmd.PersistentFlags().IntVar(
 		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
 		`The overflow size for the text data prep`,
 	)
@@ -148,11 +143,6 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.ControllerOptions.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.ControllerOptions.SchedulingDecisionBufferSize,
 		`How many scheduling decisions to buffer before we start dropping them.`,
-	)
-
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.ControllerOptions.DataPrepConcurrency, "dataprep-concurrency", allOptions.ControllerOptions.DataPrepConcurrency,
-		`How many data prep steps to run concurrently per user`,
 	)
 
 	// FileStoreOptions
@@ -243,6 +233,11 @@ func newServeCmd() *cobra.Command {
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
+	)
+
+	serveCmd.PersistentFlags().StringArrayVar(
+		&allOptions.JanitorOptions.IgnoreUsers, "janitor-ignore-users", allOptions.JanitorOptions.IgnoreUsers,
+		`Keycloak admin IDs`,
 	)
 
 	// StripeOptions
@@ -403,7 +398,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		}
 
 		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-			ChunkSize: options.DataPrepTextOptions.ChunkSize,
+			ChunkSize: questionGenerator.GetChunkSize(),
 			Overflow:  options.DataPrepTextOptions.OverflowSize,
 		})
 
@@ -418,7 +413,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
 	}
 
-	options.DataPrepTextOptions.Concurrency = options.ControllerOptions.DataPrepConcurrency
+	// options.DataPrepTextOptions.Concurrency = options.ControllerOptions.DataPrepConcurrency
 
 	appController, err = controller.NewController(ctx, options.ControllerOptions)
 	if err != nil {
@@ -435,11 +430,8 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	options.StripeOptions.AppURL = options.ServerOptions.URL
 	stripe := stripe.NewStripe(
 		options.StripeOptions,
-		func(userID string, customer string, subscription string, url string) error {
-			return appController.SubscribeUser(userID, customer, subscription, url)
-		},
-		func(userID string, customer string, subscription string, url string) error {
-			return appController.UnsubscribeUser(userID, customer, subscription, url)
+		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
+			return appController.HandleSubscriptionEvent(eventType, user)
 		},
 	)
 
