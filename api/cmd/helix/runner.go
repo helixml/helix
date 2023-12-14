@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -13,8 +14,9 @@ import (
 )
 
 type RunnerOptions struct {
-	Runner runner.RunnerOptions
-	Server runner.RunnerServerOptions
+	Runner  runner.RunnerOptions
+	Janitor janitor.JanitorOptions
+	Server  runner.RunnerServerOptions
 }
 
 func NewRunnerOptions() *RunnerOptions {
@@ -38,6 +40,9 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
+		},
+		Janitor: janitor.JanitorOptions{
+			SentryDSN: getDefaultServeOptionString("JANITOR_SENTRY_DSN", ""),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -140,6 +145,11 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Runner.FilterModelName, "filter-model-name", allOptions.Runner.FilterModelName,
+		`Only run jobs of this model name`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
 		&allOptions.Runner.FilterMode, "filter-mode", allOptions.Runner.FilterMode,
 		`Only run jobs of this mode`,
 	)
@@ -156,6 +166,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Server.Port, "server-port", allOptions.Server.Port,
 		`The port to bind the runner server to.`,
+	)
+
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Janitor.SentryDSN, "janitor-sentry-dsn", allOptions.Janitor.SentryDSN,
+		`The sentry DSN.`,
 	)
 
 	return runnerCmd
@@ -182,6 +197,12 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// Context ensures main goroutine waits until killed with ctrl+c:
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
+
+	janitor := janitor.NewJanitor(options.Janitor)
+	err = janitor.Initialize()
+	if err != nil {
+		return err
+	}
 
 	// we will append the instance ID onto these paths
 	// because it's a model_instance that will spawn Python

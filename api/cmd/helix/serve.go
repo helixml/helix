@@ -75,6 +75,7 @@ func NewServeOptions() *ServeOptions {
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
+			SentryDSN:       getDefaultServeOptionString("JANITOR_SENTRY_DSN", ""),
 			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
 			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},
@@ -231,6 +232,11 @@ func newServeCmd() *cobra.Command {
 
 	// JanitorOptions
 	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SentryDSN, "janitor-sentry-dsn", allOptions.JanitorOptions.SentryDSN,
+		`The sentry DSN.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
 	)
@@ -349,6 +355,10 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	options.JanitorOptions.AppURL = options.ServerOptions.URL
 	janitor := janitor.NewJanitor(options.JanitorOptions)
+	err = janitor.Initialize()
+	if err != nil {
+		return err
+	}
 
 	var appController *controller.Controller
 
@@ -435,7 +445,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		},
 	)
 
-	server, err := server.NewServer(options.ServerOptions, store, stripe, appController)
+	server, err := server.NewServer(options.ServerOptions, store, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}
