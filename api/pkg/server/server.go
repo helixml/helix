@@ -114,7 +114,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)
-
 	subrouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")

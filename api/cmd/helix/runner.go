@@ -42,7 +42,7 @@ func NewRunnerOptions() *RunnerOptions {
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 		},
 		Janitor: janitor.JanitorOptions{
-			SentryDSN: getDefaultServeOptionString("JANITOR_SENTRY_DSN", ""),
+			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -164,7 +164,7 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Janitor.SentryDSN, "janitor-sentry-dsn", allOptions.Janitor.SentryDSN,
+		&allOptions.Janitor.SentryDSNApi, "janitor-sentry-dsn", allOptions.Janitor.SentryDSNApi,
 		`The sentry DSN.`,
 	)
 

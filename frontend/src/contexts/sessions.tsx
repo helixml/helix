@@ -108,6 +108,7 @@ export const useSessionsContext = (): ISessionsContext => {
       id,
       name,
     })
+    
     if(!result) return false
     await loadSessions()
     return true
