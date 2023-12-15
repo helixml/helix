@@ -4,13 +4,15 @@ FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af6
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+WORKDIR /workspace
 
 # TODO: not sure if this is necessary
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
 
-WORKDIR /workspace
-
+# ====================================
 # TODO: cache all the weights early on
+# ====================================
+
 
 # Fake venv - helix runner expects one but axolotl is the "root venv" (actually, default conda env) in the image
 RUN mkdir -p /workspace/axolotl/venv/bin
@@ -46,24 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
 # what you sayin', cat?
 
 EXPOSE 5000
-
 # CMD ["python", "-m", "cog.server.http"]
-
-# RUN apt-get update -y && apt-get install -y && \
-#     git clone https://github.com/lukemarsden/sd-scripts && \
-#     cd sd-scripts && \
-#     git checkout long-running && \
-#     virtualenv venv && \
-#     . venv/bin/activate && \
-#     pip install -r requirements.txt && \
-#     pip install bitsandbytes==0.41.1 && \
-#     pip install xformers==0.0.22.post4 && \
-#     pip install scipy==1.11.4 && \
-#     mkdir sdxl && ( \
-#         cd sdxl; wget -q --show-progress https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
-#     )
-
-# RUN mkdir -p /workspace/sd-scripts/output_images
 
 RUN mkdir -p /workspace/helix
 ADD . /workspace/helix/
@@ -72,30 +57,3 @@ RUN go build -o helix
 
 # TODO: autodetect available GPU memory
 ENTRYPOINT ["/workspace/helix/helix", "runner"]
-
-# ENV PATH="/root/.pyenv/shims:/root/.pyenv/bin:$PATH"
-# RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy --no-install-recommends \
-# 	make \
-# 	build-essential \
-# 	libssl-dev \
-# 	zlib1g-dev \
-# 	libbz2-dev \
-# 	libreadline-dev \
-# 	libsqlite3-dev \
-# 	wget \
-# 	curl \
-# 	llvm \
-# 	libncurses5-dev \
-# 	libncursesw5-dev \
-# 	xz-utils \
-# 	tk-dev \
-# 	libffi-dev \
-# 	liblzma-dev \
-# 	git \
-# 	ca-certificates \
-# 	&& rm -rf /var/lib/apt/lists/*
-# RUN curl -s -S -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash && \
-# 	git clone https://github.com/momo-lab/pyenv-install-latest.git "$(pyenv root)"/plugins/pyenv-install-latest && \
-# 	pyenv install-latest "3.9" && \
-# 	pyenv global $(pyenv install-latest --print "3.9") && \
-# 	pip install "wheel<1"
