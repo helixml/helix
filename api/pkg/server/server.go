@@ -118,6 +118,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		SilenceErrors: true,
 	})).Methods("GET")
 
+	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
+
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
 	subrouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
