@@ -62,6 +62,7 @@ export interface IKeycloakUser {
   id: string,
   email: string,
   token: string,
+  name: string,
 }
 
 export interface IUserConfig {
