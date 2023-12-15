@@ -90,16 +90,22 @@ export const getModelName = (model_name: string): string => {
   return ''
 }
 
-export const getHeadline = (modelName: string, mode: ISessionMode): string => {
-  return `${getModelName(modelName)} ${mode}`
+export const getHeadline = (modelName: string, mode: ISessionMode, loraDir = ''): string => {
+  let loraString = ''
+  if(loraDir) {
+    const parts = loraDir.split('/')
+    const id = parts[parts.length - 2]
+    loraString = ` - lora: ${id.split('-').pop()}`
+  }
+  return `${getModelName(modelName)} ${mode} ${loraString}`
 }
 
 export const getSessionHeadline = (session: ISessionSummary): string => {
-  return `${ getHeadline(session.model_name, session.mode) } : ${ shortID(session.session_id) } : ${ getTiming(session) }`
+  return `${ getHeadline(session.model_name, session.mode, session.lora_dir) } : ${ shortID(session.session_id) } : ${ getTiming(session) }`
 }
 
 export const getModelInstanceNoSessionHeadline = (modelInstance: IModelInstanceState): string => {
-  return `${getHeadline(modelInstance.model_name, modelInstance.mode)} : ${getModelInstanceIdleTime(modelInstance)}`
+  return `${getHeadline(modelInstance.model_name, modelInstance.mode, modelInstance.lora_dir)} : ${getModelInstanceIdleTime(modelInstance)}`
 }
 
 export const getSummaryCaption = (session: ISessionSummary): string => {
