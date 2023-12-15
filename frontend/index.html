@@ -18,6 +18,20 @@
     />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/file-icon-vectors@1.0.0/dist/file-icon-vivid.min.css" />
     <title>Helix</title>
+    <script src="/api/v1/config/js"></script>
+    <script>
+      if(window.HELIX_GOOGLE_ANALYTICS != '') {
+        document.write('<script async src="https://www.googletagmanager.com/gtag/js?id=' + window.HELIX_GOOGLE_ANALYTICS + '"><\/script>')
+      }
+    </script>
+    <script>
+      if(window.HELIX_GOOGLE_ANALYTICS != '') {
+        window.dataLayer = window.dataLayer || []
+        function gtag(){dataLayer.push(arguments)}
+        gtag('js', new Date())
+        gtag('config', window.HELIX_GOOGLE_ANALYTICS)
+      }
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

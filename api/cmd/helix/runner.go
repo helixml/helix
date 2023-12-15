@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -13,8 +14,9 @@ import (
 )
 
 type RunnerOptions struct {
-	Runner runner.RunnerOptions
-	Server runner.RunnerServerOptions
+	Runner  runner.RunnerOptions
+	Janitor janitor.JanitorOptions
+	Server  runner.RunnerServerOptions
 }
 
 func NewRunnerOptions() *RunnerOptions {
@@ -38,6 +40,9 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
+		},
+		Janitor: janitor.JanitorOptions{
+			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -158,6 +163,11 @@ func newRunnerCmd() *cobra.Command {
 		`The port to bind the runner server to.`,
 	)
 
+	runnerCmd.PersistentFlags().StringVar(
+		&allOptions.Janitor.SentryDSNApi, "janitor-sentry-dsn", allOptions.Janitor.SentryDSNApi,
+		`The sentry DSN.`,
+	)
+
 	return runnerCmd
 }
 
@@ -182,6 +192,12 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// Context ensures main goroutine waits until killed with ctrl+c:
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
+
+	janitor := janitor.NewJanitor(options.Janitor)
+	err = janitor.Initialize()
+	if err != nil {
+		return err
+	}
 
 	// we will append the instance ID onto these paths
 	// because it's a model_instance that will spawn Python

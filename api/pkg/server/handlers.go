@@ -218,7 +218,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
+func (apiServer *HelixAPIServer) getConfig() (types.ServerConfig, error) {
 	filestorePrefix := ""
 	if apiServer.Options.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
@@ -226,9 +226,34 @@ func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Reque
 		return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
 	}
 	return types.ServerConfig{
-		FilestorePrefix: filestorePrefix,
-		StripeEnabled:   apiServer.Stripe.Enabled(),
+		FilestorePrefix:         filestorePrefix,
+		StripeEnabled:           apiServer.Stripe.Enabled(),
+		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
+		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
 	}, nil
+}
+
+func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
+	return apiServer.getConfig()
+}
+
+// prints the config values as JavaScript values so we can block the rest of the frontend on
+// initializing until we have these values (useful for things like Sentry without having to burn keys into frontend code)
+func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Request) {
+	config, err := apiServer.getConfig()
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	res.Header().Set("Content-Type", "application/javascript")
+	content := fmt.Sprintf(`
+window.HELIX_SENTRY_DSN = "%s"
+window.HELIX_GOOGLE_ANALYTICS = "%s"
+`,
+		config.SentryDSNFrontend,
+		config.GoogleAnalyticsFrontend,
+	)
+	res.Write([]byte(content))
 }
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {

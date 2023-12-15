@@ -327,8 +327,10 @@ type ServerConfig struct {
 	// it's a low level filestore path
 	// if we are using an object storage thing - then this URL
 	// can be the prefix to the bucket
-	FilestorePrefix string `json:"filestore_prefix"`
-	StripeEnabled   bool   `json:"stripe_enabled"`
+	FilestorePrefix         string `json:"filestore_prefix"`
+	StripeEnabled           bool   `json:"stripe_enabled"`
+	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
+	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 }
 
 type CreateSessionRequest struct {

@@ -75,8 +75,11 @@ func NewServeOptions() *ServeOptions {
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
-			SlackWebhookURL: getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
-			IgnoreUsers:     getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
+			SentryDSNApi:            getDefaultServeOptionString("SENTRY_DSN_API", ""),
+			SentryDSNFrontend:       getDefaultServeOptionString("SENTRY_DSN_FRONTEND", ""),
+			GoogleAnalyticsFrontend: getDefaultServeOptionString("GOOGLE_ANALYTICS_FRONTEND", ""),
+			SlackWebhookURL:         getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
+			IgnoreUsers:             getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
 		},
 		StripeOptions: stripe.StripeOptions{
 			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
@@ -231,6 +234,21 @@ func newServeCmd() *cobra.Command {
 
 	// JanitorOptions
 	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SentryDSNApi, "janitor-sentry-dsn-api", allOptions.JanitorOptions.SentryDSNApi,
+		`The api sentry DSN.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.SentryDSNFrontend, "janitor-sentry-dsn-frontend", allOptions.JanitorOptions.SentryDSNFrontend,
+		`The frontend sentry DSN.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
+		&allOptions.JanitorOptions.GoogleAnalyticsFrontend, "janitor-google-analytics-frontend", allOptions.JanitorOptions.GoogleAnalyticsFrontend,
+		`The frontend sentry DSN.`,
+	)
+
+	serveCmd.PersistentFlags().StringVar(
 		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
 		`The slack webhook URL to ping messages to.`,
 	)
@@ -349,6 +367,10 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	options.JanitorOptions.AppURL = options.ServerOptions.URL
 	janitor := janitor.NewJanitor(options.JanitorOptions)
+	err = janitor.Initialize()
+	if err != nil {
+		return err
+	}
 
 	var appController *controller.Controller
 
@@ -435,7 +457,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		},
 	)
 
-	server, err := server.NewServer(options.ServerOptions, store, stripe, appController)
+	server, err := server.NewServer(options.ServerOptions, store, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}
