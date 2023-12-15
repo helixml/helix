@@ -104,6 +104,20 @@ services:
     restart: always
     volumes:
       - ./unstructured/src:/home/notebook-user/app/src
+  dev_gpu_runner:
+    profiles: ["dev_gpu_runner"]
+    build:
+      dockerfile: Dockerfile.runner
+    entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+    volumes:
+      - .:/workspace/helix
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
  
   frontend:
     ports:
