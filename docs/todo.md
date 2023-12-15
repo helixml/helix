@@ -12,6 +12,7 @@
  - [ ] the delete button shows for read only folders in filestore
  - [x] auto-scroll broken
  - [ ] reverse the color of the active session
+ - [ ] ensure the order of things in the dashboard
  - [x] put the name of the session in topbar
  - [x] rather than system as the username, put the name of the session
  - [ ] sessions are updating other sessions https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702476943225859
