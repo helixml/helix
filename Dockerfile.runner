@@ -7,7 +7,7 @@ RUN cd /workspace/axolotl && \
     git remote rm origin && \
     git remote add lukefork https://github.com/lukemarsden/axolotl && \
     git fetch --all && \
-    git checkout 68d0b234de9c36f3e78aabd8b0f0d2010928bf15
+    git checkout 678022e8906368e8219f2c279f4e67a87b76c4b6
 
 RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
     git clone https://github.com/lukemarsden/sd-scripts && \
