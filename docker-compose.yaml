@@ -80,6 +80,7 @@ services:
       - FILESTORE_LOCALFS_PATH=/filestore
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
       - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
+      - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
