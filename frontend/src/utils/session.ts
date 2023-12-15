@@ -95,7 +95,7 @@ export const getHeadline = (modelName: string, mode: ISessionMode, loraDir = '')
   if(loraDir) {
     const parts = loraDir.split('/')
     const id = parts[parts.length - 2]
-    loraString = ` - lora: ${id.split('-').pop()}`
+    loraString = ` - ${id.split('-').pop()}`
   }
   return `${getModelName(modelName)} ${mode} ${loraString}`
 }

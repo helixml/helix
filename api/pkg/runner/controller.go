@@ -85,6 +85,10 @@ type RunnerOptions struct {
 
 	// how many seconds to delay the mock runner
 	MockRunnerDelay int
+
+	// development settings
+	// never run more than this number of model instances
+	MaxModelInstances int
 }
 
 type Runner struct {
@@ -412,6 +416,11 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return nil, nil
 	}
 	freeMemory := r.getHypotheticalFreeMemory()
+
+	// only run one for dev mode
+	if r.Options.MaxModelInstances > 0 && r.activeModelInstances.Size() >= r.Options.MaxModelInstances {
+		return nil, nil
+	}
 
 	if freeMemory < r.lowestMemoryRequirement {
 		// we don't have enough memory to run anything
