@@ -284,7 +284,11 @@ const Layout: FC = ({
                 variant="outlined"
                 endIcon={<LoginIcon />}
                 onClick={ () => {
-                  account.onLogin()
+                  if(localStorage.getItem('devmode') == 'yes') {
+                    throw new Error(`this is a test error from a login`)
+                  } else {
+                    account.onLogin()
+                  }
                 }}
               >
                 Login / Register

@@ -6,3 +6,4 @@ frontend/lib
 gradio/__pycache__
 venv
 *.tar
+dist
