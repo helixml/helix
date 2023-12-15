@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+
+	"github.com/lukemarsden/helix/api/pkg/types"
 )
 
 type adminAuth struct {
@@ -14,7 +16,7 @@ type adminAuth struct {
 func newAdminAuth(adminUserIDs []string) *adminAuth {
 	developmentMode := false
 	for _, id := range adminUserIDs {
-		if id == "*" {
+		if id == types.ADMIN_ALL_USERS {
 			developmentMode = true
 			break
 		}
