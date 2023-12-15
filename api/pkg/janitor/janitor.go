@@ -13,11 +13,12 @@ import (
 )
 
 type JanitorOptions struct {
-	AppURL            string
-	SlackWebhookURL   string
-	SentryDSNApi      string
-	SentryDSNFrontend string
-	IgnoreUsers       []string
+	AppURL                  string
+	SlackWebhookURL         string
+	SentryDSNApi            string
+	SentryDSNFrontend       string
+	GoogleAnalyticsFrontend string
+	IgnoreUsers             []string
 }
 
 type Janitor struct {
