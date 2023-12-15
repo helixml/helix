@@ -9,18 +9,17 @@ if(win.HELIX_SENTRY_DSN) {
   Sentry.init({
     dsn: win.HELIX_SENTRY_DSN,
     integrations: [
-      new Sentry.BrowserTracing({
-        
-      }),
+      new Sentry.BrowserTracing(),
       new Sentry.Replay()
     ],
     // Set tracesSampleRate to 1.0 to capture 100%
     // of transactions for performance monitoring.
     tracesSampleRate: 1.0,
 
-    // Capture Replay for 10% of all sessions,
+    // Capture Replay for 100% of all sessions,
+    // TODO: reduce this value later (sentry costs $ yo)
     // plus for 100% of sessions with an error
-    replaysSessionSampleRate: 0.1,
+    replaysSessionSampleRate: 1.0,
     replaysOnErrorSampleRate: 1.0,
   })
 }
