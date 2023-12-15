@@ -1,5 +1,6 @@
 import React, { FC, useState, useMemo } from 'react'
-
+import { v4 as uuidv4 } from 'uuid'
+import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
@@ -8,7 +9,6 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 
 import DataGrid2, { IDataGrid2_Column } from '../datagrid/DataGrid'
-import useApi from '../../hooks/useApi'
 import ClickLink from '../widgets/ClickLink'
 import Window from '../widgets/Window'
 import SimpleDeleteConfirmWindow from '../widgets/SimpleDeleteConfirmWindow'
@@ -145,6 +145,22 @@ export const FineTuneTextQuestionEditor: FC<{
       withCancel
       submitTitle="Save"
       cancelTitle={ cancelTitle }
+      leftButtons={(
+        <>
+          <Button
+            variant="contained"
+            onClick={ () => {
+              setEditQuestion({
+                id: 'new',
+                question: '',
+                answer: ''
+              })
+            }}
+          >
+            Add Question
+          </Button>
+        </>
+      )}
       onCancel={ onCancel }
       onSubmit={ readOnly ? undefined : () => {
         if(!onSubmit) return
@@ -179,12 +195,23 @@ export const FineTuneTextQuestionEditor: FC<{
             withCancel
             onCancel={ () => setEditQuestion(undefined) }
             onSubmit={ () => {
-              setQuestions(questions.map(q => {
-                if(q.id == editQuestion.id) {
-                  return editQuestion
-                }
-                return q
-              }))
+              if(editQuestion.id == 'new') {
+                const newQuestions = [
+                  ...questions,
+                  {
+                    ...editQuestion,
+                    id: uuidv4(),
+                  }
+                ]
+                setQuestions(newQuestions)
+              } else {
+                setQuestions(questions.map(q => {
+                  if(q.id == editQuestion.id) {
+                    return editQuestion
+                  }
+                  return q
+                }))
+              }
               setEditQuestion(undefined)
               snackbar.info('Question updated')
             } }

@@ -96,30 +96,16 @@ export const FineTuneTextQuestions: FC<{
           
       {
         editMode && (
-          <Window
-            title="Edit Questions"
-            size="lg"
-            fullHeight
-            open
-            withCancel
-            cancelTitle="Close"
+          <FineTuneTextQuestionEditor
+            initialQuestions={ interactionQuestions.questions || [] }
+            onSubmit={ async (questions) => {
+              const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
+              if(saved) {
+                setEditMode(false)
+              }
+            }}
             onCancel={ () => setEditMode(false) }
-          >
-            {
-              interactionQuestions.questions.length > 0 && (
-                <FineTuneTextQuestionEditor
-                  initialQuestions={ interactionQuestions.questions }
-                  onSubmit={ async (questions) => {
-                    const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
-                    if(saved) {
-                      setEditMode(false)
-                    }
-                  }}
-                  onCancel={ () => setEditMode(false) }
-                />
-              )
-            }
-          </Window>
+          />
         )
       }
     
