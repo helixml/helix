@@ -47,6 +47,9 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
     wget http://thegiflibrary.tumblr.com/post/11565547760 -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 # what you sayin', cat?
 
+# so we don't have to fork upstream cog-sdxl repo
+COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
+
 EXPOSE 5000
 # CMD ["python", "-m", "cog.server.http"]
 
