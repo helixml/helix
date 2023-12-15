@@ -47,7 +47,7 @@ export const SessionSummary: FC<{
       </Cell>
       <Cell flexGrow={ 1 }>
         <Caption>
-          { getHeadline(session.model_name, session.mode) } : <JsonWindowLink data={ session }>{ shortID(session.session_id) }</JsonWindowLink> : { getTiming(session) }
+          { getHeadline(session.model_name, session.mode, session.lora_dir) } : <JsonWindowLink data={ session }>{ shortID(session.session_id) }</JsonWindowLink> : { getTiming(session) }
         </Caption>
         <Caption sx={{ color: '#999' }}>
           { getSummaryCaption(session) }
