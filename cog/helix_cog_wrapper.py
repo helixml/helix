@@ -199,8 +199,10 @@ if __name__ == "__main__":
     print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
     if sys.argv[1] == "inference":
-        c = CogTrainer(getJobURL, readSessionURL, appFolder)
-        c.run()
-    if sys.argv[1] == "finetune":
         c = CogInference(getJobURL, readSessionURL, appFolder)
         c.run()
+    if sys.argv[1] == "finetune":
+        c = CogTrainer(getJobURL, readSessionURL, appFolder)
+        c.run()
+
+# TODO: write tests

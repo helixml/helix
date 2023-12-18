@@ -315,8 +315,15 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	log.Info().
 		Msgf("🟢 run model instance: %s, %+v", cmd.Dir, cmd.Args)
 
+	sessionCopy := *session
+	for i, itx := range sessionCopy.Interactions {
+		if itx.Error != "" {
+			sessionCopy.Interactions[i].Error = "<old error redacted for developer sanity>"
+		}
+	}
+
 	log.Info().
-		Msgf("🟢 initial session: %s, %+v", session.ID, session)
+		Msgf("🟢 initial session: %s, %+v", session.ID, sessionCopy)
 
 	instance.currentCommand = cmd
 
