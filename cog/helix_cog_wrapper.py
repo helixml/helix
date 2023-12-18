@@ -16,7 +16,6 @@ from pathlib import Path
 from train import train
 from predict import Predictor
 import zipfile
-import os
 
 def create_zip_file(directory, output_file):
     with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -204,6 +203,7 @@ class CogInference:
                 apiHost = os.getenv("API_HOST")
                 # needs to be like:
                 # http://localhost/api/v1/filestore/viewer/dev/users/568a0236-b855-4615-9ecc-945a3350ea1a/sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30/inputs/143a79cc-2f5a-4efc-980d-8b07aae623d1/IMG_0004.jpg
+                # XXX TODO: maybe we can construct url from session instead, e.g. user etc
                 self.lora_weights = f"{apiHost}/{lora_dir}"
 
         print("🟡 Lora weights --------------------------------------------------\n")
@@ -275,7 +275,7 @@ if __name__ == "__main__":
 
     getJobURL = os.environ.get("HELIX_NEXT_TASK_URL")
     readSessionURL = os.environ.get("HELIX_INITIAL_SESSION_URL")
-    
+
     if getJobURL is None:
         sys.exit("HELIX_GET_JOB_URL is not set")
 
@@ -285,11 +285,18 @@ if __name__ == "__main__":
     print(f"🟡 HELIX_NEXT_TASK_URL {getJobURL} --------------------------------------------------\n")
     print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
 
-    if sys.argv[1] == "inference":
-        c = CogInference(getJobURL, readSessionURL)
-        c.run()
-    if sys.argv[1] == "finetune":
-        c = CogTrainer(getJobURL, readSessionURL)
-        c.run()
+    # cog fine tuner writes files to current working directory.
+    # we might be running concurrently with ourselves, so switch to a new random directory
+
+    # Switch to a new random temporary directory
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.chdir(tmpdir)
+
+        if sys.argv[1] == "inference":
+            c = CogInference(getJobURL, readSessionURL)
+            c.run()
+        if sys.argv[1] == "finetune":
+            c = CogTrainer(getJobURL, readSessionURL)
+            c.run()
 
 # TODO: write tests
