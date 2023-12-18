@@ -166,10 +166,35 @@ class CogInference:
 
             print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
-            image_paths = self.predictor.predict(prompt=task["prompt"])
+            image_paths = self.predictor.predict(
+                prompt=task["prompt"],
+                negative_prompt="",
+                image=None,
+                mask=None,
+                width=1024,
+                height=1024,
+                num_outputs=1,
+                scheduler="K_EULER",
+                num_inference_steps=50,
+                guidance_scale=7.5,
+                prompt_strength=0.8,
+                seed=42,
+                refine="base_image_refiner",
+                high_noise_frac=0.8,
+                refine_steps=None,
+                apply_watermark=False,
+                lora_scale=0.6,
+                replicate_weights=None,
+                disable_safety_checker=True,
+            )
 
             # TODO: rename files per f"image_{session_id}_{timestamp}_{i:03d}.png"
+            timestamp = time.time()
+            for i, ip in enumerate(image_paths):
+                image_paths[i] = ip.rename(ip.parent / f"image_{session_id}_{timestamp:.4f}_{i:03d}.png")
     
+            image_paths = [str(path) for path in image_paths]  # Convert paths to strings
+
             print(f"[SESSION_END_IMAGES]images={json.dumps(image_paths)}", file=sys.stdout)
             print("🟡 SDXL Result --------------------------------------------------\n")
             print(image_paths)
