@@ -89,7 +89,7 @@ class CogTrainer:
         # it's ok to do this because we're single threaded
         # TODO: would be nicer to pass the output path to cog but it just writes
         # to the cwd for training
-        os.chdir(Path("/tmp/helix/results" / session_id))
+        os.chdir(Path("/tmp/helix/results") / session_id)
 
         output = train(
             input_images=input_file,
@@ -121,6 +121,8 @@ class CogTrainer:
         print(f"--------------- OUTPUT ------------------")
         import pprint; pprint.pprint(output)
         print(f"-----------------------------------------")
+
+        Path("./trained_model.tar").rename("./training_dir/trained_model.tar")
 
         # for testing you can return the lora from a previous finetune
         # shutil.copy(f"/tmp/helix/results/e627fb41-048b-41d9-8090-e867d0e858fc/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
