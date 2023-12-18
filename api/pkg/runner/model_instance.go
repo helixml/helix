@@ -313,7 +313,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
 
 	log.Info().
-		Msgf("🟢 run model instance: %s, %+v", cmd.Dir, cmd.Args)
+		Msgf("🟢 run model instance: %s, %+v, %s", cmd.Dir, cmd.Args, cmd.Env)
 
 	sessionCopy := *session
 	for i, itx := range sessionCopy.Interactions {
