@@ -154,6 +154,10 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "cog-sdxl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+		// cog likes to download LoRA from a URL, so we construct one for it
+		fmt.Sprintf("API_HOST=%s", os.Getenv("API_HOST")),
+		// one day it will need to auth to the API server to download LoRAs
+		fmt.Sprintf("API_TOKEN=%s", os.Getenv("API_TOKEN")),
 		"PYTHONUNBUFFERED=1",
 	}
 

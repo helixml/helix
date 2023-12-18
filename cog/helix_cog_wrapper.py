@@ -118,7 +118,8 @@ class CogTrainer:
             resolution=768,
             train_batch_size=4,
             num_train_epochs=4000,
-            max_train_steps=1000,
+            # max_train_steps=1000, # default
+            max_train_steps=10, # just for fast development iterations
             is_lora=True,
             unet_learning_rate=1e-6,
             ti_lr=3e-4,
@@ -159,6 +160,12 @@ class CogInference:
     def __init__(self, getJobURL, readSessionURL):
         self.getJobURL = getJobURL
         self.readSessionURL = readSessionURL
+        self.lora_weights = None
+
+        # XXX: predictor.predict() assumes it can always write to /tmp/out-0.png
+        # This will break when we have multiple concurrent instances of this
+        # running in parallel inside the same container. Fix this by patching
+        # cog-sdxl!
 
         self.predictor = Predictor()
         self.predictor.setup()
@@ -186,10 +193,21 @@ class CogInference:
             waiting_for_initial_session = False
             lora_dir = session["lora_dir"]
             if lora_dir != "":
-                lora_weights = [f"{lora_dir}/lora.safetensors"]
+                # Cog likes these weights as a URL, so construct one for it.
+                # TODO: when we start enforcing auth on the filestore, we'll
+                # need to pass in our API_TOKEN as well or something. But see
+                # below for something to do instead.
+                # TODO: this is wasteful because the runner has already gone to
+                # the bother of downloading this file for us, probably.
+                # TODO: improve this, by making cog just read the weights from
+                # the filesystem, rather than downloading them
+                apiHost = os.getenv("API_HOST")
+                # needs to be like:
+                # http://localhost/api/v1/filestore/viewer/dev/users/568a0236-b855-4615-9ecc-945a3350ea1a/sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30/inputs/143a79cc-2f5a-4efc-980d-8b07aae623d1/IMG_0004.jpg
+                self.lora_weights = f"{apiHost}/{lora_dir}"
 
         print("🟡 Lora weights --------------------------------------------------\n")
-        print(lora_weights)
+        print(self.lora_weights)
 
         self.mainLoop()
 
@@ -212,6 +230,11 @@ class CogInference:
             print(task)
 
             print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
+
+            # TODO: Seems like you can pass the lora weights as a URL either in
+            # setup() or at predict() time. Given the latter, which we use here,
+            # we could send LoRA requests to non-LoRA instances of cog-sdxl,
+            # which could be a performance/GPU memory improvement.
 
             image_paths = self.predictor.predict(
                 prompt=task["prompt"],
