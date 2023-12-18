@@ -15,16 +15,27 @@ from pathlib import Path
 # we get copied into the cog-sdxl folder so assume these modules are available
 from train import train
 from predict import Predictor
+import zipfile
+import os
+
+def create_zip_file(directory, output_file):
+    with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # don't add the file we're writing to the zip file, or we'll get
+                # into an infinite loop
+                if file_path != output_file:
+                    zipf.write(file_path, os.path.relpath(file_path, directory))
 
 
 class CogTrainer:
     """
     A one-shot finetune.
     """
-    def __init__(self, getJobURL, readSessionURL, appFolder):
+    def __init__(self, getJobURL, readSessionURL):
         self.getJobURL = getJobURL
         self.readSessionURL = readSessionURL
-        self.appFolder = appFolder
 
         # TODO: poll the local helix runner API for our training job, do it and then
         # exit
@@ -90,9 +101,46 @@ class CogTrainer:
 
         print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
-        # TODO: cog wants a zip file?
-        output = train(input_images=dataset_dir)
+        # cog wants a tar file?
+
+        output_file = str(Path(dataset_dir) / "images.zip")
+
+        create_zip_file(dataset_dir, output_file)
+
+        print("!!!!!!!!!!!!!!!!!!!!!!!!")
+        print(f"dataset_dir={dataset_dir}")
+        print(f"output_file={output_file}")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!")
+
+        output = train(
+            input_images=output_file,
+            seed=42,
+            resolution=768,
+            train_batch_size=4,
+            num_train_epochs=4000,
+            max_train_steps=1000,
+            is_lora=True,
+            unet_learning_rate=1e-6,
+            ti_lr=3e-4,
+            lora_lr=1e-4,
+            lora_rank=32,
+            lr_scheduler="constant",
+            lr_warmup_steps=100,
+            token_string="TOK",
+            caption_prefix="a photo of TOK, ",
+            mask_target_prompts=None,
+            crop_based_on_salience=True,
+            use_face_detection_instead=False,
+            clipseg_temperature=1.0,
+            verbose=True,
+            checkpointing_steps=9999999,
+            input_images_filetype="zip",
+        )
         # TODO: do something with output
+
+        print(f"--------------- OUTPUT ------------------")
+        import pprint; pprint.pprint(output)
+        print(f"-----------------------------------------")
 
         shutil.move(f"{all_tensors_dir}/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
         shutil.rmtree(all_tensors_dir)
@@ -108,10 +156,9 @@ class CogInference:
     """
     A long-running inference instance.
     """
-    def __init__(self, getJobURL, readSessionURL, appFolder):
+    def __init__(self, getJobURL, readSessionURL):
         self.getJobURL = getJobURL
         self.readSessionURL = readSessionURL
-        self.appFolder = appFolder
 
         self.predictor = Predictor()
         self.predictor.setup()
@@ -206,28 +253,20 @@ if __name__ == "__main__":
     getJobURL = os.environ.get("HELIX_NEXT_TASK_URL")
     readSessionURL = os.environ.get("HELIX_INITIAL_SESSION_URL")
     
-    # this points at the axolotl or cog-sdxl repo in a relative way
-    # to where the helix runner is active
-    appFolder = os.environ.get("APP_FOLDER")
-
     if getJobURL is None:
         sys.exit("HELIX_GET_JOB_URL is not set")
 
     if readSessionURL is None:
         sys.exit("HELIX_INITIAL_SESSION_URL is not set")
 
-    if appFolder is None:
-        sys.exit("APP_FOLDER is not set")
-
     print(f"🟡 HELIX_NEXT_TASK_URL {getJobURL} --------------------------------------------------\n")
     print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
-    print(f"🟡 APP_FOLDER {appFolder} --------------------------------------------------\n")
 
     if sys.argv[1] == "inference":
-        c = CogInference(getJobURL, readSessionURL, appFolder)
+        c = CogInference(getJobURL, readSessionURL)
         c.run()
     if sys.argv[1] == "finetune":
-        c = CogTrainer(getJobURL, readSessionURL, appFolder)
+        c = CogTrainer(getJobURL, readSessionURL)
         c.run()
 
 # TODO: write tests
