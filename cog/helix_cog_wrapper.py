@@ -59,60 +59,40 @@ class CogTrainer:
         dataset_dir = task["dataset_dir"]
 
         base_dir = f"/tmp/helix/results/{session_id}"
-        all_tensors_dir = f"{base_dir}/all_tensors"
-        final_tensors_dir = f"{base_dir}/final_tensors"
-        lora_filename = "lora.safetensors"
+        training_dir = f"{base_dir}/training_dir"
+        lora_filename = "trained_model.tar" # cog writes this
 
-        Path(all_tensors_dir).mkdir(parents=True, exist_ok=True)
-        Path(final_tensors_dir).mkdir(parents=True, exist_ok=True)
+        Path(training_dir).mkdir(parents=True, exist_ok=True)
 
-        with tempfile.NamedTemporaryFile(suffix=".toml", delete=False) as temp:
-            config_path = temp.name
-        
-        values = {
-            'dataset_path': dataset_dir
-        }
-        # TODO: do something with dataset_path
-
-        # TODO: do stuff with captions here, writing them to a csv file (or
-        # eliminate captions)
-
-        # filled_template = toml_template.format(**values)
-        # with open(config_path, 'w') as f:
-        #     f.write(filled_template)
-
-        print("🟡 SDXL Config File --------------------------------------------------\n")
-        print(config_path)
-
-        # print("🟡 SDXL Config --------------------------------------------------\n")
-        # print(filled_template)
+        # TODO: eliminate captions in the UI for now
 
         print("🟡 SDXL Inputs --------------------------------------------------\n")
         print(dataset_dir)
 
         print("🟡 SDXL All Outputs --------------------------------------------------\n")
-        print(all_tensors_dir)
+        print(training_dir)
 
-        # cliArgs.dataset_config = config_path
-        # cliArgs.output_dir = all_tensors_dir
-
-        # args = train_util.read_config_from_file(cliArgs, parser)
+        os.chdir(training_dir)
 
         print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
-        # cog wants a tar file?
+        input_file = str(Path(dataset_dir) / "images.zip")
 
-        output_file = str(Path(dataset_dir) / "images.zip")
-
-        create_zip_file(dataset_dir, output_file)
+        create_zip_file(dataset_dir, input_file)
 
         print("!!!!!!!!!!!!!!!!!!!!!!!!")
         print(f"dataset_dir={dataset_dir}")
-        print(f"output_file={output_file}")
+        print(f"output_file={input_file}")
         print("!!!!!!!!!!!!!!!!!!!!!!!!")
 
+        # write output into session directory
+        # it's ok to do this because we're single threaded
+        # TODO: would be nicer to pass the output path to cog but it just writes
+        # to the cwd for training
+        os.chdir(Path("/tmp/helix/results" / session_id))
+
         output = train(
-            input_images=output_file,
+            input_images=input_file,
             seed=42,
             resolution=768,
             train_batch_size=4,
@@ -142,13 +122,10 @@ class CogTrainer:
         import pprint; pprint.pprint(output)
         print(f"-----------------------------------------")
 
-        shutil.move(f"{all_tensors_dir}/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
-        shutil.rmtree(all_tensors_dir)
-
         # for testing you can return the lora from a previous finetune
         # shutil.copy(f"/tmp/helix/results/e627fb41-048b-41d9-8090-e867d0e858fc/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
 
-        print(f"[SESSION_END_LORA_DIR]lora_dir={final_tensors_dir}", file=sys.stdout)
+        print(f"[SESSION_END_LORA_DIR]lora_dir={training_dir}", file=sys.stdout)
 
 
 
@@ -285,18 +262,11 @@ if __name__ == "__main__":
     print(f"🟡 HELIX_NEXT_TASK_URL {getJobURL} --------------------------------------------------\n")
     print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
 
-    # cog fine tuner writes files to current working directory.
-    # we might be running concurrently with ourselves, so switch to a new random directory
-
-    # Switch to a new random temporary directory
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.chdir(tmpdir)
-
-        if sys.argv[1] == "inference":
-            c = CogInference(getJobURL, readSessionURL)
-            c.run()
-        if sys.argv[1] == "finetune":
-            c = CogTrainer(getJobURL, readSessionURL)
-            c.run()
+    if sys.argv[1] == "inference":
+        c = CogInference(getJobURL, readSessionURL)
+        c.run()
+    if sys.argv[1] == "finetune":
+        c = CogTrainer(getJobURL, readSessionURL)
+        c.run()
 
 # TODO: write tests
