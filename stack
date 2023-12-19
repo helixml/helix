@@ -34,7 +34,11 @@ function start() {
   export LOG_LEVEL=debug
 
   echo "Starting docker-compose"
-  docker-compose up -d
+  if [[ -n "$WITH_RUNNER" ]]; then
+    docker-compose --profile dev_gpu_runner up -d
+  else
+    docker-compose up -d
+  fi
   sleep 2
   
   echo "Creating tmux session $TMUX_SESSION..."
@@ -60,8 +64,8 @@ function start() {
   tmux send-keys -t 2 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 'sleep 10' C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://localhost --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
+    tmux send-keys -t 3 'docker-compose exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
   tmux -2 attach-session -t $TMUX_SESSION

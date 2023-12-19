@@ -39,7 +39,7 @@ export const InteractionMessage: FC<{
     <>
       {
         message && (
-          <Typography className="interactionMessage">{ message }</Typography>
+          <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: message.replace(/\n/g, '<br/>')}}></Typography>
         )
       }
       {

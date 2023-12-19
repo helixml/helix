@@ -1,0 +1,14 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+diffusers==0.19.3
+torch==2.0.1+cu118
+transformers==4.31.0
+invisible-watermark==0.2.0
+accelerate==0.21.0
+pandas==2.0.3
+torchvision==0.15.2
+numpy==1.25.1
+pandas==2.0.3
+fire==0.5.0
+opencv-python>=4.1.0.25
+mediapipe==0.10.2
+requests==2.31.0

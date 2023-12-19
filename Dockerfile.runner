@@ -1,37 +1,57 @@
+#syntax=docker/dockerfile:1.4
+# FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af62f627429a8a83eabbb84e18096490b1661d3c
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 WORKDIR /workspace
+
+# TODO: not sure if this is necessary
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
+
+# ====================================
+# TODO: cache all the weights early on
+# ====================================
+
+
+# Fake venv - helix runner expects one but axolotl is the "root venv" (actually, default conda env) in the image
+RUN mkdir -p /workspace/axolotl/venv/bin
+RUN echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate
+
+# accumulate deb stuff here
+RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy \
+    libgl1-mesa-glx ffmpeg libsm6 libxext6 wget software-properties-common python3 python3-pip git unzip wget python3-virtualenv && \
+    add-apt-repository -y ppa:longsleep/golang-backports && apt update -qq && apt install -qqy golang-1.21 golang-go && \
+    rm -rf /var/lib/apt/lists/*
 
 # Checkout https://github.com/lukemarsden/axolotl/tree/new-long-running (see the hash for the specific version)
 RUN cd /workspace/axolotl && \
     git remote rm origin && \
     git remote add lukefork https://github.com/lukemarsden/axolotl && \
     git fetch --all && \
-    git checkout 8b204b416caf79e933ceb53cbda15756d9e4a9bd
+    git checkout fa90810bb633eb58749384026764cffb654dc2d3
 
-RUN apt-get update -y && apt-get install -y python3 python3-pip git unzip wget python3-virtualenv && \
-    git clone https://github.com/lukemarsden/sd-scripts && \
-    cd sd-scripts && \
-    git checkout long-running && \
+# cog stuff
+COPY cog/cog-0.0.1.dev-py3-none-any.whl /tmp/cog-0.0.1.dev-py3-none-any.whl
+COPY cog/requirements.txt /tmp/requirements.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
+    git clone https://github.com/replicate/cog-sdxl && \
+    cd cog-sdxl && \
+    git checkout a8e10f8ad773ff53357b14d2175638419b0c3c91 && \
     virtualenv venv && \
     . venv/bin/activate && \
-    pip install -r requirements.txt && \
-    pip install bitsandbytes==0.41.1 && \
-    pip install xformers==0.0.22.post4 && \
-    pip install scipy==1.11.4 && \
-    mkdir sdxl && ( \
-        cd sdxl; wget -q --show-progress https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors \
-    )
+    pip install /tmp/cog-0.0.1.dev-py3-none-any.whl && \
+    pip install -r /tmp/requirements.txt && \
+    curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.3/pget" && chmod +x /usr/local/bin/pget && \
+    wget http://thegiflibrary.tumblr.com/post/11565547760 -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+# what you sayin', cat?
 
-RUN apt-get install -y libgl1-mesa-glx ffmpeg libsm6 libxext6
+# so we don't have to fork upstream cog-sdxl repo
+COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
 
-RUN apt-get install -y software-properties-common && add-apt-repository -y ppa:longsleep/golang-backports && apt update -y && apt install -y golang-1.21 golang-go
-
-RUN mkdir -p /workspace/sd-scripts/output_images
-
-# Fake venv - helix runner expects one but axolotl is the "root venv" (actually, default conda env) in the image
-RUN mkdir -p /workspace/axolotl/venv/bin
-RUN echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" > /workspace/axolotl/venv/bin/activate
+EXPOSE 5000
+# CMD ["python", "-m", "cog.server.http"]
 
 RUN mkdir -p /workspace/helix
 ADD . /workspace/helix/

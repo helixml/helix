@@ -104,6 +104,25 @@ services:
     restart: always
     volumes:
       - ./unstructured/src:/home/notebook-user/app/src
+  dev_gpu_runner:
+    profiles: ["dev_gpu_runner"]
+    build:
+      dockerfile: Dockerfile.runner
+    entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+    volumes:
+      - .:/workspace/helix
+      - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
+      # comment these out if you don't have appropriate repos checked out
+      - ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
+      - ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
+      - ../axolotl:/workspace/axolotl
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
  
   frontend:
     ports:

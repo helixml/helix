@@ -10,7 +10,7 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	if modelName == types.Model_Mistral7b {
 		return &Mistral7bInstruct01{}, nil
 	} else if modelName == types.Model_SDXL {
-		return &SDXL{}, nil
+		return &CogSDXL{}, nil
 	} else {
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
