@@ -124,11 +124,15 @@ type Runner struct {
 	// things happening and I can't be bothered to define them all
 	// so let's just add strings for the moment
 	schedulingDecisions []string
+
+	warmupSessions     []types.Session
+	warmupSessionMutex sync.Mutex
 }
 
 func NewRunner(
 	ctx context.Context,
 	options RunnerOptions,
+	warmupSessions []types.Session,
 ) (*Runner, error) {
 	if !options.LocalMode {
 		if options.ID == "" {
@@ -169,6 +173,7 @@ func NewRunner(
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		schedulingDecisions:   []string{},
+		warmupSessions:        warmupSessions,
 	}
 	return runner, nil
 }
@@ -220,12 +225,18 @@ func (r *Runner) startTaskLoop() {
 }
 
 func (r *Runner) taskLoop(ctx context.Context) error {
-
-	// ask the api server if it currently has any work based on the amount of
-	// memory we could free if we killed stale sessions
-	session, err := r.getNextGlobalSession(ctx)
+	session, err := r.getNextWarmupSession()
 	if err != nil {
 		return err
+	}
+
+	if session == nil {
+		// ask the api server if it currently has any work based on the amount of
+		// memory we could free if we killed stale sessions
+		session, err = r.getNextGlobalSession(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	if session != nil {
@@ -401,6 +412,21 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		}
 	}
 	return nil
+}
+
+func (r *Runner) getNextWarmupSession() (*types.Session, error) {
+	if len(r.warmupSessions) == 0 {
+		return nil, nil
+	}
+
+	r.warmupSessionMutex.Lock()
+	defer r.warmupSessionMutex.Unlock()
+
+	lastIndex := len(r.warmupSessions) - 1
+	session := r.warmupSessions[lastIndex]
+	r.warmupSessions = r.warmupSessions[:lastIndex]
+
+	return &session, nil
 }
 
 // ask the master API if they have the next session for us
