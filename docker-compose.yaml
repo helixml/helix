@@ -112,9 +112,10 @@ services:
     volumes:
       - .:/workspace/helix
       - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
-      # comment these out if you don't have appropriate cog-sdxl checked out
+      # comment these out if you don't have appropriate repos checked out
       - ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
       - ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
+      - ../axolotl:/workspace/axolotl
     deploy:
       resources:
         reservations:
