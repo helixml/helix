@@ -470,7 +470,7 @@ const Session: FC = () => {
                   (
                     session.data?.type == SESSION_TYPE_TEXT ?
                       'Chat with Helix...' :
-                      'Describe what you want to see in an image...'
+                      'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
                   ) + " (shift+enter to add a newline)"
                 )}
                 value={inputValue}
