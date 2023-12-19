@@ -240,7 +240,7 @@ class CogInference:
                 high_noise_frac=0.8,
                 refine_steps=None,
                 apply_watermark=False,
-                lora_scale=0.6,
+                lora_scale=0.7,
                 replicate_weights=self.lora_weights,
                 disable_safety_checker=True,
             )
@@ -273,6 +273,8 @@ if __name__ == "__main__":
     print(f"🟡 HELIX_INITIAL_SESSION_URL {readSessionURL} --------------------------------------------------\n")
 
     if sys.argv[1] == "inference":
+        # clean up after a previous run (XXX won't be safe to run concurrently with itself)
+        os.system("rm -rf /src/weights-cache")
         c = CogInference(getJobURL, readSessionURL)
         c.run()
     if sys.argv[1] == "finetune":
