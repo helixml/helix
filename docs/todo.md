@@ -1,30 +1,31 @@
 ## kai
 
  
- - [ ] when continuing a cloned session, the messages are missing
- - [ ] if there are no files - the "view files" button shows an error
+ - [x] when continuing a cloned session, the messages are missing
+ - [x] if there are no files - the "view files" button shows an error
 
- - [ ] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
- - [ ] retry button for errors
+ - [x] "add new documents" button at bottom of text session (add more documents, dataprep new ones into jsonl qa-pairs, concatenate qa-pairs, retrain model)
+ - [x] retry button for errors
  - [ ] render markdown
- - [ ] plugin sentry
- - [ ] share mode where original training data is not copied
+ - [x] plugin sentry
+ - [x] share mode where original training data is not copied
  - [ ] the delete button shows for read only folders in filestore
- - [ ] auto-scroll broken
+ - [x] auto-scroll broken
  - [ ] reverse the color of the active session
- - [ ] put the name of the session in topbar
- - [ ] rather than system as the username, put the name of the session
+ - [ ] ensure the order of things in the dashboard
+ - [x] put the name of the session in topbar
+ - [x] rather than system as the username, put the name of the session
  - [ ] sessions are updating other sessions https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702476943225859
  - [ ] why do finetunes stick around in GPU memory? once they're done they should exit right?
- - [ ] add a restart button whilst doing a fine-tune so if things get stuck we can restart
-   - [ ] possibly only show this if we've not seen any progress for > 30 seconds
+ - [x] add a restart button whilst doing a fine-tune so if things get stuck we can restart
+   - [x] possibly only show this if we've not seen any progress for > 30 seconds (fixed by the error throwing an error if runner reports job still active)
  - [ ] the session page scrolls to the bottom randomly
  - [ ] quite often there's a model ready to serve and a new one gets spun up on the other node - maybe the clocks are drifting between the machines so the 2 second head start doesn't work? or the python processes aren't polling every 100ms or something?
  - [ ] speedway empty error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701725991656799
  - [ ] empty response messages error https://mlops-community.slack.com/archives/C0675EX9V2Q/p1701727773319809
- - [ ] dashboard not showing finetune interactions
+ - [x] dashboard not showing finetune interactions
  - [ ] we are getting nignx 500's in the runner "load session from api" handler https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702369315736539
- - [ ] performance of auto-save before login (image fine tune text is slow)
+ - [x] performance of auto-save before login (image fine tune text is slow)
  - [ ] autoscale spot runpod instances to match our queue depth: https://graphql-spec.runpod.io/ https://docs.runpod.io/recipes/ 
  - [ ] for session updates check we are on the same page
    - [ ] whilst we are on one page and another session is processing - it's updating the page we are on with the wrong session
@@ -35,19 +36,19 @@
  - [ ] can you make it use GiB not GB? as in, gibibytes 1GB = 1024 * 1024 * 1024 bytes
  - [ ] timestamps on the log events for runner scheduling decisions
  - [ ] show a dot next to sessions that are currently active or have new replies
- - [ ] progress bars on text fine tuning
- - [ ] fork session (fork from an interaction)
- - [ ] add data after the model is trained
+ - [x] progress bars on text fine tuning
+ - [x] fork session (fork from an interaction)
+ - [x] add data after the model is trained
  - [x] pdfs are broken in production
- - [ ] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
+ - [x] for HTML conversion, use pupetteer to render the page into a PDF then convert the PDF into plain text
  - [ ] multiple SDXL at the same time causes error
    - [ ] this could be in same session or not
    - [ ] we need a test stack
  - [ ] place in the queue indiciation if it's more than 5 seconds
  - [ ] multi-model group (i.e. train an image and text and combine them into one chat)
  - [ ] add your own runner
- - [ ] reliable and fast, scale to 5 concurrent users (Luke)
-   - [ ] Dockerize the runner & deploy some on vast.ai / runpod.io
+ - [x] reliable and fast, scale to 5 concurrent users (Luke)
+   - [x] Dockerize the runner & deploy some on vast.ai / runpod.io
  - [ ] show API calls to replicate many actions (e.g. text & image inference to start with)
  - [ ] kill any pid that shows up in nvidia-smi that it doesn't own
  - [ ] email user when their finetune completes
@@ -92,9 +93,9 @@
  - [ ] page / controller for list bots
  - [ ] show bot at top of session
  - [ ] form fields for description, icon and pre-prompt
- - [ ] re-train, will add more interactions to add files to
- - [ ] we should keep previous Lora files at the interaction level
- - [ ] we hoist lora_dir from the latest interaction to the session
+ - [x] re-train, will add more interactions to add files to
+ - [x] we should keep previous Lora files at the interaction level
+ - [x] we hoist lora_dir from the latest interaction to the session
  - [ ] /bot/XXX page that will spawn new session
  - [ ] share and when shared, hide the files (i.e. publish a bot where it's just inference)
  - [ ] share as well as create bot

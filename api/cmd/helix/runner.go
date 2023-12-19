@@ -41,6 +41,7 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterModelName:              getDefaultServeOptionString("FILTER_MODEL_NAME", ""),
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
+			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 		},
 		Janitor: janitor.JanitorOptions{
 			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
@@ -153,6 +154,11 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().BoolVar(
 		&allOptions.Runner.AllowMultipleCopies, "allow-multiple-copies", allOptions.Runner.AllowMultipleCopies,
 		`Should we allow multiple copies of the same model to run at the same time?`,
+	)
+
+	runnerCmd.PersistentFlags().IntVar(
+		&allOptions.Runner.MaxModelInstances, "max-model-instances", allOptions.Runner.MaxModelInstances,
+		`How many instances of a model can we run at the same time?`,
 	)
 
 	runnerCmd.PersistentFlags().StringVar(

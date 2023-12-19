@@ -139,6 +139,11 @@ export const useAccountContext = (): IAccountContext => {
           id: keycloak.tokenParsed?.sub,
           email: keycloak.tokenParsed?.preferred_username, 
           token: keycloak.token,
+          name: keycloak.tokenParsed?.name,
+        }
+        const win = (window as any)
+        if(win.setUser) {
+          win.setUser(user)
         }
         api.setToken(keycloak.token)
         setUser(user)
