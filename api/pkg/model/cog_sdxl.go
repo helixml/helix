@@ -36,7 +36,7 @@ func (l *CogSDXL) GetMemoryRequirements(mode types.SessionMode) uint64 {
 	if mode == types.SessionModeFinetune {
 		return GB * 24
 	} else {
-		return GB * 15
+		return GB * 18
 	}
 }
 
