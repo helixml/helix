@@ -57,13 +57,12 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 // are waiting for a newline before we emit a word
 // and we can't use bufio.ScanWords because it strips newlines before
 // we get a chance to know they were there
-//
-// this implementation will replace newlines with "[NEWLINE]" sequence
+// so we just don't count a newline as a space! and then it gets preserved
 func isSpace(r rune) bool {
 	if r <= '\u00FF' {
 		// Obvious ASCII ones: \t through \r plus space. Plus two Latin-1 oddballs.
 		switch r {
-		case ' ', '\t', '\n', '\v', '\f', '\r':
+		case ' ', '\t', '\v', '\f', '\r':
 			return true
 		case '\u0085', '\u00A0':
 			return true
@@ -82,22 +81,15 @@ func isSpace(r rune) bool {
 }
 
 func scanWordsPreserveNewlines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	// Note the implementation of isSpace has been modified to not count a
+	// newline as a space, so that we preserve them.
 	// Skip leading spaces except newlines.
 	start := 0
 	for width := 0; start < len(data); start += width {
 		var r rune
 		r, width = utf8.DecodeRune(data[start:])
-		if !isSpace(r) || r == '\n' {
+		if !isSpace(r) {
 			break
-		}
-	}
-
-	// Check for newline at the current position.
-	if start < len(data) {
-		r, _ := utf8.DecodeRune(data[start:])
-		if r == '\n' {
-			// Return "[NEWLINE]" token for newline character.
-			return start + 1, []byte("\n"), nil
 		}
 	}
 

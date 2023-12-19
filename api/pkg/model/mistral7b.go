@@ -64,7 +64,6 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		})
 
 		// this will get called for each word
-		// we have already replaced newlines with "[NEWLINE]"
 		stdout := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
 			err := chunker.write(chunk)
 			if err != nil {
