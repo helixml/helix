@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 # we get copied into the cog-sdxl folder so assume these modules are available
+# TODO: parse dynamically these entrypoints from any cog yaml
 from train import train
 from predict import Predictor
 import zipfile
@@ -60,30 +61,25 @@ class CogTrainer:
 
         base_dir = f"/tmp/helix/results/{session_id}"
         training_dir = f"{base_dir}/training_dir"
-        lora_filename = "trained_model.tar" # cog writes this
 
         Path(training_dir).mkdir(parents=True, exist_ok=True)
 
-        # TODO: eliminate captions in the UI for now
-
-        print("🟡 SDXL Inputs --------------------------------------------------\n")
-        print(dataset_dir)
-
-        print("🟡 SDXL All Outputs --------------------------------------------------\n")
-        print(training_dir)
+        # TODO: eliminate captions in the UI for now (or show the ones the system generates)
 
         os.chdir(training_dir)
 
         print(f"[SESSION_START]session_id={session_id}", file=sys.stdout)
 
         input_file = str(Path(dataset_dir) / "images.zip")
+        
+        print("🟡 SDXL Inputs --------------------------------------------------\n")
+        print(f"dataset_dir={dataset_dir}")
+        print(f"input_file={input_file}")
+
+        print("🟡 SDXL All Outputs --------------------------------------------------\n")
+        print(training_dir)
 
         create_zip_file(dataset_dir, input_file)
-
-        print("!!!!!!!!!!!!!!!!!!!!!!!!")
-        print(f"dataset_dir={dataset_dir}")
-        print(f"output_file={input_file}")
-        print("!!!!!!!!!!!!!!!!!!!!!!!!")
 
         # write output into session directory
         # it's ok to do this because we're single threaded
@@ -97,8 +93,8 @@ class CogTrainer:
             resolution=768,
             train_batch_size=4,
             num_train_epochs=4000,
-            # max_train_steps=1000, # default
-            max_train_steps=10, # just for fast development iterations
+            max_train_steps=1000, # default
+            # max_train_steps=10, # just for fast development iterations
             is_lora=True,
             unet_learning_rate=1e-6,
             ti_lr=3e-4,
@@ -122,7 +118,8 @@ class CogTrainer:
         import pprint; pprint.pprint(output)
         print(f"-----------------------------------------")
 
-        Path("./trained_model.tar").rename("./training_dir/trained_model.tar")
+        # move result into ./training_dir
+        Path("./trained_model.tar").rename(f"{training_dir}/trained_model.tar")
 
         # for testing you can return the lora from a previous finetune
         # shutil.copy(f"/tmp/helix/results/e627fb41-048b-41d9-8090-e867d0e858fc/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
@@ -153,7 +150,6 @@ class CogInference:
     def run(self):
         # TODO: modify the predictor so it takes the lora file as an argument
         # rather than assuming a hard-coded location
-        lora_weights = []
         waiting_for_initial_session = True
 
         # we need to load the first task to know what the Lora weights are
@@ -168,24 +164,36 @@ class CogInference:
                 continue
             
             session = json.loads(response.content)
+            print("🟡 GOT SESSION --------------------------------------------------\n")
+            import pprint; pprint.pprint(session)
+            # pick out the latest interaction with a lora_dir - that is the path
+            # we need in the filestore starting with 'dev/...'
+            lora_api_path = None
+            for itx in session["interactions"]:
+                if "lora_dir" in itx and itx["lora_dir"] != "":
+                    lora_api_path = itx["lora_dir"]
             waiting_for_initial_session = False
-            lora_dir = session["lora_dir"]
-            if lora_dir != "":
+            if lora_api_path:
                 # Cog likes these weights as a URL, so construct one for it.
                 # TODO: when we start enforcing auth on the filestore, we'll
                 # need to pass in our API_TOKEN as well or something. But see
-                # below for something to do instead.
+                # below for something better to do instead.
                 # TODO: this is wasteful because the runner has already gone to
                 # the bother of downloading this file for us, probably.
                 # TODO: improve this, by making cog just read the weights from
                 # the filesystem, rather than downloading them
                 apiHost = os.getenv("API_HOST")
+                if apiHost.endswith("/"):
+                    apiHost = apiHost[:-1]
                 # needs to be like:
-                # http://localhost/api/v1/filestore/viewer/dev/users/568a0236-b855-4615-9ecc-945a3350ea1a/sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30/inputs/143a79cc-2f5a-4efc-980d-8b07aae623d1/IMG_0004.jpg
+                # http://localhost/api/v1/filestore/viewer/dev/users
+                #     /568a0236-b855-4615-9ecc-945a3350ea1a
+                #     /sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30
+                #     /lora/bb9e6395-0df6-4073-8064-0ae759075b2f/trained_model.tar
                 # XXX TODO: maybe we can construct url from session instead, e.g. user etc
-                self.lora_weights = f"{apiHost}/{lora_dir}"
+                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar"
 
-        print("🟡 Lora weights --------------------------------------------------\n")
+        print("🟡 Lora weights URL --------------------------------------------------\n")
         print(self.lora_weights)
 
         self.mainLoop()
@@ -233,7 +241,7 @@ class CogInference:
                 refine_steps=None,
                 apply_watermark=False,
                 lora_scale=0.6,
-                replicate_weights=None,
+                replicate_weights=self.lora_weights,
                 disable_safety_checker=True,
             )
 

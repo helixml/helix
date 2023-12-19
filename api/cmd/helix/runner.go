@@ -6,6 +6,7 @@ import (
 	"os/signal"
 
 	"github.com/lukemarsden/helix/api/pkg/janitor"
+	"github.com/lukemarsden/helix/api/pkg/model"
 	"github.com/lukemarsden/helix/api/pkg/runner"
 	"github.com/lukemarsden/helix/api/pkg/system"
 	"github.com/lukemarsden/helix/api/pkg/types"
@@ -204,6 +205,11 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	// processes that will then speak back to these routes
 	options.Runner.TaskURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/task"))
 	options.Runner.InitialSessionURL = fmt.Sprintf("http://localhost:%d%s", options.Server.Port, system.GetApiPath("/worker/initial_session"))
+
+	// global state - expedient hack (TODO remove this when we switch cog away
+	// from downloading lora weights via http from the filestore)
+	model.API_HOST = options.Runner.ApiHost
+	model.API_TOKEN = options.Runner.ApiToken
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner)
 	if err != nil {
