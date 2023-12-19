@@ -83,7 +83,7 @@ export const ModelInstanceSummary: FC<{
                   sx={{lineHeight: 1}}
                   variant="body2"
                 >
-                  { getHeadline(modelInstance.model_name, modelInstance.mode) }
+                  { getHeadline(modelInstance.model_name, modelInstance.mode, modelInstance.lora_dir) }
                 </Typography>
                 <Typography
                   sx={{lineHeight: 1}}

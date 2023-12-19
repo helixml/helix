@@ -23,6 +23,7 @@ export const FineTuneTextQuestions: FC<{
   const snackbar = useSnackbar()
   const api = useApi()
   const interactionQuestions = useInteractionQuestions()
+  const [ showEditMode, setShowEditMode ] = useState(false)
   const [ editMode, setEditMode ] = useState(false)
   
   const startFinetuning = useCallback(async () => {
@@ -37,9 +38,17 @@ export const FineTuneTextQuestions: FC<{
   useEffect(() => {
     if(!editMode) {
       interactionQuestions.setQuestions([])
+      setShowEditMode(false)
       return
     }
-    interactionQuestions.loadQuestions(sessionID, interactionID)
+    
+    const doAsync = async () => {
+      setShowEditMode(false)
+      await interactionQuestions.loadQuestions(sessionID, interactionID)
+      setShowEditMode(true)
+    }
+    doAsync()
+    
   }, [
     editMode,
     sessionID,
@@ -95,31 +104,17 @@ export const FineTuneTextQuestions: FC<{
       </Grid>
           
       {
-        editMode && (
-          <Window
-            title="Edit Questions"
-            size="lg"
-            fullHeight
-            open
-            withCancel
-            cancelTitle="Close"
+        showEditMode && (
+          <FineTuneTextQuestionEditor
+            initialQuestions={ interactionQuestions.questions || [] }
+            onSubmit={ async (questions) => {
+              const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
+              if(saved) {
+                setEditMode(false)
+              }
+            }}
             onCancel={ () => setEditMode(false) }
-          >
-            {
-              interactionQuestions.questions.length > 0 && (
-                <FineTuneTextQuestionEditor
-                  initialQuestions={ interactionQuestions.questions }
-                  onSubmit={ async (questions) => {
-                    const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
-                    if(saved) {
-                      setEditMode(false)
-                    }
-                  }}
-                  onCancel={ () => setEditMode(false) }
-                />
-              )
-            }
-          </Window>
+          />
         )
       }
     

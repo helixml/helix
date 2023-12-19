@@ -206,3 +206,7 @@ const (
 )
 
 const API_KEY_PREIX = "hl-"
+
+// what will activate all users being admin users
+// this is a dev setting and should be applied to ADMIN_USER_IDS
+const ADMIN_ALL_USERS = "all"
