@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/lukemarsden/helix/api/pkg/janitor"
 	"github.com/lukemarsden/helix/api/pkg/model"
@@ -178,6 +179,46 @@ func newRunnerCmd() *cobra.Command {
 	return runnerCmd
 }
 
+var ITX_A = types.Interaction{
+	ID:       "warmup-user",
+	Created:  time.Now(),
+	Creator:  "user",
+	Message:  "a new runner is born",
+	Finished: true,
+}
+var ITX_B = types.Interaction{
+	ID:       "warmup-system",
+	Created:  time.Now(),
+	Creator:  "system",
+	Finished: false,
+}
+
+var WARMUP_SESSIONS = []types.Session{{
+	ID:           "warmup-text",
+	Name:         "warmup-text",
+	Created:      time.Now(),
+	Updated:      time.Now(),
+	Mode:         "inference",
+	Type:         types.SessionTypeText,
+	ModelName:    types.Model_Mistral7b,
+	LoraDir:      "",
+	Interactions: []types.Interaction{ITX_A, ITX_B},
+	Owner:        "warmup-user",
+	OwnerType:    "user",
+}, {
+	ID:           "warmup-image",
+	Name:         "warmup-image",
+	Created:      time.Now(),
+	Updated:      time.Now(),
+	Mode:         "inference",
+	Type:         types.SessionTypeImage,
+	ModelName:    types.Model_SDXL,
+	LoraDir:      "",
+	Interactions: []types.Interaction{ITX_A, ITX_B},
+	Owner:        "warmup-user",
+	OwnerType:    "user",
+}}
+
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
 
@@ -217,7 +258,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	model.API_HOST = options.Runner.ApiHost
 	model.API_TOKEN = options.Runner.ApiToken
 
-	runnerController, err := runner.NewRunner(ctx, options.Runner)
+	runnerController, err := runner.NewRunner(ctx, options.Runner, WARMUP_SESSIONS)
 	if err != nil {
 		return err
 	}
