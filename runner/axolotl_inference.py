@@ -67,7 +67,7 @@ def do_inference():
 
         time.sleep(1)
 
-        print(f"[SESSION_START]session_id={session_id}")
+        print(f" [SESSION_START]session_id={session_id} ")
         print(f"{instruction}\n")
 
         for i in range(1, 10):
@@ -75,7 +75,7 @@ def do_inference():
             time.sleep(0.1)
         
         print(f"</s>")
-        print(f"[SESSION_END]session_id={session_id}")
+        print(f" [SESSION_END]session_id={session_id} ")
 
 if __name__ == "__main__":
     do_inference()
