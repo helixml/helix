@@ -17,9 +17,6 @@ import (
 )
 
 type Mistral7bInstruct01 struct {
-	// how many user queries so far (used to calculate [/INST] boundary between
-	// query and response)
-	turns int
 }
 
 func (l *Mistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint64 {
@@ -42,11 +39,9 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	task.DatasetDir = fileManager.GetFolder()
 
-	var turns int
 	var messages []string
 	for _, interaction := range session.Interactions {
 		if interaction.Creator == "user" {
-			turns += 1
 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
 		} else {
 			messages = append(messages, interaction.Message)
@@ -54,8 +49,6 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 	}
 
 	task.Prompt = strings.Join(messages, "\n") + "\n"
-	// remember this because we'll use it to know when to start returning results
-	l.turns = turns
 	return task, nil
 }
 
@@ -71,7 +64,6 @@ func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandle
 		})
 
 		// this will get called for each word
-		// we have already replaced newlines with "[NEWLINE]"
 		stdout := NewTextStream(scanWordsPreserveNewlines, func(chunk string) {
 			err := chunker.write(chunk)
 			if err != nil {
@@ -236,7 +228,6 @@ type mistral7bInferenceChunker struct {
 	// this means "have we seen the [/INST] so are now into the answer?"
 	active       bool
 	eventHandler WorkerEventHandler
-	turnsSoFar   int
 }
 
 func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistral7bInferenceChunkerOptions) *mistral7bInferenceChunker {
@@ -247,7 +238,6 @@ func newMistral7bInferenceChunker(eventHandler WorkerEventHandler, options mistr
 		bufferSession: "",
 		active:        false,
 		eventHandler:  eventHandler,
-		turnsSoFar:    0,
 	}
 }
 
@@ -278,11 +268,10 @@ func (chunker *mistral7bInferenceChunker) emitResult() {
 }
 
 func (chunker *mistral7bInferenceChunker) write(word string) error {
+	log.Info().Msgf("👉 '%s' 👈", strings.Replace(word, "\n", "\\n", -1))
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
-		// reset turns count
-		chunker.turnsSoFar = chunker.options.mistral.turns
-		log.Info().Msgf(">>> SESSION_START, turnsSoFar: %d", chunker.turnsSoFar)
+		log.Info().Msg("👉 case 1")
 		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -291,22 +280,19 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 			return fmt.Errorf("invalid session start line: %s", word)
 		}
 		chunker.sessionID = parts[1]
+		chunker.active = true
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
+		log.Info().Msg("👉 case 2")
 		chunker.emitResult()
 		chunker.reset()
 	} else if chunker.sessionID != "" {
+		log.Info().Msg("👉 case 3")
 		if chunker.active {
 			if strings.HasSuffix(word, "</s>") {
 				word = strings.Replace(word, "</s>", "", 1)
 			}
+			log.Info().Msg("👉 case 4")
 			chunker.addBuffer(word)
-		} else if strings.HasSuffix(word, "[/INST]") {
-			chunker.turnsSoFar -= 1
-			log.Info().Msgf(">>> [/INST], turnsSoFar: %d", chunker.turnsSoFar)
-			if chunker.turnsSoFar <= 0 {
-				log.Info().Msgf(">>> ACTIVATE")
-				chunker.active = true
-			}
 		}
 	}
 	return nil
