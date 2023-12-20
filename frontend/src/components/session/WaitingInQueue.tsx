@@ -102,7 +102,7 @@ export const WaitingInQueue: FC<{
                 emitEvent({
                   name: 'queue_on_prem_clicked'
                 })
-                window.open('https://docs.helix.ml')
+                window.open('https://docs.helix.ml/docs/controlplane')
               }}>View Docs</Button>
           </CardActions>
         </Card>

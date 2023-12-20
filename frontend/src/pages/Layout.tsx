@@ -408,7 +408,7 @@ const Layout: FC = ({
                         color="secondary"
                         endIcon={<HelpIcon />}
                         onClick={ () => {
-                          window.open(`https://docs.helix.ml`)
+                          window.open(`https://docs.helix.ml/docs/overview`)
                         }}
                       >
                         View Docs
