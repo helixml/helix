@@ -6,10 +6,6 @@ export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
 
-function psql() {
-  docker-compose exec postgres psql --user postgres "$@"
-}
-
 function mock-runner() {
    go run . runner \
     --mock-runner \
@@ -76,6 +72,24 @@ function stop() {
   tmux kill-session -t $TMUX_SESSION
   echo "Removing docker containers"
   docker rm -f $(docker ps -aq) || true
+}
+
+function db() {
+  local subcommand="${1-cli}"
+  shift
+  if [[ "$subcommand" == "cli" ]]; then
+    docker-compose exec postgres psql --user postgres "$@"
+  elif [[ "$subcommand" == "pipe" ]]; then
+    docker-compose exec -T postgres psql --user postgres "$@"
+  fi
+}
+
+function psql() {
+  db cli "$@"
+}
+
+function psql_pipe() {
+  db pipe "$@"
 }
 
 eval "$@"
