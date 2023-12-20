@@ -78,6 +78,15 @@ const Session: FC = () => {
     session.data,
   ])
 
+  const lastFinetuneInteraction = useMemo(() => {
+    if(!session.data) return undefined
+    const finetunes = session.data.interactions.filter(i => i.mode == SESSION_MODE_FINETUNE)
+    if(finetunes.length === 0) return undefined
+    return finetunes[finetunes.length - 1]
+  }, [
+    session.data,
+  ])
+
   const onSend = useCallback(async (prompt: string) => {
     if(!session.data) return
     if(!checkOwnership({
@@ -374,7 +383,7 @@ const Session: FC = () => {
       >
         <Container maxWidth="lg">
           {
-            isOwner && (
+            (isOwner || account.admin) && (
               <SessionHeader
                 session={ session.data }
               />
@@ -399,7 +408,7 @@ const Session: FC = () => {
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
                     const interactionsLength = session.data?.interactions.length || 0
-                    const isLast = i == interactionsLength - 1
+                    const isLast = lastFinetuneInteraction && lastFinetuneInteraction.id == interaction.id
                     const isLive = isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
 
                     if(!session.data) return null
@@ -431,7 +440,7 @@ const Session: FC = () => {
                         onRestart={ isLast ? onRestart : undefined }
                       >
                         {
-                          isLive && isOwner && (
+                          isLive && (isOwner || account.admin) && (
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
