@@ -223,11 +223,14 @@ export const SessionsMenu: FC<{
               fontSize: '0.8em'
             }}>
               {
-                sessions.loading ? (
+                sessions.loading && (
                   <CircularProgress
                     size={ 20 }
                   />
-                ) : (
+                )
+              }
+              {
+                !sessions.loading && sessions.hasMoreSessions && (
                   <ClickLink
                     onClick={ () => {
                       sessions.advancePage()
