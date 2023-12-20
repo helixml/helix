@@ -20,6 +20,7 @@ export interface ISessionsContext {
   loading: boolean,
   pagination: IPaginationState,
   sessions: ISessionSummary[],
+  hasMoreSessions: boolean,
   advancePage: () => void,
   loadSessions: (reload?: boolean) => Promise<void>,
   addSesssion: (session: ISession) => void,
@@ -35,6 +36,7 @@ export const SessionsContext = createContext<ISessionsContext>({
     limit: 0,
     offset: 0,
   },
+  hasMoreSessions: true,
   sessions: [],
   advancePage: () => {},
   loadSessions: async () => {},
@@ -62,8 +64,13 @@ export const useSessionsContext = (): ISessionsContext => {
 
   const loadSessions = useCallback(async (reload = false) => {
     const limit = page * SESSION_PAGINATION_PAGE_LIMIT
+    // console.dir({
+    //   page,
+    //   limit,
+    //   pagination,
+    // })
     // this means we have already loaded all the sessions
-    if(limit > pagination.total && pagination.total > 0 && !reload) return
+    // if(limit > pagination.total && pagination.total > 0 && !reload) return
     setLoading(true)
     const result = await api.get<ISessionsList>('/api/v1/sessions', {
       params: {
@@ -84,6 +91,13 @@ export const useSessionsContext = (): ISessionsContext => {
     setLoading(false)
   }, [
     page,
+    pagination,
+  ])
+
+  const hasMoreSessions = useMemo(() => {
+    return sessions.length < pagination.total
+  }, [
+    sessions,
     pagination,
   ])
 
@@ -137,6 +151,7 @@ export const useSessionsContext = (): ISessionsContext => {
     loading,
     pagination,
     sessions,
+    hasMoreSessions,
     advancePage,
     loadSessions,
     addSesssion,
@@ -147,6 +162,7 @@ export const useSessionsContext = (): ISessionsContext => {
     loading,
     pagination,
     sessions,
+    hasMoreSessions,
     advancePage,
     loadSessions,
     addSesssion,
