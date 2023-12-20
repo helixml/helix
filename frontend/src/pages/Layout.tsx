@@ -16,6 +16,7 @@ import ListItemText from '@mui/material/ListItemText'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
+import HelpIcon from '@mui/icons-material/Help'
 import Menu from '@mui/material/Menu'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -398,17 +399,34 @@ const Layout: FC = ({
               bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
             }
             {
-              account.user ? null : (
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<LoginIcon />}
-                  onClick={ () => {
-                    account.onLogin()
-                  }}
-                >
-                  Login / Register
-                </Button>
+              bigScreen && (
+                <>
+                  {
+                    account.user ? (
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        endIcon={<HelpIcon />}
+                        onClick={ () => {
+                          window.open(`https://docs.helix.ml`)
+                        }}
+                      >
+                        View Docs
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        endIcon={<LoginIcon />}
+                        onClick={ () => {
+                          account.onLogin()
+                        }}
+                      >
+                        Login / Register
+                      </Button>
+                    )
+                  }
+                </>
               )
             }
           </Box>
