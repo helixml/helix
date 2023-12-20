@@ -2,6 +2,7 @@ import React, { FC, useEffect } from 'react'
 import Typography from '@mui/material/Typography'
 import Progress from '../widgets/Progress'
 
+import WaitingInQueue from './WaitingInQueue'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 
@@ -12,18 +13,21 @@ import {
 export const InteractionLiveStream: FC<{
   session_id: string,
   interaction: IInteraction,
+  hasSubscription?: boolean,
   onMessageChange?: {
     (message: string): void,
   },
 }> = ({
   session_id,
   interaction,
+  hasSubscription = false,
   onMessageChange,
 }) => {
   const {
     message,
     progress,
     status,
+    isStale,
   } = useLiveInteraction({
     session_id,
     interaction,
@@ -59,6 +63,13 @@ export const InteractionLiveStream: FC<{
       {
         status && (
           <Typography variant="caption">{ status }</Typography>
+        )
+      }
+      {
+        isStale && (
+          <WaitingInQueue
+            hasSubscription={ hasSubscription }
+          />
         )
       }
     </>

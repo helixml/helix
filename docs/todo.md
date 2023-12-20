@@ -17,6 +17,8 @@
  - [x] rather than system as the username, put the name of the session
  - [ ] sessions are updating other sessions https://mlops-community.slack.com/archives/C0675EX9V2Q/p1702476943225859
  - [ ] why do finetunes stick around in GPU memory? once they're done they should exit right?
+ - [ ] make it clear that URLs need to be of text content - for example a youtube URL will not work
+ - [ ] detect when we did not manage to extract any text and tell the user that is the error
  - [x] add a restart button whilst doing a fine-tune so if things get stuck we can restart
    - [x] possibly only show this if we've not seen any progress for > 30 seconds (fixed by the error throwing an error if runner reports job still active)
  - [ ] the session page scrolls to the bottom randomly
