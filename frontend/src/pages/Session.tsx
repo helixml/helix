@@ -445,6 +445,7 @@ const Session: FC = () => {
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
+                              hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
                               onMessageChange={ scrollToBottom }
                             />
                           )
