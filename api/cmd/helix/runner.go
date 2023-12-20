@@ -258,7 +258,12 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	model.API_HOST = options.Runner.ApiHost
 	model.API_TOKEN = options.Runner.ApiToken
 
-	runnerController, err := runner.NewRunner(ctx, options.Runner, WARMUP_SESSIONS)
+	useWarmupSessions := []types.Session{}
+	if !options.Runner.MockRunner {
+		useWarmupSessions = WARMUP_SESSIONS
+	}
+
+	runnerController, err := runner.NewRunner(ctx, options.Runner, useWarmupSessions)
 	if err != nil {
 		return err
 	}
