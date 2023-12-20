@@ -421,11 +421,16 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 		}
 	}
 	if !existing {
-		// we are a priority session so
 		if session.Config.Priority {
-			// insert the session into newQueue just after the lastPriorityIndex
-			newQueue = append(newQueue[:lastPriorityIndex+1], append([]*types.Session{session}, newQueue[lastPriorityIndex+1:]...)...)
-			newSummaryQueue = append(newSummaryQueue[:lastPriorityIndex+1], append([]*types.SessionSummary{sessionSummary}, newSummaryQueue[lastPriorityIndex+1:]...)...)
+			if lastPriorityIndex == -1 {
+				// prepend the session to the start of the queue
+				newQueue = append([]*types.Session{session}, newQueue...)
+				newSummaryQueue = append([]*types.SessionSummary{sessionSummary}, newSummaryQueue...)
+			} else {
+				// insert the session into newQueue just after the lastPriorityIndex
+				newQueue = append(newQueue[:lastPriorityIndex+1], append([]*types.Session{session}, newQueue[lastPriorityIndex+1:]...)...)
+				newSummaryQueue = append(newSummaryQueue[:lastPriorityIndex+1], append([]*types.SessionSummary{sessionSummary}, newSummaryQueue[lastPriorityIndex+1:]...)...)
+			}
 		} else {
 			// we did not find the session already in the queue
 			newQueue = append(newQueue, session)
