@@ -70,6 +70,7 @@ type SessionConfig struct {
 	Origin       SessionOrigin `json:"origin"`
 	Shared       bool          `json:"shared"`
 	Avatar       string        `json:"avatar"`
+	Priority     bool          `json:"priority"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -342,6 +343,7 @@ type CreateSessionRequest struct {
 	Owner           string
 	OwnerType       OwnerType
 	UserInteraction Interaction
+	Priority        bool
 }
 
 type UpdateSessionRequest struct {
@@ -366,7 +368,8 @@ type SessionSummary struct {
 	Owner         string      `json:"owner"`
 	LoraDir       string      `json:"lora_dir,omitempty"`
 	// this is either the prompt or the summary of the training data
-	Summary string `json:"summary"`
+	Summary  string `json:"summary"`
+	Priority bool   `json:"priority"`
 }
 
 type ModelInstanceState struct {
