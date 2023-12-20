@@ -33,6 +33,8 @@ export const InteractionLiveStream: FC<{
     interaction,
   })
 
+  const showLoading = !message && progress==0 && !status
+
   useEffect(() => {
     if(!message) return
     if(!onMessageChange) return
@@ -44,7 +46,7 @@ export const InteractionLiveStream: FC<{
   return (
     <>
       {
-        !message && progress==0 && !status && (
+        showLoading && (
           <LoadingSpinner />
         )
       }
@@ -66,7 +68,7 @@ export const InteractionLiveStream: FC<{
         )
       }
       {
-        isStale && (
+        showLoading && isStale && (
           <WaitingInQueue
             hasSubscription={ hasSubscription }
           />
