@@ -288,7 +288,7 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 	} else if chunker.sessionID != "" {
 		log.Info().Msg("👉 case 3")
 		if chunker.active {
-			if strings.HasSuffix(word, "</s>") {
+			if strings.HasSuffix(word, "</s>\n") {
 				word = strings.Replace(word, "</s>", "", 1)
 			}
 			log.Info().Msg("👉 case 4")
