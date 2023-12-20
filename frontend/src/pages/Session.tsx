@@ -407,9 +407,10 @@ const Session: FC = () => {
               <>
                 {
                   session.data?.interactions.map((interaction: any, i: number) => {
+                    const isLastFinetune = lastFinetuneInteraction && lastFinetuneInteraction.id == interaction.id
                     const interactionsLength = session.data?.interactions.length || 0
-                    const isLast = lastFinetuneInteraction && lastFinetuneInteraction.id == interaction.id
-                    const isLive = isLast && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
+                    const isLastInteraction = i == interactionsLength - 1
+                    const isLive = isLastInteraction && !interaction.finished && interaction.state != INTERACTION_STATE_EDITING
 
                     if(!session.data) return null
                     return (
@@ -436,8 +437,8 @@ const Session: FC = () => {
                         ) : undefined }
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
-                        onAddDocuments={ isLast ? onAddDocuments : undefined }
-                        onRestart={ isLast ? onRestart : undefined }
+                        onAddDocuments={ isLastFinetune ? onAddDocuments : undefined }
+                        onRestart={ isLastFinetune ? onRestart : undefined }
                       >
                         {
                           isLive && (isOwner || account.admin) && (
