@@ -107,6 +107,7 @@ services:
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:
+      context: .
       dockerfile: Dockerfile.runner
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
     volumes:
