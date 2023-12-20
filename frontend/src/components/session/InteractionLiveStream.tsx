@@ -46,7 +46,7 @@ export const InteractionLiveStream: FC<{
       }
       {
         message && (
-            <Typography dangerouslySetInnerHTML={{__html: message.replace(/\n/g, '<br/>')}}></Typography>
+            <Typography dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')}}></Typography>
         )
       }
       {
