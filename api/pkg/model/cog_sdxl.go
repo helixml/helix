@@ -84,7 +84,44 @@ func (l *CogSDXL) GetTextStreams(mode types.SessionMode, eventHandler WorkerEven
 }
 
 func (l *CogSDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
-	panic("not implemented sorry")
+	var cmd *exec.Cmd
+	if sessionFilter.Mode == types.SessionModeInference {
+		args := []string{
+			"runner/sdxl_inference.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else if sessionFilter.Mode == types.SessionModeFinetune {
+		args := []string{
+			"runner/sdxl_finetune.py",
+		}
+		cmd = exec.CommandContext(
+			ctx,
+			"python",
+			args...,
+		)
+	} else {
+		return nil, fmt.Errorf("invalid session mode: %s", sessionFilter.Mode)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = []string{
+		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
+		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
+		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+		fmt.Sprintf("HELIX_MOCK_ERROR=%s", config.MockRunnerError),
+		fmt.Sprintf("HELIX_MOCK_DELAY=%d", config.MockRunnerDelay),
+		"PYTHONUNBUFFERED=1",
+	}
+
+	return cmd, nil
 }
 
 func (l *CogSDXL) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
