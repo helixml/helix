@@ -213,6 +213,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Scheduled:     systemInteraction.Scheduled,
 		Completed:     systemInteraction.Completed,
 		Summary:       summary,
+		Priority:      session.Config.Priority,
 	}, nil
 }
 
@@ -251,6 +252,7 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
 			},
+			Priority: req.Priority,
 		},
 	}
 

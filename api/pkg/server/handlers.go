@@ -152,7 +152,12 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	sessionData, err := apiServer.Controller.CreateSession(apiServer.getRequestContext(req), types.CreateSessionRequest{
+	userContext := apiServer.getRequestContext(req)
+	status, err := apiServer.Controller.GetStatus(userContext)
+	if err != nil {
+		return nil, err
+	}
+	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
 		SessionID:       sessionID,
 		SessionMode:     sessionMode,
 		SessionType:     sessionType,
@@ -160,6 +165,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Owner:           reqContext.Owner,
 		OwnerType:       reqContext.OwnerType,
 		UserInteraction: *userInteraction,
+		Priority:        status.Config.StripeSubscriptionActive,
 	})
 
 	return sessionData, nil
