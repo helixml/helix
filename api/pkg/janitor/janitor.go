@@ -65,6 +65,18 @@ func (j *Janitor) InjectMiddleware(router *mux.Router) error {
 	return nil
 }
 
+func (j *Janitor) getSessionURL(session *types.Session) string {
+	return fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
+}
+
+func (j *Janitor) CaptureError(err error) error {
+	if j.Options.SentryDSNApi == "" {
+		return nil
+	}
+	sentry.CaptureException(err)
+	return nil
+}
+
 func (j *Janitor) SendMessage(userEmail string, message string) error {
 	if j.Options.SlackWebhookURL == "" {
 		return nil
@@ -77,11 +89,19 @@ func (j *Janitor) SendMessage(userEmail string, message string) error {
 	return sendSlackNotification(j.Options.SlackWebhookURL, message)
 }
 
+func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) error {
+	err := j.CaptureError(sessionErr)
+	if err != nil {
+		return err
+	}
+	message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
+	return sendSlackNotification(j.Options.SlackWebhookURL, message)
+}
+
 func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, ctx types.RequestContext, session *types.Session) error {
 	message := ""
 	if eventType == types.SessionEventTypeCreated {
-		sessionLink := fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
-		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.Email, sessionLink, session.Mode, session.ModelName)
+		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.Email, j.getSessionURL(session), session.Mode, session.ModelName)
 	}
 	return j.SendMessage(ctx.Email, message)
 }
