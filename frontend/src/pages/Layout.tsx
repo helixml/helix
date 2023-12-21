@@ -461,7 +461,7 @@ const Layout: FC = ({
                             textDecoration: 'underline',
                           }}
                         >
-                          Login
+                          Login / Register
                         </Typography>
                       </Link>
                     )
