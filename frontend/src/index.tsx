@@ -13,6 +13,9 @@ if(win.HELIX_SENTRY_DSN) {
       name: user.name,
     })
   }
+  win.emitError = (error: any) => {
+    Sentry.captureException(error)
+  }
   Sentry.init({
     dsn: win.HELIX_SENTRY_DSN,
     integrations: [
