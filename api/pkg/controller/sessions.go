@@ -379,6 +379,7 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 		return
 	}
 	c.WriteSession(session)
+	c.Options.Janitor.WriteSessionError(session, sessionErr)
 }
 
 // add the given session onto the end of the queue
@@ -501,6 +502,10 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 	})
 
 	c.WriteSession(session)
+
+	if taskResponse.Error != "" {
+		c.Options.Janitor.WriteSessionError(session, fmt.Errorf(taskResponse.Error))
+	}
 
 	return taskResponse, nil
 }
