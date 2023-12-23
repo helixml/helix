@@ -438,7 +438,7 @@ const Session: FC = () => {
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
                         onAddDocuments={ isLastFinetune ? onAddDocuments : undefined }
-                        onRestart={ isLastFinetune ? onRestart : undefined }
+                        onRestart={ isLastInteraction ? onRestart : undefined }
                       >
                         {
                           isLive && (isOwner || account.admin) && (
