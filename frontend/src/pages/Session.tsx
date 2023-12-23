@@ -420,7 +420,7 @@ const Session: FC = () => {
                         interaction={ interaction }
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
-                        headerButtons={ isLive && isOwner ? (
+                        headerButtons={ isLastInteraction ? (
                           <ClickLink
                             onClick={ onRestart }
                           >
