@@ -26,12 +26,18 @@ type Janitor struct {
 	// don't log "created" then "updated" right after each other
 	recentlyCreatedSubscriptionMap   map[string]bool
 	recentlyCreatedSubscriptionMutex sync.Mutex
+
+	// keep track of the sessions we've already pinged slack about
+	// so retry buttons don't spam the channel
+	seenErrorSessionMap   map[string]bool
+	seenErrorSessionMutex sync.Mutex
 }
 
 func NewJanitor(opts JanitorOptions) *Janitor {
 	return &Janitor{
 		Options:                        opts,
 		recentlyCreatedSubscriptionMap: map[string]bool{},
+		seenErrorSessionMap:            map[string]bool{},
 	}
 }
 
@@ -94,8 +100,18 @@ func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) er
 	if err != nil {
 		return err
 	}
-	message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
-	return sendSlackNotification(j.Options.SlackWebhookURL, message)
+
+	j.seenErrorSessionMutex.Lock()
+	defer j.seenErrorSessionMutex.Unlock()
+	_, ok := j.seenErrorSessionMap[session.ID]
+
+	if !ok {
+		j.seenErrorSessionMap[session.ID] = true
+		message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
+		return sendSlackNotification(j.Options.SlackWebhookURL, message)
+	} else {
+		return nil
+	}
 }
 
 func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, ctx types.RequestContext, session *types.Session) error {
