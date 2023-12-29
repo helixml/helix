@@ -345,8 +345,10 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
 
+	allModels := []*ModelInstance{}
 	stales := []*ModelInstance{}
 	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
+		allModels = append(allModels, activeModelInstance)
 		stale := false
 		if activeModelInstance.lastActivityTimestamp == 0 {
 			stale = false
@@ -414,7 +416,8 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	if requiredMemoryFreed > 0 {
 		// uh-oh, we didn't free as much memory as we needed to
 		r.addSchedulingDecision(fmt.Sprintf(
-			"uh-oh, we didn't free as much memory as we needed to by %.2f GiB; stales=%+v", GiB(requiredMemoryFreed), stales,
+			"uh-oh, we didn't free as much memory as we needed to for %.2f GiB model by %.2f GiB; stales=%+v, allModels=%+v",
+			GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), stales, allModels,
 		))
 	}
 	return nil
