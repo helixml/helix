@@ -22,7 +22,7 @@ func GetModel(modelName types.ModelName) (Model, error) {
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
 	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
-	models[types.Model_SDXL] = &SDXL{}
+	models[types.Model_SDXL] = &CogSDXL{}
 	return models, nil
 }
 
