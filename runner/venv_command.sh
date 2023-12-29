@@ -23,4 +23,6 @@ fi
 
 cd $APP_FOLDER
 . ./venv/bin/activate
-eval "$@"
+echo "PID:$$"
+
+exec "$@"
