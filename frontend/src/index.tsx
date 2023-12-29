@@ -13,6 +13,9 @@ if(win.HELIX_SENTRY_DSN) {
       name: user.name,
     })
   }
+  win.emitError = (error: any) => {
+    Sentry.captureException(error)
+  }
   Sentry.init({
     dsn: win.HELIX_SENTRY_DSN,
     integrations: [
@@ -21,12 +24,8 @@ if(win.HELIX_SENTRY_DSN) {
     ],
     // Set tracesSampleRate to 1.0 to capture 100%
     // of transactions for performance monitoring.
-    tracesSampleRate: 1.0,
-
-    // Capture Replay for 100% of all sessions,
-    // TODO: reduce this value later (sentry costs $ yo)
-    // plus for 100% of sessions with an error
-    replaysSessionSampleRate: 1.0,
+    tracesSampleRate: 0.1,
+    replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
     beforeSend(event, hint) {
       // Check if it is an exception, and if so, show the report dialog

@@ -13,6 +13,10 @@ import {
   extractErrorMessage,
 } from './useErrorCallback'
 
+import {
+  reportError,
+} from '../utils/analytics'
+
 const API_MOUNT = ""
 
 export interface IApiOptions {
@@ -39,6 +43,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      reportError(new Error(errorMessage))
       console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
@@ -54,6 +59,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      reportError(new Error(errorMessage))
       console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
@@ -69,6 +75,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      reportError(new Error(errorMessage))
       console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
@@ -84,6 +91,7 @@ export const useApi = () => {
       return res.data
     } catch (e: any) {
       const errorMessage = extractErrorMessage(e)
+      reportError(new Error(errorMessage))
       console.error(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)

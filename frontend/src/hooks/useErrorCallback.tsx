@@ -12,6 +12,9 @@ export const extractErrorMessage = (error: any): string => {
     if (error.response.data) return error.response.data as string
     return error.toString()
   }
+  else if(error.message) {
+    return error.message
+  }
   else {
     return error.toString()
   }
