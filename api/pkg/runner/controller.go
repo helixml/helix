@@ -411,6 +411,12 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 			break
 		}
 	}
+	if requiredMemoryFreed > 0 {
+		// uh-oh, we didn't free as much memory as we needed to
+		r.addSchedulingDecision(fmt.Sprintf(
+			"uh-oh, we didn't free as much memory as we needed to by %.2f GiB; stales=%+v", GiB(requiredMemoryFreed), stales,
+		))
+	}
 	return nil
 }
 
