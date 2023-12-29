@@ -68,8 +68,6 @@ const New: FC = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
     };
-    console.log(selectedMode)
-
     var s1 = "";
     var s2 = "";
     var s3 = "";

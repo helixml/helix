@@ -26,12 +26,18 @@ type Janitor struct {
 	// don't log "created" then "updated" right after each other
 	recentlyCreatedSubscriptionMap   map[string]bool
 	recentlyCreatedSubscriptionMutex sync.Mutex
+
+	// keep track of the sessions we've already pinged slack about
+	// so retry buttons don't spam the channel
+	seenErrorSessionMap   map[string]bool
+	seenErrorSessionMutex sync.Mutex
 }
 
 func NewJanitor(opts JanitorOptions) *Janitor {
 	return &Janitor{
 		Options:                        opts,
 		recentlyCreatedSubscriptionMap: map[string]bool{},
+		seenErrorSessionMap:            map[string]bool{},
 	}
 }
 
@@ -65,6 +71,18 @@ func (j *Janitor) InjectMiddleware(router *mux.Router) error {
 	return nil
 }
 
+func (j *Janitor) getSessionURL(session *types.Session) string {
+	return fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
+}
+
+func (j *Janitor) CaptureError(err error) error {
+	if j.Options.SentryDSNApi == "" {
+		return nil
+	}
+	sentry.CaptureException(err)
+	return nil
+}
+
 func (j *Janitor) SendMessage(userEmail string, message string) error {
 	if j.Options.SlackWebhookURL == "" {
 		return nil
@@ -77,11 +95,29 @@ func (j *Janitor) SendMessage(userEmail string, message string) error {
 	return sendSlackNotification(j.Options.SlackWebhookURL, message)
 }
 
+func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) error {
+	err := j.CaptureError(sessionErr)
+	if err != nil {
+		return err
+	}
+
+	j.seenErrorSessionMutex.Lock()
+	defer j.seenErrorSessionMutex.Unlock()
+	_, ok := j.seenErrorSessionMap[session.ID]
+
+	if !ok {
+		j.seenErrorSessionMap[session.ID] = true
+		message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
+		return sendSlackNotification(j.Options.SlackWebhookURL, message)
+	} else {
+		return nil
+	}
+}
+
 func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, ctx types.RequestContext, session *types.Session) error {
 	message := ""
 	if eventType == types.SessionEventTypeCreated {
-		sessionLink := fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
-		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.Email, sessionLink, session.Mode, session.ModelName)
+		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.Email, j.getSessionURL(session), session.Mode, session.ModelName)
 	}
 	return j.SendMessage(ctx.Email, message)
 }

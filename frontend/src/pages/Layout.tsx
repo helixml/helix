@@ -13,6 +13,7 @@ import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
@@ -399,7 +400,7 @@ const Layout: FC = ({
               bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
             }
             {
-              bigScreen && (
+              bigScreen ? (
                 <>
                   {
                     account.user ? (
@@ -424,6 +425,45 @@ const Layout: FC = ({
                       >
                         Login / Register
                       </Button>
+                    )
+                  }
+                </>
+              ) : (
+                <>
+                  {
+                    account.user ? (
+                      <Link
+                        href="https://docs.helix.ml"
+                        target="_blank"
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: "small",
+                            flexGrow: 0,
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          View Docs
+                        </Typography>
+                      </Link>
+                    ) : (
+                      <Link
+                        href="/login"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          account.onLogin()
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: "small",
+                            flexGrow: 0,
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          Login / Register
+                        </Typography>
+                      </Link>
                     )
                   }
                 </>
