@@ -345,10 +345,10 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
 
-	allModels := []*ModelInstance{}
-	stales := []*ModelInstance{}
+	allModels := []ModelInstance{}
+	stales := []ModelInstance{}
 	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
-		allModels = append(allModels, activeModelInstance)
+		allModels = append(allModels, *activeModelInstance)
 		stale := false
 		if activeModelInstance.lastActivityTimestamp == 0 {
 			stale = false
@@ -356,7 +356,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 			stale = true
 		}
 		if stale {
-			stales = append(stales, activeModelInstance)
+			stales = append(stales, *activeModelInstance)
 		}
 		return true
 	})
