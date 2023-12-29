@@ -383,6 +383,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 
 	// we don't need to free as much memory as we already have free
 	currentlyAvailableMemory := r.getFreeMemory()
+	if currentlyAvailableMemory < 0 {
+		currentlyAvailableMemory = 0
+	}
 
 	// for this session
 	newSessionMemory := modelInstance.model.GetMemoryRequirements(newSession.Mode)
@@ -457,7 +460,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		return nil, nil
 	}
 
-	if freeMemory < r.lowestMemoryRequirement {
+	if freeMemory < int64(r.lowestMemoryRequirement) {
 		// we don't have enough memory to run anything
 		// so we just wait for more memory to become available
 		return nil, nil
@@ -763,17 +766,17 @@ func (r *Runner) getUsedMemoryByNonStale() uint64 {
 
 	memoryUsed := uint64(0)
 	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
-		// assume stale
-		stale := true
+		// assume nonStale
+		nonStale := true
 		// this means we are booting so let's leave it alone to boot
 		if modelInstance.lastActivityTimestamp == 0 {
-			stale = false
+			nonStale = false
 		}
 		// the model is not stale don't include it
 		if modelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
-			stale = false
+			nonStale = false
 		}
-		if stale {
+		if nonStale {
 			memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
 		}
 		return true
@@ -781,12 +784,12 @@ func (r *Runner) getUsedMemoryByNonStale() uint64 {
 	return memoryUsed
 }
 
-func (r *Runner) getFreeMemory() uint64 {
-	return r.Options.MemoryBytes - r.getUsedMemory()
+func (r *Runner) getFreeMemory() int64 {
+	return int64(r.Options.MemoryBytes) - int64(r.getUsedMemory())
 }
 
-func (r *Runner) getHypotheticalFreeMemory() uint64 {
-	return r.Options.MemoryBytes - r.getUsedMemoryByNonStale()
+func (r *Runner) getHypotheticalFreeMemory() int64 {
+	return int64(r.Options.MemoryBytes) - int64(r.getUsedMemoryByNonStale())
 }
 
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {

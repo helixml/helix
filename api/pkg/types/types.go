@@ -400,7 +400,7 @@ type RunnerState struct {
 	Created time.Time `json:"created"`
 	// the URL that the runner will POST to to get a task
 	TotalMemory         uint64                `json:"total_memory"`
-	FreeMemory          uint64                `json:"free_memory"`
+	FreeMemory          int64                 `json:"free_memory"`
 	Labels              map[string]string     `json:"labels"`
 	ModelInstances      []*ModelInstanceState `json:"model_instances"`
 	SchedulingDecisions []string              `json:"scheduling_decisions"`
