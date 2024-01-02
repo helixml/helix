@@ -25,7 +25,7 @@ function start() {
     tmux -2 attach -t $TMUX_SESSION
     exit 0;
   fi
-  
+
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
@@ -36,7 +36,7 @@ function start() {
     docker-compose up -d
   fi
   sleep 2
-  
+
   echo "Creating tmux session $TMUX_SESSION..."
 
   # get the size of the window and create a session at that size
@@ -52,7 +52,7 @@ function start() {
   tmux split-window -v -d
   tmux select-pane -t 0
   tmux split-window -v -d
-  
+
   tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
