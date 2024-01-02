@@ -114,9 +114,9 @@ services:
       - .:/workspace/helix
       - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
       # comment these out if you don't have appropriate repos checked out
-      - ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
-      - ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
-      - ../axolotl:/workspace/axolotl
+      #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
+      #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
+      #- ../axolotl:/workspace/axolotl
     deploy:
       resources:
         reservations:
@@ -124,7 +124,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
- 
+
   frontend:
     ports:
       - 8081:${FRONTEND_INTERNAL_PORT:-8081}
