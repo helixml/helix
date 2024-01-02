@@ -1,6 +1,6 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
-import prettyBytes from 'pretty-bytes'
+import { prettyBytes } from '../../utils/format'
 import Typography from '@mui/material/Typography'
 import LinearProgress from '@mui/material/LinearProgress'
 import Row from '../widgets/Row'

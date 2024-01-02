@@ -1,5 +1,5 @@
 import React, { FC, useState, useCallback, useMemo, Fragment } from 'react'
-import prettyBytes from 'pretty-bytes'
+import { prettyBytes } from '../utils/format'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
