@@ -263,6 +263,11 @@
     "@babel/helper-validator-identifier" "^7.19.1"
     to-fast-properties "^2.0.0"
 
+"@chbphone55/pretty-bytes@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@chbphone55/pretty-bytes/-/pretty-bytes-1.0.0.tgz#21ce968c16a2e05360ab7e50e19cc3dbc56edeae"
+  integrity sha512-XQA5iT7SsRP4ispmURiGXRWdwDo5pD7B1gCRxC/212rd5/IItsFsyhQXtM0v6PpmMW0Dzc3E2STwufD5u5WQrQ==
+
 "@emotion/babel-plugin@^11.10.6":
   version "11.10.6"
   resolved "https://registry.yarnpkg.com/@emotion/babel-plugin/-/babel-plugin-11.10.6.tgz#a68ee4b019d661d6f37dec4b8903255766925ead"

@@ -1,6 +1,6 @@
 import React, { FC, useState, useMemo } from 'react'
 import Box from '@mui/material/Box'
-import prettyBytes from 'pretty-bytes'
+import { prettyBytes } from '../../utils/format'
 import IconButton from '@mui/material/IconButton'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import Typography from '@mui/material/Typography'

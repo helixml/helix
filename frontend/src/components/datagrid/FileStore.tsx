@@ -5,7 +5,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import FolderIcon from '@mui/icons-material/Folder'
 import Box from '@mui/material/Box'
 import Avatar from '@mui/material/Avatar'
-import prettyBytes from 'pretty-bytes'
+import { prettyBytes } from '../../utils/format'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import ClickLink from '../widgets/ClickLink'
 
