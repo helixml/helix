@@ -135,10 +135,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", system.DefaultWrapper(apiServer.getTransactions)).Methods("GET")
 
-	// these routes all need to check the path being asked for
-	// and check the user asking for it and do permissions based on that
-	// this should be easy because the paths are all of the form /users/{userid}/sessions/{sessionid}/...
-	// obvs is the user is admin then they can see anything
+	// the auth here is handled because we prefix the user path based on the auth context
+	// e.g. /sessions/123 becomes /users/456/sessions/123
+	// so - the point is, the auth is done by injecting the user id based on the token
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods("GET")
 	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods("GET")
@@ -155,10 +154,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods("DELETE")
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods("GET")
 
-	// filestore viewer
-	// TODO: auth
 	if apiServer.Options.LocalFilestorePath != "" {
-		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
+		// disable directory listings
+		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
 		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// if the user is admin then can see anything
 			// if the user is runner then can see anything
