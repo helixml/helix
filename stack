@@ -10,12 +10,15 @@ function mock-runner() {
    go run . runner \
     --mock-runner \
     --api-host http://localhost \
-    --api-token apples \
+    --api-token oh-hallo-insecure-token \
     --memory 24GB \
     --runner-id mock \
     --timeout-seconds 20 \
-    --label gpu=4090 \
-    --label fruit=apples "$@"
+    --label gpu=4090 "$@"
+}
+
+function build() {
+  docker-compose build
 }
 
 function start() {

@@ -365,6 +365,10 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("openai api key is required")
 	}
 
+	if options.ServerOptions.RunnerToken == "" {
+		return fmt.Errorf("runner token is required")
+	}
+
 	options.JanitorOptions.AppURL = options.ServerOptions.URL
 	janitor := janitor.NewJanitor(options.JanitorOptions)
 	err = janitor.Initialize()

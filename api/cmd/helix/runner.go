@@ -222,6 +222,10 @@ var WARMUP_SESSIONS = []types.Session{{
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
 
+	if options.Runner.ApiToken == "" {
+		return fmt.Errorf("api token is required")
+	}
+
 	_, err := types.ValidateModelName(options.Runner.FilterModelName, true)
 	if err != nil {
 		return err

@@ -45,6 +45,10 @@ func newMiddleware(keycloak *keycloak, options ServerOptions, store store.Store)
 	return &keyCloakMiddleware{keycloak: keycloak, options: options, store: store}
 }
 
+func getBearerToken(r *http.Request) string {
+	return extractBearerToken(r.Header.Get("Authorization"))
+}
+
 func extractBearerToken(token string) string {
 	return strings.Replace(token, "Bearer ", "", 1)
 }
