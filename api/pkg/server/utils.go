@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -227,4 +228,23 @@ func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
 	} else {
 		return nil
 	}
+}
+
+// this means our local filestore viewer will not list directories
+type neuteredFileSystem struct {
+	fs http.FileSystem
+}
+
+func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
+	f, err := nfs.fs.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	s, err := f.Stat()
+	if s.IsDir() {
+		return nil, errors.New("directory access is denied")
+	}
+
+	return f, nil
 }
