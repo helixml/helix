@@ -67,13 +67,20 @@ func NewServer(
 	if options.KeyCloakToken == "" {
 		return nil, fmt.Errorf("keycloak token is required")
 	}
+	if options.RunnerToken == "" {
+		return nil, fmt.Errorf("runner token is required")
+	}
+	runnerAuth, err := newRunnerAuth(options.RunnerToken)
+	if err != nil {
+		return nil, err
+	}
 	return &HelixAPIServer{
 		Options:    options,
 		Store:      store,
 		Stripe:     stripe,
 		Controller: controller,
 		Janitor:    janitor,
-		runnerAuth: newRunnerAuth(options.RunnerToken),
+		runnerAuth: runnerAuth,
 		adminAuth:  newAdminAuth(options.AdminIDs),
 	}, nil
 }
