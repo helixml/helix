@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/janitor"
@@ -134,7 +135,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 	authRouter.HandleFunc("/transactions", system.DefaultWrapper(apiServer.getTransactions)).Methods("GET")
 
-	// TODO: auth based on session ID permissions
+	// these routes all need to check the path being asked for
+	// and check the user asking for it and do permissions based on that
+	// this should be easy because the paths are all of the form /users/{userid}/sessions/{sessionid}/...
+	// obvs is the user is admin then they can see anything
 	authRouter.HandleFunc("/filestore/config", system.DefaultWrapper(apiServer.filestoreConfig)).Methods("GET")
 	authRouter.HandleFunc("/filestore/list", system.DefaultWrapper(apiServer.filestoreList)).Methods("GET")
 	authRouter.HandleFunc("/filestore/get", system.DefaultWrapper(apiServer.filestoreGet)).Methods("GET")
@@ -156,6 +160,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if apiServer.Options.LocalFilestorePath != "" {
 		fileServer := http.FileServer(http.Dir(apiServer.Options.LocalFilestorePath))
 		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// if the user is admin then can see anything
+			// if the user is runner then can see anything
+			// if the path is part of the user path then can see it
+			// otherwise access denied
+			// turn off directory listings
+			fmt.Printf("r.URL() --------------------------------------\n")
+			spew.Dump(r.URL)
 			fileServer.ServeHTTP(w, r)
 		})))
 	}
@@ -184,6 +195,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
+	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods("POST")
