@@ -230,6 +230,43 @@ func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
 	}
 }
 
+// given a full filestore route (i.e. one that starts with /dev/users/XXX)
+// this will tell you if the given http request is authorized to access it
+func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, error) {
+	// a runner can see all files
+	isRunner := apiServer.runnerAuth.isRequestAuthenticated(req)
+	if isRunner {
+		return true, nil
+	}
+
+	// an admin user can see all files
+	isAdmin := apiServer.adminAuth.isRequestAuthenticated(req)
+	if isAdmin {
+		return true, nil
+	}
+
+	// otherwise we need to get the logged in user id
+	// and check if the path is correct
+	userID, err := apiServer.keyCloakMiddleware.userIDFromRequest(req)
+	if err != nil {
+		return false, err
+	}
+	if userID == "" {
+		return false, nil
+	}
+	userPath, err := apiServer.Controller.GetFilestoreUserPath(types.OwnerContext{
+		Owner:     userID,
+		OwnerType: types.OwnerTypeUser,
+	}, "")
+	if err != nil {
+		return false, err
+	}
+	if strings.HasPrefix(req.URL.Path, userPath) {
+		return true, nil
+	}
+	return false, nil
+}
+
 // this means our local filestore viewer will not list directories
 type neuteredFileSystem struct {
 	fs http.FileSystem

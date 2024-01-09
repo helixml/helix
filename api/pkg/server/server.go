@@ -36,13 +36,15 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Options    ServerOptions
-	Store      store.Store
-	Stripe     *stripe.Stripe
-	Controller *controller.Controller
-	Janitor    *janitor.Janitor
-	runnerAuth *runnerAuth
-	adminAuth  *adminAuth
+	Options            ServerOptions
+	Store              store.Store
+	Stripe             *stripe.Stripe
+	Controller         *controller.Controller
+	Janitor            *janitor.Janitor
+	runnerAuth         *runnerAuth
+	adminAuth          *adminAuth
+	keycloak           *keycloak
+	keyCloakMiddleware *keyCloakMiddleware
 }
 
 func NewServer(
@@ -74,14 +76,17 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+	keycloak := newKeycloak(options)
 	return &HelixAPIServer{
-		Options:    options,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
-		runnerAuth: runnerAuth,
-		adminAuth:  newAdminAuth(options.AdminIDs),
+		Options:            options,
+		Store:              store,
+		Stripe:             stripe,
+		Controller:         controller,
+		Janitor:            janitor,
+		runnerAuth:         runnerAuth,
+		adminAuth:          newAdminAuth(options.AdminIDs),
+		keycloak:           keycloak,
+		keyCloakMiddleware: newMiddleware(keycloak, options, store),
 	}, nil
 }
 
@@ -105,17 +110,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 
-	// this will try BOTH the user token and the runner token
-	// the frontend filestore will attach `access_token=XXX` to the query params of files
-	// being viewed in the filestore viewer
-	filestoreViewerAuthRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-
-	keycloak := newKeycloak(apiServer.Options)
-	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
-	authRouter.Use(keyCloakMiddleware.enforceVerifyToken)
-	maybeAuthRouter.Use(keyCloakMiddleware.maybeVerifyToken)
+	authRouter.Use(apiServer.keyCloakMiddleware.enforceVerifyToken)
+	maybeAuthRouter.Use(apiServer.keyCloakMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
 	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
@@ -163,12 +159,27 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if apiServer.Options.LocalFilestorePath != "" {
 		// disable directory listings
 		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
-		filestoreViewerAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		// we handle our own auth from inside this function
+		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
+		// that will extract the bearer token into a user id for us
+		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// if the user is admin then can see anything
 			// if the user is runner then can see anything
 			// if the path is part of the user path then can see it
 			// otherwise access denied
-			// turn off directory listings
+			canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if !canAccess {
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+
 			fileServer.ServeHTTP(w, r)
 		})))
 	}
@@ -207,7 +218,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		apiServer.Controller,
 		"/ws/user",
 		apiServer.Controller.UserWebsocketEventChanWriter,
-		keyCloakMiddleware.userIDFromRequest,
+		apiServer.keyCloakMiddleware.userIDFromRequest,
 	)
 
 	StartRunnerWebSocketServer(
