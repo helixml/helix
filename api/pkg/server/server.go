@@ -105,6 +105,13 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 
+	// this will try BOTH the user token and the runner token
+	// the frontend filestore will attach `access_token=XXX` to the query params of files
+	// being viewed in the filestore viewer
+	filestoreViewerAuthRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return true
+	}).Subrouter()
+
 	keycloak := newKeycloak(apiServer.Options)
 	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
 	authRouter.Use(keyCloakMiddleware.enforceVerifyToken)
@@ -156,7 +163,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if apiServer.Options.LocalFilestorePath != "" {
 		// disable directory listings
 		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
-		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filestoreViewerAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// if the user is admin then can see anything
 			// if the user is runner then can see anything
 			// if the path is part of the user path then can see it
@@ -182,11 +189,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.Wrapper(apiServer.retryTextFinetune)).Methods("PUT")
 	maybeAuthRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
-
-	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.getBots)).Methods("GET")
-	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.createBot)).Methods("POST")
-	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.updateBot)).Methods("PUT")
-	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.deleteBot)).Methods("DELETE")
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 

@@ -20,11 +20,7 @@ func newRunnerAuth(token string) (*runnerAuth, error) {
 }
 
 func (auth *runnerAuth) isRequestAuthenticated(r *http.Request) bool {
-	token := getBearerToken(r)
-	if token == "" {
-		token = r.URL.Query().Get("access_token")
-	}
-	return token == auth.token
+	return isRequestAuthenticatedAgainstToken(r, auth.token)
 }
 
 // verify a single shared secret if provided
