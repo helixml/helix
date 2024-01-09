@@ -248,3 +248,28 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 
 	return f, nil
 }
+
+func extractBearerToken(token string) string {
+	return strings.Replace(token, "Bearer ", "", 1)
+}
+
+func getBearerToken(r *http.Request) string {
+	return extractBearerToken(r.Header.Get("Authorization"))
+}
+
+func getQueryToken(r *http.Request) string {
+	return r.URL.Query().Get("access_token")
+}
+
+func getRequestToken(r *http.Request) string {
+	token := getBearerToken(r)
+	if token == "" {
+		token = getQueryToken(r)
+	}
+	return token
+}
+
+func isRequestAuthenticatedAgainstToken(r *http.Request, actualToken string) bool {
+	providedToken := getRequestToken(r)
+	return providedToken == actualToken
+}
