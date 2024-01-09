@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/janitor"
@@ -163,8 +162,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 			// if the path is part of the user path then can see it
 			// otherwise access denied
 			// turn off directory listings
-			fmt.Printf("r.URL() --------------------------------------\n")
-			spew.Dump(r.URL)
 			fileServer.ServeHTTP(w, r)
 		})))
 	}
