@@ -175,13 +175,15 @@ class CogInference:
             waiting_for_initial_session = False
             if lora_api_path:
                 # Cog likes these weights as a URL, so construct one for it.
-                # TODO: when we start enforcing auth on the filestore, we'll
-                # need to pass in our API_TOKEN as well or something. But see
-                # below for something better to do instead.
                 # TODO: this is wasteful because the runner has already gone to
                 # the bother of downloading this file for us, probably.
                 # TODO: improve this, by making cog just read the weights from
                 # the filesystem, rather than downloading them
+                apiToken = os.getenv("API_TOKEN")
+                if apiToken is None:
+                    sys.exit("API_TOKEN is not set")
+                if apiToken == "":
+                    sys.exit("API_TOKEN is not set")
                 apiHost = os.getenv("API_HOST")
                 if apiHost.endswith("/"):
                     apiHost = apiHost[:-1]
@@ -191,7 +193,7 @@ class CogInference:
                 #     /sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30
                 #     /lora/bb9e6395-0df6-4073-8064-0ae759075b2f/trained_model.tar
                 # XXX TODO: maybe we can construct url from session instead, e.g. user etc
-                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar"
+                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar?access_token={apiToken}"
 
         print("🟡 Lora weights URL --------------------------------------------------\n")
         print(self.lora_weights)

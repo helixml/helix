@@ -36,13 +36,15 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Options    ServerOptions
-	Store      store.Store
-	Stripe     *stripe.Stripe
-	Controller *controller.Controller
-	Janitor    *janitor.Janitor
-	runnerAuth *runnerAuth
-	adminAuth  *adminAuth
+	Options            ServerOptions
+	Store              store.Store
+	Stripe             *stripe.Stripe
+	Controller         *controller.Controller
+	Janitor            *janitor.Janitor
+	runnerAuth         *runnerAuth
+	adminAuth          *adminAuth
+	keycloak           *keycloak
+	keyCloakMiddleware *keyCloakMiddleware
 }
 
 func NewServer(
@@ -67,14 +69,24 @@ func NewServer(
 	if options.KeyCloakToken == "" {
 		return nil, fmt.Errorf("keycloak token is required")
 	}
+	if options.RunnerToken == "" {
+		return nil, fmt.Errorf("runner token is required")
+	}
+	runnerAuth, err := newRunnerAuth(options.RunnerToken)
+	if err != nil {
+		return nil, err
+	}
+	keycloak := newKeycloak(options)
 	return &HelixAPIServer{
-		Options:    options,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
-		runnerAuth: newRunnerAuth(options.RunnerToken),
-		adminAuth:  newAdminAuth(options.AdminIDs),
+		Options:            options,
+		Store:              store,
+		Stripe:             stripe,
+		Controller:         controller,
+		Janitor:            janitor,
+		runnerAuth:         runnerAuth,
+		adminAuth:          newAdminAuth(options.AdminIDs),
+		keycloak:           keycloak,
+		keyCloakMiddleware: newMiddleware(keycloak, options, store),
 	}, nil
 }
 
@@ -98,10 +110,8 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		return true
 	}).Subrouter()
 
-	keycloak := newKeycloak(apiServer.Options)
-	keyCloakMiddleware := newMiddleware(keycloak, apiServer.Options, apiServer.Store)
-	authRouter.Use(keyCloakMiddleware.enforceVerifyToken)
-	maybeAuthRouter.Use(keyCloakMiddleware.maybeVerifyToken)
+	authRouter.Use(apiServer.keyCloakMiddleware.enforceVerifyToken)
+	maybeAuthRouter.Use(apiServer.keyCloakMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
 	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
@@ -149,7 +159,27 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if apiServer.Options.LocalFilestorePath != "" {
 		// disable directory listings
 		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
-		subrouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		// we handle our own auth from inside this function
+		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
+		// that will extract the bearer token into a user id for us
+		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// if the user is admin then can see anything
+			// if the user is runner then can see anything
+			// if the path is part of the user path then can see it
+			// otherwise access denied
+			canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			if !canAccess {
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+
 			fileServer.ServeHTTP(w, r)
 		})))
 	}
@@ -171,13 +201,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	maybeAuthRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
-	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.getBots)).Methods("GET")
-	// authRouter.HandleFunc("/bots", system.DefaultWrapper(apiServer.createBot)).Methods("POST")
-	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.updateBot)).Methods("PUT")
-	// authRouter.HandleFunc("/bots/{id}", system.DefaultWrapper(apiServer.deleteBot)).Methods("DELETE")
-
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
+	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")
 	runnerRouter.HandleFunc("/runner/{runnerid}/response", system.DefaultWrapper(apiServer.handleRunnerResponse)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/state", system.DefaultWrapper(apiServer.handleRunnerMetrics)).Methods("POST")
@@ -192,7 +218,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		apiServer.Controller,
 		"/ws/user",
 		apiServer.Controller.UserWebsocketEventChanWriter,
-		keyCloakMiddleware.userIDFromRequest,
+		apiServer.keyCloakMiddleware.userIDFromRequest,
 	)
 
 	StartRunnerWebSocketServer(

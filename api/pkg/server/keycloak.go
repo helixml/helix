@@ -45,10 +45,6 @@ func newMiddleware(keycloak *keycloak, options ServerOptions, store store.Store)
 	return &keyCloakMiddleware{keycloak: keycloak, options: options, store: store}
 }
 
-func extractBearerToken(token string) string {
-	return strings.Replace(token, "Bearer ", "", 1)
-}
-
 func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
 	// in case the request is authenticated with an hl- token, rather than a
 	// keycloak JWT, return the owner. Returns nil if it's not an hl- token.
