@@ -218,7 +218,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		apiServer.Controller,
 		"/ws/user",
 		apiServer.Controller.UserWebsocketEventChanWriter,
-		apiServer.keyCloakMiddleware.userIDFromRequest,
+		apiServer.keyCloakMiddleware.userIDFromRequestBothModes,
 	)
 
 	StartRunnerWebSocketServer(
