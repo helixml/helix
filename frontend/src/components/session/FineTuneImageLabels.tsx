@@ -6,7 +6,6 @@ import Typography from '@mui/material/Typography'
 
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
 
-import useAccount from '../../hooks/useAccount'
 import FineTuneImageLabel from './FineTuneImageLabel'
 import InteractionContainer from './InteractionContainer'
 
@@ -31,8 +30,6 @@ export const FineTuneImageLabels: FC<{
   onChange,
   onDone,
 }) => {
-  const account = useAccount()
-
   const [labels, setLabels] = useState<Record<string, string>>(initialLabels || {})
 
   return (

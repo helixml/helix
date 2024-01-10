@@ -16,7 +16,6 @@ import Cell from '../widgets/Cell'
 import Caption from '../widgets/Caption'
 
 import useSnackbar from '../../hooks/useSnackbar'
-import useAccount from '../../hooks/useAccount'
 import InteractionContainer from './InteractionContainer'
 
 import {
@@ -47,7 +46,6 @@ export const FineTuneTextInputs: FC<{
   onDone,
 }) => {
   const snackbar = useSnackbar()
-  const account = useAccount()
 
   const [manualTextFileCounter, setManualTextFileCounter] = useState(initialCounter || 0)
   const [manualTextFile, setManualTextFile] = useState('')

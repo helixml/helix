@@ -51,6 +51,14 @@ func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.A
 	token := r.Header.Get("Authorization")
 	token = extractBearerToken(token)
 
+	if token == "" {
+		token = r.URL.Query().Get("access_token")
+	}
+
+	if token == "" {
+		return nil, nil
+	}
+
 	if strings.HasPrefix(token, types.API_KEY_PREIX) {
 		if owner, err := auth.store.CheckAPIKey(r.Context(), token); err != nil {
 			return nil, fmt.Errorf("error checking API key: %s", err.Error())
@@ -108,6 +116,23 @@ func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, erro
 	return getUserIdFromJWT(token), nil
 }
 
+// this will return a user id based on EITHER a database token OR a keycloak token
+// TODO: refactor this mess
+func (auth *keyCloakMiddleware) userIDFromRequestBothModes(r *http.Request) (string, error) {
+	databaseToken, err := auth.maybeOwnerFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	if databaseToken != nil {
+		return databaseToken.Owner, nil
+	}
+	keycloakToken, err := auth.jwtFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	return getUserIdFromJWT(keycloakToken), nil
+}
+
 func getUserFromJWT(tok *jwt.Token) types.UserData {
 	if tok == nil {
 		return types.UserData{}
@@ -146,6 +171,8 @@ func getRequestUser(req *http.Request) types.UserData {
 	}
 }
 
+// this happens in the very first middleware to populate the request context
+// based on EITHER the database api token OR then the keycloak JWT
 func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		maybeOwner, err := auth.maybeOwnerFromRequest(r)

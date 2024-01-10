@@ -245,12 +245,8 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		return true, nil
 	}
 
-	// otherwise we need to get the logged in user id
-	// and check if the path is correct
-	userID, err := apiServer.keyCloakMiddleware.userIDFromRequest(req)
-	if err != nil {
-		return false, err
-	}
+	reqUser := getRequestUser(req)
+	userID := reqUser.ID
 	if userID == "" {
 		return false, nil
 	}

@@ -8,6 +8,7 @@ import Avatar from '@mui/material/Avatar'
 import { prettyBytes } from '../../utils/format'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import ClickLink from '../widgets/ClickLink'
+import useAccount from '../../hooks/useAccount'
 
 import {
   IFileStoreItem,
@@ -39,6 +40,8 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
   onDelete,
 }) => {
 
+  const account = useAccount()
+
   const columns = useMemo<IDataGrid2_Column<IFileStoreItem>[]>(() => {
     return [{
       name: 'icon',
@@ -48,7 +51,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
         let icon = null
   
         if(isImage(data.name)) {
-          icon = (
+          icon = account.token ? (
             <Box
               component={'img'}
               sx={{
@@ -57,9 +60,9 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
                 border: '1px solid',
                 borderColor: 'secondary.main',
               }}
-              src={ data.url }
+              src={ `${data.url}?access_token=${account.token}` }
             />
-          )
+          ) : null
         }
         else if(data.directory) {
           icon = (
@@ -199,6 +202,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
     onView,
     onEdit,
     onDelete,
+    account.token,
   ])
 
   return (

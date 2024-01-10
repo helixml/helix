@@ -68,18 +68,18 @@ const Files: FC = () => {
   ])
 
   const onViewFile = useCallback((file: IFileStoreItem) => {
-    if(!account.user) {
+    if(!account.token) {
       snackbar.error('must be logged in')
       return 
     }
     if(file.directory) {
       filestore.setPath(getRelativePath(filestore.config, file))
     } else {
-      window.open(`${file.url}?access_token=${account.user.token}`)
+      window.open(`${file.url}?access_token=${account.token}`)
     }
   }, [
     filestore.config,
-    account.user,
+    account.token,
   ])
 
   const onEditFile = useCallback((file: IFileStoreItem) => {

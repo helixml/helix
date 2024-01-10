@@ -16,6 +16,8 @@ import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
+import useAccount from '../../hooks/useAccount'
+
 import {
   ICloneInteractionMode,
   SESSION_TYPE_TEXT,
@@ -62,6 +64,7 @@ export const InteractionFinetune: FC<{
   onAddDocuments,
 }) => {
   const theme = useTheme()
+  const account = useAccount()
 
   const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
   const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
@@ -96,7 +99,7 @@ export const InteractionFinetune: FC<{
     interaction,
   ])
 
-  if(!serverConfig || !serverConfig.filestore_prefix) return null
+  if(!serverConfig || !serverConfig.filestore_prefix || !account.token) return null
 
   return (
     <>
@@ -112,10 +115,11 @@ export const InteractionFinetune: FC<{
               {
                 interaction.files.length > 0 && interaction.files
                   .filter(file => {
+                    if(!account.token) return false
                     return file.match(/\.txt$/i) ? false : true
                   })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}`
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
                     const filenameParts = file.split('/')
                     const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
@@ -162,8 +166,11 @@ export const InteractionFinetune: FC<{
             <Grid container spacing={3} direction="row" justifyContent="flex-start">
               {
                 interaction.files.length > 0 && interaction.files
+                  .filter(file => {
+                    return account.token ? true : false
+                  })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}`
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
                     const filenameParts = file.split('/')
                     const filename = filenameParts[filenameParts.length - 1] || ''
 

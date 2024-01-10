@@ -24,6 +24,7 @@ export interface IAccountContext {
   credits: number,
   admin: boolean,
   user?: IKeycloakUser,
+  token?: string,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   transactions: IBalanceTransfer[],
@@ -71,6 +72,19 @@ export const useAccountContext = (): IAccountContext => {
     })
   }, [])
 
+  const token = useMemo(() => {
+    if(apiKeys && apiKeys.length > 0) {
+      return apiKeys[0].key
+    } else if(user && user.token) {
+      return user.token
+    } else {
+      return ''
+    }
+  }, [
+    user,
+    apiKeys,
+  ])
+
   const loadTransactions = useCallback(async () => {
     const result = await api.get<IBalanceTransfer[]>('/api/v1/transactions')
     if(!result) return
@@ -96,7 +110,6 @@ export const useAccountContext = (): IAccountContext => {
     if(!result) return
     setApiKeys(result)
   }, [])
-
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
@@ -188,6 +201,7 @@ export const useAccountContext = (): IAccountContext => {
   const contextValue = useMemo<IAccountContext>(() => ({
     initialized,
     user,
+    token,
     admin,
     serverConfig,
     userConfig,
@@ -199,6 +213,7 @@ export const useAccountContext = (): IAccountContext => {
   }), [
     initialized,
     user,
+    token,
     admin,
     serverConfig,
     userConfig,

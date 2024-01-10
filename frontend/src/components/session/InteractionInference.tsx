@@ -12,6 +12,7 @@ import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
+import useAccount from '../../hooks/useAccount'
 
 import {
   IServerConfig,
@@ -32,6 +33,7 @@ export const InteractionMessage: FC<{
   serverConfig,
   onRestart,
 }) => {
+  const account = useAccount()
   const [ viewingError, setViewingError ] = useState(false)
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -85,33 +87,37 @@ export const InteractionMessage: FC<{
         ) 
       }
       {
-        serverConfig?.filestore_prefix && imageURLs.map((imageURL: string) => {
-          const useURL = `${serverConfig.filestore_prefix}/${imageURL}`
-          return (
-            <Box
-              sx={{
-                mt: 2,
-              }}
-              key={ useURL }
-            >
-              <Link
-                href={ useURL }
-                target="_blank"
+        serverConfig?.filestore_prefix && imageURLs
+          .filter(file => {
+            return account.token ? true : false
+          })
+          .map((imageURL: string) => {
+            const useURL = `${serverConfig.filestore_prefix}/${imageURL}?access_token=${account.token}`
+            return (
+              <Box
+                sx={{
+                  mt: 2,
+                }}
+                key={ useURL }
               >
-                <GeneratedImage
-                  sx={{
-                    height: '600px',
-                    maxHeight: '600px',
-                    border: '1px solid #000000',
-                    filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
-                  }}
-                  src={ useURL }
-                />  
-              </Link>
-            </Box>
-          )
-          
-        })
+                <Link
+                  href={ useURL }
+                  target="_blank"
+                >
+                  <GeneratedImage
+                    sx={{
+                      height: '600px',
+                      maxHeight: '600px',
+                      border: '1px solid #000000',
+                      filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
+                    }}
+                    src={ useURL }
+                  />  
+                </Link>
+              </Box>
+            )
+            
+          })
       }
       {
         viewingError && (

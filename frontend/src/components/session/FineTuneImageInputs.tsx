@@ -31,6 +31,7 @@ export const FineTuneImageInputs: FC<{
   onChange,
   onDone,
 }) => {
+
   const [files, setFiles] = useState<File[]>(initialFiles || [])
 
   const onDropFiles = useCallback(async (newFiles: File[]) => {
