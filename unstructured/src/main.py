@@ -31,7 +31,7 @@ def parse_document(url):
   print(f"Got mimeType {mimeType}")
   if mimeType.startswith("text/html"):
     if USE_BEAUTIFUL_SOUP:
-      # beautiful soup does a better job of this
+      # beautiful soup does a better job than unstructured on html
       gfg = BeautifulSoup(open(fname).read())
 
       maybeArticle = gfg.find('article')
@@ -47,6 +47,8 @@ def parse_document(url):
       os.unlink(fname)
       return res
     else:
+      # but html2text does an even better job (and outputs markdown which LLMs
+      # like)
       h = html2text.HTML2Text()
       h.ignore_links = True
       h.body_width = 0
@@ -55,7 +57,6 @@ def parse_document(url):
 
 
   # otherwise fall back to unstructured
-
   elements = partition(filename=fname)
   text = ""
   for element in elements:
