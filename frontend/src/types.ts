@@ -315,6 +315,8 @@ export interface ISessionSummary {
   owner: string,
   lora_dir?: string,
   summary: string,
+  isActive?: boolean;
+  hasNewReplies?: boolean;
 }
 
 export interface ISessionMetaUpdate {

@@ -18,6 +18,7 @@ import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import DescriptionIcon from '@mui/icons-material/Description'
 import PermMediaIcon from '@mui/icons-material/PermMedia'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import Badge from '@mui/material/Badge';
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import EditTextWindow from '../widgets/EditTextWindow'
 import Row from '../widgets/Row'
@@ -104,12 +105,14 @@ export const SessionsMenu: FC<{
                 <ListItemButton
                   selected={ session.session_id == params["session_id"] }
                 >
+                   <Badge color="secondary" variant="dot" invisible={!(session.isActive || session.hasNewReplies)}>
                   <ListItemIcon>
                     { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
                     { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DescriptionIcon color="primary" /> }
                     { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
                     { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
                   </ListItemIcon>
+                  </Badge>
                   <ListItemText
                     sx={{marginLeft: "-15px"}}
                     primaryTypographyProps={{ fontSize: 'small', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
