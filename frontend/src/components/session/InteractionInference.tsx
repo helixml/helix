@@ -20,17 +20,20 @@ import {
 
 const GeneratedImage = styled('img')({})
 
-export const InteractionMessage: FC<{
+export const InteractionInference: FC<{
   imageURLs?: string[],
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
+  // if the session is shared then we don't enforce needing an access token to see the files
+  isShared?: boolean,
   onRestart?: () => void,
 }> = ({
   imageURLs = [],
   message,
   error,
   serverConfig,
+  isShared,
   onRestart,
 }) => {
   const account = useAccount()
@@ -89,7 +92,7 @@ export const InteractionMessage: FC<{
       {
         serverConfig?.filestore_prefix && imageURLs
           .filter(file => {
-            return account.token ? true : false
+            return isShared || account.token ? true : false
           })
           .map((imageURL: string) => {
             const useURL = `${serverConfig.filestore_prefix}/${imageURL}?access_token=${account.token}`
@@ -135,4 +138,4 @@ export const InteractionMessage: FC<{
   )   
 }
 
-export default InteractionMessage
+export default InteractionInference

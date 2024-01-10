@@ -98,6 +98,7 @@ export const Interaction: FC<{
         imageURLs={ imageURLs }
         message={ displayMessage }
         error={ interaction?.error }
+        isShared={ session.config.shared }
         onRestart={ onRestart }
       />
 
