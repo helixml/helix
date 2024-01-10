@@ -93,13 +93,19 @@ export const InteractionFinetune: FC<{
     interaction,
   ])
 
+  const isShared = useMemo(() => {
+    return session.config.shared ? true : false
+  }, [
+    session,
+  ])
+
   const dataPrepStats = useMemo(() => {
     return getTextDataPrepStats(interaction)
   }, [
     interaction,
   ])
 
-  if(!serverConfig || !serverConfig.filestore_prefix || !account.token) return null
+  if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
   return (
     <>
@@ -115,7 +121,7 @@ export const InteractionFinetune: FC<{
               {
                 interaction.files.length > 0 && interaction.files
                   .filter(file => {
-                    if(!account.token) return false
+                    if(!isShared && !account.token) return false
                     return file.match(/\.txt$/i) ? false : true
                   })
                   .map((file) => {
@@ -167,7 +173,8 @@ export const InteractionFinetune: FC<{
               {
                 interaction.files.length > 0 && interaction.files
                   .filter(file => {
-                    return account.token ? true : false
+                    if(!isShared && !account.token) return false
+                    return true
                   })
                   .map((file) => {
                     const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
