@@ -230,9 +230,31 @@ func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
 	}
 }
 
+func extractSessionID(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		if part == "sessions" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
 // this will tell you if the given http request is authorized to access it
 func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, error) {
+	// if the session is "shared" then anyone can see it's files
+	sessionID := extractSessionID(req.URL.Path)
+	if sessionID != "" {
+		session, err := apiServer.Store.GetSession(req.Context(), sessionID)
+		if err != nil {
+			return false, err
+		}
+		if session.Config.Shared {
+			return true, nil
+		}
+	}
+
 	// a runner can see all files
 	isRunner := apiServer.runnerAuth.isRequestAuthenticated(req)
 	if isRunner {
