@@ -192,6 +192,7 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 	queryParams := url.Values{}
 	queryParams.Add("runnerid", r.Options.ID)
+	queryParams.Add("access_token", r.Options.ApiToken)
 	parsedURL.RawQuery = queryParams.Encode()
 
 	go server.ConnectRunnerWebSocketClient(
