@@ -7,21 +7,6 @@ import (
 	"time"
 )
 
-type BalanceTransferData struct {
-	JobID           string `json:"job_id"`
-	StripePaymentID string `json:"stripe_payment_id"`
-}
-
-type BalanceTransfer struct {
-	ID          string              `json:"id"`
-	Created     time.Time           `json:"created"`
-	Owner       string              `json:"owner"`
-	OwnerType   OwnerType           `json:"owner_type"`
-	PaymentType PaymentType         `json:"payment_type"`
-	Amount      int                 `json:"amount"`
-	Data        BalanceTransferData `json:"data"`
-}
-
 type Module struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -250,10 +235,9 @@ type RequestContext struct {
 }
 
 type UserStatus struct {
-	Admin   bool       `json:"admin"`
-	User    string     `json:"user"`
-	Credits int        `json:"credits"`
-	Config  UserConfig `json:"config"`
+	Admin  bool       `json:"admin"`
+	User   string     `json:"user"`
+	Config UserConfig `json:"config"`
 }
 
 // a single envelope that is broadcast to users
