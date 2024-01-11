@@ -71,21 +71,6 @@ export interface IUserConfig {
   stripe_subscription_id?: string,
 }
 
-export interface IBalanceTransferData {
-  job_id?: string,
-  stripe_payment_id?: string,
-}
-
-export interface IBalanceTransfer {
-  id: string,
-  created: number,
-  owner: string,
-  owner_type: string,
-  payment_type: string,
-  amount: number,
-  data: IBalanceTransferData,
-}
-
 export type IOwnerType = 'user' | 'system' | 'org';
 
 export interface IApiKey {

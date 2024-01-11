@@ -10,14 +10,6 @@ import (
 )
 
 func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, error) {
-	balanceTransfers, err := c.Options.Store.GetBalanceTransfers(ctx.Ctx, store.OwnerQuery{
-		Owner:     ctx.Owner,
-		OwnerType: ctx.OwnerType,
-	})
-	if err != nil {
-		return types.UserStatus{}, err
-	}
-
 	usermeta, err := c.Options.Store.GetUserMeta(ctx.Ctx, ctx.Owner)
 
 	if err != nil || usermeta == nil {
@@ -27,24 +19,11 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 		}
 	}
 
-	// add up the total value of all balance transfers
-	credits := 0
-	for _, balanceTransfer := range balanceTransfers {
-		credits += balanceTransfer.Amount
-	}
 	return types.UserStatus{
-		Admin:   ctx.Admin,
-		User:    ctx.Owner,
-		Credits: credits,
-		Config:  usermeta.Config,
+		Admin:  ctx.Admin,
+		User:   ctx.Owner,
+		Config: usermeta.Config,
 	}, nil
-}
-
-func (c *Controller) GetTransactions(ctx types.RequestContext) ([]*types.BalanceTransfer, error) {
-	return c.Options.Store.GetBalanceTransfers(ctx.Ctx, store.OwnerQuery{
-		Owner:     ctx.Owner,
-		OwnerType: ctx.OwnerType,
-	})
 }
 
 func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string, error) {

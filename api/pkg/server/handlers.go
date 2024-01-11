@@ -266,10 +266,6 @@ func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Reque
 	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
 }
 
-func (apiServer *HelixAPIServer) getTransactions(res http.ResponseWriter, req *http.Request) ([]*types.BalanceTransfer, error) {
-	return apiServer.Controller.GetTransactions(apiServer.getRequestContext(req))
-}
-
 func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
 	return apiServer.Controller.FilestoreConfig(apiServer.getOwnerContext(req))
 }
