@@ -41,6 +41,19 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	var messages []string
 	for _, interaction := range session.Interactions {
+		// Chat API mode
+		if len(interaction.Messages) > 0 {
+			for _, m := range interaction.Messages {
+				if m.Role == "user" {
+					messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", m.Content))
+				} else {
+					messages = append(messages, m.Content)
+				}
+			}
+			continue
+		}
+
+		// Regular session mode
 		if interaction.Creator == "user" {
 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
 		} else {
