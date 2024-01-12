@@ -794,14 +794,15 @@ func (r *Runner) getHypotheticalFreeMemory() int64 {
 }
 
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
-	if res.Type == types.WorkerTaskResponseTypeResult {
+	switch res.Type {
+	case types.WorkerTaskResponseTypeResult:
 		// if it's a full result then we just post it to the api
 		log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 		return r.postWorkerResponseToApi(res)
-	} else if res.Type == types.WorkerTaskResponseTypeProgress || res.Type == types.WorkerTaskResponseTypeStream {
-		// otherwise for streaming updates it's a websocket event
+	case types.WorkerTaskResponseTypeProgress, types.WorkerTaskResponseTypeStream:
+		// streaming updates it's a websocket event
 		return r.sendWorkerResponseToWebsocket(res)
-	} else {
+	default:
 		return fmt.Errorf("unknown response type: %s", res.Type)
 	}
 }
