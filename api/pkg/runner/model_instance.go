@@ -121,7 +121,7 @@ func NewModelInstance(
 	modelInstance := &ModelInstance{
 		id:                id,
 		ctx:               ctx,
-		finishChan:        make(chan bool, 1),
+		finishChan:        make(chan bool),
 		model:             aiModel,
 		responseHandler:   responseHandler,
 		nextTaskURL:       fmt.Sprintf("%s/%s", nextTaskURL, id),
@@ -394,6 +394,9 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	}
 
 	go func(cmd *exec.Cmd) {
+		// Signal the runner to drop the model instance
+		defer close(instance.finishChan)
+
 		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
 
@@ -403,12 +406,10 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			if instance.currentSession != nil {
 				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), string(stderrBuf.Bytes())))
 			}
+			return
 		}
 
-		log.Info().
-			Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
-
-		instance.finishChan <- true
+		log.Info().Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
 	}(cmd)
 	return nil
 }
