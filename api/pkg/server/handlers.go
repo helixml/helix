@@ -196,6 +196,9 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		UserInteraction: *userInteraction,
 		SessionMode:     session.Mode,
 	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to update session: %s", err)
+	}
 
 	return sessionData, nil
 }
