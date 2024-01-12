@@ -324,6 +324,7 @@ type RunnerTaskResponse struct {
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
 	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	Done     bool     `json:"done,omitempty"`
 }
 
 // this is returned by the api server so that clients can see what
