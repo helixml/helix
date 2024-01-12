@@ -80,19 +80,29 @@ function stop() {
 function db() {
   local subcommand="${1-cli}"
   shift
+  local containername="${1-postgres}"
+  shift
   if [[ "$subcommand" == "cli" ]]; then
-    docker-compose exec postgres psql --user postgres "$@"
+    docker-compose exec $containername psql --user postgres "$@"
   elif [[ "$subcommand" == "pipe" ]]; then
-    docker-compose exec -T postgres psql --user postgres "$@"
+    docker-compose exec -T $containername psql --user postgres "$@"
   fi
 }
 
 function psql() {
-  db cli "$@"
+  db cli postgres "$@"
 }
 
 function psql_pipe() {
-  db pipe "$@"
+  db pipe postgres "$@"
+}
+
+function pgvector() {
+  db cli pgvector "$@"
+}
+
+function pgvector_pipe() {
+  db pipe pgvector "$@"
 }
 
 eval "$@"
