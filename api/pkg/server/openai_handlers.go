@@ -109,6 +109,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *http.Request, session *types.Session) {
 	// Set chunking headers
+	res.Header().Set("Cache-Control", "no-cache")
+	res.Header().Set("Connection", "keep-alive")
 	res.Header().Set("Transfer-Encoding", "chunked")
 	res.Header().Set("Content-Type", "text/event-stream")
 
@@ -203,5 +205,82 @@ func createChatCompletionChunk(session *types.Session, message string) *types.Op
 }
 
 func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, session *types.Session) {
+	res.Header().Set("Content-Type", "application/json")
 
+	doneCh := make(chan struct{})
+
+	var updatedSession *types.Session
+
+	consumer := apiServer.pubsub.Subscribe(req.Context(), session.ID, func(payload []byte) error {
+		var event types.WebsocketEvent
+		err := json.Unmarshal(payload, &event)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
+		}
+
+		if event.Type != "session_update" || event.Session == nil {
+			return nil
+		}
+
+		if event.Session.Interactions[len(event.Session.Interactions)-1].State == types.InteractionStateComplete {
+			// We are done
+			updatedSession = event.Session
+			close(doneCh)
+			return nil
+		}
+
+		// Continue reading
+		return nil
+	}, pubsub.WithChannelNamespace(session.Owner))
+
+	select {
+	case <-doneCh:
+		consumer.Unsubscribe(context.Background())
+		// Continue with response
+	case <-req.Context().Done():
+		consumer.Unsubscribe(context.Background())
+		return
+	}
+
+	if updatedSession == nil {
+		http.Error(res, "session update not received", http.StatusInternalServerError)
+		return
+	}
+
+	if updatedSession.Interactions == nil || len(updatedSession.Interactions) == 0 {
+		http.Error(res, "session update does not contain any interactions", http.StatusInternalServerError)
+		return
+	}
+
+	var result []types.Choice
+
+	// Take the last interaction
+	interaction := updatedSession.Interactions[len(updatedSession.Interactions)-1]
+
+	result = append(result, types.Choice{
+		Message: &types.Message{
+			Role:    "assistant",
+			Content: interaction.Message,
+		},
+		FinishReason: "stop",
+	})
+
+	resp := &types.OpenAIResponse{
+		ID:      session.ID,
+		Created: int(time.Now().Unix()),
+		Model:   string(session.ModelName), // we have to return what the user sent here, due to OpenAI spec.
+		Choices: result,
+		Object:  "chat.completion",
+		Usage: types.OpenAIUsage{
+			// TODO: calculate
+			PromptTokens:     0,
+			CompletionTokens: 0,
+			TotalTokens:      0,
+		},
+	}
+
+	err := json.NewEncoder(res).Encode(resp)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+	}
 }
