@@ -8,8 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/lukemarsden/helix/api/pkg/pubsub"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,14 +29,11 @@ type UserConnectionWrapper struct {
 	session string
 }
 
-// StartUserWebSocketServer starts a WebSocket server
-func StartUserWebSocketServer(
+// startUserWebSocketServer starts a WebSocket server
+func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	ctx context.Context,
 	r *mux.Router,
-	Controller *controller.Controller,
 	path string,
-	websocketEventChan chan *types.WebsocketEvent,
-	getUserIDFromRequest GetUserIDFromRequest,
 ) {
 	var mutex = &sync.Mutex{}
 
@@ -69,13 +65,21 @@ func StartUserWebSocketServer(
 	go func() {
 		for {
 			select {
-			case event := <-websocketEventChan:
+			case event := <-apiServer.Controller.UserWebsocketEventChanWriter:
 				log.Trace().Msgf("User websocket event: %+v", event)
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
 					continue
 				}
+
+				err = apiServer.pubsub.Publish(ctx, event.SessionID, message,
+					pubsub.WithPublishNamespace(event.Owner),
+				)
+				if err != nil {
+					log.Error().Msgf("Error publishing session update: %s", err.Error())
+				}
+
 				func() {
 					// hold the mutex while we iterate over connections because
 					// you can't modify a mutex while iterating over it (fatal
@@ -106,7 +110,7 @@ func StartUserWebSocketServer(
 	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		userID, err := getUserIDFromRequest(r)
+		userID, err := apiServer.keyCloakMiddleware.userIDFromRequestBothModes(r)
 		if err != nil {
 			log.Error().Msgf("Error getting user id: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
