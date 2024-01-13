@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -143,4 +145,157 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 	suite.Equal("stop", resp.Choices[0].FinishReason)
 	suite.Equal("assistant", resp.Choices[0].Message.Role)
 	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
+		"model": "mistralai/Mistral-7B-Instruct-v0.1",
+		"stream": true,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	// First we check whether user should get the priority
+	suite.store.EXPECT().GetBalanceTransfers(gomock.Any(), store.OwnerQuery{
+		Owner:     "user_id",
+		OwnerType: types.OwnerTypeUser,
+	}).Return([]*types.BalanceTransfer{}, nil)
+
+	suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
+		Config: types.UserConfig{
+			StripeSubscriptionActive: true,
+		},
+	}, nil)
+
+	var sessionID string
+
+	// Creating the session
+	suite.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, session types.Session) (*types.Session, error) {
+			suite.Equal("user_id", session.Owner)
+			suite.Equal(types.OwnerTypeUser, session.OwnerType)
+			suite.Equal(suite.userID, session.Owner)
+			suite.Equal(types.SessionModeInference, session.Mode)
+			suite.Equal(types.SessionTypeText, session.Type)
+			suite.Equal(types.ModelName("mistralai/Mistral-7B-Instruct-v0.1"), session.ModelName)
+			suite.Equal("You are a helpful assistant.", session.Interactions[0].Messages[0].Content)
+			suite.Equal("tell me about oceans!", session.Interactions[0].Messages[1].Content)
+			suite.Equal("system", session.Interactions[0].Messages[0].Role)
+			suite.Equal("user", session.Interactions[0].Messages[1].Role)
+			suite.NotEmpty(session.ID, "session ID should be set")
+
+			sessionID = session.ID
+
+			modelMessages := []*types.RunnerTaskResponse{
+				{
+					Message: "msg-1",
+				},
+				{
+					Message: "msg-2",
+				},
+				{
+					Message: "msg-3",
+				},
+				{
+					Done: true,
+				},
+			}
+
+			// Publish messages
+			for _, msg := range modelMessages {
+				msg1, err := json.Marshal(&types.WebsocketEvent{
+					Type: "worker_task_response",
+					Session: &types.Session{
+						ID: "session_id",
+					},
+					WorkerTaskResponse: &types.RunnerTaskResponse{
+						Message: msg.Message,
+						Done:    msg.Done,
+					},
+				})
+				suite.NoError(err)
+
+				suite.pubsub.Publish(
+					context.Background(),
+					session.ID,
+					msg1, pubsub.WithPublishNamespace("user_id"))
+			}
+
+			return &session, nil
+		})
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code)
+
+	suite.T().Logf("session ID: %s", sessionID)
+
+	// validate headers
+	suite.Equal("text/event-stream", rec.Header().Get("Content-Type"))
+	suite.Equal("no-cache", rec.Header().Get("Cache-Control"))
+	suite.Equal("keep-alive", rec.Header().Get("Connection"))
+	suite.Equal("chunked", rec.Header().Get("Transfer-Encoding"))
+
+	var (
+		startFound = false
+		stopFound  = false
+	)
+
+	// Read chunks
+	scanner := bufio.NewScanner(rec.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			jsonData := line[6:] // Remove "data: " prefix
+			if jsonData == "[DONE]" {
+				break
+			}
+
+			var data types.OpenAIResponse
+			err := json.Unmarshal([]byte(jsonData), &data)
+			suite.NoError(err)
+
+			suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", data.Model)
+			suite.Equal(1, len(data.Choices))
+			// suite.Equal("assistant", data.Choices[0].Delta.Role)
+			suite.Equal("chat.completion.chunk", data.Object)
+
+			switch data.Choices[0].Delta.Content {
+			case "msg-1":
+				suite.Equal("msg-1", data.Choices[0].Delta.Content)
+			case "msg-2":
+				suite.Equal("msg-2", data.Choices[0].Delta.Content)
+			case "msg-3":
+				suite.Equal("msg-3", data.Choices[0].Delta.Content)
+			case "":
+				if data.Choices[0].Delta.Content == "" && data.Choices[0].Delta.Role == "assistant" {
+					startFound = true
+				}
+
+				if data.Choices[0].Delta.Content == "" && data.Choices[0].FinishReason == "stop" {
+					stopFound = true
+				}
+			default:
+				suite.Fail("unexpected message")
+			}
+		}
+	}
+
+	suite.True(startFound, "start chunk not found")
+	suite.True(stopFound, "stop chunk not found")
 }

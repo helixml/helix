@@ -132,16 +132,9 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 				return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
 			}
 
-			_, err = fmt.Fprintf(res, "data: %s\n\n", string(respData))
+			err = writeChunk(res, respData)
 			if err != nil {
-				return fmt.Errorf("error writing final chunk '%s': %w", string(respData), err)
-			}
-
-			_, _ = res.Write([]byte("data: [DONE]\n\n"))
-
-			// Flush the ResponseWriter buffer to send the chunk immediately
-			if flusher, ok := res.(http.Flusher); ok {
-				flusher.Flush()
+				return err
 			}
 
 			// Close connection
@@ -160,23 +153,35 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 			return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
 		}
 
-		_, err = fmt.Fprintf(res, "data: %s\n\n", chunk)
+		err = writeChunk(res, chunk)
 		if err != nil {
-			return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
-		}
-
-		// Flush the ResponseWriter buffer to send the chunk immediately
-		if flusher, ok := res.(http.Flusher); ok {
-			flusher.Flush()
+			return err
 		}
 
 		return nil
 	}, pubsub.WithChannelNamespace(session.Owner))
 
+	// Write first chunk where we present the user with the first message
+	// from the assistant
+	firstChunk := createChatCompletionChunk(session.SessionID, string(session.ModelName), "")
+	firstChunk.Choices[0].Delta.Role = "assistant"
+
+	respData, err := json.Marshal(firstChunk)
+	if err != nil {
+		system.NewHTTPError500("error marshalling websocket event '%+v': %s", firstChunk, err)
+		return
+	}
+
+	err = writeChunk(res, respData)
+	if err != nil {
+		system.NewHTTPError500("error writing chunk '%s': %s", string(respData), err)
+		return
+	}
+
 	// After subscription, start the session, otherwise
 	// we can have race-conditions on very fast responses
 	// from the runner
-	_, err := apiServer.Controller.CreateSession(userContext, *session)
+	_, err = apiServer.Controller.CreateSession(userContext, *session)
 	if err != nil {
 		system.NewHTTPError500("failed to start session: %s", err)
 		return
@@ -192,6 +197,10 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	}
 }
 
+// Ref: https://platform.openai.com/docs/api-reference/chat/streaming
+// Example:
+// {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1694268190,"model":"gpt-3.5-turbo-0613", "system_fingerprint": "fp_44709d6fcb", "choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
 func createChatCompletionChunk(sessionID, modelName, message string) *types.OpenAIResponse {
 	return &types.OpenAIResponse{
 		ID:      sessionID,
@@ -199,12 +208,29 @@ func createChatCompletionChunk(sessionID, modelName, message string) *types.Open
 		Model:   modelName, // we have to return what the user sent here, due to OpenAI spec.
 		Choices: []types.Choice{
 			{
-				Text:  message,
+				// Text: message,
+				Delta: &types.Message{
+					Content: message,
+				},
 				Index: 0,
 			},
 		},
 		Object: "chat.completion.chunk",
 	}
+}
+
+func writeChunk(w io.Writer, chunk []byte) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", string(chunk))
+	if err != nil {
+		return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
+	}
+
+	// Flush the ResponseWriter buffer to send the chunk immediately
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	return nil
 }
 
 func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, userContext types.RequestContext, session *types.CreateSessionRequest) {
