@@ -35,28 +35,6 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	r *mux.Router,
 	path string,
 ) {
-	var mutex = &sync.Mutex{}
-
-	connections := map[*websocket.Conn]*UserConnectionWrapper{}
-
-	// TODO: make this more efficient so we don't need to loop over all connections every time
-	// we should have a list of connections per sessionID
-	addConnection := func(conn *websocket.Conn, user string, sessionID string) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		connections[conn] = &UserConnectionWrapper{
-			conn:    conn,
-			user:    user,
-			session: sessionID,
-		}
-	}
-
-	removeConnection := func(conn *websocket.Conn) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		delete(connections, conn)
-	}
-
 	// spawn a reader from the incoming message channel
 	// each message we get we fan out to all the currently connected websocket clients
 
@@ -80,29 +58,6 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 					log.Error().Msgf("Error publishing session update: %s", err.Error())
 				}
 
-				func() {
-					// hold the mutex while we iterate over connections because
-					// you can't modify a mutex while iterating over it (fatal
-					// error: concurrent map iteration and map write)
-					mutex.Lock()
-					defer mutex.Unlock()
-					for _, connWrapper := range connections {
-						// each user websocket connection is only interested in a single session
-						if connWrapper.user != event.Owner || connWrapper.session != event.SessionID {
-							continue
-						}
-						// wrap in a func so that we can defer the unlock so we can
-						// unlock the mutex on panics as well as errors
-						func() {
-							connWrapper.mu.Lock()
-							defer connWrapper.mu.Unlock()
-							if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-								log.Error().Msgf("Error writing to websocket: %s", err.Error())
-								return
-							}
-						}()
-					}
-				}()
 			case <-ctx.Done():
 				return
 			}
@@ -132,8 +87,15 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		}
 
 		defer conn.Close()
-		defer removeConnection(conn)
-		addConnection(conn, userID, sessionID)
+
+		consumer := apiServer.pubsub.Subscribe(r.Context(), sessionID, func(payload []byte) error {
+			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				log.Error().Msgf("Error writing to websocket: %s", err.Error())
+			}
+			return nil
+		}, pubsub.WithChannelNamespace(userID))
+
+		defer consumer.Unsubscribe(context.Background())
 
 		log.Trace().
 			Str("action", "⚪ user ws CONNECT").
@@ -153,7 +115,5 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 				break
 			}
 		}
-
-		removeConnection(conn)
 	})
 }
