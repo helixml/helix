@@ -271,6 +271,15 @@ func (chunker *mistral7bInferenceChunker) emitStream() {
 	chunker.bufferStream = ""
 }
 
+func (chunker *mistral7bInferenceChunker) emitStreamDone() {
+	chunker.eventHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeStream,
+		SessionID: chunker.sessionID,
+		Message:   "",
+		Done:      true,
+	})
+}
+
 func (chunker *mistral7bInferenceChunker) emitResult() {
 	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
@@ -297,6 +306,11 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
 		log.Info().Msg("👉 case 2")
 		chunker.emitResult()
+
+		// Signal that we are done
+		chunker.emitStreamDone()
+
+		// Reset the buffer
 		chunker.reset()
 	} else if chunker.sessionID != "" {
 		log.Info().Msg("👉 case 3")

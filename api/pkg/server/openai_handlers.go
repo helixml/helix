@@ -126,13 +126,9 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 			return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
 		}
 
-		// Nothing to do
-		if event.WorkerTaskResponse == nil {
-			return nil
-		}
-
 		// If we get a worker task response with done=true, we need to send a final chunk
-		if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
+		// if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
+		if event.Type == "session_update" && event.Session != nil && event.Session.Interactions[len(event.Session.Interactions)-1].State == types.InteractionStateComplete {
 			lastChunk := createChatCompletionChunk(session, "")
 			lastChunk.Choices[0].FinishReason = "stop"
 
@@ -155,6 +151,11 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 			// Close connection
 			close(doneCh)
+			return nil
+		}
+
+		// Nothing to do
+		if event.WorkerTaskResponse == nil {
 			return nil
 		}
 
