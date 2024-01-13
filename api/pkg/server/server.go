@@ -190,7 +190,6 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
-	fmt.Println("XX registered")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
