@@ -305,10 +305,11 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 		chunker.active = true
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
 		log.Info().Msg("👉 case 2")
-		chunker.emitResult()
-
-		// Signal that we are done
+		// Signal that we are done with this session for
+		// any streaming clients
 		chunker.emitStreamDone()
+
+		chunker.emitResult()
 
 		// Reset the buffer
 		chunker.reset()
