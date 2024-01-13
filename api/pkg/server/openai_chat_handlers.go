@@ -21,7 +21,7 @@ const (
 )
 
 // https://platform.openai.com/docs/api-reference/chat/create
-// POST https://api.openai.com/v1/chat/completions
+// POST https://app.tryhelix.ai//v1/chat/completions
 func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, req *http.Request) {
 	reqContext := apiServer.getRequestContext(req)
 
@@ -118,9 +118,6 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	logger.Debug().Msgf("session streaming started")
-	defer logger.Debug().Msgf("session streaming done")
-
 	consumer := apiServer.pubsub.Subscribe(req.Context(), session.ID, func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
@@ -129,8 +126,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		}
 
 		// If we get a worker task response with done=true, we need to send a final chunk
-		// if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
-		if event.Type == "session_update" && event.Session != nil && event.Session.Interactions[len(event.Session.Interactions)-1].State == types.InteractionStateComplete {
+		if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
 			logger.Debug().Msgf("session finished")
 
 			lastChunk := createChatCompletionChunk(session, "")
@@ -168,8 +164,6 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		if err != nil {
 			return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
 		}
-
-		_, err = fmt.Printf("data: %s\n\n", chunk)
 
 		_, err = fmt.Fprintf(res, "data: %s\n\n", chunk)
 		if err != nil {
@@ -216,6 +210,8 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	var updatedSession *types.Session
 
+	// Wait for the results from the session update. Last event will have the interaction with the full
+	// response from the model.
 	consumer := apiServer.pubsub.Subscribe(req.Context(), session.ID, func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
