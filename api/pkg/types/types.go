@@ -28,19 +28,25 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner   string            `json:"runner"`   // e.g. 0
-	Message  string            `json:"message"`  // e.g. Prove pythagoras
-	Progress int               `json:"progress"` // e.g. 0-100
-	Files    []string          `json:"files"`    // list of filepath paths
-	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State    InteractionState  `json:"state"`
-	Status   string            `json:"status"`
-	Error    string            `json:"error"`
+	Runner   string               `json:"runner"`   // e.g. 0
+	Message  string               `json:"message"`  // e.g. Prove pythagoras
+	Messages []InteractionMessage `json:"messages"` // A list of messages
+	Progress int                  `json:"progress"` // e.g. 0-100
+	Files    []string             `json:"files"`    // list of filepath paths
+	Finished bool                 `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	Metadata map[string]string    `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State    InteractionState     `json:"state"`
+	Status   string               `json:"status"`
+	Error    string               `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
 	LoraDir        string                     `json:"lora_dir"`
 	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
 	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
+}
+
+type InteractionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type SessionOrigin struct {
@@ -302,6 +308,7 @@ type RunnerTaskResponse struct {
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
 	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	Done     bool     `json:"done,omitempty"`
 }
 
 // this is returned by the api server so that clients can see what

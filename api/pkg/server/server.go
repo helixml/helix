@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/lukemarsden/helix/api/pkg/controller"
 	"github.com/lukemarsden/helix/api/pkg/janitor"
+	"github.com/lukemarsden/helix/api/pkg/pubsub"
 	"github.com/lukemarsden/helix/api/pkg/store"
 	"github.com/lukemarsden/helix/api/pkg/stripe"
 	"github.com/lukemarsden/helix/api/pkg/system"
@@ -45,6 +46,7 @@ type HelixAPIServer struct {
 	adminAuth          *adminAuth
 	keycloak           *keycloak
 	keyCloakMiddleware *keyCloakMiddleware
+	pubsub             pubsub.PubSub
 }
 
 func NewServer(
@@ -87,6 +89,7 @@ func NewServer(
 		adminAuth:          newAdminAuth(options.AdminIDs),
 		keycloak:           keycloak,
 		keyCloakMiddleware: newMiddleware(keycloak, options, store),
+		pubsub:             pubsub.New(),
 	}, nil
 }
 
@@ -184,6 +187,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		})))
 	}
 
+	// OpenAI API compatible routes
+	router.HandleFunc("/v1/chat/completions", apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
+
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
 	maybeAuthRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
@@ -212,13 +218,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
-	StartUserWebSocketServer(
+	apiServer.startUserWebSocketServer(
 		ctx,
 		subrouter,
-		apiServer.Controller,
 		"/ws/user",
-		apiServer.Controller.UserWebsocketEventChanWriter,
-		apiServer.keyCloakMiddleware.userIDFromRequestBothModes,
 	)
 
 	StartRunnerWebSocketServer(

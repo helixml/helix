@@ -86,10 +86,10 @@ func NewHTTPError404(message string) *HTTPError {
 	}
 }
 
-func NewHTTPError500(message string) *HTTPError {
+func NewHTTPError500(tmpl string, format ...interface{}) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusInternalServerError,
-		Message:    message,
+		Message:    fmt.Sprintf(tmpl, format...),
 	}
 }
 

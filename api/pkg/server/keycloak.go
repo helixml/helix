@@ -208,3 +208,19 @@ func (auth *keyCloakMiddleware) maybeVerifyToken(next http.Handler) http.Handler
 func (auth *keyCloakMiddleware) enforceVerifyToken(next http.Handler) http.Handler {
 	return auth.verifyToken(next, true)
 }
+
+func (auth *keyCloakMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc {
+	return func(rw http.ResponseWriter, req *http.Request) {
+		maybeOwner, err := auth.maybeOwnerFromRequest(req)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		// successful api_key auth
+		req = req.WithContext(setRequestUser(req.Context(), types.UserData{
+			ID: maybeOwner.Owner,
+		}))
+		f.ServeHTTP(rw, req)
+
+	}
+}
