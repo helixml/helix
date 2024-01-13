@@ -370,13 +370,15 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	// calculate mem required by new session
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
-		newSession,
-		r.Options.TaskURL,
-		r.Options.InitialSessionURL,
-		func(res *types.RunnerTaskResponse) error {
-			return nil
+		&ModelInstanceConfig{
+			InitialSession:    newSession,
+			InitialSessionURL: r.Options.InitialSessionURL,
+			NextTaskURL:       r.Options.TaskURL,
+			ResponseHandler: func(res *types.RunnerTaskResponse) error {
+				return nil
+			},
+			RunnerOptions: r.Options,
 		},
-		r.Options,
 	)
 	if err != nil {
 		return err
@@ -544,28 +546,29 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
 	modelInstance, err := NewModelInstance(
 		r.Ctx,
-		initialSession,
-		r.Options.TaskURL,
-		r.Options.InitialSessionURL,
-
-		// this function will convert any files it sees locally into an upload
-		// to the api server filestore - all files will be written to the filestore
-		// under a session sub path - you can include tar files and they will untarred at the other end
-		// into the filestore
-		// TODO: support the tar feature above
-		func(res *types.RunnerTaskResponse) error {
-			if r.Options.LocalMode {
-				err := r.addLocalResponse(ctx, res)
-				if err != nil {
-					return err
+		&ModelInstanceConfig{
+			InitialSession:    initialSession,
+			InitialSessionURL: r.Options.InitialSessionURL,
+			NextTaskURL:       r.Options.TaskURL,
+			// this function will convert any files it sees locally into an upload
+			// to the api server filestore - all files will be written to the filestore
+			// under a session sub path - you can include tar files and they will untarred at the other end
+			// into the filestore
+			// TODO: support the tar feature above
+			ResponseHandler: func(res *types.RunnerTaskResponse) error {
+				if r.Options.LocalMode {
+					err := r.addLocalResponse(ctx, res)
+					if err != nil {
+						return err
+					}
+					return nil
+				} else {
+					// if the response is for the initial session then inclide
+					return r.handleWorkerResponse(res)
 				}
-				return nil
-			} else {
-				// if the response is for the initial session then inclide
-				return r.handleWorkerResponse(res)
-			}
+			},
+			RunnerOptions: r.Options,
 		},
-		r.Options,
 	)
 	if err != nil {
 		return err
