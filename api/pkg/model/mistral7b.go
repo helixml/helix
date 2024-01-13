@@ -41,6 +41,19 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	var messages []string
 	for _, interaction := range session.Interactions {
+		// Chat API mode
+		if len(interaction.Messages) > 0 {
+			for _, m := range interaction.Messages {
+				if m.Role == "user" {
+					messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", m.Content))
+				} else {
+					messages = append(messages, m.Content)
+				}
+			}
+			continue
+		}
+
+		// Regular session mode
 		if interaction.Creator == "user" {
 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
 		} else {
@@ -258,6 +271,15 @@ func (chunker *mistral7bInferenceChunker) emitStream() {
 	chunker.bufferStream = ""
 }
 
+func (chunker *mistral7bInferenceChunker) emitStreamDone() {
+	chunker.eventHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeStream,
+		SessionID: chunker.sessionID,
+		Message:   "",
+		Done:      true,
+	})
+}
+
 func (chunker *mistral7bInferenceChunker) emitResult() {
 	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
@@ -283,7 +305,13 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 		chunker.active = true
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
 		log.Info().Msg("👉 case 2")
+		// Signal that we are done with this session for
+		// any streaming clients
+		chunker.emitStreamDone()
+
 		chunker.emitResult()
+
+		// Reset the buffer
 		chunker.reset()
 	} else if chunker.sessionID != "" {
 		log.Info().Msg("👉 case 3")
