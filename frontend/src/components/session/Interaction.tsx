@@ -55,7 +55,15 @@ export const Interaction: FC<{
   } else {
     if(session.type == SESSION_TYPE_TEXT) {
       if(!interaction?.lora_dir) {
-        displayMessage = interaction?.message || ''
+        // If single message is shown, display it
+        if (interaction?.message) {
+          displayMessage = interaction.message
+        } else if (interaction?.messages && interaction?.messages.length > 0) {
+          // If multiple messages are shown, display the last one
+          displayMessage = interaction.messages[interaction.messages.length - 1].content
+        } else {
+          displayMessage = ''
+        }        
       }
     } else if(session.type == SESSION_TYPE_IMAGE) {
       if(interaction?.creator == SESSION_CREATOR_USER) {
