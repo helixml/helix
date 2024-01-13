@@ -114,10 +114,12 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	res.Header().Set("Transfer-Encoding", "chunked")
 	res.Header().Set("Content-Type", "text/event-stream")
 
+	logger := log.With().Str("session_id", session.ID).Logger()
+
 	doneCh := make(chan struct{})
 
-	log.Info().Msgf("session streaming started: %s", session.ID)
-	defer log.Info().Msgf("session streaming done: %s", session.ID)
+	logger.Debug().Msgf("session streaming started")
+	defer logger.Debug().Msgf("session streaming done")
 
 	consumer := apiServer.pubsub.Subscribe(req.Context(), session.ID, func(payload []byte) error {
 		var event types.WebsocketEvent
@@ -129,6 +131,8 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		// If we get a worker task response with done=true, we need to send a final chunk
 		// if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
 		if event.Type == "session_update" && event.Session != nil && event.Session.Interactions[len(event.Session.Interactions)-1].State == types.InteractionStateComplete {
+			logger.Debug().Msgf("session finished")
+
 			lastChunk := createChatCompletionChunk(session, "")
 			lastChunk.Choices[0].FinishReason = "stop"
 
