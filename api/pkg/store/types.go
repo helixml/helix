@@ -33,6 +33,8 @@ type GetBotsQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
+//go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
+
 type Store interface {
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
