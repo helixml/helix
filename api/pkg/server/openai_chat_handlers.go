@@ -23,8 +23,6 @@ const (
 // https://platform.openai.com/docs/api-reference/chat/create
 // POST https://app.tryhelix.ai//v1/chat/completions
 func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, req *http.Request) {
-	reqContext := apiServer.getRequestContext(req)
-
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
@@ -39,6 +37,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	}
 
 	userContext := apiServer.getRequestContext(req)
+
 	status, err := apiServer.Controller.GetStatus(userContext)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
@@ -89,8 +88,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionMode:     sessionMode,
 		SessionType:     types.SessionTypeText,
 		ModelName:       types.ModelName(chatCompletionRequest.Model),
-		Owner:           reqContext.Owner,
-		OwnerType:       reqContext.OwnerType,
+		Owner:           userContext.Owner,
+		OwnerType:       userContext.OwnerType,
 		UserInteraction: interaction,
 		Priority:        status.Config.StripeSubscriptionActive,
 	})
