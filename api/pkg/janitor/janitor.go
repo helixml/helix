@@ -8,8 +8,8 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/gorilla/mux"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type JanitorOptions struct {

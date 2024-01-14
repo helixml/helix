@@ -6,11 +6,11 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/janitor"
-	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/runner"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/runner"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )

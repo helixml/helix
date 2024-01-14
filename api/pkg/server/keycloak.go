@@ -8,8 +8,8 @@ import (
 
 	gocloak "github.com/Nerzal/gocloak/v13"
 	jwt "github.com/golang-jwt/jwt/v4"
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 const CLIENT_ID = "api"

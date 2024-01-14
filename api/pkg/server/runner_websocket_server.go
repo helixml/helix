@@ -8,8 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 

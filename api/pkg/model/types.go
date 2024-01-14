@@ -4,7 +4,7 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type WorkerEventHandler func(res *types.RunnerTaskResponse)

@@ -3,7 +3,7 @@ package text
 import (
 	"fmt"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type DataPrepModule string
