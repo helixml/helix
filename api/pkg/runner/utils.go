@@ -3,7 +3,7 @@ package runner
 import (
 	"fmt"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func getLastInteractionID(session *types.Session) (string, error) {

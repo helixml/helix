@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/janitor"
-	"github.com/lukemarsden/helix/api/pkg/pubsub"
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/stripe"
-	"github.com/lukemarsden/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/stripe"
+	"github.com/helixml/helix/api/pkg/system"
 )
 
 const API_PREFIX = "/api/v1"

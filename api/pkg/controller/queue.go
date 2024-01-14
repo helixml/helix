@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
