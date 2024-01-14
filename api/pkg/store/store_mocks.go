@@ -65,20 +65,6 @@ func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, owner, name)
 }
 
-// CreateBalanceTransfer mocks base method.
-func (m *MockStore) CreateBalanceTransfer(ctx context.Context, balanceTransfer types.BalanceTransfer) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateBalanceTransfer", ctx, balanceTransfer)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateBalanceTransfer indicates an expected call of CreateBalanceTransfer.
-func (mr *MockStoreMockRecorder) CreateBalanceTransfer(ctx, balanceTransfer interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateBalanceTransfer", reflect.TypeOf((*MockStore)(nil).CreateBalanceTransfer), ctx, balanceTransfer)
-}
-
 // CreateBot mocks base method.
 func (m *MockStore) CreateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error) {
 	m.ctrl.T.Helper()
@@ -196,21 +182,6 @@ func (m *MockStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.
 func (mr *MockStoreMockRecorder) GetAPIKeys(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKeys", reflect.TypeOf((*MockStore)(nil).GetAPIKeys), ctx, query)
-}
-
-// GetBalanceTransfers mocks base method.
-func (m *MockStore) GetBalanceTransfers(ctx context.Context, query OwnerQuery) ([]*types.BalanceTransfer, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBalanceTransfers", ctx, query)
-	ret0, _ := ret[0].([]*types.BalanceTransfer)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetBalanceTransfers indicates an expected call of GetBalanceTransfers.
-func (mr *MockStoreMockRecorder) GetBalanceTransfers(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBalanceTransfers", reflect.TypeOf((*MockStore)(nil).GetBalanceTransfers), ctx, query)
 }
 
 // GetBot mocks base method.
