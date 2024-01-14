@@ -87,6 +87,11 @@ function db() {
   fi
 }
 
+# Regenerate test mocks
+function generate() {
+  go generate ./...
+}
+
 function psql() {
   db cli "$@"
 }

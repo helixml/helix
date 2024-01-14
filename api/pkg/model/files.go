@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // a generic lora dir downloader for a session

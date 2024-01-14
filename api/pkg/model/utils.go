@@ -5,8 +5,8 @@ import (
 	"path"
 	"unicode/utf8"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // define 1 GB as a uint64 number of bytes
