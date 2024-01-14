@@ -34,7 +34,7 @@ function start() {
 
   echo "Starting docker-compose"
   if [[ -n "$WITH_RUNNER" ]]; then
-    docker-compose --profile dev_gpu_runner up -d
+    docker-compose --profile dev_gpu_runner up --build -d
   else
     docker-compose up -d
   fi

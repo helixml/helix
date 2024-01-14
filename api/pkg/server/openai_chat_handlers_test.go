@@ -84,11 +84,6 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 	rec := httptest.NewRecorder()
 
 	// First we check whether user should get the priority
-	suite.store.EXPECT().GetBalanceTransfers(gomock.Any(), store.OwnerQuery{
-		Owner:     "user_id",
-		OwnerType: types.OwnerTypeUser,
-	}).Return([]*types.BalanceTransfer{}, nil)
-
 	suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
 		Config: types.UserConfig{
 			StripeSubscriptionActive: true,
@@ -170,11 +165,6 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	rec := httptest.NewRecorder()
 
 	// First we check whether user should get the priority
-	suite.store.EXPECT().GetBalanceTransfers(gomock.Any(), store.OwnerQuery{
-		Owner:     "user_id",
-		OwnerType: types.OwnerTypeUser,
-	}).Return([]*types.BalanceTransfer{}, nil)
-
 	suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
 		Config: types.UserConfig{
 			StripeSubscriptionActive: true,
