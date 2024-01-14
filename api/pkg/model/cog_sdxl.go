@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 

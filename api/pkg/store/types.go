@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type GetJobsQuery struct {

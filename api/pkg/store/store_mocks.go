@@ -7,8 +7,7 @@ package store
 import (
 	context "context"
 	gomock "github.com/golang/mock/gomock"
-	store "github.com/lukemarsden/helix/api/pkg/store"
-	types "github.com/lukemarsden/helix/api/pkg/types"
+	types "github.com/helixml/helix/api/pkg/types"
 	reflect "reflect"
 )
 
@@ -51,7 +50,7 @@ func (mr *MockStoreMockRecorder) GetSession(ctx, id interface{}) *gomock.Call {
 }
 
 // GetSessions mocks base method
-func (m *MockStore) GetSessions(ctx context.Context, query store.GetSessionsQuery) ([]*types.Session, error) {
+func (m *MockStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSessions", ctx, query)
 	ret0, _ := ret[0].([]*types.Session)
@@ -66,7 +65,7 @@ func (mr *MockStoreMockRecorder) GetSessions(ctx, query interface{}) *gomock.Cal
 }
 
 // GetSessionsCounter mocks base method
-func (m *MockStore) GetSessionsCounter(ctx context.Context, query store.GetSessionsQuery) (*types.Counter, error) {
+func (m *MockStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSessionsCounter", ctx, query)
 	ret0, _ := ret[0].(*types.Counter)
@@ -156,7 +155,7 @@ func (mr *MockStoreMockRecorder) GetBot(ctx, id interface{}) *gomock.Call {
 }
 
 // GetBots mocks base method
-func (m *MockStore) GetBots(ctx context.Context, query store.GetBotsQuery) ([]*types.Bot, error) {
+func (m *MockStore) GetBots(ctx context.Context, query GetBotsQuery) ([]*types.Bot, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetBots", ctx, query)
 	ret0, _ := ret[0].([]*types.Bot)
@@ -276,7 +275,7 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta interface{}) *gomo
 }
 
 // CreateAPIKey mocks base method
-func (m *MockStore) CreateAPIKey(ctx context.Context, owner store.OwnerQuery, name string) (string, error) {
+func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, owner, name)
 	ret0, _ := ret[0].(string)
@@ -291,7 +290,7 @@ func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}) *gom
 }
 
 // GetAPIKeys mocks base method
-func (m *MockStore) GetAPIKeys(ctx context.Context, query store.OwnerQuery) ([]*types.ApiKey, error) {
+func (m *MockStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAPIKeys", ctx, query)
 	ret0, _ := ret[0].([]*types.ApiKey)

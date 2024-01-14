@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/pubsub"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
