@@ -29,6 +29,7 @@ require (
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/golang/mock v1.6.0
+	github.com/jinzhu/copier v0.4.0
 	github.com/stripe/stripe-go/v76 v76.8.0
 	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0
 )
