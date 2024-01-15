@@ -109,7 +109,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 				Type: "session_update",
 				Session: &types.Session{
 					ID: "session_id",
-					Interactions: []types.Interaction{
+					Interactions: []*types.Interaction{
 						{
 							State:   types.InteractionStateComplete,
 							Message: "**model-result**",
