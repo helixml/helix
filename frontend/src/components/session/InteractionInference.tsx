@@ -13,6 +13,7 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
+import useFilestore from '../../hooks/useFilestore'
 
 import {
   IServerConfig,
@@ -37,6 +38,7 @@ export const InteractionInference: FC<{
   onRestart,
 }) => {
   const account = useAccount()
+  const {getFileURL} = useFilestore();
   const [ viewingError, setViewingError ] = useState(false)
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -95,7 +97,7 @@ export const InteractionInference: FC<{
             return isShared || account.token ? true : false
           })
           .map((imageURL: string) => {
-            const useURL = `${serverConfig.filestore_prefix}/${imageURL}?access_token=${account.token}`
+            const useURL = getFileURL(imageURL);
             return (
               <Box
                 sx={{

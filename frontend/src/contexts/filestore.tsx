@@ -1,7 +1,8 @@
-import React, { FC, useEffect, createContext, useMemo, useState, useCallback } from 'react'
+import React, { FC, useEffect, createContext, useMemo, useState, useCallback, useContext } from 'react'
 import useApi from '../hooks/useApi'
 import useAccount from '../hooks/useAccount'
 import useRouter from '../hooks/useRouter'
+
 
 import {
   IFileStoreItem,
@@ -29,6 +30,7 @@ export interface IFilestoreContext {
   createFolder: (path: string) => Promise<boolean>,
   rename: (path: string, newName: string) => Promise<boolean>,
   del: (path: string) => Promise<boolean>,
+  getFileURL: (filename: string) => string; 
 }
 
 export const FilestoreContext = createContext<IFilestoreContext>({
@@ -47,6 +49,7 @@ export const FilestoreContext = createContext<IFilestoreContext>({
   createFolder: async () => true,
   rename: async () => true,
   del: async () => true,
+  getFileURL: () => '',
 })
 
 export const useFilestoreContext = (): IFilestoreContext => {
@@ -63,6 +66,14 @@ export const useFilestoreContext = (): IFilestoreContext => {
     user_prefix: '',
     folders: [],
   })
+
+  const getFileURL = useCallback((filename: string) => {
+    if (!account.token || !config.user_prefix) {
+      console.error('Token or user prefix is not available.');
+      return '';
+    }
+    return `${config.user_prefix}/${filename}?access_token=${account.token}`;
+  }, [account.token, config.user_prefix]);
 
   const path = useMemo(() => {
     return params.path || '/'
@@ -243,6 +254,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     createFolder,
     rename,
     del,
+    getFileURL,
   }), [
     loading,
     readonly,
@@ -257,6 +269,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     createFolder,
     rename,
     del,
+    getFileURL,
   ])
 
   return contextValue
