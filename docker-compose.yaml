@@ -126,6 +126,21 @@ services:
     restart: always
     volumes:
       - ./unstructured/src:/home/notebook-user/app/src
+  llamaindex:
+    ports:
+      - 6000:6000
+    build:
+      context: llamaindex
+      dockerfile: Dockerfile
+    environment:
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+    entrypoint: ${LLAMAINDEX_ENTRYPOINT:-tail -f /dev/null}
+    restart: always
+    volumes:
+      - ./llamaindex/src:/home/app/src
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:
