@@ -279,7 +279,7 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Finished = false
 		systemInteraction.Progress = 1
-		systemInteraction.Message = "fine tuning on data..."
+		systemInteraction.Message = ""
 		systemInteraction.Status = "fine tuning on data..."
 		systemInteraction.State = types.InteractionStateWaiting
 		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
