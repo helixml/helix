@@ -72,14 +72,14 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	_, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	interaction := types.Interaction{
+	interaction := &types.Interaction{
 		ID:       "cli-user",
 		Created:  time.Now(),
 		Creator:  "user",
 		Message:  options.Prompt,
 		Finished: true,
 	}
-	interactionSystem := types.Interaction{
+	interactionSystem := &types.Interaction{
 		ID:       "cli-system",
 		Created:  time.Now(),
 		Creator:  "system",
@@ -103,7 +103,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 		Type:         types.SessionType(options.Type),
 		ModelName:    modelName,
 		LoraDir:      "",
-		Interactions: []types.Interaction{interaction, interactionSystem},
+		Interactions: []*types.Interaction{interaction, interactionSystem},
 		Owner:        "cli-user",
 		OwnerType:    "user",
 	}
