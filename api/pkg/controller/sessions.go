@@ -165,9 +165,9 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
-func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Session, config *types.SessionConfig) (*types.SessionConfig, error) {
+func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.Session, meta *types.SessionMetadata) (*types.SessionMetadata, error) {
 	session.Updated = time.Now()
-	session.Config = *config
+	session.Metadata = *meta
 
 	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
@@ -175,9 +175,9 @@ func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Ses
 	}
 
 	log.Debug().
-		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Config)
+		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Metadata)
 
-	return &sessionData.Config, nil
+	return &sessionData.Metadata, nil
 }
 
 func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *types.Session, newFiles []string) (*types.Session, error) {
@@ -417,12 +417,12 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 			newQueue = append(newQueue, c.sessionQueue[i])
 			newSummaryQueue = append(newSummaryQueue, c.sessionSummaryQueue[i])
 		}
-		if existingSession.Config.Priority {
+		if existingSession.Metadata.Priority {
 			lastPriorityIndex = i
 		}
 	}
 	if !existing {
-		if session.Config.Priority {
+		if session.Metadata.Priority {
 			if lastPriorityIndex == -1 {
 				// prepend the session to the start of the queue
 				newQueue = append([]*types.Session{session}, newQueue...)
@@ -544,7 +544,7 @@ func (c *Controller) CloneUntilInteraction(
 	// but now we are going back into finetine land by editing the interaction (somehow)
 	// put another way - if we are cloning a session in all mode - we can copy the mode as is
 	if req.Mode != types.CloneInteractionModeAll {
-		newSession.Mode = oldSession.Config.OriginalMode
+		newSession.Mode = oldSession.Metadata.OriginalMode
 	}
 
 	// these two interactions are the ones we will change based on the clone mode
