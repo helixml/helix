@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type adminAuth struct {

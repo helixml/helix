@@ -34,7 +34,7 @@ function start() {
 
   echo "Starting docker-compose"
   if [[ -n "$WITH_RUNNER" ]]; then
-    docker-compose --profile dev_gpu_runner up -d
+    docker-compose --profile dev_gpu_runner up --build -d
   else
     docker-compose up -d
   fi
@@ -64,7 +64,7 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 'docker-compose exec dev_gpu_runner bash' C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
+    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
   tmux -2 attach-session -t $TMUX_SESSION
@@ -87,6 +87,11 @@ function db() {
   elif [[ "$subcommand" == "pipe" ]]; then
     docker-compose exec -T $containername psql --user postgres "$@"
   fi
+}
+
+# Regenerate test mocks
+function generate() {
+  go generate ./...
 }
 
 function psql() {

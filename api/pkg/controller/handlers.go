@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, error) {

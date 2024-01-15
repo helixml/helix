@@ -5,8 +5,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func GetInteractionFinetuneFile(session *types.Session, interactionID string) (string, error) {

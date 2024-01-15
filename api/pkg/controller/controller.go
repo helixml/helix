@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/dataprep/text"
-	"github.com/lukemarsden/helix/api/pkg/filestore"
-	"github.com/lukemarsden/helix/api/pkg/janitor"
-	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
