@@ -179,14 +179,14 @@ func newRunnerCmd() *cobra.Command {
 	return runnerCmd
 }
 
-var ITX_A = types.Interaction{
+var ITX_A = &types.Interaction{
 	ID:       "warmup-user",
 	Created:  time.Now(),
 	Creator:  "user",
 	Message:  "a new runner is born",
 	Finished: true,
 }
-var ITX_B = types.Interaction{
+var ITX_B = &types.Interaction{
 	ID:       "warmup-system",
 	Created:  time.Now(),
 	Creator:  "system",
@@ -202,7 +202,7 @@ var WARMUP_SESSIONS = []types.Session{{
 	Type:         types.SessionTypeText,
 	ModelName:    types.Model_Mistral7b,
 	LoraDir:      "",
-	Interactions: []types.Interaction{ITX_A, ITX_B},
+	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
 }, {
@@ -214,7 +214,7 @@ var WARMUP_SESSIONS = []types.Session{{
 	Type:         types.SessionTypeImage,
 	ModelName:    types.Model_SDXL,
 	LoraDir:      "",
-	Interactions: []types.Interaction{ITX_A, ITX_B},
+	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
 }}
