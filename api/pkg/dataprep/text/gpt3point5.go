@@ -35,7 +35,7 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 		`, options.QuestionsPerChunk, options.QuestionsPerChunk)
 	}
 
-	getUserPromptFn := func(chunk string, options DataPrepTextOptions) string {
+	getUserPromptFn := func(chunk, documentID, documentGroupID string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
 Given the following context - please summarize it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
 
