@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type GetJobsQuery struct {
@@ -27,6 +27,8 @@ type GetBotsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 }
+
+//go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
 	// sessions

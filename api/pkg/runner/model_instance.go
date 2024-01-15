@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -81,24 +81,23 @@ type ModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func NewModelInstance(
-	ctx context.Context,
-
+type ModelInstanceConfig struct {
 	// the session that meant this model instance is instantiated
-	initialSession *types.Session,
+	InitialSession *types.Session
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
-	nextTaskURL string,
+	NextTaskURL string
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/initial_session/:instanceid
-	initialSessionURL string,
+	InitialSessionURL string
 
-	responseHandler func(res *types.RunnerTaskResponse) error,
+	ResponseHandler func(res *types.RunnerTaskResponse) error
+	RunnerOptions   RunnerOptions
+}
 
-	runnerOptions RunnerOptions,
-) (*ModelInstance, error) {
-	aiModel, err := model.GetModel(initialSession.ModelName)
+func NewModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*ModelInstance, error) {
+	aiModel, err := model.GetModel(cfg.InitialSession.ModelName)
 	if err != nil {
 		return nil, err
 	}
@@ -107,38 +106,38 @@ func NewModelInstance(
 	// if this is empty string then we need to hoist it to be types.LORA_DIR_NONE
 	// because then we are always specifically asking for a session that has no finetune file
 	// if we left this blank we are saying "we don't care if it has one or not"
-	useLoraDir := initialSession.LoraDir
+	useLoraDir := cfg.InitialSession.LoraDir
 
 	if useLoraDir == "" {
 		useLoraDir = types.LORA_DIR_NONE
 	}
 
 	httpClientOptions := system.ClientOptions{
-		Host:  runnerOptions.ApiHost,
-		Token: runnerOptions.ApiToken,
+		Host:  cfg.RunnerOptions.ApiHost,
+		Token: cfg.RunnerOptions.ApiToken,
 	}
 
 	modelInstance := &ModelInstance{
 		id:                id,
 		ctx:               ctx,
-		finishChan:        make(chan bool, 1),
+		finishChan:        make(chan bool),
 		model:             aiModel,
-		responseHandler:   responseHandler,
-		nextTaskURL:       fmt.Sprintf("%s/%s", nextTaskURL, id),
-		initialSessionURL: fmt.Sprintf("%s/%s", initialSessionURL, id),
-		initialSession:    initialSession,
+		responseHandler:   cfg.ResponseHandler,
+		nextTaskURL:       fmt.Sprintf("%s/%s", cfg.NextTaskURL, id),
+		initialSessionURL: fmt.Sprintf("%s/%s", cfg.InitialSessionURL, id),
+		initialSession:    cfg.InitialSession,
 		filter: types.SessionFilter{
-			ModelName: initialSession.ModelName,
-			Mode:      initialSession.Mode,
+			ModelName: cfg.InitialSession.ModelName,
+			Mode:      cfg.InitialSession.Mode,
 			LoraDir:   useLoraDir,
-			Type:      initialSession.Type,
+			Type:      cfg.InitialSession.Type,
 		},
-		runnerOptions:     runnerOptions,
+		runnerOptions:     cfg.RunnerOptions,
 		httpClientOptions: httpClientOptions,
 		jobHistory:        []*types.SessionSummary{},
 	}
 
-	fileHandler := NewFileHandler(runnerOptions.ID, httpClientOptions, modelInstance.taskResponseHandler)
+	fileHandler := NewFileHandler(cfg.RunnerOptions.ID, httpClientOptions, modelInstance.taskResponseHandler)
 	modelInstance.fileHandler = fileHandler
 
 	return modelInstance, nil
@@ -394,6 +393,9 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 	}
 
 	go func(cmd *exec.Cmd) {
+		// Signal the runner to drop the model instance
+		defer close(instance.finishChan)
+
 		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
 
@@ -403,12 +405,10 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			if instance.currentSession != nil {
 				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), string(stderrBuf.Bytes())))
 			}
+			return
 		}
 
-		log.Info().
-			Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
-
-		instance.finishChan <- true
+		log.Info().Msgf("🟢 stop model instance, exit code=%d", cmd.ProcessState.ExitCode())
 	}(cmd)
 	return nil
 }

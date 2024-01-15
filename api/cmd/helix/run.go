@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 

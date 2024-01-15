@@ -133,6 +133,11 @@ export interface IDataPrepChunkWithFilename extends IDataPrepChunk {
   filename: string,
 }
 
+export interface IInteractionMessage {
+  role: string,
+  content: string,
+}
+
 export interface IInteraction {
   id: string,
   created: string,
@@ -143,6 +148,7 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
+  messages: IInteractionMessage[],
   progress: number,
   files: string[],
   finished: boolean,

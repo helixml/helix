@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func GetModel(modelName types.ModelName) (Model, error) {
