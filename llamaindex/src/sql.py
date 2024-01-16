@@ -45,7 +45,7 @@ class HelixDocumentChunk(Base):
 # UTILS
 #
 ####################
-    
+
 def getEngine():
   engine = create_engine(f"postgresql+psycopg2://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
 
