@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"strings"
@@ -43,6 +44,11 @@ func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]stri
 
 	shouldConvertFile := func(filename string) bool {
 		if strings.HasSuffix(filename, ".txt") {
+			// it is already converted - nothing to do
+			return false
+		}
+
+		if strings.HasSuffix(filename, ".md") {
 			// it is already converted - nothing to do
 			return false
 		}
@@ -236,13 +242,15 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 		return nil, err
 	}
 
+	documentGroupID := session.ID
 	// add all the files to the splitter so we know what chunks we have
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
 			return nil, err
 		}
-		err = splitter.AddDocument(file, fileContent)
+		meta, err := splitter.AddDocument(file, fileContent, documentGroupID, session)
+		c.UpdateSessionMetadata(context.TODO(), session, meta)
 		if err != nil {
 			return nil, err
 		}
@@ -305,7 +313,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
 			log.Info().Msgf("🔵 question conversion start %d of %d", i, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index)
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {

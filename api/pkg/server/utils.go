@@ -53,7 +53,7 @@ func (apiServer *HelixAPIServer) canSeeSession(reqContext types.RequestContext, 
 	if canEdit {
 		return true
 	}
-	if session.Config.Shared {
+	if session.Metadata.Shared {
 		return true
 	}
 	return false
@@ -250,7 +250,7 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		if err != nil {
 			return false, err
 		}
-		if session.Config.Shared {
+		if session.Metadata.Shared {
 			return true, nil
 		}
 	}
