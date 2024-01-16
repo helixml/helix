@@ -19,13 +19,11 @@ engine = getEngine()
 @app.route('/api/v1/chunk', methods=['POST'])
 def test():
   data = request.json
-  pprint.pprint(data)
   checkDocumentChunkData(data)
   data["embedding"] = getEmbedding(data["text"])
-  pprint.pprint(data["embedding"])
   id = insertData(engine, data)
-  pprint.pprint(id)
   result = getRow(engine, id)
+  pprint.pprint(result)
   return jsonify(result), 200
 
 if __name__ == '__main__':
