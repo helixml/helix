@@ -22,7 +22,7 @@ type DataOpenAIGPT struct {
 	concurrency       int
 	chunkSize         int
 	getSystemPromptFn func(chunk string, options DataPrepTextOptions) string
-	getUserPromptFn   func(chunk string, options DataPrepTextOptions) string
+	getUserPromptFn   func(chunk, documentID, documentGroupID string, options DataPrepTextOptions) string
 	parseResponseFn   func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error)
 }
 
@@ -32,7 +32,7 @@ func NewDataOpenAIGPT(
 	concurrency int,
 	chunkSize int,
 	getSystemPromptFn func(chunk string, options DataPrepTextOptions) string,
-	getUserPromptFn func(chunk string, options DataPrepTextOptions) string,
+	getUserPromptFn func(chunk, documentID, documentGroupID string, options DataPrepTextOptions) string,
 	parseResponseFn func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error),
 ) (*DataOpenAIGPT, error) {
 	return &DataOpenAIGPT{
@@ -55,14 +55,14 @@ func (gpt *DataOpenAIGPT) GetChunkSize() int {
 	return 4096
 }
 
-func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
+func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int, documentID, documentGroupID string) ([]types.DataPrepTextQuestion, error) {
 	// use the data prep module to convert raw text into QA pairs
 
 	// a rough rate limiter
 	time.Sleep(100 * time.Millisecond * time.Duration(index%gpt.GetConcurrency()))
 
 	systemPrompt := gpt.getSystemPromptFn(chunk, gpt.Options)
-	userPrompt := gpt.getUserPromptFn(chunk, gpt.Options)
+	userPrompt := gpt.getUserPromptFn(chunk, documentID, documentGroupID, gpt.Options)
 
 	messages := []openai.ChatCompletionMessage{
 		{
