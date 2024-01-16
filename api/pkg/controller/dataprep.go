@@ -228,7 +228,7 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 	filesToConvert := []string{}
 
 	shouldConvertFile := func(filename string) bool {
-		return strings.HasSuffix(filename, ".txt")
+		return strings.HasSuffix(filename, ".txt") || strings.HasSuffix(filename, ".md")
 	}
 
 	for _, file := range userInteraction.Files {
