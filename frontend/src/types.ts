@@ -148,7 +148,6 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
-  messages: IInteractionMessage[],
   progress: number,
   files: string[],
   finished: boolean,

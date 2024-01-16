@@ -43,14 +43,17 @@ func downloadUserInteractionFiles(
 	for _, filepath := range interaction.Files {
 		localFilePath := path.Join(fileManager.GetFolder(), path.Base(filepath))
 		err = fileManager.DownloadFile(filepath, localFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("error downloading file '%s' to '%s': %s", filepath, localFilePath, err.Error())
+		}
 		remappedFilepaths = append(remappedFilepaths, localFilePath)
 	}
 
 	interaction.Files = remappedFilepaths
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, existingInteraction := range session.Interactions {
 		if existingInteraction.ID == interaction.ID {
-			newInteractions = append(newInteractions, *interaction)
+			newInteractions = append(newInteractions, interaction)
 		} else {
 			newInteractions = append(newInteractions, existingInteraction)
 		}

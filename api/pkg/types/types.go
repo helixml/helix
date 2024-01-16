@@ -28,16 +28,15 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner   string               `json:"runner"`   // e.g. 0
-	Message  string               `json:"message"`  // e.g. Prove pythagoras
-	Messages []InteractionMessage `json:"messages"` // A list of messages
-	Progress int                  `json:"progress"` // e.g. 0-100
-	Files    []string             `json:"files"`    // list of filepath paths
-	Finished bool                 `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata map[string]string    `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State    InteractionState     `json:"state"`
-	Status   string               `json:"status"`
-	Error    string               `json:"error"`
+	Runner   string            `json:"runner"`   // e.g. 0
+	Message  string            `json:"message"`  // e.g. Prove pythagoras
+	Progress int               `json:"progress"` // e.g. 0-100
+	Files    []string          `json:"files"`    // list of filepath paths
+	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State    InteractionState  `json:"state"`
+	Status   string            `json:"status"`
+	Error    string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
 	LoraDir        string                     `json:"lora_dir"`
 	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
@@ -98,7 +97,7 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions []Interaction `json:"interactions"`
+	Interactions []*Interaction `json:"interactions"`
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
@@ -326,20 +325,20 @@ type ServerConfig struct {
 }
 
 type CreateSessionRequest struct {
-	SessionID       string
-	SessionMode     SessionMode
-	SessionType     SessionType
-	ParentSession   string
-	ModelName       ModelName
-	Owner           string
-	OwnerType       OwnerType
-	UserInteraction Interaction
-	Priority        bool
+	SessionID        string
+	SessionMode      SessionMode
+	SessionType      SessionType
+	ParentSession    string
+	ModelName        ModelName
+	Owner            string
+	OwnerType        OwnerType
+	UserInteractions []*Interaction
+	Priority         bool
 }
 
 type UpdateSessionRequest struct {
 	SessionID       string
-	UserInteraction Interaction
+	UserInteraction *Interaction
 	SessionMode     SessionMode
 }
 

@@ -44,7 +44,6 @@ export const getSystemMessage = (message: string): IInteraction => {
     lora_dir: '',
     metadata: {},
     message,
-    messages: [],
     progress: 0,
     files: [],
     finished: true,

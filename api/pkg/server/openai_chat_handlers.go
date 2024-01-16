@@ -48,7 +48,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 	sessionMode := types.SessionModeInference
 
-	var messages []types.InteractionMessage
+	var interactions []*types.Interaction
 
 	for _, m := range chatCompletionRequest.Messages {
 		// Validating roles
@@ -58,40 +58,44 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		default:
 			http.Error(res, "invalid role, available roles: 'user', 'system', 'assistant'", http.StatusBadRequest)
 			return
-
 		}
 
-		messages = append(messages, types.InteractionMessage{
-			Role:    m.Role,
-			Content: m.Content,
-		})
-	}
+		var creator types.CreatorType
+		switch m.Role {
+		case "user":
+			creator = types.CreatorTypeUser
+		case "system":
+			creator = types.CreatorTypeSystem
+		}
 
-	interaction := types.Interaction{
-		ID:             system.GenerateUUID(),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		Scheduled:      time.Now(),
-		Completed:      time.Now(),
-		Creator:        types.CreatorTypeUser,
-		Mode:           sessionMode,
-		Messages:       messages,
-		Files:          []string{},
-		State:          types.InteractionStateComplete,
-		Finished:       true,
-		Metadata:       map[string]string{},
-		DataPrepChunks: map[string][]types.DataPrepChunk{},
+		interaction := &types.Interaction{
+			ID:             system.GenerateUUID(),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Scheduled:      time.Now(),
+			Completed:      time.Now(),
+			Creator:        creator,
+			Mode:           sessionMode,
+			Message:        m.Content,
+			Files:          []string{},
+			State:          types.InteractionStateComplete,
+			Finished:       true,
+			Metadata:       map[string]string{},
+			DataPrepChunks: map[string][]types.DataPrepChunk{},
+		}
+
+		interactions = append(interactions, interaction)
 	}
 
 	newSession := &types.CreateSessionRequest{
-		SessionID:       sessionID,
-		SessionMode:     sessionMode,
-		SessionType:     types.SessionTypeText,
-		ModelName:       types.ModelName(chatCompletionRequest.Model),
-		Owner:           userContext.Owner,
-		OwnerType:       userContext.OwnerType,
-		UserInteraction: interaction,
-		Priority:        status.Config.StripeSubscriptionActive,
+		SessionID:        sessionID,
+		SessionMode:      sessionMode,
+		SessionType:      types.SessionTypeText,
+		ModelName:        types.ModelName(chatCompletionRequest.Model),
+		Owner:            userContext.Owner,
+		OwnerType:        userContext.OwnerType,
+		UserInteractions: interactions,
+		Priority:         status.Config.StripeSubscriptionActive,
 	}
 
 	if chatCompletionRequest.Stream {
