@@ -13,9 +13,12 @@ engine = getEngine()
 #   "session_id": "123",
 #   "interaction_id": "456",
 #   "filename": "test.txt",
+#   "document_id": "abc",
+#   "document_group_id": "def",
 #   "offset": 0,
 #   "text": "hello world"
 # }' http://localhost:6000/api/v1/chunk
+# this route will convert the text chunk into an embedding and then store it in the database
 @app.route('/api/v1/chunk', methods=['POST'])
 def test():
   data = request.json

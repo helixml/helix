@@ -32,6 +32,8 @@ class HelixDocumentChunk(Base):
   id = mapped_column(Integer, primary_key=True)
   session_id = mapped_column(String)
   interaction_id = mapped_column(String)
+  document_id = mapped_column(String)
+  document_group_id = mapped_column(String)
   filename = mapped_column(String)
   # the number of bytes into the root document that this chunk starts
   # this is used to re-constitute the document from its chunks
@@ -58,7 +60,7 @@ def getEngine():
   return engine
 
 def checkDocumentChunkData(data_dict):
-  required_keys = ["session_id", "interaction_id", "filename", "offset", "text"]
+  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id" "filename", "offset", "text"]
   number_keys = ["offset"]
   for key in required_keys:
     if key not in data_dict:
