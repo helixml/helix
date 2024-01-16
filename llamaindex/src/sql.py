@@ -101,6 +101,8 @@ def getRow(engine, row_id):
       "id": row.id,
       "session_id": row.session_id,
       "interaction_id": row.interaction_id,
+      "document_id": row.document_id,
+      "document_group_id": row.document_group_id,
       "filename": row.filename,
       "offset": row.offset,
       "text": row.text,
