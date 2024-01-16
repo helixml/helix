@@ -18,7 +18,10 @@ import (
 // ONLY include the JSON array of questions and answers.
 
 const GPT4_CONCURRENCY = 20
-const GPT4_CHUNK_SIZE = 4096
+
+// this is in bytes but the actual limit is in tokens. there's always 1 or more
+// byte per token though. also, subtract a buffer for the user prompt..
+const GPT4_CHUNK_SIZE = 128000 - 4000
 
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {

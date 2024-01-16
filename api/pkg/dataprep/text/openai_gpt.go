@@ -48,11 +48,11 @@ func NewDataOpenAIGPT(
 }
 
 func (gpt *DataOpenAIGPT) GetConcurrency() int {
-	return 20
+	return gpt.concurrency
 }
 
 func (gpt *DataOpenAIGPT) GetChunkSize() int {
-	return 4096
+	return gpt.chunkSize
 }
 
 func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int, documentID, documentGroupID string) ([]types.DataPrepTextQuestion, error) {
