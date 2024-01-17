@@ -30,6 +30,7 @@ require (
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/golang/mock v1.6.0
 	github.com/jinzhu/copier v0.4.0
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stripe/stripe-go/v76 v76.8.0
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 )
