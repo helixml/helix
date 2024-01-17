@@ -504,6 +504,8 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 
 	c.WriteSession(session)
 
+	// TODO: add notification here
+
 	if taskResponse.Error != "" {
 		c.Options.Janitor.WriteSessionError(session, fmt.Errorf(taskResponse.Error))
 	}
