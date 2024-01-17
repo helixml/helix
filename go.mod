@@ -35,6 +35,8 @@ require (
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 )
 
+require github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible // indirect
+
 require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
