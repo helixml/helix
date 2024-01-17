@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/jinzhu/copier"
@@ -23,6 +24,9 @@ const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	session, err := data.CreateSession(req)
+	if err != nil {
+		return nil, err
+	}
 
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
@@ -35,6 +39,17 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	if err != nil {
 		return nil, err
 	}
+
+	if session.Mode == types.SessionModeFinetune {
+		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
+			Event:   notification.EventFinetuningStarted,
+			Session: &session,
+		})
+		if err != nil {
+			log.Ctx(ctx.Ctx).Error().Msgf("error notifying finetuning started: %s", err.Error())
+		}
+	}
+
 	return sessionData, nil
 }
 
@@ -497,14 +512,20 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.DataPrepStage = types.TextDataPrepStageComplete
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
+
+			err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+				Event:   notification.EventFinetuningComplete,
+				Session: session,
+			})
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
+			}
 		}
 
 		return targetInteraction, nil
 	})
 
 	c.WriteSession(session)
-
-	// TODO: add notification here
 
 	if taskResponse.Error != "" {
 		c.Options.Janitor.WriteSessionError(session, fmt.Errorf(taskResponse.Error))
