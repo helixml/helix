@@ -1,6 +1,13 @@
 package notification
 
-import "context"
+import (
+	"context"
+	"fmt"
+
+	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
+)
 
 type Config struct {
 	Email EmailConfig
@@ -20,7 +27,7 @@ type EmailConfig struct {
 	Mailgun struct {
 		Domain string `envconfig:"EMAIL_MAILGUN_DOMAIN"`
 		APIKey string `envconfig:"EMAIL_MAILGUN_API_KEY"`
-		Europe bool   `envconfig:"EMAIL_MAILGUN_EUROPE" default:"true"` // use EU region
+		Europe bool   `envconfig:"EMAIL_MAILGUN_EUROPE" default:"false"` // use EU region
 	}
 }
 
@@ -32,11 +39,28 @@ const (
 
 type Event int
 
-const EventFinetuningComplete Event = 1
+const (
+	EventFinetuningStarted  Event = 1
+	EventFinetuningComplete Event = 2
+)
+
+func (e Event) String() string {
+	switch e {
+	case EventFinetuningStarted:
+		return "finetuning_started"
+	case EventFinetuningComplete:
+		return "finetuning_complete"
+	default:
+		return "unknown_event"
+	}
+}
 
 type Notification struct {
-	Event  Event
-	UserID string
+	Event   Event
+	Session *types.Session
+
+	// Populated by the provider
+	Email string
 }
 
 type Notifier interface {
@@ -44,26 +68,43 @@ type Notifier interface {
 }
 
 type NotificationsProvider struct {
+	authenticator auth.Authenticator
+
 	email *Email
 }
 
-func New(cfg *Config) (Notifier, error) {
+func New(cfg *Config, authenticator auth.Authenticator) (Notifier, error) {
 	email, err := NewEmail(&cfg.Email)
 	if err != nil {
 		return nil, err
 	}
 
 	return &NotificationsProvider{
-		email: email,
+		authenticator: authenticator,
+		email:         email,
 	}, nil
 }
 
 func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notification) error {
-	// TODO: check user preferences
+	user, err := n.authenticator.GetUserByID(ctx, notification.Session.Owner)
+	if err != nil {
+		fmt.Println("XX notify error", err)
+		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
+	}
+
+	log.Ctx(ctx).
+		Info().Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
+
+	notification.Email = user.Email
 
 	switch notification.Event {
 	case EventFinetuningComplete:
-		return n.email.Notify(ctx, notification)
+		if n.email.Enabled() {
+			err := n.email.Notify(ctx, notification)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
