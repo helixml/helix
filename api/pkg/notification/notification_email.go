@@ -7,8 +7,9 @@ import (
 )
 
 type Email struct {
-	cfg *EmailConfig
-	mg  *mailgun.Mailgun
+	cfg     *EmailConfig
+	mg      *mailgun.Mailgun
+	enabled bool
 }
 
 func NewEmail(cfg *EmailConfig) (*Email, error) {
@@ -23,11 +24,17 @@ func NewEmail(cfg *EmailConfig) (*Email, error) {
 		}
 
 		e.mg = mailgun.New(cfg.Mailgun.Domain, cfg.Mailgun.APIKey, cfg.SenderAddress, opts...)
+
+		e.enabled = true
 	}
 
 	// TODO: SMTP fallback
 
 	return e, nil
+}
+
+func (e *Email) Enabled() bool {
+	return e.enabled
 }
 
 func (e *Email) Notify(ctx context.Context, n *Notification) error {
