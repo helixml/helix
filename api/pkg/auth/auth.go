@@ -17,7 +17,7 @@ type KeycloakConfig struct {
 	ClientID string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
 	// ClientSecret string `envconfig:"KEYCLOAK_TOKEN" default:""`
 	Realm    string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username string `envconfig:"KEYCLOAK_USERNAME"`
+	Username string `envconfig:"KEYCLOAK_USER"`
 	Password string `envconfig:"KEYCLOAK_PASSWORD"`
 }
 
@@ -28,6 +28,16 @@ type KeycloakAuthenticator struct {
 
 func NewKeycloakAuthenticator(cfg *KeycloakConfig) (*KeycloakAuthenticator, error) {
 	gck := gocloak.NewClient(cfg.URL)
+
+	token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.Realm)
+	if err != nil {
+		return nil, err
+	}
+	// Test token
+	_, err = gck.GetServerInfo(context.Background(), token.AccessToken)
+	if err != nil {
+		return nil, err
+	}
 
 	return &KeycloakAuthenticator{
 		cfg:     cfg,
@@ -41,7 +51,7 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 		return nil, err
 	}
 
-	user, err := k.gocloak.GetUserByID(ctx, token.AccessToken, k.cfg.Realm, "123")
+	user, err := k.gocloak.GetUserByID(ctx, token.AccessToken, k.cfg.Realm, userID)
 	if err != nil {
 		return nil, err
 	}
