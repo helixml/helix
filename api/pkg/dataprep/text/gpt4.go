@@ -21,6 +21,11 @@ const GPT4_CONCURRENCY = 20
 
 // this is in bytes but the actual limit is in tokens. there's always 1 or more
 // byte per token though. also, subtract a buffer for the user prompt..
+
+// TODO: we might still choose to make this context window smaller because the
+// gpt4-1106-preview output is max 4k tokens, so on a large document we'll start
+// to lose qapairs that we'd get if we did chunk. The benefit of coherence on
+// smaller articles is probably worth it though? TBD
 const GPT4_CHUNK_SIZE = 128000 - 4000
 
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
