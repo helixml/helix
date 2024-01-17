@@ -15,10 +15,11 @@ type Config struct {
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"info@helix.ml"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"karolis@helix.ml"`
 
 	SMTP struct {
 		Host     string `envconfig:"EMAIL_SMTP_HOST"`
+		Port     string `envconfig:"EMAIL_SMTP_PORT"`
 		Identity string `envconfig:"EMAIL_SMTP_IDENTITY"`
 		Username string `envconfig:"EMAIL_SMTP_USERNAME"`
 		Password string `envconfig:"EMAIL_SMTP_PASSWORD"`
@@ -91,18 +92,15 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		return fmt.Errorf("failed to get user '%s' details: %w", notification.Session.Owner, err)
 	}
 
-	log.Ctx(ctx).
-		Info().Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
+	log.Debug().
+		Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 
 	notification.Email = user.Email
 
-	switch notification.Event {
-	case EventFinetuningComplete:
-		if n.email.Enabled() {
-			err := n.email.Notify(ctx, notification)
-			if err != nil {
-				return err
-			}
+	if n.email.Enabled() {
+		err := n.email.Notify(ctx, notification)
+		if err != nil {
+			return err
 		}
 	}
 
