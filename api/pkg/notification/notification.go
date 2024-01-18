@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	Email EmailConfig
+	AppURL string `envconfig:"APP_URL" default:"https://app.tryhelix.ai"`
+	Email  EmailConfig
 	// TODO: Slack, Discord, etc.
 }
 
@@ -75,7 +76,7 @@ type NotificationsProvider struct {
 }
 
 func New(cfg *Config, authenticator auth.Authenticator) (Notifier, error) {
-	email, err := NewEmail(&cfg.Email)
+	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
 	}
