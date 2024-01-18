@@ -92,31 +92,36 @@ func (e *Email) getEmailMessage(n *Notification) (title, message string, err err
 		var buf bytes.Buffer
 
 		err = finetuningStartedTmpl.Execute(&buf, &templateData{
-			SessionURL: fmt.Sprintf("%s/sessions/%s", e.cfg.AppURL, n.Session.ID),
+			FirstName:  n.FirstName,
+			SessionURL: fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
 		}
 
-		return "Helix Finetuning started", buf.String(), nil
+		return fmt.Sprintf("Your Finetuning Process Has Begun [%s]", n.Session.Name), buf.String(), nil
 	case EventFinetuningComplete:
 		var buf bytes.Buffer
 
 		err = finetuningCompletedTmpl.Execute(&buf, &templateData{
-			SessionURL: fmt.Sprintf("%s/sessions/%s", e.cfg.AppURL, n.Session.ID),
+			FirstName:   n.FirstName,
+			SessionURL:  fmt.Sprintf("%s/session/%s", e.cfg.AppURL, n.Session.ID),
+			SessionName: n.Session.Name,
 		})
 		if err != nil {
 			return "", "", fmt.Errorf("failed to execute template: %w", err)
 		}
 
-		return "Finetuning has finished", buf.String(), nil
+		return fmt.Sprintf("Finetuning Complete - Ready for Action [%s]", n.Session.Name), buf.String(), nil
 	default:
 		return "", "", fmt.Errorf("unknown event '%s'", n.Event.String())
 	}
 }
 
 type templateData struct {
-	SessionURL string
+	SessionURL  string
+	FirstName   string
+	SessionName string
 }
 
 var (
@@ -125,21 +130,27 @@ var (
 )
 
 var finetuningStartedTemplate = `
-Finetuning started
-
-You will be notified when it is complete. 
-
-You can find your session here: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>
-
-Sincerely,
-Helix Team
+Dear {{ .FirstName }},
+<br/><br/>
+We are pleased to inform you that your finetuning process has commenced. Rest assured, we will send you a follow-up email once it is successfully completed.
+<br/><br/>
+In the meantime, you can track the progress of your session at the following link: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>.
+<br/><br/>
+Thank you for choosing us. Should you have any questions, feel free to reach out.
+<br/><br/>
+Warm regards,<br/>
+The Helix Team
 `
 
 var finetuningCompletedTemplate = `
-Finetuning done!
-
-You can start chatting wih view your session here: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>
-
-Sincerely,
-Helix Team
+Dear {{ .FirstName }},
+<br/><br/>
+Great news! Your finetuning process for session '{{ .SessionName }}' is now complete. You can start experiencing the enhanced features immediately.
+<br/><br/>
+To view and interact with your session, please visit: <a href="{{ .SessionURL }}" target="_blank">{{ .SessionURL }}</a>.
+<br/><br/>
+We hope you enjoy the improvements. If you have any feedback or require assistance, our team is here to help.
+<br/><br/>
+Best regards,<br/><br/>
+The Helix Team
 `
