@@ -62,7 +62,8 @@ type Notification struct {
 	Session *types.Session
 
 	// Populated by the provider
-	Email string
+	Email     string
+	FirstName string
 }
 
 type Notifier interface {
@@ -97,6 +98,7 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 
 	notification.Email = user.Email
+	notification.FirstName = user.FirstName
 
 	if n.email.Enabled() {
 		err := n.email.Notify(ctx, notification)
