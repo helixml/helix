@@ -1,0 +1,16 @@
+system: |
+  hello
+  one
+  two
+  three
+user:
+ - |
+   one
+   two
+   {{.DocumentID}}
+   {{.DocumentGroupID}}
+   three
+ - |
+   four
+   five
+   six
