@@ -1,0 +1,36 @@
+kind: pipeline
+type: docker
+name: default
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+steps:
+- name: build
+  image: golang:1.20-alpine
+  commands:
+    - go build -o helix
+
+- name: publish-controlplane
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.api
+    tags: latest
+    repo: helixml/helixml/controlplane
+    location: europe
+    json_key:
+      from_secret: gar_json_key
+
+- name: publish-frontend
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: frontend/Dockerfile
+    context: frontend
+    tags: latest
+    repo: helixml/helixml/frontend
+    location: europe
+    json_key:
+      from_secret: gar_json_key
