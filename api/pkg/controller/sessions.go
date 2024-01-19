@@ -22,6 +22,9 @@ const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	session, err := data.CreateSession(req)
+	if err != nil {
+		return nil, err
+	}
 
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
