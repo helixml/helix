@@ -78,6 +78,8 @@ services:
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
@@ -85,6 +87,15 @@ services:
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
       - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
       - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
+      # Email notifications
+      - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
+      - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
+      # SMTP
+      - EMAIL_SMTP_HOST=${EMAIL_SMTP_HOST:-}
+      - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
+      - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
+      - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
+
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
