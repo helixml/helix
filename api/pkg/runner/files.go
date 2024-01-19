@@ -260,7 +260,12 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 
 	// handle the response
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		return nil, fmt.Errorf("unexpected status code: %d (%s)", resp.StatusCode, string(bts))
 	}
 
 	var data []filestore.FileStoreItem
