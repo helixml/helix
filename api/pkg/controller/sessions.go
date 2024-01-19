@@ -46,7 +46,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			Session: &session,
 		})
 		if err != nil {
-			log.Ctx(ctx.Ctx).Error().Msgf("error notifying finetuning started: %s", err.Error())
+			log.Error().Msgf("error notifying finetuning started: %s", err.Error())
 		}
 	}
 
