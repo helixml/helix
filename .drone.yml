@@ -20,7 +20,7 @@ name: controlplane-docker-image
 
 platform:
   os: linux
-  arch: amd64  
+  arch: amd64
 
 steps:
 - name: publish-latest
@@ -44,7 +44,7 @@ name: frontend-docker-image
 
 platform:
   os: linux
-  arch: amd64  
+  arch: amd64
 
 steps:
 - name: publish-latest
