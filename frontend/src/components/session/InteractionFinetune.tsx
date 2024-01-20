@@ -15,8 +15,9 @@ import FineTuneTextQuestions from './FineTuneTextQuestions'
 import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
+import useFilestore from '../../hooks/useFilestore'
 
-import useAccount from '../../hooks/useAccount'
+
 
 import {
   ICloneInteractionMode,
@@ -63,263 +64,170 @@ export const InteractionFinetune: FC<{
   onClone,
   onAddDocuments,
 }) => {
-  const theme = useTheme()
-  const account = useAccount()
+  const theme = useTheme();
+  const { getFileURL } = useFilestore();
 
-  const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
-  const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
-  const isImageFinetune = isUserInteraction && session.type == SESSION_TYPE_IMAGE
-  const isTextFinetune = isUserInteraction && session.type == SESSION_TYPE_TEXT
-  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS ? true : false
-  const isAddingFiles = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_FILES ? true : false
-  const hasFineTuned = interaction.lora_dir ? true : false
+  const isSystemInteraction = interaction.creator === SESSION_CREATOR_SYSTEM;
+  const isUserInteraction = interaction.creator === SESSION_CREATOR_USER;
+  const isImageFinetune = isUserInteraction && session.type === SESSION_TYPE_IMAGE;
+  const isTextFinetune = isUserInteraction && session.type === SESSION_TYPE_TEXT;
+  const isEditingConversations = interaction.state === INTERACTION_STATE_EDITING && interaction.data_prep_stage === TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS;
+  const isAddingFiles = interaction.state === INTERACTION_STATE_EDITING && interaction.data_prep_stage === TEXT_DATA_PREP_STAGE_EDIT_FILES;
+  const hasFineTuned = interaction.lora_dir ? true : false;
 
-  const dataPrepErrors = useMemo(() => {
-    return getTextDataPrepErrors(interaction)
-  }, [
-    interaction,
-  ])
+  const dataPrepErrors = useMemo(() => getTextDataPrepErrors(interaction), [interaction]);
+  const dataPrepStats = useMemo(() => getTextDataPrepStats(interaction), [interaction]);
 
-  // in the case where we are a system interaction that is showing buttons
-  // to edit the dataset in the previous user interaction
-  // we need to know what that previous user interaction was
-  const userFilesInteractionID = useMemo(() => {
-    const currentInteractionIndex = session.interactions.findIndex((i) => i.id == interaction.id)
-    if(currentInteractionIndex == 0) return ''
-    const previousInteraction = session.interactions[currentInteractionIndex - 1]
-    return previousInteraction.id
-  }, [
-    session,
-    interaction,
-  ])
-
-  const isShared = useMemo(() => {
-    return session.config.shared ? true : false
-  }, [
-    session,
-  ])
-
-  const dataPrepStats = useMemo(() => {
-    return getTextDataPrepStats(interaction)
-  }, [
-    interaction,
-  ])
-
-  if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
+  if (!serverConfig || !serverConfig.filestore_prefix) return null;
 
   return (
     <>
-      {
-        isImageFinetune && interaction.files && interaction.files.length > 0 && (
-          <Box
-            sx={{
-              maxHeight: '400px',
-              overflowY: 'auto'
-            }}
-          >
-            <Grid container spacing={3} direction="row" justifyContent="flex-start">
-              {
-                interaction.files.length > 0 && interaction.files
-                  .filter(file => {
-                    if(!isShared && !account.token) return false
-                    return file.match(/\.txt$/i) ? false : true
-                  })
-                  .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
-                    const filenameParts = file.split('/')
-                    const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
+      {isImageFinetune && interaction.files && interaction.files.length > 0 && (
+        <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
+          <Grid container spacing={3} direction="row" justifyContent="flex-start">
+            {interaction.files
+              .filter(file => !file.match(/\.txt$/i))
+              .map((file) => {
+                const useURL = getFileURL(file);
+                const filenameParts = file.split('/');
+                const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || '';
 
-                    return (
-                      <Grid item xs={3} md={3} key={file}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#999'
-                          }}
-                        >
-                          <Box
-                            component="img"
-                            src={useURL}
-                            sx={{
-                              height: '50px',
-                              border: '1px solid #000000',
-                              filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
-                              mb: 1,
-                            }}
-                          />
-                          <Typography variant="caption">{label}</Typography>
-                        </Box>
-                      </Grid>
-                    )
-                  })
-                  
-              }
-            </Grid>
-          </Box>
-        )
-      }
-      {
-        isTextFinetune && interaction.files && interaction.files.length > 0 && (
-          <Box
-            sx={{
-              maxHeight: '400px',
-              overflowY: 'auto'
-            }}
-          >
-            <Grid container spacing={3} direction="row" justifyContent="flex-start">
-              {
-                interaction.files.length > 0 && interaction.files
-                  .filter(file => {
-                    if(!isShared && !account.token) return false
-                    return true
-                  })
-                  .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
-                    const filenameParts = file.split('/')
-                    const filename = filenameParts[filenameParts.length - 1] || ''
+                return (
+                  <Grid item xs={3} md={3} key={file}>
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#999'
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={useURL}
+                        sx={{
+                          height: '50px',
+                          border: '1px solid #000000',
+                          filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
+                          mb: 1,
+                        }}
+                      />
+                      <Typography variant="caption">{label}</Typography>
+                    </Box>
+                  </Grid>
+                );
+              })}
+          </Grid>
+        </Box>
+      )}
+      {isTextFinetune && interaction.files && interaction.files.length > 0 && (
+  <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
+    <Grid container spacing={3} direction="row" justifyContent="flex-start">
+      {interaction.files
+        .filter(file => file.match(/\.txt$/i))
+        .map((file) => {
+          const useURL = getFileURL(file);
+          const filenameParts = file.split('/');
+          const filename = filenameParts[filenameParts.length - 1] || '';
 
-                    return (
-                      <Grid item xs={3} md={3} key={file}>
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#999',
-                            cursor: 'pointer',
-                            overflow: "hidden"
-                          }}
-                          onClick={ () => {
-                            window.open(useURL)
-                          }}
-                        >
-                          <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
-                          <Typography variant="caption" sx={{
-                            textAlign: 'center',
-                            color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
-                            textDecoration: 'underline',
-                          }}>{filename}</Typography>
-                        </Box>
-                      </Grid>
-                    )
-                  })
-                  
-              }
+          return (
+            <Grid item xs={3} md={3} key={file}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#999',
+                  cursor: 'pointer',
+                  overflow: 'hidden'
+                }}
+                onClick={() => {
+                  window.open(useURL);
+                }}
+              >
+                <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
+                <Typography variant="caption" sx={{
+                  textAlign: 'center',
+                  color: theme.palette.mode === "light" ? 'blue' : 'lightblue',
+                  textDecoration: 'underline',
+                }}>{filename}</Typography>
+              </Box>
             </Grid>
-          </Box>
-        )
-      }
-      {
-        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
-          <Box
-            sx={{
-              mt: 1.5,
-              mb: 3,
-            }}
-          >
-            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
-              <Step>
-                <StepLabel>Extract Text</StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>Generate Questions</StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>Edit Questions</StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>Fine Tune</StepLabel>
-              </Step>
-            </Stepper>
-          </Box>
-        )
-      }
-      {
-        isEditingConversations && dataPrepErrors.length == 0 && (
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <FineTuneTextQuestions
-              sessionID={ session.id }
-              interactionID={ userFilesInteractionID }
-            />
-          </Box>
-        )
-      }
-      {
-        isAddingFiles && onReloadSession && (
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <FineTuneAddFiles
-              session={ session }
-              interactionID={ userFilesInteractionID }
-              onReloadSession={ onReloadSession }
-            />
-          </Box>
-        )
-      }
-      {
-        isSystemInteraction && hasFineTuned && onClone && (
-          <FineTuneCloneInteraction
-            type={ session.type }
-            sessionID={ session.id }
-            systemInteractionID={ interaction.id }
-            userInteractionID={ userFilesInteractionID }
-            onClone={ onClone }
-            onAddDocuments={ onAddDocuments }
-          />
-        )
-      }
-      {
-        isEditingConversations && session.id && dataPrepErrors.length > 0 && (
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <Alert
-              severity="success"
-              sx={{
-                mb: 2,
-              }}
-            >
-              From <strong>{ dataPrepStats.total_files }</strong> file{ dataPrepStats.total_files == 1 ? '' : 's' } we created <strong>{ dataPrepStats.total_chunks }</strong> text chunk{ dataPrepStats.total_chunks == 1 ? '' : 's' } and converted <strong>{ dataPrepStats.converted }</strong> of those into <strong>{ dataPrepStats.total_questions }</strong> questions.
-            </Alert>
-            <Alert
-              severity="error"
-              sx={{
-                mb: 2,
-              }}
-            >
-              However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
-            </Alert>
-            <Row>
-              {
-                retryFinetuneErrors && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    sx={{
-                      mr: 1,
-                    }}
-                    endIcon={<ReplayIcon />}
-                    onClick={ retryFinetuneErrors }
-                  >
-                    Retry
-                  </Button>
-                )
-              }
-              
-              {/* <Button
+          );
+        })}
+    </Grid>
+  </Box>
+)}
+       {session.type === SESSION_TYPE_TEXT && interaction.data_prep_stage !== TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
+        <Box sx={{ mt: 1.5, mb: 3 }}>
+          <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
+            <Step>
+              <StepLabel>Extract Text</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Generate Questions</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Edit Questions</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Fine Tune</StepLabel>
+            </Step>
+          </Stepper>
+        </Box>
+      )}
+
+      {isEditingConversations && dataPrepErrors.length === 0 && (
+        <FineTuneTextQuestions
+          sessionID={session.id}
+          interactionID={interaction.id}
+        />
+      )}
+
+      {isAddingFiles && onReloadSession && (
+        <FineTuneAddFiles
+          session={session}
+          interactionID={interaction.id}
+          onReloadSession={onReloadSession}
+        />
+      )}
+
+      
+
+{isSystemInteraction && hasFineTuned && onClone && (
+  <FineTuneCloneInteraction
+    type={session.type}
+    sessionID={session.id}
+    systemInteractionID={interaction.id}
+    userInteractionID={interaction.id} // Replace with the correct ID if needed
+    onClone={onClone}
+    onAddDocuments={onAddDocuments}
+  />
+)}
+
+{isEditingConversations && session.id && dataPrepErrors.length > 0 && (
+  <Box sx={{ mt: 2 }}>
+    <Alert severity="success" sx={{ mb: 2 }}>
+      From <strong>{dataPrepStats.total_files}</strong> file{dataPrepStats.total_files === 1 ? '' : 's'} we created <strong>{dataPrepStats.total_chunks}</strong> text chunk{dataPrepStats.total_chunks === 1 ? '' : 's'} and converted <strong>{dataPrepStats.converted}</strong> of those into <strong>{dataPrepStats.total_questions}</strong> questions.
+    </Alert>
+    <Alert severity="error" sx={{ mb: 2 }}>
+      However, we encountered <strong>{dataPrepStats.errors}</strong> error{dataPrepStats.errors === 1 ? '' : 's'}, please choose how you want to proceed:
+    </Alert>
+    <Row>
+      {retryFinetuneErrors && (
+        <Button
+          variant="contained"
+          color="primary"
+          sx={{ mr: 1 }}
+          endIcon={<ReplayIcon />}
+          onClick={retryFinetuneErrors}
+        >
+          Retry
+        </Button>
+      )}
+      {/* <Button
                 variant="contained"
                 color="primary"
                 sx={{
@@ -332,25 +240,22 @@ export const InteractionFinetune: FC<{
               >
                 View Errors
               </Button> */}
-              <Button
-                variant="contained"
-                color="primary"
-                sx={{
-                  mr: 1,
-                }}
-                endIcon={<ArrowForwardIcon />}
-                onClick={ () => {
-                  window.location.href = `/session/${session.id}/edit`
-                }}
-              >
-                Ignore Errors
-              </Button>
-            </Row>
-          </Box>
-        )
-      }
-    </>
-  )   
-}
+      <Button
+        variant="contained"
+        color="primary"
+        sx={{ mr: 1 }}
+        endIcon={<ArrowForwardIcon />}
+        onClick={() => {
+          window.location.href = `/session/${session.id}/edit`;
+        }}
+      >
+        Ignore Errors
+      </Button>
+    </Row>
+  </Box>
+)}
+</>
+);
+};
 
-export default InteractionFinetune
+export default InteractionFinetune;
