@@ -1,78 +1,41 @@
 kind: pipeline
 type: docker
-name: backend
+name: default
 
 workspace:
   base: /go
   path: src/github.com/helix-ml/helix
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
 
 steps:
 - name: build
   image: golang:1.20-alpine
   commands:
     - go build -o helix
-    - go test ./...
----
-kind: pipeline
-type: exec
-name: controlplane-docker-images
 
-platform:
-  os: linux
-  arch: amd64
+- name: publish-controlplane
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.api
+    tags: latest
+    repo: helixml/helixml/controlplane
+    location: europe
+    json_key:
+      from_secret: gar_json_key
 
-steps:
-- name: publish-latest
-  environment:
-    GAR_JSON_KEY:
-      from_secret: gar_json_key_b64
-  commands:
-    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
-    - docker build -f Dockerfile.api --push -t europe-docker.pkg.dev/helixml/helix/controlplane:latest .
-  # when:
-  #   branch:
-  #   - main
-- name: publish-tag
-  environment:
-    GAR_JSON_KEY:
-      from_secret: gar_json_key_b64
-  commands:
-    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
-    - docker build -f Dockerfile.api --push -t europe-docker.pkg.dev/helixml/helix/controlplane:${DRONE_TAG} .
-  when:
-    event:
-    - tag
-
-depends_on:
-- backend
----
-kind: pipeline
-type: exec
-name: frontend-docker-images
-
-platform:
-  os: linux
-  arch: amd64
-
-steps:
-- name: publish-latest
-  environment:
-    GAR_JSON_KEY:
-      from_secret: gar_json_key_b64
-  commands:
-    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
-    - cd frontend && docker build -f Dockerfile --push -t europe-docker.pkg.dev/helixml/helix/frontend:latest .
-  # when:
-  #   branch:
-  #   - main
-
-- name: publish-tag
-  environment:
-    GAR_JSON_KEY:
-      from_secret: gar_json_key_b64
-  commands:
-    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
-    - cd frontend && docker build -f Dockerfile --push -t europe-docker.pkg.dev/helixml/helix/frontend:${DRONE_TAG} .
-  when:
-    event:
-    - tag
+- name: publish-frontend
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: frontend/Dockerfile
+    context: frontend
+    tags: latest
+    repo: helixml/helixml/frontend
+    location: europe
+    json_key:
+      from_secret: gar_json_key
