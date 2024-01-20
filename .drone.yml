@@ -27,6 +27,9 @@ steps:
     location: europe
     json_key:
       from_secret: gar_json_key
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
 
 - name: publish-frontend
   image: plugins/gar
@@ -39,3 +42,6 @@ steps:
     location: europe
     json_key:
       from_secret: gar_json_key
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
