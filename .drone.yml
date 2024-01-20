@@ -33,6 +33,16 @@ steps:
   # when:
   #   branch:
   #   - main
+- name: publish-tag
+  environment:
+    GAR_JSON_KEY:
+      from_secret: gar_json_key_b64
+  commands:
+    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
+    - docker build -f Dockerfile.api --push -t europe-docker.pkg.dev/helixml/helix/controlplane:${DRONE_TAG} .
+  when:
+    event:
+    - tag
 
 depends_on:
 - backend
@@ -57,3 +67,14 @@ steps:
   # when:
   #   branch:
   #   - main
+
+- name: publish-tag
+  environment:
+    GAR_JSON_KEY:
+      from_secret: gar_json_key_b64
+  commands:
+    - echo $GAR_JSON_KEY | docker login -u _json_key_base64 --password-stdin europe-docker.pkg.dev
+    - cd frontend && docker build -f Dockerfile --push -t europe-docker.pkg.dev/helixml/helix/frontend:${DRONE_TAG} .
+  when:
+    event:
+    - tag
