@@ -104,6 +104,18 @@ export const SessionsMenu: FC<{
               >
                 <ListItemButton
                   selected={ session.session_id == params["session_id"] }
+                  sx={{
+                    ...(session.session_id === params["session_id"] && {
+                      bgcolor: 'primary.main', 
+                      color: 'primary.contrastText', 
+                      '& .MuiListItemIcon-root': {
+                        color: 'inherit', 
+                      },
+                      '&:hover': {
+                        bgcolor: 'primary.dark', 
+                      },
+                    }),
+                  }}
                 >
                    <Badge color="secondary" variant="dot" invisible={!(session.isActive || session.hasNewReplies)}>
                   <ListItemIcon>
