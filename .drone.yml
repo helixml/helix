@@ -23,7 +23,7 @@ steps:
   settings:
     dockerfile: Dockerfile.api
     tags: latest
-    repo: helixml/helixml/controlplane
+    repo: helixml/helix/controlplane
     location: europe
     json_key:
       from_secret: gar_json_key_b64
@@ -38,7 +38,7 @@ steps:
     dockerfile: frontend/Dockerfile
     context: frontend
     tags: latest
-    repo: helixml/helixml/frontend
+    repo: helixml/helix/frontend
     location: europe
     json_key:
       from_secret: gar_json_key_b64
