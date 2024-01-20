@@ -93,7 +93,7 @@ services:
     build:
       context: unstructured
       dockerfile: Dockerfile
-    # entrypoint: ${UNSTRUCTURED_ENTRYPOINT:-tail -f /dev/null}
+    entrypoint: ${UNSTRUCTURED_ENTRYPOINT:-tail -f /dev/null}
     restart: always
     volumes:
       - ./unstructured/src:/home/notebook-user/app/src
