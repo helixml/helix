@@ -12,7 +12,6 @@ steps:
   commands:
     - go build -o helix
     - go test ./...
-
 ---
 kind: pipeline
 type: exec
@@ -46,7 +45,6 @@ steps:
 
 depends_on:
 - backend
-
 ---
 kind: pipeline
 type: exec
