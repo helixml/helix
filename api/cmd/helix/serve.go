@@ -95,6 +95,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			URL:           getDefaultServeOptionString("SERVER_URL", ""),
 			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			FrontendURL:   getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
