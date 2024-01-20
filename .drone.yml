@@ -36,6 +36,7 @@ steps:
     - main
     event:
     - tag
+    - push
 
 - name: publish-frontend
   image: plugins/gar
@@ -56,3 +57,4 @@ steps:
     - main
     event:
     - tag
+    - push
