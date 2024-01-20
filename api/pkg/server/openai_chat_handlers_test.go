@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
@@ -118,10 +119,12 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 				}})
 			suite.NoError(err)
 
-			suite.pubsub.Publish(
-				context.Background(),
-				session.ID,
-				bts, pubsub.WithPublishNamespace("user_id"))
+			time.AfterFunc(100*time.Millisecond, func() {
+				suite.pubsub.Publish(
+					context.Background(),
+					session.ID,
+					bts, pubsub.WithPublishNamespace("user_id"))
+			})
 
 			return &session, nil
 		})
