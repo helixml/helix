@@ -16,7 +16,7 @@ steps:
 ---
 kind: pipeline
 type: exec
-name: controlplane-docker-image
+name: controlplane-docker-images
 
 platform:
   os: linux
@@ -50,7 +50,7 @@ depends_on:
 ---
 kind: pipeline
 type: exec
-name: frontend-docker-image
+name: frontend-docker-images
 
 platform:
   os: linux
