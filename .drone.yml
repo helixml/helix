@@ -16,6 +16,7 @@ steps:
   image: golang:1.20-alpine
   commands:
     - go build -o helix
+    - go test ./...
 
 - name: publish-controlplane
   image: plugins/gar
