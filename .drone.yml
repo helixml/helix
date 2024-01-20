@@ -1,0 +1,57 @@
+kind: pipeline
+type: docker
+name: default
+
+workspace:
+  base: /go
+  path: src/github.com/helix-ml/helix
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: build
+  image: golang:1.20-alpine
+  commands:
+    - go build -o helix
+
+- name: publish-controlplane
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.api
+    tags: auto
+    repo: helixml/helix/controlplane
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+
+- name: publish-frontend
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: frontend/Dockerfile
+    context: frontend
+    tags: auto
+    repo: helixml/helix/frontend
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
