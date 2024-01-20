@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    ports:
+      - ${PORT_NOXY:-80}:80
     restart: always
     environment:
       - LOG_LEVEL=debug
@@ -48,30 +50,6 @@ services:
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
-  router:
-    image: binocarlos/noxy:v7
-    restart: always
-    ports:
-      - ${PORT_NOXY:-80}:80
-    depends_on:
-      - postgres
-      - keycloak
-      - api
-      - frontend
-    environment:
-      - NOXY_DEFAULT_HOST=frontend
-      - NOXY_DEFAULT_PORT=${FRONTEND_INTERNAL_PORT:-8081}
-      - NOXY_DEFAULT_WS=1
-      - NOXY_API_FRONT=/api/v1
-      - NOXY_API_HOST=api
-      - NOXY_API_PORT=80
-      - NOXY_V1_FRONT=/v1
-      - NOXY_V1_HOST=api
-      - NOXY_V1_PORT=80
-      - NOXY_API_WS=1
-      - NOXY_KEYCLOAK_FRONT=/auth
-      - NOXY_KEYCLOAK_HOST=keycloak
-      - NOXY_KEYCLOAK_PORT=8080
   postgres:
     image: postgres:12.13-alpine
     restart: always
