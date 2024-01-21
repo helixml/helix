@@ -115,3 +115,38 @@ steps:
 
 depends_on:
 - default
+
+---
+kind: pipeline
+type: docker
+name: build-unstructured
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-unstructured
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: unstructured/Dockerfile
+    context: unstructured
+    auto_tag: true
+    repo: helixml/helix/unstructured
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
