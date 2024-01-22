@@ -37,12 +37,14 @@ type Text struct {
 }
 
 type Log struct {
-	ApiUrl string `yaml:"api_url"`
-	Model  string `yaml:"model"`
-	System string `yaml:"system"`
-	User   string `yaml:"user"`
-	Text   string `yaml:"text"`
-	Result string `yaml:"result"`
+	Date      string `yaml:"date"`
+	ApiUrl    string `yaml:"api_url"`
+	Model     string `yaml:"model"`
+	System    string `yaml:"system"`
+	User      string `yaml:"user"`
+	Text      string `yaml:"text"`
+	Result    string `yaml:"result"`
+	LatencyMs int64  `yaml:"latency"`
 }
 
 type Config struct {
@@ -195,12 +197,15 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 
 	userPrompt := buf2.String()
 
+	startTime := time.Now()
 	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt)
 	if err != nil {
 		return err
 	}
+	latency := time.Since(startTime).Milliseconds()
 
 	log.Print(">>>", resp)
+	log.Printf("Took: %.2f seconds", float32(latency)/1000)
 
 	err = os.MkdirAll("runs", os.ModePerm)
 	if err != nil {
@@ -211,12 +216,14 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	filename := fmt.Sprintf("runs/%d_%s_%s_%s.yaml", timestamp, target.Name, prompt.Name, text.Name)
 
 	logData := Log{
-		ApiUrl: target.ApiUrl,
-		Model:  target.Model,
-		System: prompt.System,
-		User:   prompt.User,
-		Text:   contents,
-		Result: resp,
+		Date:      time.Now().String(),
+		ApiUrl:    target.ApiUrl,
+		Model:     target.Model,
+		System:    systemPrompt,
+		User:      userPrompt,
+		Text:      contents,
+		Result:    resp,
+		LatencyMs: latency,
 	}
 
 	logDataBytes, err := yaml.Marshal(logData)
