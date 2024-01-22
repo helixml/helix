@@ -88,8 +88,8 @@ services:
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   unstructured:
-    ports:
-      - 5000:5000
+    # ports:
+    #   - 5000:5000
     build:
       context: unstructured
       dockerfile: Dockerfile
