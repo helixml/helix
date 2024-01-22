@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -19,8 +20,9 @@ import (
 )
 
 type ControllerOptions struct {
-	Store               store.Store
-	Notifier            notification.Notifier
+	Store store.Store
+	// Notifier            notification.Notifier
+
 	Filestore           filestore.FileStore
 	Janitor             *janitor.Janitor
 	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
@@ -43,6 +45,14 @@ type ControllerOptions struct {
 
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int
+
+	// NotifierCfg is used to configure the notifier which sends emails
+	// to users on finetuning progress
+	NotifierCfg *notification.Config
+
+	// KeycloakCfg is used to configure the keycloak authenticator, which
+	// is used to get user information from the keycloak server
+	KeycloakCfg *auth.KeycloakConfig
 }
 
 type Controller struct {
@@ -72,6 +82,8 @@ type Controller struct {
 
 	// the current buffer of scheduling decisions
 	schedulingDecisions []*types.GlobalSchedulingDecision
+
+	notifier notification.Notifier
 }
 
 func NewController(
@@ -97,6 +109,17 @@ func NewController(
 	if err != nil {
 		return nil, err
 	}
+
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(options.KeycloakCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	}
+
+	notifier, err := notification.New(options.NotifierCfg, keycloakAuthenticator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create notifier: %v", err)
+	}
+
 	controller := &Controller{
 		Ctx:                            ctx,
 		Options:                        options,
@@ -107,6 +130,7 @@ func NewController(
 		models:                         models,
 		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
+		notifier:                       notifier,
 	}
 	return controller, nil
 }

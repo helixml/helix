@@ -42,20 +42,10 @@ func NewServeOptions() (*ServeOptions, error) {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create keycloak authenticator: %v", err)
-	}
-
 	var notificationCfg notification.Config
 	err = envconfig.Process("", &notificationCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
-	}
-
-	notifier, err := notification.New(&notificationCfg, keycloakAuthenticator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create notifier: %v", err)
 	}
 
 	return &ServeOptions{
@@ -74,7 +64,8 @@ func NewServeOptions() (*ServeOptions, error) {
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
-			Notifier:                     notifier,
+			KeycloakCfg:                  &keycloakCfg,
+			NotifierCfg:                  &notificationCfg,
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
