@@ -204,7 +204,6 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	}
 	latency := time.Since(startTime).Milliseconds()
 
-	log.Print(">>>", resp)
 	log.Printf("Took: %.2f seconds", float32(latency)/1000)
 
 	err = os.MkdirAll("runs", os.ModePerm)
