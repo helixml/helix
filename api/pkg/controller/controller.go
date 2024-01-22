@@ -21,7 +21,6 @@ import (
 
 type ControllerOptions struct {
 	Store store.Store
-	// Notifier            notification.Notifier
 
 	Filestore           filestore.FileStore
 	Janitor             *janitor.Janitor
