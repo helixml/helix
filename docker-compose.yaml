@@ -1,0 +1,69 @@
+version: '3'
+
+services:
+  api:
+    image: europe-docker.pkg.dev/helixml/helix/controlplane:karolis-rc1
+    ports:
+      - 80:80
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=debug
+      - APP_URL=${SERVER_URL:-http://localhost}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - SERVER_URL=${SERVER_URL:-http://localhost}
+      - KEYCLOAK_URL=http://keycloak:8080/auth      
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}      
+      # this is an insecure development key do not use!
+      - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
+      # lock down dashboard in production
+      - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
+      - FILESTORE_LOCALFS_PATH=/filestore
+  postgres:
+    image: postgres:12.13-alpine
+    restart: always
+    ports:
+      - 5432:5432
+    volumes:
+      - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  keycloak:
+    image: quay.io/modeldynamics/keycloak:15.0.2-helix
+    restart: always
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
+      - KC_PROXY=edge
+      - DB_VENDOR=h2
+      - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
+      - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
+    volumes:
+      - ./realm.json:/imported/realm.json
+      - ${KEYCLOAK_DATA:-helix-keycloak-db}:/opt/jboss/keycloak/standalone/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+  unstructured:
+    image: europe-docker.pkg.dev/helixml/helix/unstructured:latest
+    # ports:
+      # - 5000:5000    
+    restart: always
+volumes:
+  helix-keycloak-db:
+  helix-postgres-db:
+  helix-filestore:
+
