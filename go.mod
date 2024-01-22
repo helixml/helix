@@ -29,8 +29,21 @@ require (
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/golang/mock v1.6.0
+	github.com/jinzhu/copier v0.4.0
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stripe/stripe-go/v76 v76.8.0
-	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
+)
+
+require github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible // indirect
+
+require (
+	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/mailgun/mailgun-go/v4 v4.9.1 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/nikoksr/notify v0.41.0
 )
 
 require (

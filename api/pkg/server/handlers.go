@@ -158,14 +158,14 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
-		SessionID:       sessionID,
-		SessionMode:     sessionMode,
-		SessionType:     sessionType,
-		ModelName:       modelName,
-		Owner:           reqContext.Owner,
-		OwnerType:       reqContext.OwnerType,
-		UserInteraction: *userInteraction,
-		Priority:        status.Config.StripeSubscriptionActive,
+		SessionID:        sessionID,
+		SessionMode:      sessionMode,
+		SessionType:      sessionType,
+		ModelName:        modelName,
+		Owner:            reqContext.Owner,
+		OwnerType:        reqContext.OwnerType,
+		UserInteractions: []*types.Interaction{userInteraction},
+		Priority:         status.Config.StripeSubscriptionActive,
 	})
 
 	return sessionData, nil
@@ -193,7 +193,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 
 	sessionData, err := apiServer.Controller.UpdateSession(apiServer.getRequestContext(req), types.UpdateSessionRequest{
 		SessionID:       session.ID,
-		UserInteraction: *userInteraction,
+		UserInteraction: userInteraction,
 		SessionMode:     session.Mode,
 	})
 	if err != nil {
@@ -570,7 +570,7 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	if interactionID != "" {
 		return system.DefaultController(apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files))
 	} else {
-		return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, *newUserInteraction))
+		return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
 	}
 }
 

@@ -8,15 +8,19 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -31,7 +35,29 @@ type ServeOptions struct {
 	StripeOptions       stripe.StripeOptions
 }
 
-func NewServeOptions() *ServeOptions {
+func NewServeOptions() (*ServeOptions, error) {
+	var keycloakCfg auth.KeycloakConfig
+	err := envconfig.Process("", &keycloakCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+	}
+
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	}
+
+	var notificationCfg notification.Config
+	err = envconfig.Process("", &notificationCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+	}
+
+	notifier, err := notification.New(&notificationCfg, keycloakAuthenticator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create notifier: %v", err)
+	}
+
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
@@ -48,6 +74,7 @@ func NewServeOptions() *ServeOptions {
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
+			Notifier:                     notifier,
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
@@ -68,6 +95,7 @@ func NewServeOptions() *ServeOptions {
 			URL:           getDefaultServeOptionString("SERVER_URL", ""),
 			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			FrontendURL:   getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
@@ -86,11 +114,14 @@ func NewServeOptions() *ServeOptions {
 			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
 			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
-	}
+	}, nil
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions := NewServeOptions()
+	allOptions, err := NewServeOptions()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create serve options")
+	}
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",

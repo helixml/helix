@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
 )
 
@@ -37,11 +39,22 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	if err != nil {
 		return nil, err
 	}
+
+	if session.Mode == types.SessionModeFinetune {
+		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
+			Event:   notification.EventFinetuningStarted,
+			Session: &session,
+		})
+		if err != nil {
+			log.Error().Msgf("error notifying finetuning started: %s", err.Error())
+		}
+	}
+
 	return sessionData, nil
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
-	systemInteraction := types.Interaction{
+	systemInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
 		Updated:  time.Now(),
@@ -140,9 +153,9 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	return session, nil
 }
 
-func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction types.Interaction) (*types.Session, error) {
+func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction *types.Interaction) (*types.Session, error) {
 	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := types.Interaction{
+	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -324,10 +337,10 @@ func (c *Controller) WriteSession(session *types.Session) {
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == newInteraction.ID {
-			newInteractions = append(newInteractions, *newInteraction)
+			newInteractions = append(newInteractions, newInteraction)
 		} else {
 			newInteractions = append(newInteractions, interaction)
 		}
@@ -499,6 +512,14 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.DataPrepStage = types.TextDataPrepStageComplete
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
+
+			err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+				Event:   notification.EventFinetuningComplete,
+				Session: session,
+			})
+			if err != nil {
+				log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
+			}
 		}
 
 		return targetInteraction, nil
@@ -601,8 +622,15 @@ func (c *Controller) CloneUntilInteraction(
 	}
 
 	// this will actually copy files so only call this if you want to remap
-	copyInteractionFiles := func(interaction types.Interaction) (types.Interaction, error) {
+	copyInteractionFiles := func(interaction *types.Interaction) (*types.Interaction, error) {
 		newFiles := []string{}
+		var newInteraction types.Interaction
+
+		err := copier.Copy(&newInteraction, interaction)
+		if err != nil {
+			return nil, fmt.Errorf("error copying interaction: %s", err.Error())
+		}
+
 		for _, file := range interaction.Files {
 			if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
 				// this means we are only copying the data and we've just come across the questions file
@@ -611,16 +639,23 @@ func (c *Controller) CloneUntilInteraction(
 			}
 			newFile, err := copyFile(file)
 			if err != nil {
-				return interaction, err
+				return &newInteraction, err
 			}
 			newFiles = append(newFiles, newFile)
 		}
-		interaction.Files = newFiles
-		return interaction, nil
+		newInteraction.Files = newFiles
+		return &newInteraction, nil
 	}
 
 	// this will actually copy files so only call this if you want to remap
-	copyLoraDir := func(interaction types.Interaction) (types.Interaction, error) {
+	copyLoraDir := func(interaction *types.Interaction) (*types.Interaction, error) {
+		var newInteraction types.Interaction
+
+		err := copier.Copy(&newInteraction, interaction)
+		if err != nil {
+			return nil, fmt.Errorf("error copying interaction: %s", err.Error())
+		}
+
 		if interaction.LoraDir != "" {
 			shouldCopyLora := false
 			if interaction.ID == systemInteraction.ID {
@@ -638,19 +673,19 @@ func (c *Controller) CloneUntilInteraction(
 				if err != nil {
 					return interaction, err
 				}
-				interaction.LoraDir = newLoraDir
+				newInteraction.LoraDir = newLoraDir
 			} else {
-				interaction.LoraDir = ""
+				newInteraction.LoraDir = ""
 			}
 		}
-		return interaction, nil
+		return &newInteraction, nil
 	}
 
 	// the result files are always copied if we are in a different user account
 	// but not if we are in the same account
 	// and the interaction file list will be pointing at a different session folder
 	// but that is OK because the file store is immutable
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, interaction := range newSession.Interactions {
 		if req.CopyAllFiles {
 			newInteraction, err := copyInteractionFiles(interaction)
