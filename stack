@@ -18,7 +18,7 @@ function mock-runner() {
 }
 
 function build() {
-  docker-compose build
+  docker-compose -f docker-compose.dev.yaml build
 }
 
 function start() {
@@ -34,9 +34,9 @@ function start() {
 
   echo "Starting docker-compose"
   if [[ -n "$WITH_RUNNER" ]]; then
-    docker-compose --profile dev_gpu_runner up --build -d
+    docker-compose -f docker-compose.dev.yaml --profile dev_gpu_runner up --build -d
   else
-    docker-compose up -d
+    docker-compose -f docker-compose.dev.yaml up -d
   fi
   sleep 2
 
