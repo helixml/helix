@@ -58,9 +58,6 @@ export const Interaction: FC<{
         // If single message is shown, display it
         if (interaction?.message) {
           displayMessage = interaction.message
-        } else if (interaction?.messages && interaction?.messages.length > 0) {
-          // If multiple messages are shown, display the last one
-          displayMessage = interaction.messages[interaction.messages.length - 1].content
         } else {
           displayMessage = ''
         }        

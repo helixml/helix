@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
@@ -99,17 +100,17 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
 			suite.Equal(types.ModelName("mistralai/Mistral-7B-Instruct-v0.1"), session.ModelName)
-			suite.Equal("You are a helpful assistant.", session.Interactions[0].Messages[0].Content)
-			suite.Equal("tell me about oceans!", session.Interactions[0].Messages[1].Content)
-			suite.Equal("system", session.Interactions[0].Messages[0].Role)
-			suite.Equal("user", session.Interactions[0].Messages[1].Role)
+			suite.Equal("You are a helpful assistant.", session.Interactions[0].Message)
+			suite.Equal("tell me about oceans!", session.Interactions[1].Message)
+			suite.Equal(types.CreatorTypeSystem, session.Interactions[0].Creator)
+			suite.Equal(types.CreatorTypeUser, session.Interactions[1].Creator)
 			suite.NotEmpty(session.ID, "session ID should be set")
 
 			bts, err := json.Marshal(&types.WebsocketEvent{
 				Type: "session_update",
 				Session: &types.Session{
 					ID: "session_id",
-					Interactions: []types.Interaction{
+					Interactions: []*types.Interaction{
 						{
 							State:   types.InteractionStateComplete,
 							Message: "**model-result**",
@@ -118,10 +119,12 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 				}})
 			suite.NoError(err)
 
-			suite.pubsub.Publish(
-				context.Background(),
-				session.ID,
-				bts, pubsub.WithPublishNamespace("user_id"))
+			time.AfterFunc(100*time.Millisecond, func() {
+				suite.pubsub.Publish(
+					context.Background(),
+					session.ID,
+					bts, pubsub.WithPublishNamespace("user_id"))
+			})
 
 			return &session, nil
 		})
@@ -182,10 +185,10 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
 			suite.Equal(types.ModelName("mistralai/Mistral-7B-Instruct-v0.1"), session.ModelName)
-			suite.Equal("You are a helpful assistant.", session.Interactions[0].Messages[0].Content)
-			suite.Equal("tell me about oceans!", session.Interactions[0].Messages[1].Content)
-			suite.Equal("system", session.Interactions[0].Messages[0].Role)
-			suite.Equal("user", session.Interactions[0].Messages[1].Role)
+			suite.Equal("You are a helpful assistant.", session.Interactions[0].Message)
+			suite.Equal("tell me about oceans!", session.Interactions[1].Message)
+			suite.Equal(types.CreatorTypeSystem, session.Interactions[0].Creator)
+			suite.Equal(types.CreatorTypeUser, session.Interactions[1].Creator)
 			suite.NotEmpty(session.ID, "session ID should be set")
 
 			sessionID = session.ID
