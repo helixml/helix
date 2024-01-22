@@ -60,6 +60,47 @@ prompts:
     Here is the context:
     {{.DocumentChunk}}
 
+ - name: simple-quiz
+   system: |
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+   user: |
+    Here is your context:
+    {{.DocumentChunk}}
+
+ - name: entities-specific-to-broad
+   system: |
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    
+    This DOCUMENT_ID is {{.DocumentID}}
+    This DOCUMENT_GROUP_ID is {{.DocumentGroupID}}
+
+    In every question and answer, you MUST reference the DOCUMENT_ID and DOCUMENT_GROUP_ID.
+
+    For example:
+    Question: In document A1B2C3 (document group B2C3D4), what has Kier Starmer pointed out regarding NHS waiting lists?
+    Answer: In document A1B2C3 (document group B2C3D4), Kier Starmer has pointed out that NHS waiting lists have increased since the prime minister set the goal of reducing them.
+
+    Respond in strict JSON as a list of question-answer pairs. For example:
+    [
+      {"question": "In document <DOCUMENT_ID> (document group <DOCUMENT_GROUP_ID>), …",
+      "answer": "In document <DOCUMENT_ID> (document group <DOCUMENT_GROUP_ID>), …"},
+      {"question": "In document <DOCUMENT_ID> (document group <DOCUMENT_GROUP_ID>), …",
+      "answer": "In document <DOCUMENT_ID> (document group <DOCUMENT_GROUP_ID>), …"}
+    ]
+   user: |
+    Start by considering the main entities in the document.
+
+    Next, for each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
+    
+    Here is the document:
+    {{.DocumentChunk}}
+
 targets:
  - name: openai
    api_url: https://api.openai.com/v1
