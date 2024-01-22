@@ -33,6 +33,14 @@ type ServeOptions struct {
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
 	StripeOptions       stripe.StripeOptions
+
+	// NotifierCfg is used to configure the notifier which sends emails
+	// to users on finetuning progress
+	NotifierCfg *notification.Config
+
+	// KeycloakCfg is used to configure the keycloak authenticator, which
+	// is used to get user information from the keycloak server
+	KeycloakCfg *auth.KeycloakConfig
 }
 
 func NewServeOptions() (*ServeOptions, error) {
@@ -42,20 +50,10 @@ func NewServeOptions() (*ServeOptions, error) {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&keycloakCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create keycloak authenticator: %v", err)
-	}
-
 	var notificationCfg notification.Config
 	err = envconfig.Process("", &notificationCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
-	}
-
-	notifier, err := notification.New(&notificationCfg, keycloakAuthenticator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create notifier: %v", err)
 	}
 
 	return &ServeOptions{
@@ -74,7 +72,6 @@ func NewServeOptions() (*ServeOptions, error) {
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
 			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
-			Notifier:                     notifier,
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
 			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
@@ -114,6 +111,8 @@ func NewServeOptions() (*ServeOptions, error) {
 			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
 			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
+		KeycloakCfg: &keycloakCfg,
+		NotifierCfg: &notificationCfg,
 	}, nil
 }
 
@@ -400,6 +399,16 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("runner token is required")
 	}
 
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(options.KeycloakCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	}
+
+	notifier, err := notification.New(options.NotifierCfg, keycloakAuthenticator)
+	if err != nil {
+		return fmt.Errorf("failed to create notifier: %v", err)
+	}
+
 	options.JanitorOptions.AppURL = options.ServerOptions.URL
 	janitor := janitor.NewJanitor(options.JanitorOptions)
 	err = janitor.Initialize()
@@ -412,6 +421,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
 	options.ControllerOptions.Janitor = janitor
+	options.ControllerOptions.Notifier = notifier
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
