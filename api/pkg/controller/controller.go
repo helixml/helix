@@ -19,8 +19,8 @@ import (
 )
 
 type ControllerOptions struct {
-	Store               store.Store
-	Notifier            notification.Notifier
+	Store store.Store
+
 	Filestore           filestore.FileStore
 	Janitor             *janitor.Janitor
 	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
@@ -43,6 +43,8 @@ type ControllerOptions struct {
 
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int
+
+	Notifier notification.Notifier
 }
 
 type Controller struct {
@@ -97,6 +99,7 @@ func NewController(
 	if err != nil {
 		return nil, err
 	}
+
 	controller := &Controller{
 		Ctx:                            ctx,
 		Options:                        options,
