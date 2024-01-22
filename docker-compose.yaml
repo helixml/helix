@@ -2,12 +2,12 @@ version: '3'
 
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
+    image: europe-docker.pkg.dev/helixml/helix/controlplane:karolis-rc1
     ports:
-      - ${API_PORT:-80}:80
+      - 80:80
     restart: always
+    env_file:
+      - .env
     environment:
       - LOG_LEVEL=debug
       - APP_URL=${SERVER_URL:-http://localhost}
@@ -17,13 +17,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost}
-      - KEYCLOAK_URL=http://keycloak:8080/auth
-      - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
-      - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
-      - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
-      - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
+      - KEYCLOAK_URL=http://keycloak:8080/auth      
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}      
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - KEYCLOAK_USER=admin
@@ -32,24 +27,6 @@ services:
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
-      - SENTRY_DSN_API=${SENTRY_DSN_API:-}
-      - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
-      - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
-      # Email notifications
-      - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
-      - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
-      # SMTP
-      - EMAIL_SMTP_HOST=${EMAIL_SMTP_HOST:-}
-      - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
-      - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
-      - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
-
-    entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
-    volumes:
-      - ./go.mod:/app/go.mod
-      - ./go.sum:/app/go.sum
-      - ./api:/app/api
-      - ${FILESTORE_DATA:-helix-filestore}:/filestore
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -80,63 +57,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
-  webhook_relay_stripe:
-    image: webhookrelay/webhookrelayd
-    entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
-    environment:
-      - KEY=${WEBHOOK_RELAY_KEY:-}
-      - SECRET=${WEBHOOK_RELAY_SECRET:-}
-      - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   unstructured:
-    ports:
-      - 5000:5000
-    build:
-      context: unstructured
-      dockerfile: Dockerfile
-    entrypoint: ${UNSTRUCTURED_ENTRYPOINT:-tail -f /dev/null}
+    image: europe-docker.pkg.dev/helixml/helix/unstructured:latest
+    # ports:
+      # - 5000:5000    
     restart: always
-    volumes:
-      - ./unstructured/src:/home/notebook-user/app/src
-  dev_gpu_runner:
-    profiles: ["dev_gpu_runner"]
-    build:
-      context: .
-      dockerfile: Dockerfile.runner
-    entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
-    volumes:
-      - .:/workspace/helix
-      - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
-      # comment these out if you don't have appropriate repos checked out
-      #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
-      #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
-      #- ../axolotl:/workspace/axolotl
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  frontend:
-    ports:
-      - 8081:${FRONTEND_INTERNAL_PORT:-8081}
-    build:
-      context: frontend
-      dockerfile: Dockerfile
-      # set FRONTEND_TARGET=deploy-frontend in .env to build production assets
-      target: ${FRONTEND_TARGET:-build-env}
-    restart: always
-    # let it be defined but not empty (no colon below), since an empty entrypoint means use the one from the Dockerfile
-    entrypoint: ${FRONTEND_ENTRYPOINT-yarn run dev}
-    volumes:
-      - ./frontend/package.json:/app/package.json
-      - ./frontend/src:/app/src
-      - ./frontend/assets:/app/assets
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/tsconfig.json:/app/tsconfig.json
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
