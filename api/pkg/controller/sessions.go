@@ -41,7 +41,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	}
 
 	if session.Mode == types.SessionModeFinetune {
-		err := c.notifier.Notify(ctx.Ctx, &notification.Notification{
+		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
 			Event:   notification.EventFinetuningStarted,
 			Session: &session,
 		})
@@ -513,7 +513,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
 
-			err := c.notifier.Notify(ctx, &notification.Notification{
+			err := c.Options.Notifier.Notify(ctx, &notification.Notification{
 				Event:   notification.EventFinetuningComplete,
 				Session: session,
 			})
