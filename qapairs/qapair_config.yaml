@@ -1,5 +1,13 @@
 # The following prompts are for qapair generation. We provide several of them.
 prompts:
+
+ - name: simple-quiz
+   system: |
+     You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+   user: |
+    Here is your context:
+    {{.DocumentChunk}}
+
  - name: quiz-with-document-ids
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
@@ -51,14 +59,15 @@ prompts:
 
     Here is the context:
     {{.DocumentChunk}}
+
 targets:
  - name: local
    api_url: http://mind.local:11434/api/chat
    model: nous-hermes2-mixtral
  - name: openai
-   api_url: https://api.openai.com/
+   api_url: https://api.openai.com/v1
    model: gpt-4-1106-preview
-   tokenFromEnv: OPENAI_API_KEY
-text:
- # Junior doctors
- - text.txt
+   token_from_env: OPENAI_API_KEY
+texts:
+ - name: junior-doctors
+   file: text.txt

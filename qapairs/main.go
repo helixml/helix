@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
+	"text/template"
 
-	"github.com/davecgh/go-spew/spew"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -26,21 +28,26 @@ type Prompt struct {
 	System string `yaml:"system"`
 	User   string `yaml:"user"`
 }
+type Text struct {
+	Name string `yaml:"name"`
+	File string `yaml:"file"`
+}
 type Config struct {
 	Prompts []Prompt `yaml:"prompts"`
 	Targets []Target `yaml:"targets"`
-	Text    []string `yaml:"text"`
+	Texts   []Text   `yaml:"texts"`
 }
 
 var target []string
 var prompt []string
+var text []string
 
 func main() {
 	var rootCmd = &cobra.Command{
 		Use:   "qapair",
 		Short: "A CLI tool for running QA pair commands",
 		Run: func(cmd *cobra.Command, args []string) {
-			Run(target, prompt)
+			Run(target, prompt, text)
 		},
 	}
 
@@ -50,6 +57,9 @@ func main() {
 	rootCmd.Flags().StringSliceVar(&prompt, "prompt", []string{},
 		"Prompt(s) to use, defaults to all",
 	)
+	rootCmd.Flags().StringSliceVar(&text, "text", []string{},
+		"Text(s) to use, defaults to all",
+	)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -57,7 +67,7 @@ func main() {
 	}
 }
 
-func Run(targetFilter, promptFilter []string) {
+func Run(targetFilter, promptFilter, textFilter []string) {
 	var config Config
 	err := yaml.Unmarshal([]byte(qapairConfig), &config)
 	if err != nil {
@@ -67,6 +77,7 @@ func Run(targetFilter, promptFilter []string) {
 
 	targets := config.Targets
 	prompts := config.Prompts
+	texts := config.Texts
 
 	filteredTargets := []Target{}
 	if len(targetFilter) > 0 {
@@ -94,10 +105,91 @@ func Run(targetFilter, promptFilter []string) {
 		filteredPrompts = prompts
 	}
 
-	spew.Dump(filteredTargets)
-	spew.Dump(filteredPrompts)
+	filteredTexts := []Text{}
+	if len(textFilter) > 0 {
+		for _, name := range textFilter {
+			for _, p := range texts {
+				if p.Name == name {
+					filteredTexts = append(filteredTexts, p)
+				}
+			}
+		}
+	} else {
+		filteredTexts = texts
+	}
 
-	// Query()
+	for _, target := range filteredTargets {
+		for _, prompt := range filteredPrompts {
+			for _, text := range filteredTexts {
+				err := Query(target, prompt, text, "", "", 0)
+				if err != nil {
+					fmt.Println("Error:", err)
+					return
+				}
+			}
+		}
+	}
+}
+
+type TemplateData struct {
+	NumQuestions    int
+	DocumentID      string
+	DocumentGroupID string
+	DocumentChunk   string
+}
+
+func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) error {
+	// Perform the query for the given target and prompt
+	// ...
+
+	contents, err := loadFile(text.File)
+	if err != nil {
+		return err
+	}
+
+	if documentID == "" {
+		documentID = "doc123"
+	}
+	if documentGroupID == "" {
+		documentGroupID = "group123"
+	}
+	if numQuestions == 0 {
+		numQuestions = 10
+	}
+
+	tmplData := TemplateData{
+		NumQuestions:    numQuestions,
+		DocumentID:      documentID,
+		DocumentGroupID: documentGroupID,
+		DocumentChunk:   contents,
+	}
+
+	tmpl := template.Must(template.New("systemPrompt").Parse(prompt.System))
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, tmplData)
+	if err != nil {
+		return err
+	}
+
+	systemPrompt := buf.String()
+
+	tmpl = template.Must(template.New("userPrompt").Parse(prompt.User))
+	var buf2 bytes.Buffer
+	err = tmpl.Execute(&buf2, tmplData)
+	if err != nil {
+		return err
+	}
+
+	userPrompt := buf2.String()
+
+	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt)
+	if err != nil {
+		return err
+	}
+
+	log.Print(">>>", resp)
+
+	return nil
 }
 
 func loadFile(filePath string) (string, error) {
@@ -108,7 +200,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(apiUrl, token, model, fileContent string) ([]string, error) {
+func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
@@ -119,82 +211,21 @@ func chatWithModel(apiUrl, token, model, fileContent string) ([]string, error) {
 			Model: model,
 			Messages: []openai.ChatCompletionMessage{
 				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: system,
+				},
+				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: "Hello!",
+					Content: user,
 				},
 			},
 		},
 	)
 	if err != nil {
 		fmt.Printf("ChatCompletion error: %v\n", err)
-		return []string{}, err
+		return "", err
 	}
 
 	fmt.Println(resp.Choices[0].Message.Content)
-
-	return []string{}, nil
-}
-
-// func main() {
-// 	var config Config
-// 	err := yaml.Unmarshal([]byte(qapairConfig), &config)
-// 	if err != nil {
-// 		fmt.Println("Error:", err)
-// 		return
-// 	}
-
-// 	spew.Dump(config)
-
-// 	Query()
-// }
-
-// 		{"role": "system", "content": "You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs."},
-// 		{"role": "user", "content": fmt.Sprintf("Here is your context:\n%s", fileContent)},
-// 	}
-// 	data := map[string]interface{}{
-// 		"model":    "nous-hermes2-mixtral",
-// 		"messages": messages,
-// 		"stream":   false,
-// 	}
-// 	jsonData, err := json.Marshal(data)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	response, err := http.Post(apiHost, headers["Content-Type"], strings.NewReader(string(jsonData)))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer response.Body.Close()
-// 	var result []string
-// 	scanner := bufio.NewScanner(response.Body)
-// 	for scanner.Scan() {
-// 		line := scanner.Text()
-// 		log.Printf("> %s", line)
-// 		var message map[string]interface{}
-// 		err := json.Unmarshal([]byte(line), &message)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		result = append(result, message["message"].(map[string]interface{})["content"].(string))
-// 	}
-// 	if err := scanner.Err(); err != nil {
-// 		return nil, err
-// 	}
-// 	return result, nil
-// }
-
-func Query() {
-	// fileContent, err := loadFile("text.txt")
-	// if err != nil {
-	// 	fmt.Println("Error:", err)
-	// 	return
-	// }
-	// response, err := chatWithModel(targets[0].ApiUrl, fileContent)
-	// if err != nil {
-	// 	fmt.Println("Error:", err)
-	// 	return
-	// }
-	// for _, message := range response {
-	// 	fmt.Println(message)
-	// }
+	return resp.Choices[0].Message.Content, nil
 }
