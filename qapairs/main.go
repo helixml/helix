@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"text/template"
+	"time"
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
@@ -23,15 +24,27 @@ type Target struct {
 	Model        string `yaml:"model"`
 	TokenFromEnv string `yaml:"token_from_env"`
 }
+
 type Prompt struct {
 	Name   string `yaml:"name"`
 	System string `yaml:"system"`
 	User   string `yaml:"user"`
 }
+
 type Text struct {
 	Name string `yaml:"name"`
 	File string `yaml:"file"`
 }
+
+type Log struct {
+	ApiUrl string `yaml:"api_url"`
+	Model  string `yaml:"model"`
+	System string `yaml:"system"`
+	User   string `yaml:"user"`
+	Text   string `yaml:"text"`
+	Result string `yaml:"result"`
+}
+
 type Config struct {
 	Prompts []Prompt `yaml:"prompts"`
 	Targets []Target `yaml:"targets"`
@@ -188,6 +201,33 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	}
 
 	log.Print(">>>", resp)
+
+	err = os.MkdirAll("runs", os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	timestamp := time.Now().Unix()
+	filename := fmt.Sprintf("runs/%d_%s_%s_%s.yaml", timestamp, target.Name, prompt.Name, text.Name)
+
+	logData := Log{
+		ApiUrl: target.ApiUrl,
+		Model:  target.Model,
+		System: prompt.System,
+		User:   prompt.User,
+		Text:   contents,
+		Result: resp,
+	}
+
+	logDataBytes, err := yaml.Marshal(logData)
+	if err != nil {
+		return err
+	}
+
+	err = os.WriteFile(filename, logDataBytes, 0644)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
