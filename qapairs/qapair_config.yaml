@@ -61,13 +61,22 @@ prompts:
     {{.DocumentChunk}}
 
 targets:
- - name: local
-   api_url: http://mind.local:11434/api/chat
-   model: nous-hermes2-mixtral
  - name: openai
    api_url: https://api.openai.com/v1
    model: gpt-4-1106-preview
    token_from_env: OPENAI_API_KEY
+ - name: together-mixtral
+   api_url: https://api.together.xyz/v1
+   model: mistralai/Mixtral-8x7B-Instruct-v0.1
+   token_from_env: TOGETHER_API_KEY
+ - name: together-nous-hermes-2-mixtral-dpo
+   api_url: https://api.together.xyz/v1
+   model: NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO
+   token_from_env: TOGETHER_API_KEY
+ # Warning: Ollama is not OpenAI API compatible, so this doesn't work
+ - name: local
+   api_url: http://mind.local:11434
+   model: nous-hermes2-mixtral
 texts:
  - name: junior-doctors
    file: text.txt
