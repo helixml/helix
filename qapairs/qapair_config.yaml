@@ -175,6 +175,48 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
+ - name: original-prompt 
+   system: |
+    You are an intelligent professor. You create questions and answers from given context for your students.
+   user: |
+    Consider each important fact in the document. In the "facts" list you will list all of the important facts in the document.
+    
+    Then, you will think about when, how, what, why and who questions for each fact.
+
+    Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs. For example:
+    {"facts: ["<first fact>", "<second fact>", "..."],
+     "questions": [
+      {"fact": "<first fact>",
+       "questions": {
+        {"question": "<when question>…",
+        "answer": "…"},
+        {"question": "<how question>…",
+        "answer": "…"},
+        {"question": "<what question>…",
+        "answer": "…"},
+        {"question": "<why question>…",
+        "answer": "…"},
+        {"question": "<who question>…",
+        "answer": "…"}
+       }},
+      {"fact": "<second fact>",
+       "questions": {
+        {"question": "<when question>…",
+        "answer": "…"},
+        {"question": "<how question>…",
+        "answer": "…"},
+        {"question": "<what question>…",
+        "answer": "…"},
+        {"question": "<why question>…",
+        "answer": "…"},
+        {"question": "<who question>…",
+        "answer": "…"}
+       }},
+    ]}
+
+    Here is the document:
+    {{.DocumentChunk}}
+
 
 targets:
  - name: openai
