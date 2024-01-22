@@ -2,7 +2,7 @@ version: '3'
 
 services:
   api:
-    image: europe-docker.pkg.dev/helixml/helix/controlplane:karolis-rc1
+    image: europe-docker.pkg.dev/helixml/helix/controlplane:latest
     ports:
       - 80:80
     restart: always
@@ -27,6 +27,9 @@ services:
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
+    depends_on:
+      - postgres
+      - keycloak
   postgres:
     image: postgres:12.13-alpine
     restart: always
