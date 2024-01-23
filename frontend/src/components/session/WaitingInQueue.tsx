@@ -17,13 +17,24 @@ import {
   emitEvent,
 } from '../../utils/analytics'
 
-export const WaitingInQueue: FC<{
-  hasSubscription?: boolean,
-}> = ({
+interface WaitingInQueueProps {
+  hasSubscription?: boolean;
+  positionInQueue?: number;
+  totalInQueue?: number;
+}
+
+
+export const WaitingInQueue: FC<WaitingInQueueProps> = ({
   hasSubscription = false,
+  positionInQueue,
+  totalInQueue,
 }) => {
-  const router = useRouter()
-  const colSize = hasSubscription ? 6 : 4
+  const router = useRouter();
+  const colSize = hasSubscription ? 6 : 4;
+  const queuePositionText = positionInQueue && totalInQueue
+    ? `${positionInQueue}/${totalInQueue}`
+    : 'Loading queue position...';
+
   return (
     <Grid container spacing={ 2 }>
       <Grid item xs={ 12 }>
@@ -142,12 +153,14 @@ export const WaitingInQueue: FC<{
         </Card>
         
       </Grid>
-      <Grid item xs={12} style={{ textAlign: 'center' }}>
+       <Grid item xs={12} style={{ textAlign: 'center' }}>
         <CircularProgress />
         <Typography variant="body1" gutterBottom>
-          Please wait, processing your request...
+          {hasSubscription
+            ? `You're at the front of the queue, waiting for model weights to load.`
+            : `Your place in the queue: ${queuePositionText}`}
         </Typography>
-    </Grid>
+      </Grid>
     </Grid>
   )  
 }

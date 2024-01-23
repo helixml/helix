@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Switch from '@mui/material/Switch'
+import { TextField } from '@mui/material'
 
 import Interaction from '../components/session/Interaction'
 import Window from '../components/widgets/Window'
@@ -37,6 +38,7 @@ const Dashboard: FC = () => {
   const [ viewingSession, setViewingSession ] = useState<ISession>()
   const [ active, setActive ] = useState(START_ACTIVE)
   const [ data, setData ] = useState<IDashboardData>()
+  const [searchQuery, setSearchQuery] = useState('');
 
   const {
     session_id,
@@ -52,6 +54,10 @@ const Dashboard: FC = () => {
     setViewingSession(undefined)
     router.removeParams(['session_id'])
   }, [])
+
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  };
 
   useEffect(() => {
     if(!session_id) return
@@ -86,6 +92,14 @@ const Dashboard: FC = () => {
     account.user,
   ])
 
+  const filteredSessions: ISessionSummary[] = data?.runners.flatMap(runner =>
+    runner.model_instances.flatMap(modelInstance =>
+      modelInstance.current_session && modelInstance.current_session.session_id.includes(searchQuery)
+        ? [modelInstance.current_session]
+        : []
+    )
+  ) ?? [];
+
   if(!account.user) return null
   if(!data) return null
 
@@ -110,6 +124,7 @@ const Dashboard: FC = () => {
           overflowY: 'auto',
         }}
       >
+        
         <Box
           sx={{
             display: 'flex',
@@ -117,6 +132,29 @@ const Dashboard: FC = () => {
             alignItems: 'center',
           }}
         >
+          <TextField
+        fullWidth
+        label="Search Sessions"
+        variant="outlined"
+        value={searchQuery}
+        onChange={handleSearchChange}
+        sx={{ mb: 2 }}
+      />
+      {
+  filteredSessions.length > 0 ? (
+    filteredSessions.map(session => (
+      <SessionSummary
+        key={session.session_id}
+        session={session}
+        onViewSession={onViewSession}
+      />
+    ))
+  ) : (
+    <Typography variant="subtitle1" sx={{ mt: 2 }}>
+      No sessions found.
+    </Typography>
+  )
+}
           <Box
             sx={{
               flexGrow: 0,
@@ -157,6 +195,7 @@ const Dashboard: FC = () => {
             mb: 1,
           }}
         />
+        
         {
           data?.runners.map((runner) => {
             const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
