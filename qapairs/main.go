@@ -202,7 +202,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	startTime := time.Now()
 	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt)
 	if err != nil {
-		return err
+		log.Printf("Error, continuing: %v", err)
 	}
 	latency := time.Since(startTime).Milliseconds()
 
