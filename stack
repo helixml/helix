@@ -56,7 +56,7 @@ function start() {
   tmux select-pane -t 0
   tmux split-window -v -d
 
-  tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
+  tmux send-keys -t 0 'docker-compose -f docker-compose.dev.yaml logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
   tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
