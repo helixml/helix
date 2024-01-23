@@ -31,6 +31,8 @@ services:
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
+    volumes:
+      - ${FILESTORE_DATA:-helix-filestore}:/filestore
     depends_on:
       - postgres
       - keycloak
