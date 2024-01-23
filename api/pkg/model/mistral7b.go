@@ -173,13 +173,14 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 		return nil, err
 	}
 
-	cmd.Env = []string{
+	cmd.Env = append(
+		os.Environ(),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
 		fmt.Sprintf("HELIX_MOCK_ERROR=%s", config.MockRunnerError),
 		fmt.Sprintf("HELIX_MOCK_DELAY=%d", config.MockRunnerDelay),
-	}
+	)
 
 	return cmd, nil
 }
@@ -212,13 +213,12 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		return nil, err
 	}
 
-	cmd.Env = []string{
-		// inherit PATH set in docker image or elsewhere
-		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
+	cmd.Env = append(
+		os.Environ(),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
-	}
+	)
 
 	return cmd, nil
 }
