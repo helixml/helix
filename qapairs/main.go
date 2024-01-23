@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -280,5 +282,15 @@ func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 	answer = parts[0]
 
 	fmt.Println(answer)
+
+	var data interface{}
+	err = json.Unmarshal([]byte(answer), &data)
+	if err != nil {
+		return "", err
+	}
+	// return data, nil
+
+	spew.Dump(data)
+
 	return answer, nil
 }

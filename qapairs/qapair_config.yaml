@@ -8,6 +8,23 @@ prompts:
     Here is your context:
     {{.DocumentChunk}}
 
+ - name: summaries
+   system: |
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+   user: |
+    For the first question, summarize the entire document.
+    For the next set of questions, summarize each section of the document.
+    For the final set of questions, summarize each paragraph of the document.
+
+    Here is your context:
+    {{.DocumentChunk}}
+
  - name: quiz-with-document-ids
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
@@ -62,7 +79,7 @@ prompts:
 
  - name: simple-quiz
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
     [
       {"question": "…",
       "answer": "…"},
@@ -108,25 +125,25 @@ prompts:
     Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
 
     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs. For example:
-    {"entities: ["<first entity>", "<second entity>", "..."],
+    {"entities: ["<first entity>", "<second entity>"],
      "questions": [
       {"entity": "<first entity>",
        "questions": {
-        {"question": "<specific question>…",
-        "answer": "…"},
-        {"question": "<broad question>…",
-        "answer": "…"},
-        {"question": "<broadest possible question>…",
-        "answer": "…"}
+        {"question": "<specific question>",
+        "answer": "<answer>"},
+        {"question": "<broad question>",
+        "answer": "<answer>"},
+        {"question": "<broadest possible question>",
+        "answer": "<answer>"}
        }},
       {"entity": "<second entity>",
        "questions": {
-        {"question": "<specific question>…",
-        "answer": "…"},
-        {"question": "<broad question>…",
-        "answer": "…"},
-        {"question": "<broadest possible question>…",
-        "answer": "…"}
+        {"question": "<specific question>",
+        "answer": "<answer>"},
+        {"question": "<broad question>",
+        "answer": "<answer>"},
+        {"question": "<broadest possible question>",
+        "answer": "<answer>"}
        }}
     ]}
 
@@ -142,33 +159,33 @@ prompts:
     Then, you will think about when, how, what, why and who questions for each fact.
 
     Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs. For example:
-    {"facts: ["<first fact>", "<second fact>", "..."],
+    {"facts: ["<first fact>", "<second fact>"],
      "questions": [
       {"fact": "<first fact>",
        "questions": {
-        {"question": "<when question>…",
-        "answer": "…"},
-        {"question": "<how question>…",
-        "answer": "…"},
-        {"question": "<what question>…",
-        "answer": "…"},
-        {"question": "<why question>…",
-        "answer": "…"},
-        {"question": "<who question>…",
-        "answer": "…"}
+        {"question": "<when question>",
+        "answer": "<answer>"},
+        {"question": "<how question>",
+        "answer": "<answer>"},
+        {"question": "<what question>",
+        "answer": "<answer>"},
+        {"question": "<why question>",
+        "answer": "<answer>"},
+        {"question": "<who question>",
+        "answer": "<answer>"}
        }},
       {"fact": "<second fact>",
        "questions": {
-        {"question": "<when question>…",
-        "answer": "…"},
-        {"question": "<how question>…",
-        "answer": "…"},
-        {"question": "<what question>…",
-        "answer": "…"},
-        {"question": "<why question>…",
-        "answer": "…"},
-        {"question": "<who question>…",
-        "answer": "…"}
+        {"question": "<when question>",
+        "answer": "<answer>"},
+        {"question": "<how question>",
+        "answer": "<answer>"},
+        {"question": "<what question>",
+        "answer": "<answer>"},
+        {"question": "<why question>",
+        "answer": "<answer>"},
+        {"question": "<who question>",
+        "answer": "<answer>"}
        }},
     ]}
 
@@ -212,6 +229,7 @@ prompts:
 
     Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
+    Here is the context:
     {{.DocumentChunk}}
 
 targets:
