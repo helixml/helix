@@ -112,15 +112,14 @@ func (l *CogSDXL) getMockCommand(ctx context.Context, sessionFilter types.Sessio
 		return nil, err
 	}
 
-	cmd.Env = append(
-		os.Environ(),
+	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
 		fmt.Sprintf("HELIX_MOCK_ERROR=%s", config.MockRunnerError),
 		fmt.Sprintf("HELIX_MOCK_DELAY=%d", config.MockRunnerDelay),
 		"PYTHONUNBUFFERED=1",
-	)
+	}
 
 	return cmd, nil
 }
@@ -193,8 +192,7 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 		return nil, err
 	}
 
-	cmd.Env = append(
-		os.Environ(),
+	cmd.Env = []string{
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "cog-sdxl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
@@ -203,7 +201,7 @@ func (l *CogSDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFil
 		// one day it will need to auth to the API server to download LoRAs
 		fmt.Sprintf("API_TOKEN=%s", API_TOKEN),
 		"PYTHONUNBUFFERED=1",
-	)
+	}
 
 	return cmd, nil
 }
