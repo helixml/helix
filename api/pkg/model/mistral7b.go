@@ -194,7 +194,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
-			"python", "-u", "-m",
+			"python3", "-u", "-m",
 			"axolotl.cli.inference",
 			"helix-mistral-instruct-v1.yml",
 		)
@@ -202,7 +202,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
-			"python", "-u", "-m",
+			"python3", "-u", "-m",
 			"axolotl.cli.train",
 			"helix-mistral-instruct-v1.yml",
 		)
@@ -212,7 +212,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 	if err != nil {
 		return nil, err
 	}
-
+	
 	cmd.Env = []string{
 		// inherit PATH set in docker image or elsewhere
 		fmt.Sprintf("CUDA_VISIBLE_DEVICES=%s", os.Getenv("CUDA_VISIBLE_DEVICES")),
