@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"text/template"
 	"time"
 
@@ -272,6 +273,12 @@ func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 		return "", err
 	}
 
-	fmt.Println(resp.Choices[0].Message.Content)
-	return resp.Choices[0].Message.Content, nil
+	answer := resp.Choices[0].Message.Content
+	answer = strings.TrimPrefix(answer, "```json")
+	// sometimes GPT4 in it's wisdom puts a message after the enclosing ```json``` block
+	parts := strings.Split(answer, "```")
+	answer = parts[0]
+
+	fmt.Println(answer)
+	return answer, nil
 }
