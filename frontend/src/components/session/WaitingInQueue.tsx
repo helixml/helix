@@ -9,6 +9,7 @@ import CardActions from '@mui/material/CardActions'
 import UpgradeIcon from '@mui/icons-material/Upgrade'
 import LocalPhoneIcon from '@mui/icons-material/LocalPhone'
 import HomeWorkIcon from '@mui/icons-material/HomeWork'
+import CircularProgress from '@mui/material/CircularProgress';
 
 import useRouter from '../../hooks/useRouter'
 
@@ -141,6 +142,12 @@ export const WaitingInQueue: FC<{
         </Card>
         
       </Grid>
+      <Grid item xs={12} style={{ textAlign: 'center' }}>
+        <CircularProgress />
+        <Typography variant="body1" gutterBottom>
+          Please wait, processing your request...
+        </Typography>
+    </Grid>
     </Grid>
   )  
 }
