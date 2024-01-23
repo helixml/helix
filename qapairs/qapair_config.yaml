@@ -252,3 +252,5 @@ targets:
 texts:
  - name: junior-doctors
    file: text.txt
+ - name: radio-clusters
+   file: radio_clusters.txt

@@ -158,7 +158,6 @@ type TemplateData struct {
 
 func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) error {
 	// Perform the query for the given target and prompt
-	// ...
 
 	contents, err := loadFile(text.File)
 	if err != nil {
@@ -172,7 +171,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 		documentGroupID = "group123"
 	}
 	if numQuestions == 0 {
-		numQuestions = 10
+		numQuestions = 50
 	}
 
 	tmplData := TemplateData{
