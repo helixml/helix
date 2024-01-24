@@ -66,10 +66,12 @@ const AppBar = styled(MuiAppBar, {
   }),
 }))
 
+const themeConfig = useThemeConfig()
+
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
-      backgroundColor: theme.palette.mode === 'light' ? "#aeaeae": "#070714",
+      backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -94,9 +96,11 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 )
 
 const Layout: FC = ({
-  children,
+  children
 }) => {
   const account = useAccount()
+  const themeConfig = useThemeConfig()
+
   const {
     meta,
     navigate,
@@ -109,7 +113,6 @@ const Layout: FC = ({
   const [ mobileOpen, setMobileOpen ] = useState(false)
 
   const theme = useTheme()
-  const themeConfig = useThemeConfig()
   const bigScreen = useMediaQuery(theme.breakpoints.up('md'))
 
   const handleAccountMenu = (event: React.MouseEvent<HTMLElement>) => {
@@ -190,7 +193,7 @@ const Layout: FC = ({
           flexGrow: 0,
           width: '100%',
           borderTop: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #555",
-          backgroundColor: theme.palette.mode === 'light' ? "white" : "070714",
+          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
@@ -341,7 +344,7 @@ const Layout: FC = ({
             flexDirection: 'row',
             alignItems: 'center',
             width: '100%',
-            backgroundColor: theme.palette.mode === 'light' ? "white" : "#070714"
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
           }}
         >
           {
@@ -537,9 +540,7 @@ const Layout: FC = ({
         sx={{
           backgroundColor: (theme) => {
             if(meta.background) return meta.background
-            return theme.palette.mode === 'light'
-              ? "#FAEFE0" 
-              : "#070714"
+            return theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
           },
           flexGrow: 1,
           height: '100vh',
@@ -561,9 +562,7 @@ const Layout: FC = ({
           sx={{
             flexGrow: 1,
             overflow: 'auto',
-            backgroundColor: theme.palette.mode === 'light'
-                ? "#FAEFE0" 
-                : "#070714"
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
           }}
         >
           { children }

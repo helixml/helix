@@ -1,6 +1,7 @@
 import React, { FC, useMemo, useState } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { PaletteMode } from '@mui/material'
 
 export const ThemeContext = React.createContext({
   mode: 'dark',
@@ -10,7 +11,7 @@ export const ThemeContext = React.createContext({
 export const ThemeProviderWrapper: FC = ({ children }) => {
   const themeConfig = useThemeConfig()
   const prefersDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const [mode, setMode] = useState(prefersDarkMode ? 'dark' : 'light');
+  const [mode, setMode] = useState<PaletteMode>(prefersDarkMode ? 'dark' : 'light')
   const theme = useMemo(() => {
     return createTheme({
       palette: {
@@ -32,7 +33,7 @@ export const ThemeProviderWrapper: FC = ({ children }) => {
   ])
   
   const toggleMode = () => {
-    setMode((prevMode: any) => prevMode === 'dark' ? 'light' : 'dark');
+    setMode((prevMode: any) => prevMode === 'dark' ? 'light' : 'dark')
   }
 
   return (
