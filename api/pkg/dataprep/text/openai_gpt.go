@@ -47,6 +47,11 @@ func NewDataOpenAIGPT(
 	}, nil
 }
 
+func (gpt *DataOpenAIGPT) ExpandChunks(chunks []*DataPrepTextSplitterChunk) ([]*DataPrepTextSplitterChunk, error) {
+	// no expansion
+	return chunks, nil
+}
+
 func (gpt *DataOpenAIGPT) GetConcurrency() int {
 	return gpt.concurrency
 }

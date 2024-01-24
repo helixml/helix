@@ -428,6 +428,7 @@ type GlobalSchedulingDecision struct {
 // where string is filename
 type DataPrepChunk struct {
 	Index         int    `json:"index"`
+	PromptName    string `json:"prompt_name"`
 	QuestionCount int    `json:"question_count"`
 	Error         string `json:"error"`
 }

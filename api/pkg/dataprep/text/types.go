@@ -44,6 +44,7 @@ type DataPrepTextOptions struct {
 }
 
 type DataPrepTextQuestionGenerator interface {
+	ExpandChunks(chunks []*DataPrepTextSplitterChunk) ([]*DataPrepTextSplitterChunk, error)
 	ConvertChunk(chunk string, index int, documentID, documentGroupID string) ([]types.DataPrepTextQuestion, error)
 	GetConcurrency() int
 	GetChunkSize() int
