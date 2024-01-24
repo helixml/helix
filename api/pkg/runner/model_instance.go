@@ -410,7 +410,8 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			}
 
 			if strings.Contains(errstr, "(core dumped)") {
-				panic("detected coredump, restarting")
+				log.Error().Msg("detected coredump, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/123")
+				os.Exit(1)
 			}
 
 			return
