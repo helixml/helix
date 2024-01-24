@@ -100,7 +100,6 @@ func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFi
 	}
 
 	cmd.Env = []string{
-		fmt.Sprintf("CUDA_VISIBLE_DEVICES=%s", os.Getenv("CUDA_VISIBLE_DEVICES")),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
@@ -199,11 +198,16 @@ func (l *SDXL) GetCommand(ctx context.Context, sessionFilter types.SessionFilter
 	}
 
 	cmd.Env = []string{
-		fmt.Sprintf("CUDA_VISIBLE_DEVICES=%s", os.Getenv("CUDA_VISIBLE_DEVICES")),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "sd-scripts"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
 		"PYTHONUNBUFFERED=1",
+	}
+	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf(
+			"CUDA_VISIBLE_DEVICES=%s",
+			os.Getenv("CUDA_VISIBLE_DEVICES"),
+		))
 	}
 
 	return cmd, nil
