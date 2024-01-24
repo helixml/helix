@@ -72,7 +72,7 @@ function start() {
 
 function stop() {
   echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION
+  tmux kill-session -t $TMUX_SESSION ||true
   echo "Removing docker containers"
   docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml down
 }
