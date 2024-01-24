@@ -525,6 +525,9 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return targetInteraction, nil
 	})
 
+	if err != nil {
+		return nil, err
+	}
 	c.WriteSession(session)
 
 	if taskResponse.Error != "" {

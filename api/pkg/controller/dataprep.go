@@ -258,7 +258,7 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range splitter.Chunks {
-		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index) {
+		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
 	}
@@ -277,12 +277,23 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
+	// XXX: getChunksToProcess checks whether it's processed chunks based on
+	// PromptName, but it hasn't been set yet, need to re-order (or use a
+	// different type for expandedChunks so we can have the compiler enforce
+	// sanity)...
 	chunksToProcess, err := c.getChunksToProcess(session)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Some qapair generators expand each chunk into N chunks so they can be run
+	// by our outer concurrency manager
+	chunksToProcess, err = dataprep.ExpandChunks(chunksToProcess)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -351,7 +362,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// this marks the QA chunk as "done" - even with an error
 				// we then give the user the choice to try again, abort or ignore the errors
-				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, len(questions), convertError)
+				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
 
 				return nil
 			}()

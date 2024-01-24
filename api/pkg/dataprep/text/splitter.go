@@ -15,6 +15,10 @@ type DataPrepTextSplitterChunk struct {
 	Text            string
 	DocumentID      string
 	DocumentGroupID string
+	// some qapair generators create a chunk to process _per prompt_ from a
+	// suite of prompts, this is where they store which prompt this chunk will
+	// be processed by
+	PromptName string
 }
 
 type DataPrepTextSplitterOptions struct {
