@@ -106,7 +106,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if err != nil {
 		return err
 	}
-	router.Use(apiServer.corsMiddleware)
+	// router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
