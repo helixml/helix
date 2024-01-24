@@ -19,6 +19,10 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import HelpIcon from '@mui/icons-material/Help'
 import Menu from '@mui/material/Menu'
+import Brightness7Icon from '@mui/icons-material/Brightness7';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Tooltip from '@mui/material/Tooltip'
+
 
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -36,6 +40,7 @@ import SessionsMenu from '../components/session/SessionsMenu'
 import GlobalLoading from '../components/system/GlobalLoading'
 
 import useThemeConfig from '../hooks/useThemeConfig'
+import { ThemeContext } from '../contexts/theme'
 
 const drawerWidth: number = 280
 
@@ -64,7 +69,7 @@ const AppBar = styled(MuiAppBar, {
 const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' })(
   ({ theme, open }) => ({
     '& .MuiDrawer-paper': {
-      backgroundColor: theme.palette.mode === 'light' ? "#f8f8f8": "#303846",
+      backgroundColor: theme.palette.mode === 'light' ? "#aeaeae": "#070714",
       position: 'relative',
       whiteSpace: 'nowrap',
       width: drawerWidth,
@@ -185,7 +190,7 @@ const Layout: FC = ({
           flexGrow: 0,
           width: '100%',
           borderTop: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #555",
-          backgroundColor: theme.palette.mode === 'light' ? "white" : "",
+          backgroundColor: theme.palette.mode === 'light' ? "white" : "070714",
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
@@ -300,6 +305,12 @@ const Layout: FC = ({
 
   const container = window !== undefined ? () => document.body : undefined
 
+  const { mode, toggleMode } = React.useContext(ThemeContext);
+
+  const handleThemeChange = () => {
+    toggleMode()
+  }
+
   return (
     <Box
       id="root-container"
@@ -325,12 +336,12 @@ const Layout: FC = ({
           sx={{
             pr: '24px', // keep right padding when drawer closed
             height: '100%',
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            borderBottom: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #333",
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
             width: '100%',
-            backgroundColor: theme.palette.mode === 'light' ? "white" : "#272d38"
+            backgroundColor: theme.palette.mode === 'light' ? "white" : "#070714"
           }}
         >
           {
@@ -402,6 +413,18 @@ const Layout: FC = ({
             {
               bigScreen ? (
                 <>
+                  <Tooltip title={theme.palette.mode === 'dark' ? "Switch to light mode" : "Switch to dark mode"}>
+                    <IconButton
+                      color="inherit"
+                      aria-label="toggle theme"
+                      onClick={handleThemeChange}
+                      sx={{
+                        mr: 1,
+                      }}
+                    >
+                      {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
+                    </IconButton>
+                  </Tooltip>
                   {
                     account.user ? (
                       <Button
@@ -516,7 +539,7 @@ const Layout: FC = ({
             if(meta.background) return meta.background
             return theme.palette.mode === 'light'
               ? "#FAEFE0" 
-              : "#202732"
+              : "#070714"
           },
           flexGrow: 1,
           height: '100vh',
@@ -540,7 +563,7 @@ const Layout: FC = ({
             overflow: 'auto',
             backgroundColor: theme.palette.mode === 'light'
                 ? "#FAEFE0" 
-                : "#202732"
+                : "#070714"
           }}
         >
           { children }
