@@ -25,6 +25,57 @@ prompts:
     Here is your context:
     {{.DocumentChunk}}
 
+ - name: summaries-many
+   system: |
+    You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+   user: |
+    Generate {{.NumQuestions}} summaries of the document from different perspectives.
+
+    Here is your context:
+    {{.DocumentChunk}}
+
+ # This didn't seem to work so well. It still kept generating questions about "junior doctors"
+ - name: you-are-generating-fine-tuning-data
+   system: |
+    You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model of the form:
+
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+    
+    Users tend to ask broad, vague questions of the document in order to test that the system is working. We want those queries to work well. For example, a user would ask "what are the doctors going to do?" of a document that is about a junior doctors' strike. Take this into account when generating the questions - in particular, refer to noun phrases by less specific descriptions, so for example instead of "junior doctors", say "doctors" in your questions.
+   user: |
+    Generate {{.NumQuestions}} question-answer pairs, where the questions are the most likely questions that a human would ask of the given document, and the answers are accurate, detailed and precise answers based on the given document below.
+
+    Here is your document:
+    {{.DocumentChunk}}
+
+ - name: summaries
+   system: |
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+   user: |
+    For the first question, summarize the entire document.
+    For the next set of questions, summarize each section of the document.
+    For the final set of questions, summarize each paragraph of the document.
+
+    Here is your context:
+    {{.DocumentChunk}}
+
  - name: quiz-with-document-ids
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
@@ -90,9 +141,9 @@ prompts:
     Here is your context:
     {{.DocumentChunk}}
 
- - name: entities-specific-to-broad
+ - name: entities-specific-to-broad-docid
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
     
     This DOCUMENT_ID is {{.DocumentID}}
     This DOCUMENT_GROUP_ID is {{.DocumentGroupID}}
@@ -116,9 +167,9 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
- - name: entities-specific-to-broad-2
+ - name: entities-specific-to-broad
    system: |
-    You are an intelligent professor. You create questions and answers from given context for your students.
+    You are an intelligent professor. You create questions and answers from given document for your students.
    user: |
     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
@@ -152,7 +203,7 @@ prompts:
  
  - name: important-facts
    system: |
-    You are an intelligent professor. You create questions and answers from given context for your students.
+    You are an intelligent professor. You create questions and answers from given document for your students.
    user: |
     Consider each important fact in the document. In the "facts" list you will list all of the important facts in the document.
     
@@ -192,6 +243,55 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
+ - name: entities-relationships
+   system: |
+    You are an intelligent professor. You create questions and answers from given document for your students.
+   user: |
+    Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
+    
+    Then, you will think about the relationship between that entity and each other entity in the document. For each entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
+
+    So for example if the document is about a man who owns a dog and is taking the dog for a walk, the entities in the document are "man", "dog" and "walk". When considering the entity "man", you might ask:
+      Q: What does the man own?
+      A: The man owns a dog.
+      
+      Q: What does the man do?
+      A: The man takes the dog for a walk.
+
+    Next, when considering the dog, you might ask:
+      Q: Who owns the dog?
+      A: The man owns the dog.
+
+      Q: Where did the dog go?
+      A: The dog went on a walk with the man.
+
+    When considering the walk, you might ask:
+      Q: Who went on the walk?
+      A: The man and the dog went on the walk.
+
+    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs. For example:
+
+    {"entities: ["<first entity>", "<second entity>"],
+     "questions": [
+      {"entity": "<first entity>",
+       "questions": {
+        {"related_entity": "<what related entity this question corresponds to>",
+        "relationship": "<the nature of the relationship between the entities",
+        "question": "<question about the relationship between that entity and the given entity that it is related to>",
+        "answer": "<answer>"}
+       }},
+      {"entity": "<second entity>",
+       "questions": {
+        {"related_entity": "<what related entity this question corresponds to>",
+        "relationship": "<the nature of the relationship between the entities",
+        "question": "<question about the relationship between that entity and the given entity that it is related to>",
+        "answer": "<answer>"}
+       }}
+    ]}
+
+    Here is the document:
+    {{.DocumentChunk}}
+ 
  - name: original-prompt 
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
