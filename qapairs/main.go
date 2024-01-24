@@ -12,7 +12,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -289,7 +288,7 @@ func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 	}
 	// return data, nil
 
-	spew.Dump(data)
+	// spew.Dump(data)
 
 	return answer, nil
 }
