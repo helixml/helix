@@ -243,6 +243,7 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
+ # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
  - name: entities-relationships
    system: |
     You are an intelligent professor. You create questions and answers from given document for your students.
