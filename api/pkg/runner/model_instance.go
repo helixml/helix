@@ -409,11 +409,7 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
 			}
 
-			if strings.Contains(errstr, "illegal instruction") {
-				panic("detected illegal instruction, restarting")
-			}
-
-			if strings.Contains(errstr, "core dumped") {
+			if strings.Contains(errstr, "(core dumped)") {
 				panic("detected coredump, restarting")
 			}
 
