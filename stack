@@ -63,7 +63,7 @@ function start() {
   tmux send-keys -t 2 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 'docker-compose exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 3 'docker-compose -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
     tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
