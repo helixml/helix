@@ -28,6 +28,7 @@ export const InteractionInference: FC<{
   // if the session is shared then we don't enforce needing an access token to see the files
   isShared?: boolean,
   onRestart?: () => void,
+  isFromSystem?: boolean,
 }> = ({
   imageURLs = [],
   message,
@@ -35,6 +36,7 @@ export const InteractionInference: FC<{
   serverConfig,
   isShared,
   onRestart,
+  isFromSystem,
 }) => {
   const account = useAccount()
   const [ viewingError, setViewingError ] = useState(false)
@@ -44,7 +46,9 @@ export const InteractionInference: FC<{
     <>
       {
         message && (
-          <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')}}></Typography>
+          
+            <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')}}></Typography>
+          
         )
       }
       {

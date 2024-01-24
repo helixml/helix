@@ -2,6 +2,7 @@ import React, { FC } from 'react'
 import InteractionContainer from './InteractionContainer'
 import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
+import Box from '@mui/material/Box'
 
 import {
   SESSION_TYPE_TEXT,
@@ -80,37 +81,46 @@ export const Interaction: FC<{
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
-    <InteractionContainer
-      name={ useName }
-      buttons={ headerButtons }
+    <Box
+      sx={{
+        backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? '#10101e' : '#none', // different color for system messages
+        p: 2,
+        borderRadius: '0.5rem',
+      }}
     >
-      {
-        showFinetuning && (
-          <InteractionFinetune
+      <InteractionContainer
+        name={ useName }
+        buttons={ headerButtons }
+      >
+          {
+            showFinetuning && (
+              <InteractionFinetune
+                serverConfig={ serverConfig }
+                interaction={ interaction }
+                session={ session }
+                retryFinetuneErrors={ retryFinetuneErrors }
+                onReloadSession={ onReloadSession }
+                onClone={ onClone }
+                onAddDocuments={ onAddDocuments }
+              />
+            )
+          }
+          
+          <InteractionInference
             serverConfig={ serverConfig }
-            interaction={ interaction }
-            session={ session }
-            retryFinetuneErrors={ retryFinetuneErrors }
-            onReloadSession={ onReloadSession }
-            onClone={ onClone }
-            onAddDocuments={ onAddDocuments }
+            imageURLs={ imageURLs }
+            message={ displayMessage }
+            error={ interaction?.error }
+            isShared={ session.config.shared }
+            onRestart={ onRestart }
+            isFromSystem={interaction?.creator == SESSION_CREATOR_SYSTEM}
           />
-        )
-      }
-      
-      <InteractionInference
-        serverConfig={ serverConfig }
-        imageURLs={ imageURLs }
-        message={ displayMessage }
-        error={ interaction?.error }
-        isShared={ session.config.shared }
-        onRestart={ onRestart }
-      />
 
-      {
-        children
-      }
-    </InteractionContainer>  
+          {
+            children
+          }
+      </InteractionContainer>
+    </Box>
   )   
 }
 

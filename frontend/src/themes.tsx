@@ -9,6 +9,8 @@ export interface ITheme {
   url: string,
   primary: string,
   secondary: string,
+  lightBackgroundColor: string,
+  darkBackgroundColor: string,
   activeSections: string[],
   logo: {
     (): ReactElement,
@@ -21,6 +23,8 @@ export const THEMES: Record<string, ITheme> = {
     url: 'https://tryhelix.ai/',
     primary: '#7db6c7',
     secondary: '#7db6c7',
+    lightBackgroundColor: "#aeaeae",
+    darkBackgroundColor: "#070714",
     // this means ALL
     activeSections: [],
     logo: () => (
