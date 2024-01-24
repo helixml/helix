@@ -1,9 +1,16 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useState } from 'react'
 import { createTheme, ThemeProvider } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
 
+export const ThemeContext = React.createContext({
+  mode: 'dark',
+  toggleMode: () => {},
+})
+
 export const ThemeProviderWrapper: FC = ({ children }) => {
   const themeConfig = useThemeConfig()
+  const prefersDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const [mode, setMode] = useState(prefersDarkMode ? 'dark' : 'light');
   const theme = useMemo(() => {
     return createTheme({
       palette: {
@@ -13,7 +20,7 @@ export const ThemeProviderWrapper: FC = ({ children }) => {
         secondary: {
           main: themeConfig.secondary,
         },
-        mode: "dark",
+        mode: mode,
       },
       typography: {
         fontFamily: "Assistant, Helvetica, Arial, sans-serif",
@@ -21,12 +28,18 @@ export const ThemeProviderWrapper: FC = ({ children }) => {
       }
     })
   }, [
-    themeConfig,
+    themeConfig, mode
   ])
+  
+  const toggleMode = () => {
+    setMode((prevMode: any) => prevMode === 'dark' ? 'light' : 'dark');
+  }
 
   return (
     <ThemeProvider theme={ theme }>
-      { children }
+      <ThemeContext.Provider value={{ mode, toggleMode }}>
+        { children }
+      </ThemeContext.Provider>
     </ThemeProvider>
   )
 }
