@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strings"
 	"syscall"
 	"time"
 
@@ -402,9 +403,20 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 			// we are currently running a session and we got an error from the Python process
 			// this normally means that a job caused an error so let's tell the api
 			// that this interaction has it's Error field set
+
+			errstr := string(stderrBuf.Bytes())
 			if instance.currentSession != nil {
-				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), string(stderrBuf.Bytes())))
+				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
 			}
+
+			if strings.Contains(errstr, "illegal instruction") {
+				panic("detected illegal instruction, restarting")
+			}
+
+			if strings.Contains(errstr, "core dumped") {
+				panic("detected coredump, restarting")
+			}
+
 			return
 		}
 
