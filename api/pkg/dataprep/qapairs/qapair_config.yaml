@@ -8,10 +8,14 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
    user: |
@@ -25,8 +29,10 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
    user: |
@@ -42,12 +48,18 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
    user: |
@@ -64,24 +76,37 @@ prompts:
 
     For example:
     ```json
-    {"sections: ["<section 1>", "<section 2>"],
-     "questions": [
-      {"section": "<section 1>",
-       "questions": {
-        {"question": "…",
-        "answer": "…"}
-       }},
-      {"section": "<section 2>",
-       "questions": {
-        {"question": "…",
-        "answer": "…"}
-       }}
-    ]}
+    {
+      "sections": [
+        "<section 1>",
+        "<section 2>"
+      ],
+      "questions": [
+        {
+          "section": "<section 1>",
+          "questions": [
+            {
+              "question": "…",
+              "answer": "…"
+            }
+          ]
+        },
+        {
+          "section": "<section 2>",
+          "questions": [
+            {
+              "question": "…",
+              "answer": "…"
+            }
+          ]
+        }
+      ]
+    }
     ```
    user: |
     Consider each section in the document. In the "sections" list you will list all of the main sections in the document.
     
-    Then, for each section, you will write a questions about summarizing that section, and an answers which is the summary of that section.
+    Then, for each section, you will write a question about summarizing that section, and an answer which is the summary of that section.
 
     Here is your document:
     {{.DocumentChunk}}
@@ -96,10 +121,14 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
    user: |
@@ -116,10 +145,14 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
     
@@ -142,27 +175,48 @@ prompts:
     
     For example:
     ```json
-    {"entities: ["<first entity>", "<second entity>"],
-     "questions": [
-      {"entity": "<first entity>",
-       "questions": {
-        {"question": "<specific question>",
-        "answer": "<answer>"},
-        {"question": "<broad question>",
-        "answer": "<answer>"},
-        {"question": "<broadest possible question>",
-        "answer": "<answer>"}
-       }},
-      {"entity": "<second entity>",
-       "questions": {
-        {"question": "<specific question>",
-        "answer": "<answer>"},
-        {"question": "<broad question>",
-        "answer": "<answer>"},
-        {"question": "<broadest possible question>",
-        "answer": "<answer>"}
-       }}
-    ]}
+    {
+      "entities": [
+        "<first entity>",
+        "<second entity>"
+      ],
+      "questions": [
+        {
+          "entity": "<first entity>",
+          "questions": [
+            {
+              "question": "<specific question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<broad question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<broadest possible question>",
+              "answer": "<answer>"
+            }
+          ]
+        },
+        {
+          "entity": "<second entity>",
+          "questions": [
+            {
+              "question": "<specific question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<broad question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<broadest possible question>",
+              "answer": "<answer>"
+            }
+          ]
+        }
+      ]
+    }
     ```
 
     Here is the document:
@@ -180,35 +234,64 @@ prompts:
 
     For example:
     ```json
-    {"facts: ["<first fact>", "<second fact>"],
-     "questions": [
-      {"fact": "<first fact>",
-       "questions": {
-        {"question": "<when question>",
-        "answer": "<answer>"},
-        {"question": "<how question>",
-        "answer": "<answer>"},
-        {"question": "<what question>",
-        "answer": "<answer>"},
-        {"question": "<why question>",
-        "answer": "<answer>"},
-        {"question": "<who question>",
-        "answer": "<answer>"}
-       }},
-      {"fact": "<second fact>",
-       "questions": {
-        {"question": "<when question>",
-        "answer": "<answer>"},
-        {"question": "<how question>",
-        "answer": "<answer>"},
-        {"question": "<what question>",
-        "answer": "<answer>"},
-        {"question": "<why question>",
-        "answer": "<answer>"},
-        {"question": "<who question>",
-        "answer": "<answer>"}
-       }},
-    ]}
+    {
+      "facts": [
+        "<first fact>",
+        "<second fact>"
+      ],
+      "questions": [
+        {
+          "fact": "<first fact>",
+          "questions": [
+            {
+              "question": "<when question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<how question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<what question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<why question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<who question>",
+              "answer": "<answer>"
+            }
+          ]
+        },
+        {
+          "fact": "<second fact>",
+          "questions": [
+            {
+              "question": "<when question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<how question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<what question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<why question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<who question>",
+              "answer": "<answer>"
+            }
+          ]
+        }
+      ]
+    }
     ```
 
     Here is the document:
@@ -246,23 +329,36 @@ prompts:
     For example:
 
     ```json
-    {"entities: ["<first entity>", "<second entity>"],
-     "questions": [
-      {"entity": "<first entity>",
-       "questions": {
-        {"related_entity": "<what related entity this question corresponds to>",
-        "relationship": "<the nature of the relationship between the entities",
-        "question": "<question about the relationship between that entity and the given entity that it is related to>",
-        "answer": "<answer>"}
-       }},
-      {"entity": "<second entity>",
-       "questions": {
-        {"related_entity": "<what related entity this question corresponds to>",
-        "relationship": "<the nature of the relationship between the entities",
-        "question": "<question about the relationship between that entity and the given entity that it is related to>",
-        "answer": "<answer>"}
-       }}
-    ]}
+    {
+      "entities": [
+        "<first entity>",
+        "<second entity>"
+      ],
+      "questions": [
+        {
+          "entity": "<first entity>",
+          "questions": [
+            {
+              "related_entity": "<what related entity this question corresponds to>",
+              "relationship": "<the nature of the relationship between the entities",
+              "question": "<question about the relationship between that entity and the given entity that it is related to>",
+              "answer": "<answer>"
+            }
+          ]
+        },
+        {
+          "entity": "<second entity>",
+          "questions": [
+            {
+              "related_entity": "<what related entity this question corresponds to>",
+              "relationship": "<the nature of the relationship between the entities",
+              "question": "<question about the relationship between that entity and the given entity that it is related to>",
+              "answer": "<answer>"
+            }
+          ]
+        }
+      ]
+    }
     ```
 
     Here is the document:
@@ -292,10 +388,14 @@ prompts:
     For example:
     ```json
     [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
     ]
     ```
    user: |
