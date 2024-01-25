@@ -304,7 +304,7 @@ prompts:
    user: |
     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
-    Then, you will think about the relationship between that entity and each other entity in the document. For each entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
+    Then, you will think about the relationship between that entity and the other main entities it is related to in the document. For each main entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
 
     So for example if the document is about a man who owns a dog and is taking the dog for a walk, the entities in the document are "man", "dog" and "walk". When considering the entity "man", you might ask:
       Q: What does the man own?
@@ -324,6 +324,8 @@ prompts:
       Q: Who went on the walk?
       A: The man and the dog went on the walk.
 
+    If the document has lots of entities, just focus on the main ones. Don't spend too long thinking about it.
+
     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
     
     For example:
@@ -340,8 +342,7 @@ prompts:
           "questions": [
             {
               "related_entity": "<what related entity this question corresponds to>",
-              "relationship": "<the nature of the relationship between the entities",
-              "question": "<question about the relationship between that entity and the given entity that it is related to>",
+              "question": "<question about the relationship between the entities>",
               "answer": "<answer>"
             }
           ]
@@ -351,8 +352,7 @@ prompts:
           "questions": [
             {
               "related_entity": "<what related entity this question corresponds to>",
-              "relationship": "<the nature of the relationship between the entities",
-              "question": "<question about the relationship between that entity and the given entity that it is related to>",
+              "question": "<question about the relationship between the entities>",
               "answer": "<answer>"
             }
           ]
