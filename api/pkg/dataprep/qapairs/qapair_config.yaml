@@ -383,7 +383,7 @@ prompts:
 
     The user will provide the document you should summarize into {{.NumQuestions}} questions.
 
-    Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
+    Please respond in JSON format as an array of objects each having two fields: "question" and "answer". Be careful to produce valid JSON.
     
     For example:
     ```json
