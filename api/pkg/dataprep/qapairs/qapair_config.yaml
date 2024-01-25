@@ -5,8 +5,6 @@ prompts:
    system: |
     You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
-    Do NOT put any text before or after the JSON.
-    
     For example:
     ```json
     [
@@ -23,8 +21,6 @@ prompts:
  - name: summaries
    system: |
     You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
-
-    Do NOT put any text before or after the JSON.
 
     For example:
     ```json
@@ -47,8 +43,6 @@ prompts:
    system: |
     You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
-    Do NOT put any text before or after the JSON.
-    
     For example:
     ```json
     [
@@ -68,8 +62,6 @@ prompts:
  - name: you-are-generating-fine-tuning-data
    system: |
     You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model.
-
-    Do NOT put any text before or after the JSON.
 
     For example:
     ```json
@@ -92,8 +84,6 @@ prompts:
    system: |
     You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
-    Do NOT put any text before or after the JSON.
-    
     For example:
     ```json
     [
@@ -120,8 +110,6 @@ prompts:
     Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
 
     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
-    
-    Do NOT put any text before or after the JSON.
     
     For example:
     ```json
@@ -160,8 +148,6 @@ prompts:
     Then, you will think about when, how, what, why and who questions for each fact.
 
     Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs.
-
-    Do NOT put any text before or after the JSON.
 
     For example:
     ```json
@@ -228,8 +214,6 @@ prompts:
 
     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
     
-    Do NOT put any text before or after the JSON.
-    
     For example:
 
     ```json
@@ -275,6 +259,16 @@ prompts:
     The user will provide the context you should summarize into {{.NumQuestions}} questions.
 
     Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
+    
+    For example:
+    ```json
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
+    ```
    user: |
     Given the following context - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
 
@@ -283,10 +277,6 @@ prompts:
     If there is not enough context to generate {{.NumQuestions}} questions, you can generate fewer questions.
 
     In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
-
-    It's VERY important that you don't include any additional text in your response, otherwise the system will be unable to parse your response.
-
-    ONLY include the JSON array of questions and answers.
 
     Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
 

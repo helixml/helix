@@ -96,9 +96,9 @@ func Run(targetFilter, promptFilter, textFilter []string) {
 	filteredTexts := []Text{}
 	if len(textFilter) > 0 {
 		for _, name := range textFilter {
-			for _, p := range texts {
-				if p.Name == name {
-					filteredTexts = append(filteredTexts, p)
+			for _, t := range texts {
+				if t.Name == name {
+					filteredTexts = append(filteredTexts, t)
 				}
 			}
 		}
@@ -109,7 +109,7 @@ func Run(targetFilter, promptFilter, textFilter []string) {
 	for _, target := range filteredTargets {
 		for _, prompt := range filteredPrompts {
 			for _, text := range filteredTexts {
-				fmt.Printf("Running %s(prompt=\"%s\", text=\"%s\")\n", target.Name, prompt.Name, text.Name)
+				fmt.Printf("Running helix qapairs --target=\"%s\" --prompt=\"%s\" --text=\"%s\"\n", target.Name, prompt.Name, text.Name)
 				resp, err := Query(target, prompt, text, "", "", 0)
 				if err != nil {
 					fmt.Println("Error:", err)
@@ -148,7 +148,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 		documentGroupID = "group123"
 	}
 	if numQuestions == 0 {
-		numQuestions = 50
+		numQuestions = 20
 	}
 
 	tmplData := TemplateData{
@@ -258,9 +258,14 @@ func chatWithModel(apiUrl, token, model, system, user string) ([]types.DataPrepT
 
 	answer := resp.Choices[0].Message.Content
 	answer = strings.TrimPrefix(answer, "```json")
-	// sometimes GPT4 in it's wisdom puts a message after the enclosing ```json``` block
+	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
 	parts := strings.Split(answer, "```")
 	answer = parts[0]
+
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	answer = strings.Replace(answer, "\\", "", -1)
 
 	return TryVariousJSONFormats(answer)
 
@@ -283,7 +288,7 @@ func TryVariousJSONFormats(jsonString string) ([]types.DataPrepTextQuestionRaw, 
 	var res []types.DataPrepTextQuestionRaw
 	var err error
 
-	// Try the top-level format
+	// Try a single qapair
 	err = json.Unmarshal([]byte(jsonString), &res)
 	if err == nil {
 		return res, nil
