@@ -19,7 +19,7 @@ prompts:
     ]
     ```
    user: |
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
  - name: summaries-one
@@ -38,7 +38,7 @@ prompts:
    user: |
     For the first and only question, summarize the entire document.
 
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
  - name: summaries-three
@@ -67,7 +67,7 @@ prompts:
     For the second answer, create a medium length summary of the document.
     For the third answer, create a detailed summary of the document.
 
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
  - name: summaries-sections
@@ -108,7 +108,7 @@ prompts:
     
     Then, for each section, you will write a question about summarizing that section, and an answer which is the summary of that section.
 
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
 #    For the next set of questions, summarize each section of the document.
@@ -116,7 +116,7 @@ prompts:
 
  - name: summaries-many
    system: |
-    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
 
     For example:
     ```json
@@ -134,7 +134,7 @@ prompts:
    user: |
     Generate {{.NumQuestions}} summaries of the document from different perspectives.
 
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
  # This didn't seem to work so well. It still kept generating questions about "junior doctors"
@@ -160,7 +160,7 @@ prompts:
    user: |
     Generate {{.NumQuestions}} question-answer pairs, where the questions are the most likely questions that a human would ask of the the given document, and the answers are accurate, detailed and precise answers based on the the given document below.
 
-    Here is your document:
+    Here is the document:
     {{.DocumentChunk}}
 
  - name: entities-specific-to-broad
