@@ -8,16 +8,17 @@ prompts:
     Do NOT put any text before or after the JSON.
     
     For example:
+    ```json
     [
       {"question": "…",
       "answer": "…"},
       {"question": "…",
       "answer": "…"}
     ]
+    ```
    user: |
     Here is your context:
     {{.DocumentChunk}}
-
 
  - name: summaries
    system: |
@@ -26,12 +27,14 @@ prompts:
     Do NOT put any text before or after the JSON.
 
     For example:
+    ```json
     [
       {"question": "…",
       "answer": "…"},
       {"question": "…",
       "answer": "…"}
     ]
+    ```
    user: |
     For the first question, summarize the entire document.
     For the next set of questions, summarize each section of the document.
@@ -47,12 +50,14 @@ prompts:
     Do NOT put any text before or after the JSON.
     
     For example:
+    ```json
     [
       {"question": "…",
       "answer": "…"},
       {"question": "…",
       "answer": "…"}
     ]
+    ```
    user: |
     Generate {{.NumQuestions}} summaries of the document from different perspectives.
 
@@ -67,12 +72,14 @@ prompts:
     Do NOT put any text before or after the JSON.
 
     For example:
+    ```json
     [
       {"question": "…",
       "answer": "…"},
       {"question": "…",
       "answer": "…"}
     ]
+    ```
     
     Users tend to ask broad, vague questions of the document in order to test that the system is working. We want those queries to work well. For example, a user would ask "what are the doctors going to do?" of a document that is about a junior doctors' strike. Take this into account when generating the questions - in particular, refer to noun phrases by less specific descriptions, so for example instead of "junior doctors", say "doctors" in your questions.
    user: |
@@ -88,12 +95,14 @@ prompts:
     Do NOT put any text before or after the JSON.
     
     For example:
+    ```json
     [
       {"question": "…",
       "answer": "…"},
       {"question": "…",
       "answer": "…"}
     ]
+    ```
    user: |
     For the first question, summarize the entire document.
     For the next set of questions, summarize each section of the document.
@@ -115,6 +124,7 @@ prompts:
     Do NOT put any text before or after the JSON.
     
     For example:
+    ```json
     {"entities: ["<first entity>", "<second entity>"],
      "questions": [
       {"entity": "<first entity>",
@@ -136,6 +146,7 @@ prompts:
         "answer": "<answer>"}
        }}
     ]}
+    ```
 
     Here is the document:
     {{.DocumentChunk}}
@@ -153,6 +164,7 @@ prompts:
     Do NOT put any text before or after the JSON.
 
     For example:
+    ```json
     {"facts: ["<first fact>", "<second fact>"],
      "questions": [
       {"fact": "<first fact>",
@@ -182,6 +194,7 @@ prompts:
         "answer": "<answer>"}
        }},
     ]}
+    ```
 
     Here is the document:
     {{.DocumentChunk}}
@@ -219,6 +232,7 @@ prompts:
     
     For example:
 
+    ```json
     {"entities: ["<first entity>", "<second entity>"],
      "questions": [
       {"entity": "<first entity>",
@@ -236,6 +250,7 @@ prompts:
         "answer": "<answer>"}
        }}
     ]}
+    ```
 
     Here is the document:
     {{.DocumentChunk}}
