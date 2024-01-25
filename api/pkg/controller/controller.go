@@ -21,9 +21,10 @@ import (
 type ControllerOptions struct {
 	Store store.Store
 
-	Filestore           filestore.FileStore
-	Janitor             *janitor.Janitor
-	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
+	Filestore              filestore.FileStore
+	FilestorePresignSecret string
+	Janitor                *janitor.Janitor
+	DataPrepTextFactory    func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
