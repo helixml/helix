@@ -78,6 +78,10 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 	return filepath.Join(c.Options.FilePrefixGlobal, userPrefix, path), nil
 }
 
+func (c *Controller) VerifySignature(url string) bool {
+	return filestore.VerifySignature(url, c.Options.FilestorePresignSecret)
+}
+
 func (c *Controller) GetFilestoreSessionPath(ctx types.OwnerContext, sessionID string) (string, error) {
 	return c.GetFilestoreUserPath(ctx, GetSessionFolder(sessionID))
 }
