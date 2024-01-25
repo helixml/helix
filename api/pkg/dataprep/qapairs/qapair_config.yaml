@@ -3,7 +3,7 @@ prompts:
 
  - name: simple-quiz
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -15,12 +15,29 @@ prompts:
     ]
     ```
    user: |
-    Here is your context:
+    Here is your document:
     {{.DocumentChunk}}
 
- - name: summaries
+ - name: summaries-one
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {"question": "…",
+      "answer": "…"}
+    ]
+    ```
+   user: |
+    For the first and only question, summarize the entire document.
+
+    Here is your document:
+    {{.DocumentChunk}}
+
+ - name: summaries-three
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -28,20 +45,53 @@ prompts:
       {"question": "…",
       "answer": "…"},
       {"question": "…",
+      "answer": "…"},
+      {"question": "…",
       "answer": "…"}
     ]
     ```
    user: |
-    For the first question, summarize the entire document.
-    For the next set of questions, summarize each section of the document.
-    For the final set of questions, summarize each paragraph of the document.
+    For the first answer, create a very short summary of the document.
+    For the second answer, create a medium length summary of the document.
+    For the third answer, create a detailed summary of the document.
 
-    Here is your context:
+    Here is your document:
     {{.DocumentChunk}}
+
+ - name: summaries-sections
+   system: |
+    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with an strict JSON. Follow the schema below precisely.
+
+    For example:
+    ```json
+    {"sections: ["<section 1>", "<section 2>"],
+     "questions": [
+      {"section": "<section 1>",
+       "questions": {
+        {"question": "…",
+        "answer": "…"}
+       }},
+      {"section": "<section 2>",
+       "questions": {
+        {"question": "…",
+        "answer": "…"}
+       }}
+    ]}
+    ```
+   user: |
+    Consider each section in the document. In the "sections" list you will list all of the main sections in the document.
+    
+    Then, for each section, you will write a questions about summarizing that section, and an answers which is the summary of that section.
+
+    Here is your document:
+    {{.DocumentChunk}}
+
+#    For the next set of questions, summarize each section of the document.
+#    For the final set of questions, summarize each paragraph of the document.
 
  - name: summaries-many
    system: |
-    You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -55,7 +105,7 @@ prompts:
    user: |
     Generate {{.NumQuestions}} summaries of the document from different perspectives.
 
-    Here is your context:
+    Here is your document:
     {{.DocumentChunk}}
 
  # This didn't seem to work so well. It still kept generating questions about "junior doctors"
@@ -75,14 +125,14 @@ prompts:
     
     Users tend to ask broad, vague questions of the document in order to test that the system is working. We want those queries to work well. For example, a user would ask "what are the doctors going to do?" of a document that is about a junior doctors' strike. Take this into account when generating the questions - in particular, refer to noun phrases by less specific descriptions, so for example instead of "junior doctors", say "doctors" in your questions.
    user: |
-    Generate {{.NumQuestions}} question-answer pairs, where the questions are the most likely questions that a human would ask of the given document, and the answers are accurate, detailed and precise answers based on the given document below.
+    Generate {{.NumQuestions}} question-answer pairs, where the questions are the most likely questions that a human would ask of the the given document, and the answers are accurate, detailed and precise answers based on the the given document below.
 
     Here is your document:
     {{.DocumentChunk}}
 
  - name: entities-specific-to-broad
    system: |
-    You are an intelligent professor. You create questions and answers from given document for your students.
+    You are an intelligent professor. You create questions and answers from the given document for your students.
    user: |
     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
@@ -120,7 +170,7 @@ prompts:
  
  - name: important-facts
    system: |
-    You are an intelligent professor. You create questions and answers from given document for your students.
+    You are an intelligent professor. You create questions and answers from the given document for your students.
    user: |
     Consider each important fact in the document. In the "facts" list you will list all of the important facts in the document.
     
@@ -167,7 +217,7 @@ prompts:
  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
  - name: entities-relationships
    system: |
-    You are an intelligent professor. You create questions and answers from given document for your students.
+    You are an intelligent professor. You create questions and answers from the given document for your students.
    user: |
     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
@@ -221,11 +271,11 @@ prompts:
  - name: original-prompt
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
-    Using the provided context, formulate {{.NumQuestions}} questions that captures an important fact from the context.
+    Using the provided document, formulate {{.NumQuestions}} questions that captures an important fact from the document.
     You MUST obey the following criteria:
-      - Restrict the question to the context information provided.
-      - Do NOT create a question that cannot be answered from the context.
-      - Phrase the question so that it does NOT refer to specific context. For instance, do NOT put phrases like given provided context or in this work in the question, because if the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
+      - Restrict the question to the document provided.
+      - Do NOT create a question that cannot be answered from the document.
+      - Phrase the question so that it does NOT refer to specific context. For instance, do NOT put phrases like given provided document or in this work in the question, because if the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
 
     BAD questions:
       What did the author do in his childhood
@@ -235,7 +285,7 @@ prompts:
       What did Barack Obama do in his childhood
       What were the main findings in the original Transformers paper by Vaswani et al.
 
-    The user will provide the context you should summarize into {{.NumQuestions}} questions.
+    The user will provide the document you should summarize into {{.NumQuestions}} questions.
 
     Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
     
@@ -249,15 +299,15 @@ prompts:
     ]
     ```
    user: |
-    Given the following context - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers quite verbose and refer to as much of the information in the context as possible, while keeping the answers relevant to the questions.
+    Given the following document - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers quite verbose and refer to as much of the information in the document as possible, while keeping the answers relevant to the questions.
 
     ONLY include a question if you know the answer.
 
-    If there is not enough context to generate {{.NumQuestions}} questions, you can generate fewer questions.
+    If there is not enough document to generate {{.NumQuestions}} questions, you can generate fewer questions.
 
     In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
 
-    Here is the context:
+    Here is the document:
     {{.DocumentChunk}}
 
 targets:
