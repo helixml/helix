@@ -182,7 +182,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	startTime := time.Now()
 	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt)
 	if err != nil {
-		log.Printf("Error, continuing: %v", err)
+		return nil, err
 	}
 	latency := time.Since(startTime).Milliseconds()
 
@@ -260,7 +260,10 @@ func chatWithModel(apiUrl, token, model, system, user string) ([]types.DataPrepT
 	}
 
 	answer := resp.Choices[0].Message.Content
-	answer = strings.TrimPrefix(answer, "```json")
+	log.Printf("Raw response: %s\n", answer)
+	if strings.Contains(answer, "```json") {
+		answer = strings.Split(answer, "```json")[1]
+	}
 	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
 	parts := strings.Split(answer, "```")
 	answer = parts[0]
