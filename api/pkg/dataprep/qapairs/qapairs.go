@@ -105,6 +105,9 @@ func Run(targetFilter, promptFilter, textFilter []string) {
 	} else {
 		filteredTexts = texts
 	}
+	// log.Printf("There are %d filteredPrompts", len(filteredPrompts))
+	// log.Printf("There are %d filteredTargets", len(filteredTargets))
+	// log.Printf("There are %d filteredTexts", len(filteredTexts))
 
 	for _, target := range filteredTargets {
 		for _, prompt := range filteredPrompts {
