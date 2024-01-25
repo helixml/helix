@@ -78,7 +78,7 @@ func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFi
 		}
 		cmd = exec.CommandContext(
 			ctx,
-			"python",
+			"python3",
 			args...,
 		)
 	} else if sessionFilter.Mode == types.SessionModeFinetune {
@@ -87,7 +87,7 @@ func (l *SDXL) getMockCommand(ctx context.Context, sessionFilter types.SessionFi
 		}
 		cmd = exec.CommandContext(
 			ctx,
-			"python",
+			"python3",
 			args...,
 		)
 	} else {
