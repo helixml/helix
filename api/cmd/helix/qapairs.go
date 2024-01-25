@@ -1,9 +1,6 @@
 package helix
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/spf13/cobra"
 )
@@ -30,10 +27,5 @@ func newQapairCommand() *cobra.Command {
 	qapairCmd.Flags().StringSliceVar(&theText, "text", []string{},
 		"Text(s) to use, defaults to all",
 	)
-
-	if err := qapairCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
 	return qapairCmd
 }
