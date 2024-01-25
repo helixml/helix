@@ -1,4 +1,4 @@
-package main
+package qapairs
 
 import (
 	"bytes"
@@ -12,8 +12,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
-	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,35 +53,6 @@ type Config struct {
 	Prompts []Prompt `yaml:"prompts"`
 	Targets []Target `yaml:"targets"`
 	Texts   []Text   `yaml:"texts"`
-}
-
-var target []string
-var prompt []string
-var text []string
-
-func main() {
-	var rootCmd = &cobra.Command{
-		Use:   "qapair",
-		Short: "A CLI tool for running QA pair commands",
-		Run: func(cmd *cobra.Command, args []string) {
-			Run(target, prompt, text)
-		},
-	}
-
-	rootCmd.Flags().StringSliceVar(&target, "target", []string{},
-		"Target(s) to use, defaults to all",
-	)
-	rootCmd.Flags().StringSliceVar(&prompt, "prompt", []string{},
-		"Prompt(s) to use, defaults to all",
-	)
-	rootCmd.Flags().StringSliceVar(&text, "text", []string{},
-		"Text(s) to use, defaults to all",
-	)
-
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
 }
 
 func Run(targetFilter, promptFilter, textFilter []string) {
@@ -138,11 +109,18 @@ func Run(targetFilter, promptFilter, textFilter []string) {
 	for _, target := range filteredTargets {
 		for _, prompt := range filteredPrompts {
 			for _, text := range filteredTexts {
-				err := Query(target, prompt, text, "", "", 0)
+				fmt.Printf("Running %s(prompt=\"%s\", text=\"%s\")\n", target.Name, prompt.Name, text.Name)
+				resp, err := Query(target, prompt, text, "", "", 0)
 				if err != nil {
 					fmt.Println("Error:", err)
 					return
 				}
+				bs, err := yaml.Marshal(resp)
+				if err != nil {
+					fmt.Println("Error:", err)
+					return
+				}
+				fmt.Println(string(bs))
 			}
 		}
 	}
@@ -155,12 +133,12 @@ type TemplateData struct {
 	DocumentChunk   string
 }
 
-func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) error {
+func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
 	// Perform the query for the given target and prompt
 
 	contents, err := loadFile(text.File)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if documentID == "" {
@@ -184,7 +162,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, tmplData)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	systemPrompt := buf.String()
@@ -193,7 +171,7 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	var buf2 bytes.Buffer
 	err = tmpl.Execute(&buf2, tmplData)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	userPrompt := buf2.String()
@@ -209,11 +187,16 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 
 	err = os.MkdirAll("runs", os.ModePerm)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	timestamp := time.Now().Unix()
 	filename := fmt.Sprintf("runs/%d_%s_%s_%s.yaml", timestamp, target.Name, prompt.Name, text.Name)
+
+	respBytes, err := yaml.Marshal(resp)
+	if err != nil {
+		return nil, err
+	}
 
 	logData := Log{
 		Date:      time.Now().String(),
@@ -222,21 +205,21 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 		System:    systemPrompt,
 		User:      userPrompt,
 		Text:      contents,
-		Result:    resp,
+		Result:    string(respBytes),
 		LatencyMs: latency,
 	}
 
 	logDataBytes, err := yaml.Marshal(logData)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = os.WriteFile(filename, logDataBytes, 0644)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return resp, nil
 }
 
 func loadFile(filePath string) (string, error) {
@@ -247,7 +230,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
+func chatWithModel(apiUrl, token, model, system, user string) ([]types.DataPrepTextQuestionRaw, error) {
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
@@ -270,7 +253,7 @@ func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 	)
 	if err != nil {
 		fmt.Printf("ChatCompletion error: %v\n", err)
-		return "", err
+		return nil, err
 	}
 
 	answer := resp.Choices[0].Message.Content
@@ -279,16 +262,50 @@ func chatWithModel(apiUrl, token, model, system, user string) (string, error) {
 	parts := strings.Split(answer, "```")
 	answer = parts[0]
 
-	fmt.Println(answer)
+	return TryVariousJSONFormats(answer)
 
-	var data interface{}
-	err = json.Unmarshal([]byte(answer), &data)
-	if err != nil {
-		return "", err
+}
+
+// for prompt engineering purposes, the LLMs output various formats. Try all of them:
+type TopLevelQAPairs struct {
+	Questions []types.DataPrepTextQuestionRaw `json:"questions"`
+}
+
+type WrappedQAPairs struct {
+	Questions []QuestionSet `json:"questions"`
+}
+
+type QuestionSet struct {
+	Questions []types.DataPrepTextQuestionRaw `json:"questions"`
+}
+
+func TryVariousJSONFormats(jsonString string) ([]types.DataPrepTextQuestionRaw, error) {
+	var res []types.DataPrepTextQuestionRaw
+	var err error
+
+	// Try the top-level format
+	err = json.Unmarshal([]byte(jsonString), &res)
+	if err == nil {
+		return res, nil
 	}
-	// return data, nil
 
-	// spew.Dump(data)
+	// Try the wrapped format
+	var wrapped WrappedQAPairs
+	err = json.Unmarshal([]byte(jsonString), &wrapped)
+	if err == nil {
+		var questions []types.DataPrepTextQuestionRaw
+		for _, questionSet := range wrapped.Questions {
+			questions = append(questions, questionSet.Questions...)
+		}
+		return questions, nil
+	}
 
-	return answer, nil
+	// Try the top-level format
+	var topLevel TopLevelQAPairs
+	err = json.Unmarshal([]byte(jsonString), &topLevel)
+	if err == nil {
+		return topLevel.Questions, nil
+	}
+
+	return nil, fmt.Errorf("error parsing JSON:\n\n%s", jsonString)
 }
