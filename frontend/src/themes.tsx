@@ -1,6 +1,5 @@
 import React, { ReactElement } from 'react'
 import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
 
 const DEFAULT_THEME_NAME = 'helix'
 
@@ -9,6 +8,7 @@ export interface ITheme {
   url: string,
   primary: string,
   secondary: string,
+  darkHighlight: string,
   lightBackgroundColor: string,
   darkBackgroundColor: string,
   activeSections: string[],
@@ -23,6 +23,7 @@ export const THEMES: Record<string, ITheme> = {
     url: 'https://tryhelix.ai/',
     primary: '#7db6c7',
     secondary: '#7db6c7',
+    darkHighlight: '#00d5ff',
     lightBackgroundColor: "#aeaeae",
     darkBackgroundColor: "#070714",
     // this means ALL
@@ -39,15 +40,9 @@ export const THEMES: Record<string, ITheme> = {
           alt="Helix" 
           sx={{
             height: 30,
-            ml: 1,
+            mx: 1,
           }}
         />
-        <Typography variant="h6" sx={{
-          ml: 2,
-          mr: 1,
-        }}>
-          Helix
-        </Typography>
       </Box>
     ),
   },

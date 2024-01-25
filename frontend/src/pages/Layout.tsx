@@ -7,7 +7,6 @@ import Box from '@mui/material/Box'
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
-import Divider from '@mui/material/Divider'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -19,10 +18,10 @@ import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
 import HelpIcon from '@mui/icons-material/Help'
 import Menu from '@mui/material/Menu'
-import Brightness7Icon from '@mui/icons-material/Brightness7';
-import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7'
+import Brightness4Icon from '@mui/icons-material/Brightness4'
 import Tooltip from '@mui/material/Tooltip'
-
+import EditTextWindow from '../components/session/EditTextWindow'
 
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -32,6 +31,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import MenuIcon from '@mui/icons-material/Menu'
 import AccountCircle from '@mui/icons-material/AccountCircle'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
+import EditIcon from '@mui/icons-material/Edit'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -42,7 +42,7 @@ import GlobalLoading from '../components/system/GlobalLoading'
 import useThemeConfig from '../hooks/useThemeConfig'
 import { ThemeContext } from '../contexts/theme'
 
-const drawerWidth: number = 280
+const drawerWidth: number = 320
 
 interface AppBarProps extends MuiAppBarProps {
   open?: boolean
@@ -142,7 +142,7 @@ const Layout: FC = ({
           width: '100%'
         }}
       >
-        <Toolbar
+        {/* <Toolbar
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -151,8 +151,7 @@ const Layout: FC = ({
           }}
         >
           { themeConfig.logo() }
-        </Toolbar>
-        <Divider />
+        </Toolbar> */}
         <List
           disablePadding
         >
@@ -163,16 +162,23 @@ const Layout: FC = ({
               setMobileOpen(false)
             }}
           >
-            <ListItemButton
-                selected={ name == 'new' }
-            >
+            <ListItemButton>
+              <ListItemText
+              sx={{
+                ml: 3,
+                p: 1,
+                fontWeight: 'heading',
+                '&:hover': {
+                  color: themeConfig.darkHighlight,
+                }
+              }}
+                primary="New Session"
+              />
               <ListItemIcon>
                 <AddIcon color="primary" />
               </ListItemIcon>
-              <ListItemText primary="New Session" />
             </ListItemButton>
           </ListItem>
-          <Divider />
         </List>
       </Box>
       <Box
@@ -200,6 +206,7 @@ const Layout: FC = ({
           p: 1,
         }}
       >
+        { themeConfig.logo() }
         {
           account.user ? (
             <>
@@ -364,6 +371,7 @@ const Layout: FC = ({
 
                     (
                       <Typography
+                        className="inferenceTitle"
                         component="h1"
                         variant="h6"
                         color="inherit"
@@ -378,6 +386,12 @@ const Layout: FC = ({
                       </Typography>
                     )
                 }
+                <IconButton
+                  color="inherit"
+                  aria-label="rename session"
+                >
+                  <EditIcon />
+                </IconButton>
               </Box>
             ) : (
               <Box
@@ -400,7 +414,7 @@ const Layout: FC = ({
                 >
                   <MenuIcon />
                 </IconButton>
-                { themeConfig.logo() }
+                {/* { themeConfig.logo() } */}
               </Box>
             )
           }
@@ -574,4 +588,4 @@ const Layout: FC = ({
   )
 }
 
-export default Layout
+export default Layout 

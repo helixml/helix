@@ -89,12 +89,19 @@ export const SessionsMenu: FC<{
 
   return (
     <>
-      <List disablePadding>
+      <List
+        sx={{
+          p: 1,
+        }}
+      >
         {
           sessions.sessions.map((session, i) => {
             return (
               <ListItem
-                disablePadding
+                sx={{
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                }}
                 key={ session.session_id }
                 onClick={ () => {
                   navigate("session", {session_id: session.session_id})
@@ -103,6 +110,11 @@ export const SessionsMenu: FC<{
               >
                 <ListItemButton
                   selected={ session.session_id == params["session_id"] }
+                  sx={{
+                    borderRadius: '4px',
+                    backgroundColor: session.session_id == params["session_id"] ? '#1a1a2f' : 'transparent',
+                    cursor: 'pointer',
+                  }}
                 >
                   <ListItemIcon>
                     { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
@@ -117,7 +129,7 @@ export const SessionsMenu: FC<{
                     id={ session.session_id }
                   />
                 </ListItemButton>
-                <ListItemSecondaryAction>
+                {/* <ListItemSecondaryAction>
                   <IconButton
                     edge="end"
                     size="small"
@@ -133,12 +145,12 @@ export const SessionsMenu: FC<{
                       fontSize="small"
                     />
                   </IconButton>
-                </ListItemSecondaryAction>
+                </ListItemSecondaryAction> */}
               </ListItem>
             )
           })
         }
-        <Menu
+        {/* <Menu
           anchorEl={anchorEl}
           keepMounted
           open={open}
@@ -207,14 +219,14 @@ export const SessionsMenu: FC<{
               }}
             />
           )
-        }
+        } */}
       </List>
       {
         sessions.pagination.total > sessions.pagination.limit && (
           <Row
             sx={{
               mt: 2,
-              mb: 2,
+              mb: 1,
             }}
             center
           >
