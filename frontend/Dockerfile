@@ -1,4 +1,4 @@
-FROM mhart/alpine-node:16 AS build-env
+FROM node:21-alpine AS build-env
 
 RUN echo "installing apk packages" && \
   apk update && \

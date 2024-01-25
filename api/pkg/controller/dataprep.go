@@ -146,12 +146,10 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 				file = strings.TrimSuffix(file, ".url")
 			} else {
 				// otherwise it's a file already living in the file store
-				// so
-				fileObject, err := c.Options.Filestore.Get(c.Ctx, file)
+				fileURL, err = c.Options.Filestore.SignedURL(c.Ctx, file)
 				if err != nil {
 					return err
 				}
-				fileURL = fileObject.URL
 			}
 
 			// for local development - the file server hostname will not resolve

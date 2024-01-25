@@ -174,6 +174,8 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 	}
 
 	cmd.Env = []string{
+		// inherit PATH set in docker image or elsewhere
+		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
@@ -218,6 +220,12 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+	}
+	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf(
+			"CUDA_VISIBLE_DEVICES=%s",
+			os.Getenv("CUDA_VISIBLE_DEVICES"),
+		))
 	}
 
 	return cmd, nil

@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
@@ -18,10 +19,12 @@ import (
 )
 
 type ControllerOptions struct {
-	Store               store.Store
-	Filestore           filestore.FileStore
-	Janitor             *janitor.Janitor
-	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
+	Store store.Store
+
+	Filestore              filestore.FileStore
+	FilestorePresignSecret string
+	Janitor                *janitor.Janitor
+	DataPrepTextFactory    func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
 	// this is an "env" prefix like "dev"
 	// the user prefix is handled inside the controller
 	// (see getFilestorePath)
@@ -41,6 +44,8 @@ type ControllerOptions struct {
 
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int
+
+	Notifier notification.Notifier
 }
 
 type Controller struct {
@@ -95,6 +100,7 @@ func NewController(
 	if err != nil {
 		return nil, err
 	}
+
 	controller := &Controller{
 		Ctx:                            ctx,
 		Options:                        options,
