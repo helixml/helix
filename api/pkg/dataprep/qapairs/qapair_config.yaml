@@ -80,27 +80,6 @@ prompts:
     Here is your document:
     {{.DocumentChunk}}
 
- - name: summaries
-   system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
-
-    For example:
-    ```json
-    [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
-    ]
-    ```
-   user: |
-    For the first question, summarize the entire document.
-    For the next set of questions, summarize each section of the document.
-    For the final set of questions, summarize each paragraph of the document.
-
-    Here is your context:
-    {{.DocumentChunk}}
-
  - name: entities-specific-to-broad
    system: |
     You are an intelligent professor. You create questions and answers from given document for your students.
@@ -270,17 +249,13 @@ prompts:
     ]
     ```
    user: |
-    Given the following context - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
+    Given the following context - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers quite verbose and refer to as much of the information in the context as possible, while keeping the answers relevant to the questions.
 
     ONLY include a question if you know the answer.
 
     If there is not enough context to generate {{.NumQuestions}} questions, you can generate fewer questions.
 
     In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
-
-    Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
-
-    Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
     Here is the context:
     {{.DocumentChunk}}
