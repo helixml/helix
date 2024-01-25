@@ -247,6 +247,14 @@ type UserStatus struct {
 	Config UserConfig `json:"config"`
 }
 
+type UserDetails struct {
+	ID        string
+	Username  string
+	FirstName string
+	LastName  string
+	Email     string
+}
+
 // a single envelope that is broadcast to users
 type WebsocketEvent struct {
 	Type               WebsocketEventType  `json:"type"`

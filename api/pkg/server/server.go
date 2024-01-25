@@ -4,12 +4,18 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
@@ -21,6 +27,7 @@ type ServerOptions struct {
 	URL           string
 	Host          string
 	Port          int
+	FrontendURL   string // Can either be a URL to frontend or a path to static files
 	KeyCloakURL   string
 	KeyCloakToken string
 	RunnerToken   string
@@ -99,7 +106,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	if err != nil {
 		return err
 	}
-	router.Use(apiServer.corsMiddleware)
+	// router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
@@ -165,26 +172,28 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		// we handle our own auth from inside this function
 		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
 		// that will extract the bearer token into a user id for us
-		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// if the session is "shared" then anyone can see the files inside the session
-			// if the user is admin then can see anything
-			// if the user is runner then can see anything
-			// if the path is part of the user path then can see it
-			// otherwise access denied
-			canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(
+			http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// if the session is "shared" then anyone can see the files inside the session
+				// if the user is admin then can see anything
+				// if the user is runner then can see anything
+				// if the path is part of the user path then can see it
+				// if path has presign URL
+				// otherwise access denied
+				canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+				if !canAccess {
+					http.Error(w, "Access denied", http.StatusForbidden)
+					return
+				}
 
-			if !canAccess {
-				http.Error(w, "Access denied", http.StatusForbidden)
-				return
-			}
-
-			fileServer.ServeHTTP(w, r)
-		})))
+				fileServer.ServeHTTP(w, r)
+			})))
 	}
 
 	// OpenAI API compatible routes
@@ -218,6 +227,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
+	// Authentication route
+	apiServer.registerKeycloakHandler(router)
+
+	// Default handler for static files
+	apiServer.registerDefaultHandler(router)
+
 	apiServer.startUserWebSocketServer(
 		ctx,
 		subrouter,
@@ -242,4 +257,33 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		Handler:           router,
 	}
 	return srv.ListenAndServe()
+}
+
+func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
+	u, err := url.Parse(apiServer.Options.KeyCloakURL)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
+		return
+	}
+
+	// Strip path prefix, otherwise we would have to use /auth/auth/realms/helix/protocol/openid-connect/token
+	u.Path = ""
+
+	router.PathPrefix("/auth").Handler(httputil.NewSingleHostReverseProxy(u))
+}
+
+// Static files router
+func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
+	if strings.HasPrefix(apiServer.Options.FrontendURL, "http://") || strings.HasPrefix(apiServer.Options.FrontendURL, "https://") {
+
+		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
+			apiServer.Options.FrontendURL,
+		))
+	} else {
+		log.Info().Msgf("serving static UI files from %s", apiServer.Options.FrontendURL)
+
+		fileSystem := http.Dir(apiServer.Options.FrontendURL)
+
+		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
+	}
 }

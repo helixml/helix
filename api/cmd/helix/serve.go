@@ -8,15 +8,19 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -29,9 +33,31 @@ type ServeOptions struct {
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
 	StripeOptions       stripe.StripeOptions
+
+	// NotifierCfg is used to configure the notifier which sends emails
+	// to users on finetuning progress
+	NotifierCfg *notification.Config
+
+	// KeycloakCfg is used to configure the keycloak authenticator, which
+	// is used to get user information from the keycloak server
+	KeycloakCfg *auth.KeycloakConfig
 }
 
-func NewServeOptions() *ServeOptions {
+func NewServeOptions() (*ServeOptions, error) {
+	var keycloakCfg auth.KeycloakConfig
+	err := envconfig.Process("", &keycloakCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+	}
+
+	var notificationCfg notification.Config
+	err = envconfig.Process("", &notificationCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+	}
+
+	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
+
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
@@ -43,10 +69,11 @@ func NewServeOptions() *ServeOptions {
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
+			FilestorePresignSecret:       filestoreSignSecret,
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
-			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", ""),
+			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", "http://unstructured:5000/api/v1/extract"),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{
@@ -68,6 +95,7 @@ func NewServeOptions() *ServeOptions {
 			URL:           getDefaultServeOptionString("SERVER_URL", ""),
 			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			FrontendURL:   getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
@@ -86,11 +114,16 @@ func NewServeOptions() *ServeOptions {
 			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
 			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
-	}
+		KeycloakCfg: &keycloakCfg,
+		NotifierCfg: &notificationCfg,
+	}, nil
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions := NewServeOptions()
+	allOptions, err := NewServeOptions()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create serve options")
+	}
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
@@ -293,7 +326,7 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 				return nil, err
 			}
 		}
-		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL))
+		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL), options.ControllerOptions.FilestorePresignSecret)
 	} else if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalGCS {
 		if options.FilestoreOptions.GCSKeyBase64 != "" {
 			keyfile, err := func() (string, error) {
@@ -369,6 +402,16 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return fmt.Errorf("runner token is required")
 	}
 
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(options.KeycloakCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
+	}
+
+	notifier, err := notification.New(options.NotifierCfg, keycloakAuthenticator)
+	if err != nil {
+		return fmt.Errorf("failed to create notifier: %v", err)
+	}
+
 	options.JanitorOptions.AppURL = options.ServerOptions.URL
 	janitor := janitor.NewJanitor(options.JanitorOptions)
 	err = janitor.Initialize()
@@ -381,6 +424,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
 	options.ControllerOptions.Janitor = janitor
+	options.ControllerOptions.Notifier = notifier
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
