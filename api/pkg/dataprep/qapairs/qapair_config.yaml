@@ -399,7 +399,7 @@ prompts:
     ]
     ```
    user: |
-    Given the following document - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers quite verbose and refer to as much of the information in the document as possible, while keeping the answers relevant to the questions.
+    Given the following document - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers refer to as much of the information in the document as possible, while keeping the answers relevant to the questions.
 
     ONLY include a question if you know the answer.
 
