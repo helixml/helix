@@ -53,6 +53,7 @@ type FileStore interface {
 	// list the items at a certain path
 	List(ctx context.Context, path string) ([]FileStoreItem, error)
 	Get(ctx context.Context, path string) (FileStoreItem, error)
+	SignedURL(ctx context.Context, path string) (string, error)
 	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
 	DownloadFile(ctx context.Context, path string) (io.Reader, error)
 	UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
