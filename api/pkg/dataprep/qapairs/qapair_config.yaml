@@ -226,7 +226,7 @@ prompts:
    system: |
     You are an intelligent professor. You create questions and answers from the given document for your students.
    user: |
-    Consider each important fact in the document. In the "facts" list you will list all of the important facts in the document.
+    Consider each main important fact in the document. In the "facts" list you will list all of the main important facts in the document.
     
     Then, you will think about when, how, what, why and who questions for each fact.
 
