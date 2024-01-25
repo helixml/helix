@@ -2,6 +2,7 @@ import os
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import insert, String, Integer, create_engine, text
 from sqlalchemy.orm import declarative_base, mapped_column
+from llama_index import PgVectorIndex
 
 ####################
 #
@@ -10,6 +11,7 @@ from sqlalchemy.orm import declarative_base, mapped_column
 ####################
 
 TABLE_NAME = "helix_document_chunk"
+EMBEDDING_COLUMN_NAME = "embedding"
 VECTOR_DIMENSION = 384
 postgres_host = os.getenv("POSTGRES_HOST", "pgvector")
 postgres_database = os.getenv("POSTGRES_DATABASE", "postgres")
@@ -26,6 +28,11 @@ Base = declarative_base()
 
 # the database migration class for our core database table
 # the user of our api is expected to know the mapping of filename -> chunk_index
+# TODO: work out how the hell we are supposed to do database migrations
+# when we are using the Vector field - I've tried to plugin alembic
+# but my lord it's complicated so I bailed (because this is an experiment)
+# however, we will probably need to change this table at some point
+# and then this problem will really bite us in the ass
 class HelixDocumentChunk(Base):
   __tablename__ = TABLE_NAME
 
@@ -60,7 +67,7 @@ def getEngine():
   return engine
 
 def checkDocumentChunkData(data_dict):
-  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id" "filename", "offset", "text"]
+  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id", "filename", "offset", "text"]
   number_keys = ["offset"]
   for key in required_keys:
     if key not in data_dict:
@@ -84,6 +91,7 @@ def checkDocumentChunkData(data_dict):
 #     "text": "hello world",
 #     "embedding": [1, 2, 3, 4]
 # }
+# we expect the embedding to already have been calculated before we put it into the DB
 def insertData(engine, data_dict):
   stmt = insert(HelixDocumentChunk).values(**data_dict).returning(HelixDocumentChunk.id)
   with engine.connect() as connection:
@@ -92,12 +100,9 @@ def insertData(engine, data_dict):
     inserted_id = cursor.fetchone()[0]
     return inserted_id
 
-def getRow(engine, row_id):
-  with engine.connect() as connection:
-    stmt = HelixDocumentChunk.__table__.select().where(HelixDocumentChunk.id == row_id)
-    result = connection.execute(stmt)
-    row = result.fetchone()
-    return {
+# given a database row - turn it into something we can JSON serialize
+def convertRow(row):
+  return {
       "id": row.id,
       "session_id": row.session_id,
       "interaction_id": row.interaction_id,
@@ -109,3 +114,17 @@ def getRow(engine, row_id):
       "embedding": row.embedding.tolist()  # Convert ndarray to list
     }
 
+# a direct "give me a single row because I know it's ID" handler
+def getRow(engine, row_id):
+  with engine.connect() as connection:
+    stmt = HelixDocumentChunk.__table__.select().where(HelixDocumentChunk.id == row_id)
+    result = connection.execute(stmt)
+    row = result.fetchone()
+    return convertRow(row)
+
+# given a already calculated prompt embedding and a session ID - find matching rows
+def queryPrompt(engine, session_id, query_embedding):
+  with engine.connect() as connection:
+    index = PgVectorIndex(conn=connection, table_name=TABLE_NAME, column_name=EMBEDDING_COLUMN_NAME)
+    nearest_neighbors = index.search(query_embedding, limit=10)
+    return nearest_neighbors
