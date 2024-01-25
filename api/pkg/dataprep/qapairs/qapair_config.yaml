@@ -3,14 +3,29 @@ prompts:
 
  - name: simple-quiz
    system: |
-     You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    Do NOT put any text before or after the JSON.
+    
+    For example:
+    [
+      {"question": "…",
+      "answer": "…"},
+      {"question": "…",
+      "answer": "…"}
+    ]
    user: |
     Here is your context:
     {{.DocumentChunk}}
 
+
  - name: summaries
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    Do NOT put any text before or after the JSON.
+
+    For example:
     [
       {"question": "…",
       "answer": "…"},
@@ -27,7 +42,11 @@ prompts:
 
  - name: summaries-many
    system: |
-    You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    Do NOT put any text before or after the JSON.
+    
+    For example:
     [
       {"question": "…",
       "answer": "…"},
@@ -43,8 +62,11 @@ prompts:
  # This didn't seem to work so well. It still kept generating questions about "junior doctors"
  - name: you-are-generating-fine-tuning-data
    system: |
-    You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model of the form:
+    You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model.
 
+    Do NOT put any text before or after the JSON.
+
+    For example:
     [
       {"question": "…",
       "answer": "…"},
@@ -61,7 +83,11 @@ prompts:
 
  - name: summaries
    system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
+    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    Do NOT put any text before or after the JSON.
+    
+    For example:
     [
       {"question": "…",
       "answer": "…"},
@@ -128,19 +154,6 @@ prompts:
     Here is the context:
     {{.DocumentChunk}}
 
- - name: simple-quiz
-   system: |
-    You are an intelligent professor. You create question and answer pairs from given context for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. For example:
-    [
-      {"question": "…",
-      "answer": "…"},
-      {"question": "…",
-      "answer": "…"}
-    ]
-   user: |
-    Here is your context:
-    {{.DocumentChunk}}
-
  - name: entities-specific-to-broad-docid
    system: |
     You are an intelligent professor. You create question and answer pairs from given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
@@ -175,7 +188,11 @@ prompts:
     
     Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
 
-    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs. For example:
+    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+    
+    Do NOT put any text before or after the JSON.
+    
+    For example:
     {"entities: ["<first entity>", "<second entity>"],
      "questions": [
       {"entity": "<first entity>",
@@ -209,7 +226,11 @@ prompts:
     
     Then, you will think about when, how, what, why and who questions for each fact.
 
-    Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs. For example:
+    Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs.
+
+    Do NOT put any text before or after the JSON.
+
+    For example:
     {"facts: ["<first fact>", "<second fact>"],
      "questions": [
       {"fact": "<first fact>",
@@ -270,7 +291,11 @@ prompts:
       Q: Who went on the walk?
       A: The man and the dog went on the walk.
 
-    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs. For example:
+    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+    
+    Do NOT put any text before or after the JSON.
+    
+    For example:
 
     {"entities: ["<first entity>", "<second entity>"],
      "questions": [
@@ -293,7 +318,7 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
  
- - name: original-prompt 
+ - name: original-prompt
    system: |
     You are a Teacher/ Professor. Your task is to setup a quiz/examination.
     Using the provided context, formulate {{.NumQuestions}} questions that captures an important fact from the context.

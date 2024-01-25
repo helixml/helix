@@ -435,8 +435,8 @@ type DataPrepChunk struct {
 
 // the thing we get from the LLM's
 type DataPrepTextQuestionRaw struct {
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
+	Question string `json:"question" yaml:"question"`
+	Answer   string `json:"answer" yaml:"answer"`
 }
 
 type DataPrepTextQuestionPart struct {

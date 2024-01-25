@@ -194,7 +194,7 @@ func updateProcessedQAChunk(
 	} else {
 		newChunks := []types.DataPrepChunk{}
 		for _, existingChunk := range chunks {
-			if existingChunk.Index == chunkIndex {
+			if existingChunk.Index == chunkIndex && existingChunk.PromptName == promptName {
 				newChunks = append(newChunks, *chunk)
 			} else {
 				newChunks = append(newChunks, existingChunk)

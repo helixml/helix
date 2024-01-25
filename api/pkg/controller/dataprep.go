@@ -214,7 +214,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
@@ -256,8 +256,15 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 		}
 	}
 
+	// Some qapair generators expand each chunk into N chunks so they can be run
+	// by our outer concurrency manager
+	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
+	if err != nil {
+		return nil, err
+	}
+
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
-	for _, chunk := range splitter.Chunks {
+	for _, chunk := range allChunks {
 		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
@@ -277,23 +284,16 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	// XXX: getChunksToProcess checks whether it's processed chunks based on
-	// PromptName, but it hasn't been set yet, need to re-order (or use a
-	// different type for expandedChunks so we can have the compiler enforce
-	// sanity)...
-	chunksToProcess, err := c.getChunksToProcess(session)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	dataprep, _, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Some qapair generators expand each chunk into N chunks so they can be run
-	// by our outer concurrency manager
-	chunksToProcess, err = dataprep.ExpandChunks(chunksToProcess)
+	// XXX: getChunksToProcess checks whether it's processed chunks based on
+	// PromptName, but it hasn't been set yet, need to re-order (or use a
+	// different type for expandedChunks so we can have the compiler enforce
+	// sanity)...
+	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
 	}

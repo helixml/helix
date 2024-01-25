@@ -1,0 +1,197 @@
+date: 2024-01-23 22:58:08.356008556 +0000 GMT m=+1212.995062539
+api_url: https://api.openai.com/v1
+model: gpt-4-1106-preview
+system: |
+    You are an intelligent professor. You create questions and answers from given context for your students.
+user: "Consider each important fact in the document. In the \"facts\" list you will list all of the important facts in the document.\n\nThen, you will think about when, how, what, why and who questions for each fact.\n\nRespond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs. For example:\n{\"facts: [\"<first fact>\", \"<second fact>\"],\n \"questions\": [\n  {\"fact\": \"<first fact>\",\n   \"questions\": {\n    {\"question\": \"<when question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<how question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<what question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<why question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<who question>\",\n    \"answer\": \"<answer>\"}\n   }},\n  {\"fact\": \"<second fact>\",\n   \"questions\": {\n    {\"question\": \"<when question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<how question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<what question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<why question>\",\n    \"answer\": \"<answer>\"},\n    {\"question\": \"<who question>\",\n    \"answer\": \"<answer>\"}\n   }},\n]}\n\nHere is the document:\nJunior doctors hold placards on a picket line\n\nJunior doctors holding placards on a picket line earlier this year. Photograph: Alastair Grant/AP\n\nJunior doctors holding placards on a picket line earlier this year. Photograph: Alastair Grant/AP\n\nDoctors\n\nThis article is more than **1 month old**\n\n# Junior doctors in England to stage more strikes over pay\n\nThis article is more than 1 month old\n\nBMA announces action for 20-23 December and 3-9 January after breakdown of talks with government\n\n  * UK politics live – latest updates\n\n\n\nDenis Campbell and Andrew Gregory\n\nTue 5 Dec 2023 18.07 GMTFirst published on Tue 5 Dec 2023 13.18 GMT\n\n  *   *   * \n\n\nThe NHS will struggle to care properly for patients when junior doctors in England stage the longest strike in the service’s history this winter, hospital bosses have said after the collapse of pay talks.\n\nThe warning came after the British Medical Association (BMA) announced tens of thousands of junior doctors would walk out for three days later this month and another six days in January, at a time when the NHS comes under its most intense strain.\n\nThey will strike for 72 hours from 7am on 20 December until 7am on 23 December, and again for six days from 3 to 9 January.\n\n“This is the outcome that trust leaders were dreading. This will be the longest strike in NHS history, during the busiest and toughest time of the year for the NHS,” said Sir Julian Hartley, the chef executive of hospitals body NHS Providers. “These strikes will undermine efforts to cut waiting lists further, they’ll have a serious knock-on effect on services right across the NHS and they’ll impact the quality of care for patients.”\n\nThe BMA’s junior doctors committee (JDC) broke off talks with the Department of Health and Social Care (DHSC) when it offered only three percentage points more than the average 8.8% pay rise for this year it had already given junior doctors, who are mostly medics below consultant level.\n\nThe fresh nine days of strikes come on top of the 25 days of stoppages junior doctors have already mounted since they began striking in March in pursuit of their 35% pay claim.\n\nDr Robert Laurenson and Dr Vivek Trevedi, the JDC’s co-chairs, said: “After five weeks of intense talks the government was unable to present a credible offer on pay by the deadline. Instead we were offered an additional 3%, unevenly spread across doctors’ grades, which would still amount to pay cuts for many doctors this year.\n\n“It is clear the government is still not prepared to address the real-terms pay cut doctors have experienced since 2008.”\n\nVictoria Atkins, the new health and social care secretary, said the JDC’s decision was disappointing, given that the talks had resulted in “significant progress” on junior doctors’ pay and conditions.\n\nLaurenson and Trevedi added that “even though the [government’s] approach was more constructive, there was not enough on offer to shape a credible deal, which we hoped would end the dispute”.\n\nThe JDC’s move comes a week after consultants – senior hospital doctors – agreed the outline of a deal to end their dispute, which will be put to a ballot of BMA consultants.\n\nStrikes in the NHS, which have also included other staff groups including nurses, physiotherapists and paramedics, have led to more than a million appointments, procedures and surgeries being rescheduled – with some patients facing disruption on several occasions. The industrial action has cost the NHS more than £1bn.\n\nBut on Tuesday, the committee announced it had unanimously voted for further strike action after five weeks of talks between junior doctors and the government failed to result in a “credible offer” to end the pay dispute.\n\n> \U0001F4E2 STRIKE DATES ANNOUNCEMENT\U0001F4E2 Junior doctors in England to take further #PayRestoration industrial action.  \n>   \n> The first strike action will take place from 7am on 20 December to 7am on 23 December. The second will take place from 7am on 3 January until 7am on 9 January. pic.twitter.com/IGjXRX0nV4\n> \n> -- Junior Doctors (@BMA_JuniorDocs) December 5, 2023\n\nThe breakdown in talks came just days after the health secretary spoke of her “respect” for junior doctors in a move that highlighted a markedly different tone from her predecessor, Steve Barclay.\n\nAfter reaching agreement with consultants’ leaders she hoped to then also strike a deal with junior doctors, who make up about half the medical workforce. She had found the leaders of the BMA JDC to be “very constructive”, she said.\n\nSunak’s waiting list pledge ‘downgraded’ as NHS is told to control costs\n\nRead more\n\nThe co-chairs said it was “a great shame” that despite a more constructive approach from the government, there was “not enough on offer to shape a credible deal”.\n\n“Without enough progress by the deadline, we have no choice but to take action that demonstrates doctors are as determined as ever in reversing their pay cuts,” they added.\n\n“However, we can still avoid the need for these strikes. We will be ready and willing any time the government wants to talk. If a credible offer can be presented the day before, or even during any action, these strikes can be cancelled.”\n\nJunior doctors are requesting a 35% increase in pay. During the summer, the government said they would receive a 6% wage rise and £1,250.\n\nCutting waiting lists was one of five pledges that Rishi Sunak made at the start of the year, along with halving inflation this year, growing the economy, making sure national debt is falling, and passing new laws to stop small boat crossings.\n\nKeir Starmer has pointed out that waiting lists have gone up since the prime minister set the goal of reducing them.\n\nAt prime minister’s questions last month, the Labour leader said the NHS waiting list stood at 7.8 million – half a million more than in January.\n\nStrikes have been ongoing in the NHS since December 2022, leading to the cancellation or postponement of almost 1.1m appointments.\n"
+text: "Junior doctors hold placards on a picket line\n\nJunior doctors holding placards on a picket line earlier this year. Photograph: Alastair Grant/AP\n\nJunior doctors holding placards on a picket line earlier this year. Photograph: Alastair Grant/AP\n\nDoctors\n\nThis article is more than **1 month old**\n\n# Junior doctors in England to stage more strikes over pay\n\nThis article is more than 1 month old\n\nBMA announces action for 20-23 December and 3-9 January after breakdown of talks with government\n\n  * UK politics live – latest updates\n\n\n\nDenis Campbell and Andrew Gregory\n\nTue 5 Dec 2023 18.07 GMTFirst published on Tue 5 Dec 2023 13.18 GMT\n\n  *   *   * \n\n\nThe NHS will struggle to care properly for patients when junior doctors in England stage the longest strike in the service’s history this winter, hospital bosses have said after the collapse of pay talks.\n\nThe warning came after the British Medical Association (BMA) announced tens of thousands of junior doctors would walk out for three days later this month and another six days in January, at a time when the NHS comes under its most intense strain.\n\nThey will strike for 72 hours from 7am on 20 December until 7am on 23 December, and again for six days from 3 to 9 January.\n\n“This is the outcome that trust leaders were dreading. This will be the longest strike in NHS history, during the busiest and toughest time of the year for the NHS,” said Sir Julian Hartley, the chef executive of hospitals body NHS Providers. “These strikes will undermine efforts to cut waiting lists further, they’ll have a serious knock-on effect on services right across the NHS and they’ll impact the quality of care for patients.”\n\nThe BMA’s junior doctors committee (JDC) broke off talks with the Department of Health and Social Care (DHSC) when it offered only three percentage points more than the average 8.8% pay rise for this year it had already given junior doctors, who are mostly medics below consultant level.\n\nThe fresh nine days of strikes come on top of the 25 days of stoppages junior doctors have already mounted since they began striking in March in pursuit of their 35% pay claim.\n\nDr Robert Laurenson and Dr Vivek Trevedi, the JDC’s co-chairs, said: “After five weeks of intense talks the government was unable to present a credible offer on pay by the deadline. Instead we were offered an additional 3%, unevenly spread across doctors’ grades, which would still amount to pay cuts for many doctors this year.\n\n“It is clear the government is still not prepared to address the real-terms pay cut doctors have experienced since 2008.”\n\nVictoria Atkins, the new health and social care secretary, said the JDC’s decision was disappointing, given that the talks had resulted in “significant progress” on junior doctors’ pay and conditions.\n\nLaurenson and Trevedi added that “even though the [government’s] approach was more constructive, there was not enough on offer to shape a credible deal, which we hoped would end the dispute”.\n\nThe JDC’s move comes a week after consultants – senior hospital doctors – agreed the outline of a deal to end their dispute, which will be put to a ballot of BMA consultants.\n\nStrikes in the NHS, which have also included other staff groups including nurses, physiotherapists and paramedics, have led to more than a million appointments, procedures and surgeries being rescheduled – with some patients facing disruption on several occasions. The industrial action has cost the NHS more than £1bn.\n\nBut on Tuesday, the committee announced it had unanimously voted for further strike action after five weeks of talks between junior doctors and the government failed to result in a “credible offer” to end the pay dispute.\n\n> \U0001F4E2 STRIKE DATES ANNOUNCEMENT\U0001F4E2 Junior doctors in England to take further #PayRestoration industrial action.  \n>   \n> The first strike action will take place from 7am on 20 December to 7am on 23 December. The second will take place from 7am on 3 January until 7am on 9 January. pic.twitter.com/IGjXRX0nV4\n> \n> -- Junior Doctors (@BMA_JuniorDocs) December 5, 2023\n\nThe breakdown in talks came just days after the health secretary spoke of her “respect” for junior doctors in a move that highlighted a markedly different tone from her predecessor, Steve Barclay.\n\nAfter reaching agreement with consultants’ leaders she hoped to then also strike a deal with junior doctors, who make up about half the medical workforce. She had found the leaders of the BMA JDC to be “very constructive”, she said.\n\nSunak’s waiting list pledge ‘downgraded’ as NHS is told to control costs\n\nRead more\n\nThe co-chairs said it was “a great shame” that despite a more constructive approach from the government, there was “not enough on offer to shape a credible deal”.\n\n“Without enough progress by the deadline, we have no choice but to take action that demonstrates doctors are as determined as ever in reversing their pay cuts,” they added.\n\n“However, we can still avoid the need for these strikes. We will be ready and willing any time the government wants to talk. If a credible offer can be presented the day before, or even during any action, these strikes can be cancelled.”\n\nJunior doctors are requesting a 35% increase in pay. During the summer, the government said they would receive a 6% wage rise and £1,250.\n\nCutting waiting lists was one of five pledges that Rishi Sunak made at the start of the year, along with halving inflation this year, growing the economy, making sure national debt is falling, and passing new laws to stop small boat crossings.\n\nKeir Starmer has pointed out that waiting lists have gone up since the prime minister set the goal of reducing them.\n\nAt prime minister’s questions last month, the Labour leader said the NHS waiting list stood at 7.8 million – half a million more than in January.\n\nStrikes have been ongoing in the NHS since December 2022, leading to the cancellation or postponement of almost 1.1m appointments."
+result: |4
+    {
+      "facts": [
+        "Junior doctors in England plan to stage the longest strike in NHS history",
+        "Strike dates are set for 20-23 December and 3-9 January",
+        "Collapsed pay talks with government lead to the planned strike",
+        "Hospital bosses warn that patient care will be compromised",
+        "The breakdown of the negotiations came just days after the Health Secretary expressed respect for junior doctors",
+        "Junior doctors are asking for a 35% pay rise",
+        "Strikes have led to over a million appointments being rescheduled"
+      ],
+      "questions": [
+        {
+          "fact": "Junior doctors in England plan to stage the longest strike in NHS history",
+          "questions": [
+            {
+              "question": "When do junior doctors in England plan to stage the longest strike?",
+              "answer": "Junior doctors in England plan to stage the longest strike during the winter of the reported year."
+            },
+            {
+              "question": "How significant is the planned strike by junior doctors in terms of NHS history?",
+              "answer": "The planned strike by junior doctors is significant as it is set to be the longest in NHS history."
+            },
+            {
+              "question": "What is the purpose of junior doctors staging a strike?",
+              "answer": "Junior doctors are staging a strike to protest over pay and working conditions."
+            },
+            {
+              "question": "Why is the planned strike by junior doctors noteworthy?",
+              "answer": "The planned strike is noteworthy due to its unprecedented duration in the history of the NHS."
+            },
+            {
+              "question": "Who plans to stage the longest strike in NHS history?",
+              "answer": "Junior doctors in England plan to stage the longest strike in NHS history."
+            }
+          ]
+        },
+        {
+          "fact": "Strike dates are set for 20-23 December and 3-9 January",
+          "questions": [
+            {
+              "question": "When are the strike dates set by junior doctors?",
+              "answer": "The strike dates set by junior doctors are for 20-23 December and 3-9 January."
+            },
+            {
+              "question": "How were the strike dates determined by the junior doctors?",
+              "answer": "The strike dates were determined by the junior doctors after the breakdown of pay talks with the government."
+            },
+            {
+              "question": "What duration of time does the strike cover?",
+              "answer": "The strike covers a duration of 3 days in December and 6 days in January."
+            },
+            {
+              "question": "Why were the specific dates in December and January chosen for the strike?",
+              "answer": "The specific dates were chosen for the strike following the breakdown of negotiations and as a strategic choice likely to coincide with a period of high demand in the NHS."
+            },
+            {
+              "question": "Who set the strike dates for December and January?",
+              "answer": "The strike dates for December and January were set by the British Medical Association's junior doctors committee."
+            }
+          ]
+        },
+        {
+          "fact": "Collapsed pay talks with government lead to the planned strike",
+          "questions": [
+            {
+              "question": "When did the pay talks with the government collapse?",
+              "answer": "The pay talks with the government collapsed shortly before the planned strike dates were announced."
+            },
+            {
+              "question": "How did the collapse of pay talks with the government affect the junior doctors?",
+              "answer": "The collapse of pay talks with the government led the junior doctors to plan industrial action in the form of strikes."
+            },
+            {
+              "question": "What was the result of the collapsed pay talks with the government?",
+              "answer": "The result of the collapsed pay talks with the government was the planning of the longest strike in NHS history by junior doctors."
+            },
+            {
+              "question": "Why did pay talks between junior doctors and the government collapse?",
+              "answer": "Pay talks between junior doctors and the government collapsed due to the government's offer not meeting the doctors' demands for pay restoration."
+            },
+            {
+              "question": "Who was involved in the collapsed pay talks that led to the planned strike?",
+              "answer": "Junior doctors represented by the BMA and the Department of Health and Social Care were involved in the collapsed pay talks."
+            }
+          ]
+        },
+        {
+          "fact": "Hospital bosses warn that patient care will be compromised",
+          "questions": [
+            {
+              "question": "When did hospital bosses warn about compromised patient care?",
+              "answer": "Hospital bosses warned about compromised patient care following the announcement of the planned strikes by junior doctors."
+            },
+            {
+              "question": "How will patient care be compromised according to hospital bosses?",
+              "answer": "Patient care will be compromised due to the reduced workforce during the doctors' strikes and the resulting impact on service delivery."
+            },
+            {
+              "question": "What are hospital bosses warning about regarding the upcoming doctors' strike?",
+              "answer": "Hospital bosses are warning that the upcoming doctors' strike will lead to compromised patient care."
+            },
+            {
+              "question": "Why are hospital bosses concerned about patient care during the doctors' strike?",
+              "answer": "Hospital bosses are concerned because the strike will limit staff availability, thereby potentially reducing the quality of patient care."
+            },
+            {
+              "question": "Who has warned that the doctors' strike will compromise patient care?",
+              "answer": "Hospital bosses have warned that the doctors' strike will compromise patient care."
+            }
+          ]
+        },
+        {
+          "fact": "The breakdown of the negotiations came just days after the Health Secretary expressed respect for junior doctors",
+          "questions": [
+            {
+              "question": "When did the Health Secretary express respect for junior doctors?",
+              "answer": "The Health Secretary expressed respect for junior doctors just days before the breakdown of negotiations."
+            },
+            {
+              "question": "How did the Health Secretary express her respect for junior doctors?",
+              "answer": "The Health Secretary expressed her respect for junior doctors verbally in a statement."
+            },
+            {
+              "question": "What was the timing of the Health Secretary's respect for junior doctors in relation to the negotiation breakdown?",
+              "answer": "The Health Secretary's expression of respect for junior doctors occurred only days before the breakdown of the negotiations."
+            },
+            {
+              "question": "Why is the timing of the Health Secretary's respect for junior doctors notable?",
+              "answer": "The timing is notable because it contrasts with the subsequent collapse of negotiations, indicating a potential disconnect between the sentiment and the reality of the talks."
+            },
+            {
+              "question": "Who expressed respect for junior doctors shortly before the collapse of their pay negotiations?",
+              "answer": "The Health Secretary, Victoria Atkins, expressed respect for junior doctors shortly before the collapse of their pay negotiations."
+            }
+          ]
+        },
+        {
+          "fact": "Junior doctors are asking for a 35% pay rise",
+          "questions": [
+            {
+              "question": "When did junior doctors put forward their demand for a 35% pay rise?",
+              "answer": "Junior doctors put forward their demand for a 35% pay rise during the pay talks with the government which ultimately collapsed."
+            },
+            {
+              "question": "How much of a pay rise are junior doctors asking for?",
+              "answer": "Junior doctors are asking for a 35% pay rise."
+            },
+            {
+              "question": "What is the specific demand of junior doctors in their negotiations with the government?",
+              "answer": "In their negotiations with the government, junior doctors have demanded a 35% pay rise."
+            },
+            {
+              "question": "Why are junior doctors asking for a 35% pay rise?",
+              "answer": "Junior doctors are asking for a 35% pay rise to address what they see as pay cuts in real terms experienced since 2008."
+            },
+            {
+              "question": "Who is asking for a 35% pay rise?",
+              "answer": "Junior doctors in England are asking for a 35% pay rise."
+            }
+          ]
+        },
+        {
+          "fact": "Strikes have led to over a million appointments being rescheduled",
+          "questions": [
+            {
+              "question": "When have strikes led to over a million appointments being rescheduled?",
+              "answer": "Strikes have led to over a million appointments being rescheduled since they began in December 2022."
+            },
+            {
+              "question": "How have the strikes impacted NHS appointments?",
+              "answer": "The strikes have led to the rescheduling of over a million appointments in the NHS."
+            },
+            {
+              "question": "What is the scale of the impact of strikes on NHS appointments?",
+              "answer": "The impact of the strikes on NHS appointments is significant, with over a million being rescheduled."
+            },
+            {
+              "question": "Why have over a million appointments been rescheduled due to strikes?",
+              "answer": "Over a million appointments have been rescheduled due to strikes as a result of the reduced workforce and disruptions in services."
+            },
+            {
+              "question": "Who has been affected by the rescheduling of over a million appointments due to strikes?",
+              "answer": "Patients who had appointments in the NHS have been affected by the rescheduling caused by strikes."
+            }
+          ]
+        }
+      ]
+    }
+latency: 152314
