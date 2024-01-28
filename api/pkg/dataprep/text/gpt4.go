@@ -69,22 +69,8 @@ ONLY include the JSON array of questions and answers.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
-This DOCUMENT_ID is %s
-This DOCUMENT_GROUP_ID is %s
-
-In every question and answer, you MUST reference the DOCUMENT_ID and DOCUMENT_GROUP_ID.
-
-For example:
-Question: In document A1B2C3 (document group B2C3D4), what has Kier Starmer pointed out regarding NHS waiting lists?
-Answer: In document A1B2C3 (document group B2C3D4), Kier Starmer has pointed out that NHS waiting lists have increased since the prime minister set the goal of reducing them.
-
-In the first five question-answer pairs, summarize the document, especially based on the document's title. For example:
-
-Question: In document A1B2C3 (document group B2C3D4), what action are the doctors going to do?
-Answer: Document A1B2C3 (document group B2C3D4) talks about how the junior doctors are going to stage more strikes.
-
 Here is the context:
-%s`, options.QuestionsPerChunk, options.QuestionsPerChunk, documentID, documentGroupID, chunk)
+%s`, options.QuestionsPerChunk, options.QuestionsPerChunk, chunk)
 	}
 
 	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {
