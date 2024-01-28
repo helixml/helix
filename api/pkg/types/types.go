@@ -448,3 +448,25 @@ type DataPrepTextQuestion struct {
 type Counter struct {
 	Count int64 `json:"count"`
 }
+
+type ToolType string
+
+const (
+	ToolTypeAPI      ToolType = "api"
+	ToolTypeFunction ToolType = "function"
+)
+
+type Tool struct {
+	ID      string    `json:"id"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string
+	Description string
+	ToolType    ToolType
+	// TODO: tool configuration
+	// such as OpenAPI spec, function code, etc.
+}
