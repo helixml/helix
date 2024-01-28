@@ -299,6 +299,7 @@ prompts:
 
  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
  - name: entities-relationships
+   # maybe we need a chunkSize per prompt?
    system: |
     You are an intelligent professor. You create questions and answers from the given document for your students.
    user: |

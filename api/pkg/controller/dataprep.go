@@ -324,7 +324,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
 			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID)
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
