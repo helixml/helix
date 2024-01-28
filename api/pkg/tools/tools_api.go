@@ -86,7 +86,7 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 		return openai.ChatCompletionMessage{}, err
 	}
 
-	jsonSpec, err := convertToOpenAPIV3(tool)
+	jsonSpec, err := stripOpenAPISchema(tool, "")
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
@@ -111,7 +111,18 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 	}, nil
 }
 
-func convertToOpenAPIV3(tool *types.Tool) (string, error) {
+const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
+
+const apiUserPrompt = `API JSON schema: {{.Schema}}
+
+User's input: {{ .Message }}
+
+Based on the information provided, construct a valid golang JSON map (map[string]string) object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
+
+Your output must be a valid json, without any commentary
+`
+
+func stripOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -129,13 +140,32 @@ func convertToOpenAPIV3(tool *types.Tool) (string, error) {
 	return string(jsonSpec), nil
 }
 
-const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
+func getActionsFromSchema(tool *types.Tool) ([]*types.ToolApiAction, error) {
+	loader := openapi3.NewLoader()
 
-const apiUserPrompt = `API JSON schema: {{.Schema}}
+	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
+	}
 
-User's input: {{ .Message }}
+	var actions []*types.ToolApiAction
 
-Based on the information provided, construct a valid golang JSON map (map[string]string) object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
+	for path, pathItem := range schema.Paths.Map() {
 
-Your output must be a valid json, without any commentary
-`
+		for method, operation := range pathItem.Operations() {
+			description := operation.Summary
+			if description == "" {
+				description = operation.Description
+			}
+
+			actions = append(actions, &types.ToolApiAction{
+				Name:        operation.OperationID,
+				Description: description,
+				Path:        path,
+				Method:      method,
+			})
+		}
+	}
+
+	return actions, nil
+}
