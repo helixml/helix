@@ -1,7 +1,7 @@
 # The following prompts are for qapair generation. We provide several of them.
 
 concurrency: 20
-chunk_size: 8192
+chunk_size: 16384
 num_questions: 20
 
 prompts:
@@ -42,6 +42,100 @@ prompts:
     ```
    user: |
     For the first and only question, summarize the entire document.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+ - name: title-only
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "What is the title of the document?",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    Ask one question: "what is the title of the document?"
+
+    Ask that question EXACTLY and no other question. DO NOT include the title of the document in the question.
+
+    In the answer, write the title of the document verbatim.
+
+    The title will often start with a markdown heading symbol #. Don't include the # in the answer, but use it to identify the title in the text below.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+
+ - name: metadata
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "What is the title of the document?",
+        "answer": "…"
+      },
+      {
+        "question": "What is the date of the document?",
+        "answer": "…"
+      },
+      {
+        "question": "Who are the authors of the document?",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    Ask one question: "what is the title of the document?"
+
+    Ask that question EXACTLY and no other question. DO NOT include the title of the document in the question.
+
+    In the answer, write the title of the document verbatim.
+
+    The title will often start with a markdown heading symbol #. Don't include the # in the answer, but use it to identify the title in the text below.
+
+    Then, write a second question which is the date of the document.
+
+    Then, write a third question which is the author or authors of the document.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+
+ - name: title-questions
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "title": "Junior doctors in England to stage more strikes over pay",
+        "question": "What are the doctors going to do?",
+        "answer": "The doctors are going to stage more strikes over pay"
+      }
+    ]
+    ```
+   user: |
+    First, identify the title of the document, usually identified by a line starting with a markdown symbol #.
+    
+    Generate questions and answers about who or what is going to do some action based ONLY on the title. For example, given the document title "Junior doctors in England to stage more strikes over pay", you should generate the question: "What are the doctors going to do?" and the answer "The doctors are going to stage more strikes over pay"
+
+    Make the questions short and vague. Do not include details in the question. When entities are described in specific terms in the document, refer to them broadly. So for example refer to "junior doctors" as "doctors".
+
+    Do NOT give the answer in the question. For example, ask "What are doctors going to do?" rather than "Who is going to stage more strikes?"
+
+    Remember, keep the questions vague and short.
+    For example, do NOT say "What are the doctors in England going to do regarding their pay?"
+    Instead, say "What are the doctors going to do?"
 
     Here is the document:
     {{.DocumentChunk}}
