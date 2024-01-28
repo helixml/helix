@@ -1,6 +1,10 @@
 package tools
 
-import openai "github.com/sashabaranov/go-openai"
+import (
+	"net/http"
+
+	openai "github.com/sashabaranov/go-openai"
+)
 
 type Config struct {
 	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
@@ -10,8 +14,9 @@ type Config struct {
 }
 
 type ChainStrategy struct {
-	cfg       *Config
-	apiClient *openai.Client
+	cfg        *Config
+	apiClient  *openai.Client
+	httpClient *http.Client
 }
 
 func NewChainStrategy(cfg *Config) (*ChainStrategy, error) {
@@ -19,7 +24,8 @@ func NewChainStrategy(cfg *Config) (*ChainStrategy, error) {
 	config.BaseURL = cfg.OpenAIBaseURL
 
 	return &ChainStrategy{
-		cfg:       cfg,
-		apiClient: openai.NewClientWithConfig(config),
+		cfg:        cfg,
+		apiClient:  openai.NewClientWithConfig(config),
+		httpClient: http.DefaultClient,
 	}, nil
 }
