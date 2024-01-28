@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"testing"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAction_CallAPI tests query formation for a single API call to
@@ -130,6 +134,39 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 
 	spew.Dump(resp)
 
+}
+
+func Test_getActionsFromSchema(t *testing.T) {
+	actions, err := getActionsFromSchema(&types.Tool{
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				Schema: petStoreApiSpec,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, actions, 3)
+
+	assert.Contains(t, actions, &types.ToolApiAction{
+		Name:        "listPets",
+		Description: "List all pets",
+		Method:      "GET",
+		Path:        "/pets",
+	})
+
+	assert.Contains(t, actions, &types.ToolApiAction{
+		Name:        "createPets",
+		Description: "Create a pet",
+		Method:      "POST",
+		Path:        "/pets",
+	})
+
+	assert.Contains(t, actions, &types.ToolApiAction{
+		Name:        "showPetById",
+		Description: "Info for a specific pet",
+		Method:      "GET",
+		Path:        "/pets/{petId}",
+	})
 }
 
 const petStoreApiSpec = `openapi: "3.0.0"
