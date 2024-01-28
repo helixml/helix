@@ -172,26 +172,28 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		// we handle our own auth from inside this function
 		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
 		// that will extract the bearer token into a user id for us
-		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// if the session is "shared" then anyone can see the files inside the session
-			// if the user is admin then can see anything
-			// if the user is runner then can see anything
-			// if the path is part of the user path then can see it
-			// otherwise access denied
-			canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(
+			http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// if the session is "shared" then anyone can see the files inside the session
+				// if the user is admin then can see anything
+				// if the user is runner then can see anything
+				// if the path is part of the user path then can see it
+				// if path has presign URL
+				// otherwise access denied
+				canAccess, err := apiServer.isFilestoreRouteAuthorized(r)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+				if !canAccess {
+					http.Error(w, "Access denied", http.StatusForbidden)
+					return
+				}
 
-			if !canAccess {
-				http.Error(w, "Access denied", http.StatusForbidden)
-				return
-			}
-
-			fileServer.ServeHTTP(w, r)
-		})))
+				fileServer.ServeHTTP(w, r)
+			})))
 	}
 
 	// OpenAI API compatible routes
