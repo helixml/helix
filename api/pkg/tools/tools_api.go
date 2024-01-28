@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -68,7 +68,7 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 	}
 	defer resp.Body.Close()
 
-	bts, err := ioutil.ReadAll(resp.Body)
+	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
