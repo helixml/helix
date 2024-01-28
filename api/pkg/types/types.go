@@ -464,11 +464,32 @@ type Tool struct {
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType   OwnerType `json:"owner_type"`
-	Name        string
-	Description string
-	ToolType    ToolType
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	ToolType    ToolType  `json:"tool_type"`
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
+	Config ToolConfig `json:"config"`
+}
+
+type ToolConfig struct {
+	API *ToolApiConfig `json:"api"`
+}
+
+type ToolApiConfig struct {
+	Method     string            `json:"method"`
+	URL        string            `json:"url"`
+	BodySchema string            `json:"body_schema"` // For POST/PUT request
+	Headers    map[string]string `json:"headers"`
+	Parameters []*APIParameter   `json:"parameters"`
+}
+
+type APIParameter struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Value       string `json:"value"`     // If provided, AI is not allowed to set this parameter
+	In          string `json:"in"`        // e.g. path, query, body
+	AutoFill    bool   `json:"auto_fill"` // By LLM
 }
 
 type Flow struct {
