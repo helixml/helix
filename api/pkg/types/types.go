@@ -500,14 +500,14 @@ type ToolApiAction struct {
 // 	// TODO: type (string, int)
 // }
 
-type APIParameterIn string
+// type APIParameterIn string
 
-const (
-	APIParameterInPath   APIParameterIn = "path"
-	APIParameterInQuery  APIParameterIn = "query"
-	APIParameterInBody   APIParameterIn = "body"
-	APIParameterInHeader APIParameterIn = "header"
-)
+// const (
+// 	APIParameterInPath   APIParameterIn = "path"
+// 	APIParameterInQuery  APIParameterIn = "query"
+// 	APIParameterInBody   APIParameterIn = "body"
+// 	APIParameterInHeader APIParameterIn = "header"
+// )
 
 type Flow struct {
 	ID      string    `json:"id"`
