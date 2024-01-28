@@ -470,3 +470,15 @@ type Tool struct {
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
 }
+
+type Flow struct {
+	ID      string    `json:"id"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string
+	Description string
+}

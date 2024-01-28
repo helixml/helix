@@ -7,28 +7,11 @@ import (
 	"html/template"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
-
-type Config struct {
-	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
-	OpenAIBaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
-	Model         string `envconfig:"OPENAI_MODEL" default:""`
-}
-
-type ChainStrategy struct {
-	apiClient *openai.Client
-}
-
-func NewChainStrategy(cfg *Config) (*ChainStrategy, error) {
-	config := openai.DefaultConfig(cfg.OpenAIApiKey)
-	config.BaseURL = cfg.OpenAIBaseURL
-
-	return &ChainStrategy{
-		apiClient: openai.NewClientWithConfig(config),
-	}, nil
-}
 
 type IsActionableResponse struct {
 	NeedsApi      string `json:"needs_api"`
@@ -98,6 +81,12 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response from inference API: %w", err)
 	}
+
+	log.Info().
+		Str("user_input", currentMessage).
+		Str("justification", actionableResponse.Justification).
+		Str("needs_api", actionableResponse.NeedsApi).
+		Msg("is_actionable")
 
 	return &actionableResponse, nil
 }
