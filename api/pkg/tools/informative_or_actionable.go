@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -81,8 +80,6 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		},
 	)
 
-	spew.Dump(messages)
-
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
@@ -95,9 +92,6 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
-
-	fmt.Println("=================")
-	spew.Dump(resp)
 
 	var actionableResponse IsActionableResponse
 	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &actionableResponse)
