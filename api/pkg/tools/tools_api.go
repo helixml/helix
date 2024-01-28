@@ -16,8 +16,9 @@ import (
 )
 
 type RunActionResponse struct {
-	Message string `json:"message"`
-	Error   string `json:"error"`
+	Message    string `json:"message"`     // Interpreted message
+	RawMessage string `json:"raw_message"` // Raw message from the API
+	Error      string `json:"error"`
 }
 
 func (c *ChainStrategy) RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
@@ -73,9 +74,12 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	// TODO: interpret msg
+
 	return &RunActionResponse{
-		Message: string(bts),
-		Error:   "", // TODO
+		Message:    string(bts),
+		RawMessage: string(bts),
+		Error:      "", // TODO
 	}, nil
 }
 
