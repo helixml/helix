@@ -27,7 +27,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		}, nil
 	}
 
-	systemPrompt, err := c.getSystemPrompt(tools)
+	systemPrompt, err := c.getActionableSystemPrompt(tools)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
@@ -68,7 +68,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     openai.GPT4Turbo1106,
+			Model:     c.cfg.ToolsModel,
 			Messages:  messages,
 		},
 	)
@@ -91,7 +91,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	return &actionableResponse, nil
 }
 
-func (c *ChainStrategy) getSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
 	// Render template
 	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
 	if err != nil {
