@@ -46,32 +46,6 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
- - name: title-only
-   system: |
-    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
-
-    For example:
-    ```json
-    [
-      {
-        "question": "What is the title of the document?",
-        "answer": "…"
-      }
-    ]
-    ```
-   user: |
-    Ask one question: "what is the title of the document?"
-
-    Ask that question EXACTLY and no other question. DO NOT include the title of the document in the question.
-
-    In the answer, write the title of the document verbatim.
-
-    The title will often start with a markdown heading symbol #. Don't include the # in the answer, but use it to identify the title in the text below.
-
-    Here is the document:
-    {{.DocumentChunk}}
-
-
  - name: metadata
    system: |
     You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
