@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	golden "gotest.tools/v3/golden"
 )
 
 // TestAction_CallAPI tests query formation for a single API call to
@@ -93,7 +94,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage)
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
 
 	spew.Dump(resp)
@@ -129,7 +130,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage)
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
 
 	spew.Dump(resp)
@@ -167,6 +168,19 @@ func Test_getActionsFromSchema(t *testing.T) {
 		Method:      "GET",
 		Path:        "/pets/{petId}",
 	})
+}
+
+func Test_filterOpenAPISchema_GetBody(t *testing.T) {
+	filtered, err := filterOpenAPISchema(&types.Tool{
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				Schema: petStoreApiSpec,
+			},
+		},
+	}, "showPetById")
+	require.NoError(t, err)
+
+	golden.Assert(t, filtered, "filtered-one-pet.golden.json")
 }
 
 const petStoreApiSpec = `openapi: "3.0.0"

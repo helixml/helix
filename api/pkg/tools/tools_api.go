@@ -34,13 +34,13 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 	return nil, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	userPrompt, err := c.getApiUserPrompt(tool, history, currentMessage)
+	userPrompt, err := c.getApiUserPrompt(tool, history, currentMessage, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare user prompt: %w", err)
 	}
@@ -79,14 +79,14 @@ func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool) (openai.ChatComplet
 	}, nil
 }
 
-func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Interaction, currentMessage string) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Interaction, currentMessage, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
 	tmpl, err := template.New("api_params").Parse(apiUserPrompt)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
 
-	jsonSpec, err := stripOpenAPISchema(tool, "")
+	jsonSpec, err := filterOpenAPISchema(tool, action)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
@@ -122,7 +122,7 @@ Based on the information provided, construct a valid golang JSON map (map[string
 Your output must be a valid json, without any commentary
 `
 
-func stripOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
+func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -130,9 +130,51 @@ func stripOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 		return "", fmt.Errorf("failed to load openapi spec: %w", err)
 	}
 
-	schema.Paths.Map()
+	filtered := &openapi3.T{}
+	filtered.Info = schema.Info
+	filtered.OpenAPI = schema.OpenAPI
+	filtered.Paths = &openapi3.Paths{}
+	filtered.Components = &openapi3.Components{}
 
-	jsonSpec, err := schema.MarshalJSON()
+	var usedRefs []string
+
+	for path, pathItem := range schema.Paths.Map() {
+		for method, operation := range pathItem.Operations() {
+			if operation.OperationID == operationId {
+				// filtered.addOperation(path, method, operation)
+				filtered.AddOperation(path, method, operation)
+
+				for _, resp := range operation.Responses.Map() {
+					jsonBody, ok := resp.Value.Content["application/json"]
+					if !ok {
+						continue
+					}
+
+					if jsonBody.Schema == nil {
+						continue
+					}
+
+					if jsonBody.Schema.Ref != "" {
+						parts := strings.Split(jsonBody.Schema.Ref, "/")
+						if len(parts) > 0 {
+							usedRefs = append(usedRefs, parts[len(parts)-1])
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(usedRefs) > 0 {
+		filtered.Components.Schemas = make(map[string]*openapi3.SchemaRef)
+
+		for _, ref := range usedRefs {
+			filtered.Components.Schemas[ref] = schema.Components.Schemas[ref]
+		}
+	}
+
+	jsonSpec, err := json.MarshalIndent(filtered, "", "  ")
+	// jsonSpec, err := filtered.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal openapi spec: %w", err)
 	}
