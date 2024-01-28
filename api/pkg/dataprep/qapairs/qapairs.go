@@ -270,7 +270,8 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	userPrompt := buf2.String()
 
 	startTime := time.Now()
-	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt)
+	debug := fmt.Sprintf("prompt %s", prompt.Name)
+	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +324,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(apiUrl, token, model, system, user string) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.DataPrepTextQuestionRaw, error) {
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
@@ -350,7 +351,7 @@ func chatWithModel(apiUrl, token, model, system, user string) ([]types.DataPrepT
 	}
 
 	answer := resp.Choices[0].Message.Content
-	log.Printf("Raw response: %s\n", answer)
+	log.Printf("Raw response to %s: %s\n", debug, answer)
 	if strings.Contains(answer, "```json") {
 		answer = strings.Split(answer, "```json")[1]
 	}
