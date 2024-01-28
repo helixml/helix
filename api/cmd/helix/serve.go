@@ -59,7 +59,7 @@ func NewServeOptions() (*ServeOptions, error) {
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
-			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT4))),
+			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_Dynamic))),
 			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			// we are exceeding openAI window size at > 30 questions
@@ -460,6 +460,9 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 			if err != nil {
 				return nil, nil, err
 			}
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_Dynamic {
+			// empty values = use defaults
+			questionGenerator = text.NewDynamicDataPrep("", []string{})
 		} else {
 			return nil, nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
 		}

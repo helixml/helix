@@ -16,18 +16,15 @@ type DynamicDataPrep struct {
 
 func NewDynamicDataPrep(target string, prompts []string) *DynamicDataPrep {
 	if target == "" && len(prompts) == 0 {
+		allPrompts, err := qapairs.AllPrompts()
+		if err != nil {
+			panic(err)
+		}
+
 		// use sensible defaults
 		return &DynamicDataPrep{
-			Target: "together-mixtral",
-			Prompts: []string{
-				"summaries",
-				"you-are-generating-fine-tuning-data",
-				"simple-quiz",
-				"entities-specific-to-broad",
-				"important-facts",
-				"entities-relationships",
-				"origial-prompt",
-			},
+			Target:  "together-mixtral",
+			Prompts: allPrompts,
 		}
 	}
 
@@ -86,7 +83,6 @@ func (d *DynamicDataPrep) ConvertChunk(
 		})
 	}
 	return res, nil
-
 }
 
 func (d *DynamicDataPrep) GetConcurrency() int {
