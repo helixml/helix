@@ -57,3 +57,26 @@ func (suite *ActionTestSuite) TestIsActionable() {
 	suite.Equal("yes", resp.NeedsApi)
 	suite.Equal("weatherAPI", resp.Api)
 }
+
+func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
+	tools := []*types.Tool{
+		{
+			Name:        "weatherAPI",
+			Description: "Weather API that can return the current weather for a given location",
+		},
+		{
+			Name:        "productsAPI",
+			Description: "database API that can be used to query products information in the database",
+		},
+	}
+
+	history := []*types.Interaction{}
+
+	currentMessage := "What's the reason why oceans have less fish??"
+
+	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	suite.NoError(err)
+
+	suite.Equal("no", resp.NeedsApi)
+	suite.Equal("", resp.Api)
+}
