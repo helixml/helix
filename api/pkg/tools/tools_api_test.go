@@ -134,7 +134,34 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 	suite.NoError(err)
 
 	spew.Dump(resp)
+}
 
+func (suite *ActionTestSuite) Test_prepareRequest_Path() {
+	tool := &types.Tool{
+		Name:        "getPetDetail",
+		Description: "pet store API that is used to get details for the specified pet's ID",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:    "https://example.com",
+				Schema: petStoreApiSpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]string{
+		"petId": "99944",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "showPetById", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets/99944", req.URL.String())
+	suite.Equal("GET", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
