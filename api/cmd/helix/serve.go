@@ -56,6 +56,8 @@ func NewServeOptions() (*ServeOptions, error) {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
 	}
 
+	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
+
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
@@ -67,6 +69,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
+			FilestorePresignSecret:       filestoreSignSecret,
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
@@ -323,7 +326,7 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 				return nil, err
 			}
 		}
-		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL))
+		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL), options.ControllerOptions.FilestorePresignSecret)
 	} else if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalGCS {
 		if options.FilestoreOptions.GCSKeyBase64 != "" {
 			keyfile, err := func() (string, error) {

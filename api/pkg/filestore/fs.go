@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 )
@@ -14,12 +15,14 @@ import (
 type FileSystemStorage struct {
 	basePath string
 	baseURL  string
+	secret   string
 }
 
-func NewFileSystemStorage(basePath string, baseURL string) *FileSystemStorage {
+func NewFileSystemStorage(basePath string, baseURL, secret string) *FileSystemStorage {
 	return &FileSystemStorage{
 		basePath: basePath,
 		baseURL:  baseURL,
+		secret:   secret,
 	}
 }
 
@@ -64,6 +67,10 @@ func (s *FileSystemStorage) Get(ctx context.Context, path string) (FileStoreItem
 		Created:   info.ModTime().Unix(),
 		Size:      info.Size(),
 	}, nil
+}
+
+func (s *FileSystemStorage) SignedURL(ctx context.Context, path string) (string, error) {
+	return PresignURL(s.baseURL, "/"+path, s.secret, 20*time.Minute), nil
 }
 
 func (s *FileSystemStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
