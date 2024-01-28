@@ -21,7 +21,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.0.1
-	github.com/sashabaranov/go-openai v1.17.3
+	github.com/sashabaranov/go-openai v1.19.1
 )
 
 require (
