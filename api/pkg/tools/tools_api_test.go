@@ -64,7 +64,7 @@ components:
 				description:
           type: string
 */
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem() {
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleParam() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
 		suite.Equal("GET", r.Method)
@@ -79,14 +79,8 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem
 		ToolType:    types.ToolTypeAPI,
 		Config: types.ToolConfig{
 			API: &types.ToolApiConfig{
-				URL: ts.URL + "/pets/{petId}",
-				Parameters: []*types.APIParameter{
-					{
-						Name:        "petId",
-						Description: "The id of the pet to retrieve",
-						AutoFill:    true,
-					},
-				},
+				URL:    ts.URL,
+				Schema: miniPetStoreApiSpec,
 			},
 		},
 	}
@@ -100,6 +94,16 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem
 
 	spew.Dump(resp)
 
+	suite.Require().Len(resp, 1, "expected to find a single parameter")
+	suite.Equal(resp["petId"], "55443")
+}
+
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_SingleParam() {
+	// TODO
+}
+
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
+	// TODO
 }
 
 func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
@@ -115,18 +119,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		Name:        "getPetDetail",
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
-		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
-				URL: ts.URL + "/pets/{petId}",
-				Parameters: []*types.APIParameter{
-					{
-						Name:        "petId",
-						Description: "The id of the pet to retrieve",
-						AutoFill:    true,
-					},
-				},
-			},
-		},
 	}
 
 	history := []*types.Interaction{}
@@ -139,3 +131,187 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 	spew.Dump(resp)
 
 }
+
+const petStoreApiSpec = `openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Swagger Petstore
+  license:
+    name: MIT
+servers:
+  - url: http://petstore.swagger.io/v1
+paths:
+  /pets:
+    get:
+      summary: List all pets
+      operationId: listPets
+      tags:
+        - pets
+      parameters:
+        - name: limit
+          in: query
+          description: How many items to return at one time (max 100)
+          required: false
+          schema:
+            type: integer
+            maximum: 100
+            format: int32
+      responses:
+        '200':
+          description: A paged array of pets
+          headers:
+            x-next:
+              description: A link to the next page of responses
+              schema:
+                type: string
+          content:
+            application/json:    
+              schema:
+                $ref: "#/components/schemas/Pets"
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: Create a pet
+      operationId: createPets
+      tags:
+        - pets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pet'
+        required: true
+      responses:
+        '201':
+          description: Null response
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /pets/{petId}:
+    get:
+      summary: Info for a specific pet
+      operationId: showPetById
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The id of the pet to retrieve
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Expected response to a valid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        tag:
+          type: string
+    Pets:
+      type: array
+      maxItems: 100
+      items:
+        $ref: "#/components/schemas/Pet"
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+`
+
+const miniPetStoreApiSpec = `openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: Swagger Petstore
+  license:
+    name: MIT
+servers:
+  - url: http://petstore.swagger.io/v1
+paths:  
+  /pets/{petId}:
+    get:
+      summary: Info for a specific pet
+      operationId: showPetById
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The id of the pet to retrieve
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Expected response to a valid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        tag:
+          type: string
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+`

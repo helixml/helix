@@ -477,20 +477,37 @@ type ToolConfig struct {
 }
 
 type ToolApiConfig struct {
-	Method     string            `json:"method"`
-	URL        string            `json:"url"`
-	BodySchema string            `json:"body_schema"` // For POST/PUT request
-	Headers    map[string]string `json:"headers"`
-	Parameters []*APIParameter   `json:"parameters"`
+	URL     string            `json:"url"` // Server override
+	Schema  string            `json:"schema"`
+	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
+	Actions []*ToolApiAction  `json:"actions"` // Read-only, parsed from schema on creation
 }
 
-type APIParameter struct {
+// ToolApiConfig is parsed from the OpenAPI spec
+type ToolApiAction struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Value       string `json:"value"`     // If provided, AI is not allowed to set this parameter
-	In          string `json:"in"`        // e.g. path, query, body
-	AutoFill    bool   `json:"auto_fill"` // By LLM
+	Method      string `json:"method"`
+	Path        string `json:"path"`
 }
+
+// type APIParameter struct {
+// 	Name        string         `json:"name"`
+// 	Description string         `json:"description"`
+// 	Value       string         `json:"value"`     // If provided, AI is not allowed to set this parameter
+// 	In          APIParameterIn `json:"in"`        // e.g. path, query, body
+// 	AutoFill    bool           `json:"auto_fill"` // By LLM
+// 	// TODO: type (string, int)
+// }
+
+type APIParameterIn string
+
+const (
+	APIParameterInPath   APIParameterIn = "path"
+	APIParameterInQuery  APIParameterIn = "query"
+	APIParameterInBody   APIParameterIn = "body"
+	APIParameterInHeader APIParameterIn = "header"
+)
 
 type Flow struct {
 	ID      string    `json:"id"`

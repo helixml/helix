@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/types"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -111,50 +112,21 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 }
 
 func convertToOpenAPIV3(tool *types.Tool) (string, error) {
-	// spec := openapi3.T{}
-	// spec.Info = &openapi3.Info{
-	// 	Title:       tool.Name,
-	// 	Description: tool.Description,
-	// }
+	loader := openapi3.NewLoader()
 
-	// // Parse tool.Config.API.URL to get the path
-	// u, err := url.Parse(tool.Config.API.URL)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to parse url '%s': %w", tool.Config.API.URL, err)
-	// }
+	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
+	if err != nil {
+		return "", fmt.Errorf("failed to load openapi spec: %w", err)
+	}
 
-	// op := openapi3.NewOperation()
+	schema.Paths.Map()
 
-	// for _, param := range tool.Config.API.Parameters {
+	jsonSpec, err := schema.MarshalJSON()
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal openapi spec: %w", err)
+	}
 
-	// }
-
-	// spec.AddOperation(u.Path, tool.Config.API.Method, op)
-
-	// // operation := openapi3.NewOperation()
-	// // pathItem.Post = operation
-
-	// requestBody := openapi3.NewRequestBody().
-	// 	WithDescription("Your request body description").
-	// 	WithJSONSchema(openapi3.NewSchema().
-	// 		WithType("object").
-	// 		WithProperties(map[string]*openapi3.SchemaRef{
-	// 			"exampleField": openapi3.NewSchemaRef("",
-	// 				openapi3.NewStringSchema()),
-	// 		}),
-	// 	)
-
-	// operation.RequestBody = &openapi3.RequestBodyRef{
-	// 	Value: requestBody,
-	// }
-
-	// jsonSpec, err := spec.MarshalJSON()
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to marshal openapi spec: %w", err)
-	// }
-
-	// return string(jsonSpec), nil
-	return exampleSpec, nil
+	return string(jsonSpec), nil
 }
 
 const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
@@ -167,55 +139,3 @@ Based on the information provided, construct a valid golang JSON map (map[string
 
 Your output must be a valid json, without any commentary
 `
-
-const exampleSpec = `openapi: "3.0.0"
-info:
-  version: 1.0.0
-  title: Swagger Petstore
-  license:
-    name: MIT
-servers:
-  - url: http://petstore.swagger.io/v1
-/pets/{petId}:
-  get:
-    summary: Info for a specific pet
-    operationId: showPetById
-    tags:
-      - pets
-    parameters:
-      - name: petId
-        in: path
-        required: true
-        description: The id of the pet to retrieve
-        schema:
-          type: string
-    responses:
-      '200':
-        description: Expected response to a valid request
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Pet"
-      default:
-        description: unexpected error
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Error"
-components:
-  schemas:
-    Pet:
-      type: object
-      required:
-        - id
-        - name
-      properties:
-        id:
-          type: integer
-          format: int64
-        name:
-          type: string
-        tag:
-          type: string
-				description:
-          type: string`
