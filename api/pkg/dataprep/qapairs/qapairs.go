@@ -35,7 +35,9 @@ type Prompt struct {
 
 type Text struct {
 	Name string `yaml:"name"`
-	File string `yaml:"file"`
+	// either File or Contents should be non-empty
+	File     string `yaml:"file"`
+	Contents string `yaml:"contents"`
 }
 
 type Log struct {
@@ -50,9 +52,74 @@ type Log struct {
 }
 
 type Config struct {
-	Prompts []Prompt `yaml:"prompts"`
-	Targets []Target `yaml:"targets"`
-	Texts   []Text   `yaml:"texts"`
+	Prompts      []Prompt `yaml:"prompts"`
+	Targets      []Target `yaml:"targets"`
+	Texts        []Text   `yaml:"texts"`
+	Concurrency  int      `yaml:"concurrency"`
+	ChunkSize    int      `yaml:"chunk_size"`
+	NumQuestions int      `yaml:"num_questions"`
+}
+
+// TODO: maybe optimize to not read the yaml on every call
+
+func GetNumQuestions() (int, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		return 0, err
+	}
+	return config.NumQuestions, nil
+}
+
+func GetConcurrency() (int, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		return 0, err
+	}
+	return config.Concurrency, nil
+}
+
+func GetChunkSize() (int, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		return 0, err
+	}
+	return config.ChunkSize, nil
+}
+
+func FindPrompt(name string) (Prompt, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, prompt := range config.Prompts {
+		if prompt.Name == name {
+			return prompt, nil
+		}
+	}
+
+	return Prompt{}, fmt.Errorf("Could not find prompt with name %s", name)
+}
+
+func FindTarget(name string) (Target, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, target := range config.Targets {
+		if target.Name == name {
+			return target, nil
+		}
+	}
+
+	log.Fatalf("Could not find target with name %s", name)
+	return Target{}, fmt.Errorf("Could not find target with name %s", name)
 }
 
 func Run(targetFilter, promptFilter, textFilter []string) {
@@ -139,9 +206,15 @@ type TemplateData struct {
 func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
 	// Perform the query for the given target and prompt
 
-	contents, err := loadFile(text.File)
-	if err != nil {
-		return nil, err
+	var contents string
+	var err error
+	if text.Contents != "" {
+		contents = text.Contents
+	} else {
+		contents, err = loadFile(text.File)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if documentID == "" {
@@ -151,7 +224,10 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 		documentGroupID = "group123"
 	}
 	if numQuestions == 0 {
-		numQuestions = 20
+		numQuestions, err = GetNumQuestions()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	tmplData := TemplateData{
