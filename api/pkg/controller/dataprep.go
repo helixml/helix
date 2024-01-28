@@ -287,10 +287,6 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	// XXX: getChunksToProcess checks whether it's processed chunks based on
-	// PromptName, but it hasn't been set yet, need to re-order (or use a
-	// different type for expandedChunks so we can have the compiler enforce
-	// sanity)...
 	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
