@@ -64,7 +64,45 @@ components:
 				description:
           type: string
 */
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_SingleItem() {
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleItem() {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite.Equal("/pets/55443", r.URL.Path)
+		suite.Equal("GET", r.Method)
+
+		fmt.Fprintln(w, "{\"id\": 55443, \"name\": \"doggie\", \"tag\": \"dog\", \"description\": \"a brown dog\"}")
+	}))
+	defer ts.Close()
+
+	getPetDetailsAPI := &types.Tool{
+		Name:        "getPetDetail",
+		Description: "pet store API that is used to get details for the specified pet's ID",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL: ts.URL + "/pets/{petId}",
+				Parameters: []*types.APIParameter{
+					{
+						Name:        "petId",
+						Description: "The id of the pet to retrieve",
+						AutoFill:    true,
+					},
+				},
+			},
+		},
+	}
+
+	history := []*types.Interaction{}
+
+	currentMessage := "Can you please give me the details for pet 55443?"
+
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage)
+	suite.NoError(err)
+
+	spew.Dump(resp)
+
+}
+
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
 		suite.Equal("GET", r.Method)
