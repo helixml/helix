@@ -98,12 +98,34 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 		return openai.ChatCompletionMessage{}, err
 	}
 
+	var modelTools []*modelTool
+
+	for _, tool := range tools {
+		switch tool.ToolType {
+		case types.ToolTypeAPI:
+			// For APIs we need to add all the actions that have been parsed
+			// from the OpenAPI spec
+			for _, action := range tool.Config.API.Actions {
+				modelTools = append(modelTools, &modelTool{
+					Name:        action.Name,
+					Description: action.Description,
+				})
+			}
+		case types.ToolTypeFunction:
+			modelTools = append(modelTools, &modelTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+			})
+		}
+
+	}
+
 	// Render template
 	var sb strings.Builder
 	err = tmpl.Execute(&sb, struct {
-		Tools []*types.Tool
+		Tools []*modelTool
 	}{
-		Tools: tools,
+		Tools: modelTools,
 	})
 
 	if err != nil {
@@ -114,6 +136,12 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 		Role:    openai.ChatMessageRoleSystem,
 		Content: sb.String(),
 	}, nil
+}
+
+// modelTool is used to render the template. It can be an API endpoint, a function, etc.
+type modelTool struct {
+	Name        string
+	Description string
 }
 
 const isInformativeOrActionablePrompt = `You are an AI tool that classifies whether user input requires an API call or not. You should recommend using an API if the user request matches one of the APIs descriptions below. The user requests that can be fulfilled by calling an external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an API.

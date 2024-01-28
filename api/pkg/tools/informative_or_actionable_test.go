@@ -35,15 +35,35 @@ func (suite *ActionTestSuite) SetupTest() {
 	suite.strategy = strategy
 }
 
-func (suite *ActionTestSuite) TestIsActionable() {
+func (suite *ActionTestSuite) TestIsActionable_Yes() {
 	tools := []*types.Tool{
 		{
-			Name:        "weatherAPI",
-			Description: "Weather API that can return the current weather for a given location",
+			Name:     "weatherAPI",
+			ToolType: types.ToolTypeAPI,
+			Config: types.ToolConfig{
+				API: &types.ToolApiConfig{
+					Actions: []*types.ToolApiAction{
+						{
+							Name:        "getWeather",
+							Description: "Weather API that can return the current weather for a given location",
+						},
+					},
+				},
+			},
 		},
 		{
-			Name:        "productsAPI",
-			Description: "database API that can be used to query products information in the database",
+			Name:     "productsAPI",
+			ToolType: types.ToolTypeAPI,
+			Config: types.ToolConfig{
+				API: &types.ToolApiConfig{
+					Actions: []*types.ToolApiAction{
+						{
+							Name:        "getProductDetails",
+							Description: "database API that can be used to query product information in the database",
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -55,18 +75,38 @@ func (suite *ActionTestSuite) TestIsActionable() {
 	suite.NoError(err)
 
 	suite.Equal("yes", resp.NeedsApi)
-	suite.Equal("weatherAPI", resp.Api)
+	suite.Equal("getWeather", resp.Api)
 }
 
 func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 	tools := []*types.Tool{
 		{
-			Name:        "weatherAPI",
-			Description: "Weather API that can return the current weather for a given location",
+			Name:     "weatherAPI",
+			ToolType: types.ToolTypeAPI,
+			Config: types.ToolConfig{
+				API: &types.ToolApiConfig{
+					Actions: []*types.ToolApiAction{
+						{
+							Name:        "getWeather",
+							Description: "Weather API that can return the current weather for a given location",
+						},
+					},
+				},
+			},
 		},
 		{
-			Name:        "productsAPI",
-			Description: "database API that can be used to query products information in the database",
+			Name:     "productsAPI",
+			ToolType: types.ToolTypeAPI,
+			Config: types.ToolConfig{
+				API: &types.ToolApiConfig{
+					Actions: []*types.ToolApiAction{
+						{
+							Name:        "getProductDetails",
+							Description: "database API that can be used to query product information in the database",
+						},
+					},
+				},
+			},
 		},
 	}
 
