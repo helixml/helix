@@ -79,12 +79,50 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 	}, nil
 }
 
-func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]string) (*http.Request, error) {
-	jsonSpec, err := filterOpenAPISchema(tool, action)
+func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, pathParams map[string]string) (*http.Request, error) {
+	loader := openapi3.NewLoader()
+
+	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
 	if err != nil {
-		return nil, fmt.Errorf("failed to filter OpenAPI schema for action %s, error: %w. Did you forget to add operationId?", action, err)
+		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
 	}
 
+	// Based on the operationId get the path and method
+	var path, method string
+
+	for p, pathItem := range schema.Paths.Map() {
+		for m, operation := range pathItem.Operations() {
+			if operation.OperationID == action {
+				path = p
+				method = m
+				break
+			}
+		}
+	}
+
+	if path == "" || method == "" {
+		return nil, fmt.Errorf("failed to find path and method for action %s", action)
+	}
+
+	// Prepare request
+	req, err := http.NewRequestWithContext(ctx, method, tool.Config.API.URL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	for k, v := range tool.Config.API.Headers {
+		req.Header.Set(k, v)
+	}
+
+	// Add path params
+	for k, v := range pathParams {
+		req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+	}
+
+	// TODO: Add query params
+	// TODO: Add body
+
+	return req, nil
 }
 
 func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
