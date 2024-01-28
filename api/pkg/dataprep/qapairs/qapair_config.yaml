@@ -1,4 +1,9 @@
 # The following prompts are for qapair generation. We provide several of them.
+
+concurrency: 20
+chunk_size: 8192
+num_questions: 20
+
 prompts:
 
  - name: simple-quiz

@@ -13,6 +13,7 @@ const (
 	DataPrepModule_GPT3Point5   DataPrepModule = "gpt3.5"
 	DataPrepModule_GPT4         DataPrepModule = "gpt4"
 	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
+	DataPrepModule_Dynamic      DataPrepModule = "dynamic"
 )
 
 func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule, error) {
@@ -23,6 +24,8 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 		return DataPrepModule_GPT4, nil
 	case string(DataPrepModule_HelixMistral):
 		return DataPrepModule_HelixMistral, nil
+	case string(DataPrepModule_Dynamic):
+		return DataPrepModule_Dynamic, nil
 	default:
 		if acceptEmpty && moduleName == string(DataPrepModule_None) {
 			return DataPrepModule_None, nil

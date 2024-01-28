@@ -60,7 +60,21 @@ type Config struct {
 	NumQuestions int      `yaml:"num_questions"`
 }
 
-// TODO: maybe optimize to not read the yaml on every call
+// TODO: maybe optimize (or at least factor!) to not read the yaml on every call
+
+func AllPrompts() ([]string, error) {
+	var config Config
+	err := yaml.Unmarshal([]byte(qapairConfig), &config)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []string
+	for _, prompt := range config.Prompts {
+		result = append(result, prompt.Name)
+	}
+	return result, nil
+}
 
 func GetNumQuestions() (int, error) {
 	var config Config
