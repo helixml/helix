@@ -213,7 +213,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Scheduled:     systemInteraction.Scheduled,
 		Completed:     systemInteraction.Completed,
 		Summary:       summary,
-		Priority:      session.Config.Priority,
+		Priority:      session.Metadata.Priority,
 	}, nil
 }
 
@@ -244,7 +244,7 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 		Created:       time.Now(),
 		Updated:       time.Now(),
 		Interactions:  append(req.UserInteractions, systemInteraction),
-		Config: types.SessionConfig{
+		Metadata: types.SessionMetadata{
 			OriginalMode: req.SessionMode,
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
@@ -272,13 +272,13 @@ func CloneSession(
 		OwnerType:     ctx.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
-		Config:        oldSession.Config,
+		Metadata:      oldSession.Metadata,
 	}
 
 	session.Interactions = CopyInteractionsUntil(oldSession.Interactions, interactionID)
-	session.Config.Origin.Type = types.SessionOriginTypeCloned
-	session.Config.Origin.ClonedSessionID = oldSession.ID
-	session.Config.Origin.ClonedInteractionID = interactionID
+	session.Metadata.Origin.Type = types.SessionOriginTypeCloned
+	session.Metadata.Origin.ClonedSessionID = oldSession.ID
+	session.Metadata.Origin.ClonedInteractionID = interactionID
 
 	return &session, nil
 }

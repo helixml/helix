@@ -203,7 +203,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 	return sessionData, nil
 }
 
-func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionConfig, *system.HTTPError) {
+func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -211,7 +211,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 
 	reqContext := apiServer.getRequestContext(req)
 
-	var data *types.SessionConfig
+	var data *types.SessionMetadata
 
 	// Decode the JSON from the request body
 	err := json.NewDecoder(req.Body).Decode(&data)
@@ -219,7 +219,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	result, err := apiServer.Controller.UpdateSessionConfig(reqContext.Ctx, session, data)
+	result, err := apiServer.Controller.UpdateSessionMetadata(reqContext.Ctx, session, data)
 	if err != nil {
 		return nil, system.NewHTTPError(err)
 	}

@@ -120,13 +120,14 @@ func getQAChunk(
 	interaction *types.Interaction,
 	filename string,
 	chunkIndex int,
+	promptName string,
 ) *types.DataPrepChunk {
 	chunks, ok := interaction.DataPrepChunks[path.Base(filename)]
 	if !ok {
 		return nil
 	}
 	for _, chunk := range chunks {
-		if chunk.Index == chunkIndex {
+		if chunk.Index == chunkIndex && chunk.PromptName == promptName {
 			return &chunk
 		}
 	}
@@ -137,8 +138,9 @@ func hasProcessedQAChunk(
 	interaction *types.Interaction,
 	filename string,
 	chunkIndex int,
+	promptName string,
 ) bool {
-	chunk := getQAChunk(interaction, path.Base(filename), chunkIndex)
+	chunk := getQAChunk(interaction, path.Base(filename), chunkIndex, promptName)
 	if chunk == nil {
 		return false
 	}
@@ -149,11 +151,12 @@ func updateProcessedQAChunk(
 	interaction *types.Interaction,
 	filename string,
 	chunkIndex int,
+	promptName string,
 	questionCount int,
 	err error,
 ) *types.Interaction {
 	useFilename := path.Base(filename)
-	if hasProcessedQAChunk(interaction, useFilename, chunkIndex) {
+	if hasProcessedQAChunk(interaction, useFilename, chunkIndex, promptName) {
 		return interaction
 	}
 	allChunks := interaction.DataPrepChunks
@@ -166,7 +169,7 @@ func updateProcessedQAChunk(
 	var chunk *types.DataPrepChunk
 
 	for _, existingChunk := range chunks {
-		if existingChunk.Index == chunkIndex {
+		if existingChunk.Index == chunkIndex && existingChunk.PromptName == promptName {
 			chunkExists = true
 			chunk = &existingChunk
 		}
@@ -176,6 +179,7 @@ func updateProcessedQAChunk(
 		chunk = &types.DataPrepChunk{
 			Index:         chunkIndex,
 			QuestionCount: questionCount,
+			PromptName:    promptName,
 		}
 	}
 
@@ -190,7 +194,7 @@ func updateProcessedQAChunk(
 	} else {
 		newChunks := []types.DataPrepChunk{}
 		for _, existingChunk := range chunks {
-			if existingChunk.Index == chunkIndex {
+			if existingChunk.Index == chunkIndex && existingChunk.PromptName == promptName {
 				newChunks = append(newChunks, *chunk)
 			} else {
 				newChunks = append(newChunks, existingChunk)

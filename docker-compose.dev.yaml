@@ -110,7 +110,7 @@ services:
       # comment these out if you don't have appropriate repos checked out
       #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
       #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
-      #- ../axolotl:/workspace/axolotl
+      # - ../axolotl:/workspace/axolotl
     deploy:
       resources:
         reservations:
