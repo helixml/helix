@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
@@ -26,8 +25,6 @@ func (suite *ActionTestSuite) SetupTest() {
 	var cfg Config
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
-
-	spew.Dump(cfg)
 
 	strategy, err := NewChainStrategy(&cfg)
 	suite.NoError(err)
