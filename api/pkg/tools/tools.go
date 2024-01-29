@@ -1,10 +1,17 @@
 package tools
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 )
+
+type Planner interface {
+	IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
+	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
+}
 
 type Config struct {
 	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
