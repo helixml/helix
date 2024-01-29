@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useContext } from 'react'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import IconButton from '@mui/material/IconButton'
@@ -18,7 +18,8 @@ import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import { ThemeContext } from '../../contexts/theme'
 import Switch from '@mui/material/Switch'
-import FormControlLabel from '@mui/material/FormControlLabel'
+import { useRouter } from '../../hooks/useRouter'
+import { SESSION_MODE_INFERENCE, SESSION_MODE_FINETUNE } from '../../types'
 
 interface NewAppBarProps {
   getTitle?: () => React.ReactNode;
@@ -33,16 +34,16 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
   const theme = useTheme()
   const account = useAccount()
   const themeConfig = useThemeConfig()
-  const { mode, toggleMode } = React.useContext(ThemeContext);
+  const { mode, toggleMode } = useContext(ThemeContext);
+  const { setParams, params } = useRouter();
 
   const handleThemeChange = () => {
     toggleMode()
   }
 
-  const [isFineTune, setIsFineTune] = useState(false); // Add this line
-
-  const handleSwitchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setIsFineTune(event.target.checked); // Add this line
+  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE;
+    setParams({ ...params, mode: newMode });
   };
 
   return (
@@ -152,17 +153,17 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                     >
                         <Typography
                             sx={{
-                            color: isFineTune ? 'text.secondary' : 'text.primary',
-                            fontWeight: isFineTune ? 'normal' : 'bold',
+                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.secondary' : 'text.primary',
+                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'normal' : 'bold',
                             marginRight: '12px',
                             }}
                         >
                             Create
                         </Typography>
                         <Switch
-                            checked={isFineTune}
-                            onChange={handleSwitchChange}
-                            name="createFineTuneSwitch"
+                            checked={params.mode === SESSION_MODE_FINETUNE}
+                            onChange={handleModeChange}
+                            name="modeSwitch"
                             size="medium"
                             sx={{
                                 transform: 'scale(1.6)',
@@ -174,8 +175,8 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                         />
                         <Typography
                             sx={{
-                            color: isFineTune ? 'text.primary' : 'text.secondary',
-                            fontWeight: isFineTune ? 'bold' : 'normal',
+                            color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
                             marginLeft: '12px',
                             }}
                         >

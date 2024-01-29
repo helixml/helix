@@ -32,9 +32,10 @@ import useWebsocket from '../hooks/useWebsocket'
 import useLoading from '../hooks/useLoading'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../hooks/useThemeConfig'
-import InputAdornment from '@mui/material/InputAdornment'
-import Chip from '@mui/material/Chip'
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import Tooltip from '@mui/material/Tooltip'
+import IconButton from '@mui/material/IconButton'
+import RefreshIcon from '@mui/icons-material/Refresh'
+
 
 import {
   ICloneInteractionMode,
@@ -444,19 +445,11 @@ const Session: FC = () => {
                         session={ session.data }
                         retryFinetuneErrors={ retryFinetuneErrors }
                         headerButtons={ isLastInteraction ? (
-                          <ClickLink
-                            onClick={ onRestart }
-                          >
-                            <Typography
-                              sx={{
-                                fontSize: "small",
-                                flexGrow: 0,
-                                textDecoration: 'underline',
-                              }}
-                            >
-                              Restart
-                            </Typography>
-                          </ClickLink>
+                          <Tooltip title="Restart Session">
+                            <IconButton onClick={ onRestart }>
+                              <RefreshIcon />
+                            </IconButton>
+                          </Tooltip>
                         ) : undefined }
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
