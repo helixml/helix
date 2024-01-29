@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import IconButton from '@mui/material/IconButton'
@@ -17,6 +17,8 @@ import useAccount from '../../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import { ThemeContext } from '../../contexts/theme'
+import Switch from '@mui/material/Switch'
+import FormControlLabel from '@mui/material/FormControlLabel'
 
 interface NewAppBarProps {
   getTitle?: () => React.ReactNode;
@@ -36,6 +38,12 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
   const handleThemeChange = () => {
     toggleMode()
   }
+
+  const [isFineTune, setIsFineTune] = useState(false); // Add this line
+
+  const handleSwitchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setIsFineTune(event.target.checked); // Add this line
+  };
 
   return (
     <AppBar
@@ -135,41 +143,81 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
             {
                 bigScreen ? (
                 <>
-                    <Tooltip title={theme.palette.mode === 'dark' ? "Switch to light mode" : "Switch to dark mode"}>
-                    <IconButton
-                        color="inherit"
-                        aria-label="toggle theme"
-                        onClick={handleThemeChange}
+                    <Box
                         sx={{
-                        mr: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end'
                         }}
                     >
-                        {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
-                    </IconButton>
-                    </Tooltip>
-                    {
-                    account.user ? (
-                        <Link
-                        href="https://docs.helix.ml/docs/overview"
-                        target="_blank"
+                        <Typography
+                            sx={{
+                            color: isFineTune ? 'text.secondary' : 'text.primary',
+                            fontWeight: isFineTune ? 'normal' : 'bold',
+                            marginRight: '12px',
+                            }}
                         >
-                        <Tooltip title="Helix Docs">
-                            <Box component="span">
-                            <HelpIcon sx={{ mr: 2 }} />
-                            </Box>
+                            Create
+                        </Typography>
+                        <Switch
+                            checked={isFineTune}
+                            onChange={handleSwitchChange}
+                            name="createFineTuneSwitch"
+                            size="medium"
+                            sx={{
+                                transform: 'scale(1.6)',
+                                '& .MuiSwitch-thumb': {
+                                    scale: 0.4,
+                                },
+                                m: 1,
+                            }}
+                        />
+                        <Typography
+                            sx={{
+                            color: isFineTune ? 'text.primary' : 'text.secondary',
+                            fontWeight: isFineTune ? 'bold' : 'normal',
+                            marginLeft: '12px',
+                            }}
+                        >
+                            Fine-tune
+                        </Typography>
+                    
+                        <Tooltip title={theme.palette.mode === 'dark' ? "Switch to light mode" : "Switch to dark mode"}>
+                        <IconButton
+                            color="inherit"
+                            aria-label="toggle theme"
+                            onClick={handleThemeChange}
+                            sx={{
+                            mr: 1,
+                            }}
+                        >
+                            {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
+                        </IconButton>
                         </Tooltip>
-                        </Link>
-                    ) : (
-                        <Button
-                        variant="contained"
-                        color="secondary"
-                        endIcon={<LoginIcon />}
-                        onClick={account.onLogin}
-                        >
-                        Login / Register
-                        </Button>
-                    )
-                    }
+                        {
+                        account.user ? (
+                            <Link
+                            href="https://docs.helix.ml/docs/overview"
+                            target="_blank"
+                            >
+                            <Tooltip title="Helix Docs">
+                                <Box component="span">
+                                <HelpIcon sx={{ mr: 2 }} />
+                                </Box>
+                            </Tooltip>
+                            </Link>
+                        ) : (
+                            <Button
+                            variant="contained"
+                            color="secondary"
+                            endIcon={<LoginIcon />}
+                            onClick={account.onLogin}
+                            >
+                            Login / Register
+                            </Button>
+                        )
+                        }
+                    </Box>
                 </>
                 ) : (
                 <>

@@ -61,8 +61,6 @@ export const SessionHeader: FC<{
     <Row
       sx={{
         height: '78px',
-        borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
-        px: 0,
       }}
     >
       <Cell flexGrow={ 1 }>
