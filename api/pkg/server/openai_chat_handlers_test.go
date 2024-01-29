@@ -222,10 +222,12 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 				})
 				suite.NoError(err)
 
-				suite.pubsub.Publish(
-					context.Background(),
-					session.ID,
-					msg1, pubsub.WithPublishNamespace("user_id"))
+				time.AfterFunc(100*time.Millisecond, func() {
+					suite.pubsub.Publish(
+						context.Background(),
+						session.ID,
+						msg1, pubsub.WithPublishNamespace("user_id"))
+				})
 			}
 
 			return &session, nil

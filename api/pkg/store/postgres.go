@@ -133,7 +133,7 @@ func scanSessionRow(row Scanner) (*types.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(config, &session.Config)
+	err = json.Unmarshal(config, &session.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func getSessionValues(session *types.Session) ([]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := json.Marshal(session.Config)
+	config, err := json.Marshal(session.Metadata)
 	if err != nil {
 		return nil, err
 	}

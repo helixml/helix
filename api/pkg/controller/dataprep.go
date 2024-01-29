@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,6 +45,11 @@ func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]stri
 
 	shouldConvertFile := func(filename string) bool {
 		if strings.HasSuffix(filename, ".txt") {
+			// it is already converted - nothing to do
+			return false
+		}
+
+		if strings.HasSuffix(filename, ".md") {
 			// it is already converted - nothing to do
 			return false
 		}
@@ -206,7 +213,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
@@ -220,7 +227,7 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 	filesToConvert := []string{}
 
 	shouldConvertFile := func(filename string) bool {
-		return strings.HasSuffix(filename, ".txt")
+		return strings.HasSuffix(filename, ".txt") || strings.HasSuffix(filename, ".md")
 	}
 
 	for _, file := range userInteraction.Files {
@@ -234,21 +241,30 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 		return nil, err
 	}
 
+	documentGroupID := session.ID
 	// add all the files to the splitter so we know what chunks we have
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
 			return nil, err
 		}
-		err = splitter.AddDocument(file, fileContent)
+		meta, err := splitter.AddDocument(file, fileContent, documentGroupID, session)
+		c.UpdateSessionMetadata(context.TODO(), session, meta)
 		if err != nil {
 			return nil, err
 		}
 	}
 
+	// Some qapair generators expand each chunk into N chunks so they can be run
+	// by our outer concurrency manager
+	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
+	if err != nil {
+		return nil, err
+	}
+
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
-	for _, chunk := range splitter.Chunks {
-		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index) {
+	for _, chunk := range allChunks {
+		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
 	}
@@ -267,12 +283,12 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	chunksToProcess, err := c.getChunksToProcess(session)
+	dataprep, _, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -297,14 +313,18 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	var writeUpdatesMutex sync.Mutex
 
 	runningFileList := copyFileList(userInteraction.Files)
+	docIds := xsync.NewMapOf[string, bool]()
+	docGroupId := ""
 
 	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
 		chunksToProcess,
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
-			log.Info().Msgf("🔵 question conversion start %d of %d", i, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index)
+			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
+			docIds.Store(chunk.DocumentID, true)
+			docGroupId = chunk.DocumentGroupID
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
 				return nil
@@ -341,7 +361,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// this marks the QA chunk as "done" - even with an error
 				// we then give the user the choice to try again, abort or ignore the errors
-				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, len(questions), convertError)
+				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
 
 				return nil
 			}()
@@ -362,7 +382,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			if convertError != nil {
 				log.Error().Msgf("🔴 question conversion error %s", convertError.Error())
 			} else {
-				log.Info().Msgf("🟢 question conversion complete %d of %d", i, len(chunksToProcess))
+				log.Info().Msgf("🟢 question conversion complete %d of %d", i+1, len(chunksToProcess))
 			}
 
 			return nil
@@ -383,7 +403,30 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
 	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
+	// This is going to appear as if the chatbot said it, which might confuse
+	// the chatbot. Should we wrap it in [INST][/INST]?? But that is model
+	// specific. Really, we should add explicit support for system prompts to
+	// the system.
+	docIdsList := []string{}
+	docIds.Range(func(key string, value bool) bool {
+		docIdsList = append(docIdsList, key)
+		return true
+	})
 	session = c.WriteInteraction(session, systemInteraction)
+	systemPrompt := fmt.Sprintf(
+		"You are an intelligent chatbot named Helix that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
+		strings.Join(docIdsList, " "), docGroupId, len(docIdsList),
+	)
+	session.Metadata.SystemPrompt = systemPrompt
+	c.WriteSession(session)
 
 	return session, len(chunksToProcess), nil
+}
+
+func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) (int, error) {
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return 0, err
+	}
+	return getQAChunkErrors(systemInteraction), nil
 }
