@@ -193,10 +193,10 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	select {
 	case <-doneCh:
-		consumer.Unsubscribe(context.Background())
+		_ = consumer.Unsubscribe(context.Background())
 		return
 	case <-req.Context().Done():
-		consumer.Unsubscribe(context.Background())
+		_ = consumer.Unsubscribe(context.Background())
 		return
 	}
 }
