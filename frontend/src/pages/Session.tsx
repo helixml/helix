@@ -12,6 +12,7 @@ import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
 import SessionHeader from '../components/session/SessionHeader'
+import SessionButtons from '../components/session/SessionButtons'
 import ShareSessionWindow from '../components/session/ShareSessionWindow'
 import AddFilesWindow from '../components/session/AddFilesWindow'
 
@@ -374,14 +375,19 @@ const Session: FC = () => {
         sx={{
           width: '100%',
           flexGrow: 0,
-          p: 2,
+          pb: 1,
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Container maxWidth="lg">
+        <Container
+          maxWidth="xl"
+          sx={{
+            p: 0,
+          }}
+        >
           {
             (isOwner || account.admin) && (
               <SessionHeader

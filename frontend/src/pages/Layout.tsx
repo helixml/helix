@@ -21,7 +21,9 @@ import Menu from '@mui/material/Menu'
 import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
 import Tooltip from '@mui/material/Tooltip'
-import EditTextWindow from '../components/session/EditTextWindow'
+// import EditTextWindow from '../components/session/EditTextWindow'
+import SessionButtons from '../components/session/SessionButtons'
+import NewAppBar from '../components/system/NewAppbar'
 
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -32,6 +34,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 import AccountCircle from '@mui/icons-material/AccountCircle'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import EditIcon from '@mui/icons-material/Edit'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -134,24 +137,15 @@ const Layout: FC = ({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        borderRight: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
       }}
     >
       <Box
         sx={{
           flexGrow: 0,
-          width: '100%'
+          width: '100%',
         }}
       >
-        {/* <Toolbar
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-start',
-            px: [1],
-          }}
-        >
-          { themeConfig.logo() }
-        </Toolbar> */}
         <List
           disablePadding
         >
@@ -162,7 +156,11 @@ const Layout: FC = ({
               setMobileOpen(false)
             }}
           >
-            <ListItemButton>
+            <ListItemButton
+              sx={{
+                height: '68px',
+               }}
+            >
               <ListItemText
               sx={{
                 ml: 3,
@@ -186,6 +184,24 @@ const Layout: FC = ({
           flexGrow: 1,
           width: '100%',
           overflowY: 'auto',
+          boxShadow: 'none', // Remove shadow for a more flat/minimalist design
+          borderRight: 'none', // Remove the border if present
+          mr: 3,
+          '&::-webkit-scrollbar': {
+            width: '4px',
+            borderRadius: '8px',
+            my: 2,
+          },
+          '&::-webkit-scrollbar-track': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+          },
+          '&::-webkit-scrollbar-thumb': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+            borderRadius: '8px',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+          },
         }}
       >
         <SessionsMenu
@@ -198,117 +214,125 @@ const Layout: FC = ({
         sx={{
           flexGrow: 0,
           width: '100%',
-          borderTop: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #555",
           backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          p: 1,
+          mt: 2,
+          p: 2,
         }}
       >
-        { themeConfig.logo() }
-        {
-          account.user ? (
-            <>
-              <Typography variant="caption">
-                Signed in as<br /> {account.user.email} { /* <br />({account.credits} credits) */ }
-              </Typography>
-              <IconButton
-                size="large"
-                aria-label="account of current user"
-                aria-controls="menu-appbar"
-                aria-haspopup="true"
-                onClick={handleAccountMenu}
-                color="inherit"
-                sx={{marginLeft: "auto"}}
-              >
-                <AccountCircle />
-              </IconButton>
-              <Menu
-                id="menu-appbar"
-                anchorEl={accountMenuAnchorEl}
-                anchorOrigin={{
-                  vertical: 'top',
-                  horizontal: 'right',
-                }}
-                keepMounted
-                transformOrigin={{
-                  vertical: 'top',
-                  horizontal: 'right',
-                }}
-                open={Boolean(accountMenuAnchorEl)}
-                onClose={handleCloseAccountMenu}
-              >
+        <Box
+          sx={{
+            borderTop: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            pt: 2,
+          }}
+        >
+          { themeConfig.logo() }
+          {
+            account.user ? (
+              <>
+                <Typography variant="caption">
+                  Signed in as<br /> {account.user.email} { /* <br />({account.credits} credits) */ }
+                </Typography>
+                <IconButton
+                  size="large"
+                  aria-label="account of current user"
+                  aria-controls="menu-appbar"
+                  aria-haspopup="true"
+                  onClick={handleAccountMenu}
+                  color="inherit"
+                  sx={{marginLeft: "auto"}}
+                >
+                  <MoreVertIcon />
+                </IconButton>
+                <Menu
+                  id="menu-appbar"
+                  anchorEl={accountMenuAnchorEl}
+                  anchorOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                  keepMounted
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                  open={Boolean(accountMenuAnchorEl)}
+                  onClose={handleCloseAccountMenu}
+                >
 
-                <MenuItem onClick={ () => {
-                  handleCloseAccountMenu()
-                  navigate('')
-                }}>
-                  <ListItemIcon>
-                    <DashboardIcon fontSize="small" />
-                  </ListItemIcon> 
-                  Home
-                </MenuItem>
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    navigate('')
+                  }}>
+                    <ListItemIcon>
+                      <DashboardIcon fontSize="small" />
+                    </ListItemIcon> 
+                    Home
+                  </MenuItem>
 
-                <MenuItem onClick={ () => {
-                  handleCloseAccountMenu()
-                  navigate('files')
-                }}>
-                  <ListItemIcon>
-                    <CloudUploadIcon fontSize="small" />
-                  </ListItemIcon> 
-                  Files
-                </MenuItem>
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    navigate('files')
+                  }}>
+                    <ListItemIcon>
+                      <CloudUploadIcon fontSize="small" />
+                    </ListItemIcon> 
+                    Files
+                  </MenuItem>
 
-                <MenuItem onClick={ () => {
-                  handleCloseAccountMenu()
-                  navigate('account')
-                }}>
-                  <ListItemIcon>
-                    <AccountBoxIcon fontSize="small" />
-                  </ListItemIcon> 
-                  My account
-                </MenuItem>
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    navigate('account')
+                  }}>
+                    <ListItemIcon>
+                      <AccountBoxIcon fontSize="small" />
+                    </ListItemIcon> 
+                    My account
+                  </MenuItem>
 
-                {
-                  account.admin && (
-                    <MenuItem onClick={ () => {
-                      handleCloseAccountMenu()
-                      navigate('dashboard')
-                    }}>
-                      <ListItemIcon>
-                        <DashboardIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Dashboard
-                    </MenuItem>
-                  )
-                }
+                  {
+                    account.admin && (
+                      <MenuItem onClick={ () => {
+                        handleCloseAccountMenu()
+                        navigate('dashboard')
+                      }}>
+                        <ListItemIcon>
+                          <DashboardIcon fontSize="small" />
+                        </ListItemIcon> 
+                        Dashboard
+                      </MenuItem>
+                    )
+                  }
 
-                <MenuItem onClick={ () => {
-                  handleCloseAccountMenu()
-                  account.onLogout()
-                }}>
-                  <ListItemIcon>
-                    <LogoutIcon fontSize="small" />
-                  </ListItemIcon> 
-                  Logout
-                </MenuItem>
-              </Menu>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="outlined"
-                endIcon={<LoginIcon />}
-                onClick={ () => {
-                  account.onLogin()
-                }}
-              >
-                Login / Register
-              </Button>
-            </>
-          )
-        }
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    account.onLogout()
+                  }}>
+                    <ListItemIcon>
+                      <LogoutIcon fontSize="small" />
+                    </ListItemIcon> 
+                    Logout
+                  </MenuItem>
+                </Menu>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outlined"
+                  endIcon={<LoginIcon />}
+                  onClick={ () => {
+                    account.onLogin()
+                  }}
+                >
+                  Login / Register
+                </Button>
+              </>
+            )
+          }
+        </Box>
       </Box>
     </Box>
   )
@@ -331,187 +355,17 @@ const Layout: FC = ({
       component="div"
     >
       <CssBaseline />
-      <AppBar
-        elevation={ 0 }
-        position="fixed"
-        open
-        color="default"
-        sx={{
-          height: '64px',
-          width: { xs: '100%', sm: '100%', md: `calc(100% - ${drawerWidth}px)` },
-          ml: { xs: '0px', sm: '0px', md: `${drawerWidth}px` },
-        }}
-      >
-        <Toolbar
-          sx={{
-            pr: '24px', // keep right padding when drawer closed
-            height: '100%',
-            borderBottom: theme.palette.mode === 'light' ? "1px solid #ddd": "1px solid #333",
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            width: '100%',
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-          }}
-        >
-          {
-            bigScreen ? (
-              <Box
-                sx={{
-                  flexGrow: 0,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                {
-                  getTitle ?
-
-                    getTitle() :
-
-                    (
-                      <Typography
-                        className="inferenceTitle"
-                        component="h1"
-                        variant="h6"
-                        color="inherit"
-                        noWrap
-                        sx={{
-                          flexGrow: 1,
-                          ml: 1,
-                          color: 'text.primary',
-                        }}
-                      >
-                        { meta.title || '' }
-                      </Typography>
-                    )
-                }
-                <IconButton
-                  color="inherit"
-                  aria-label="rename session"
-                >
-                  <EditIcon />
-                </IconButton>
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  flexGrow: 0,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <IconButton
-                  color="inherit"
-                  aria-label="open drawer"
-                  edge="start"
-                  onClick={ handleDrawerToggle }
-                  sx={{
-                    mr: 1,
-                    ml: 1,
-                  }}
-                >
-                  <MenuIcon />
-                </IconButton>
-                {/* { themeConfig.logo() } */}
-              </Box>
-            )
-          }
-          <Box
-            sx={{
-              flexGrow: 1,
-              textAlign: 'right',
-            }}
-          >
-            {
-              bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
-            }
-            {
-              bigScreen ? (
-                <>
-                  <Tooltip title={theme.palette.mode === 'dark' ? "Switch to light mode" : "Switch to dark mode"}>
-                    <IconButton
-                      color="inherit"
-                      aria-label="toggle theme"
-                      onClick={handleThemeChange}
-                      sx={{
-                        mr: 1,
-                      }}
-                    >
-                      {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
-                    </IconButton>
-                  </Tooltip>
-                  {
-                    account.user ? (
-                      <Button
-                        variant="contained"
-                        color="secondary"
-                        endIcon={<HelpIcon />}
-                        onClick={ () => {
-                          window.open(`https://docs.helix.ml/docs/overview`)
-                        }}
-                      >
-                        View Docs
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="contained"
-                        color="secondary"
-                        endIcon={<LoginIcon />}
-                        onClick={ () => {
-                          account.onLogin()
-                        }}
-                      >
-                        Login / Register
-                      </Button>
-                    )
-                  }
-                </>
-              ) : (
-                <>
-                  {
-                    account.user ? (
-                      <Link
-                        href="https://docs.helix.ml"
-                        target="_blank"
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: "small",
-                            flexGrow: 0,
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          View Docs
-                        </Typography>
-                      </Link>
-                    ) : (
-                      <Link
-                        href="/login"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          account.onLogin()
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: "small",
-                            flexGrow: 0,
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          Login / Register
-                        </Typography>
-                      </Link>
-                    )
-                  }
-                </>
-              )
-            }
-          </Box>
-        </Toolbar>
-      </AppBar>
+      {
+        window.location.pathname.includes("/session") ? null :
+        <NewAppBar
+          getTitle={ getTitle }
+          getToolbarElement={ getToolbarElement }
+          meta={ meta }
+          handleDrawerToggle={ handleDrawerToggle }
+          bigScreen={ bigScreen }
+          drawerWidth={drawerWidth}
+        />
+      }
       <MuiDrawer
         container={container}
         variant="temporary"
@@ -527,7 +381,7 @@ const Layout: FC = ({
             boxSizing: 'border-box',
             width: drawerWidth,
             height: '100%',
-            overflowY: 'hidden',
+            overflowY: 'auto',
           },
         }}
       >
@@ -542,7 +396,7 @@ const Layout: FC = ({
             boxSizing: 'border-box',
             width: drawerWidth,
             height: '100%',
-            overflowY: 'hidden',
+            overflowY: 'auto',
           },
         }}
         open
@@ -569,7 +423,7 @@ const Layout: FC = ({
             borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
           }}
         >
-          <Toolbar />
+          {/* <Toolbar /> */}
         </Box>
         <Box
           component="div"
