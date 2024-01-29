@@ -187,28 +187,28 @@ prompts:
 #    For the next set of questions, summarize each section of the document.
 #    For the final set of questions, summarize each paragraph of the document.
 
- - name: summaries-many
-   system: |
-    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
+#  - name: summaries-many
+#    system: |
+#     You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
 
-    For example:
-    ```json
-    [
-      {
-        "question": "…",
-        "answer": "…"
-      },
-      {
-        "question": "…",
-        "answer": "…"
-      }
-    ]
-    ```
-   user: |
-    Generate {{.NumQuestions}} summaries of the document from different perspectives.
+#     For example:
+#     ```json
+#     [
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       },
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       }
+#     ]
+#     ```
+#    user: |
+#     Generate {{.NumQuestions}} summaries of the document from different perspectives.
 
-    Here is the document:
-    {{.DocumentChunk}}
+#     Here is the document:
+#     {{.DocumentChunk}}
 
  # This didn't seem to work so well. It still kept generating questions about "junior doctors"
  - name: you-are-generating-fine-tuning-data
