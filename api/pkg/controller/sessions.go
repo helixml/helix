@@ -726,7 +726,7 @@ func (c *Controller) CloneUntilInteraction(
 	if req.Mode != types.CloneInteractionModeAll {
 		newSession.LoraDir = ""
 	} else {
-		newSession.LoraDir = strings.Replace(newSession.LoraDir, oldPrefix, newPrefix, 1)
+		newSession.LoraDir = strings.Replace(oldSession.LoraDir, oldPrefix, newPrefix, 1)
 	}
 
 	// always copy the session results folder otherwise we have split brain on results
