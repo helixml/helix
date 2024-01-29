@@ -116,7 +116,7 @@ func FindPrompt(name string) (Prompt, error) {
 		}
 	}
 
-	return Prompt{}, fmt.Errorf("Could not find prompt with name %s", name)
+	return Prompt{}, fmt.Errorf("could not find prompt with name %s", name)
 }
 
 func FindTarget(name string) (Target, error) {
@@ -133,7 +133,7 @@ func FindTarget(name string) (Target, error) {
 	}
 
 	log.Fatalf("Could not find target with name %s", name)
-	return Target{}, fmt.Errorf("Could not find target with name %s", name)
+	return Target{}, fmt.Errorf("could not find target with name %s", name)
 }
 
 func Run(targetFilter, promptFilter, textFilter []string) {
@@ -273,7 +273,11 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
 	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug)
 	if err != nil {
-		return nil, err
+		log.Printf("ChatCompletion error, trying again (%s): %v\n", debug, err)
+		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug)
+		if err != nil {
+			return nil, err
+		}
 	}
 	latency := time.Since(startTime).Milliseconds()
 
@@ -346,7 +350,7 @@ func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.Da
 		},
 	)
 	if err != nil {
-		fmt.Printf("ChatCompletion error: %v\n", err)
+		fmt.Printf("ChatCompletion error (%s): %v\n", debug, err)
 		return nil, err
 	}
 
@@ -364,7 +368,7 @@ func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.Da
 	// backslashes for now...
 	answer = strings.Replace(answer, "\\", "", -1)
 
-	return TryVariousJSONFormats(answer)
+	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))
 
 }
 
@@ -381,7 +385,7 @@ type QuestionSet struct {
 	Questions []types.DataPrepTextQuestionRaw `json:"questions"`
 }
 
-func TryVariousJSONFormats(jsonString string) ([]types.DataPrepTextQuestionRaw, error) {
+func TryVariousJSONFormats(jsonString, debug string) ([]types.DataPrepTextQuestionRaw, error) {
 	var res []types.DataPrepTextQuestionRaw
 	var err error
 
@@ -409,5 +413,5 @@ func TryVariousJSONFormats(jsonString string) ([]types.DataPrepTextQuestionRaw, 
 		return topLevel.Questions, nil
 	}
 
-	return nil, fmt.Errorf("error parsing JSON:\n\n%s", jsonString)
+	return nil, fmt.Errorf("error parsing JSON (%s):\n\n%s", debug, jsonString)
 }
