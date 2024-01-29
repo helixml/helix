@@ -23,7 +23,7 @@ def download_url(url):
     temp_file.close()
     return temp_file.name, response.headers.get('Content-Type')
   else:
-    raise HttpException(f"Download failed with {response.status_code}: {response.text}", response.status_code)
+    raise HttpException(f"Download failed with {url} {response.status_code}: {response.text}", response.status_code)
 
 # set to false to use html2text
 USE_BEAUTIFUL_SOUP = False
