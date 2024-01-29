@@ -8,10 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"database/sql"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog/log"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
@@ -26,6 +31,8 @@ type PostgresStore struct {
 	connectionString string
 	pgDb             *sql.DB
 	db               *goqu.Database
+
+	gdb *gorm.DB
 }
 
 func NewPostgresStore(
@@ -45,11 +52,18 @@ func NewPostgresStore(
 	}
 	dialect := goqu.Dialect("postgres")
 	db := dialect.DB(pgDb)
+
+	gormDB, err := connect(context.Background(), options)
+	if err != nil {
+		return nil, err
+	}
+
 	store := &PostgresStore{
 		connectionString: connectionString,
 		options:          options,
 		pgDb:             pgDb,
 		db:               db,
+		gdb:              gormDB,
 	}
 	if options.AutoMigrate {
 		err = store.MigrateUp()
@@ -58,6 +72,12 @@ func NewPostgresStore(
 		}
 	}
 	return store, nil
+}
+
+func (s *PostgresStore) automigrate() error {
+	return s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.Tool{},
+	)
 }
 
 type Scanner interface {
@@ -788,4 +808,68 @@ func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		return nil, err
 	}
 	return migrations, nil
+}
+
+// Available DB types
+const (
+	DatabaseTypePostgres = "postgres"
+)
+
+func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("sql store startup deadline exceeded")
+		default:
+
+			var (
+				err       error
+				dialector gorm.Dialector
+			)
+
+			sslSettings := "sslmode=disable"
+			// crtPath := "/tmp/ca.crt"
+
+			// TODO: enable
+			// if c.Database.CaCrt != "" {
+			// 	_, err = os.Stat(c.Database.CaCrt)
+			// 	if err != nil {
+			// 		err = os.WriteFile(crtPath, []byte(c.Database.CaCrt), 0644)
+			// 		if err != nil {
+			// 			return nil, fmt.Errorf("failed to write ca.crt: %w", err)
+			// 		}
+			// 	} else {
+			// 		// File exists, so that's our path
+			// 		crtPath = c.Database.CaCrt
+			// 	}
+
+			// 	sslSettings = fmt.Sprintf("sslmode=verify-full sslrootcert=%s", crtPath)
+			// }
+
+			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
+				options.Username, options.Password, options.Host, options.Port, options.Database, sslSettings)
+			dialector = postgres.Open(dsn)
+
+			db, err := gorm.Open(dialector, &gorm.Config{})
+			if err != nil {
+				time.Sleep(1 * time.Second)
+
+				log.Err(err).Msg("sql store connector can't reach DB, waiting")
+
+				continue
+			}
+
+			sqlDB, err := db.DB()
+			if err != nil {
+				return nil, err
+			}
+			sqlDB.SetMaxIdleConns(50)
+			sqlDB.SetMaxOpenConns(25) // TODO: maybe subtract what pool uses
+			sqlDB.SetConnMaxIdleTime(time.Hour)
+			sqlDB.SetConnMaxLifetime(time.Minute)
+
+			// success
+			return db, nil
+		}
+	}
 }
