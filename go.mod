@@ -32,6 +32,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/oklog/ulid/v2 v2.1.0
 	github.com/stripe/stripe-go/v76 v76.8.0
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 	gorm.io/driver/postgres v1.5.4
