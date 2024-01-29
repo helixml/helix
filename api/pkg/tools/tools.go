@@ -10,7 +10,7 @@ type Config struct {
 	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
 	OpenAIBaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
 
-	ToolsModel string `envconfig:"TOOLS_MODEL" default:"gpt-4-1106-preview"`
+	ToolsModel string `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"`
 }
 
 type ChainStrategy struct {
