@@ -212,7 +212,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 	filesToConvert := []string{}
 
 	shouldConvertFile := func(filename string) bool {
-		return strings.HasSuffix(filename, ".txt")
+		return strings.HasSuffix(filename, ".txt") || strings.HasSuffix(filename, ".md")
 	}
 
 	for _, file := range userInteraction.Files {
@@ -254,9 +254,16 @@ func (c *Controller) getChunksToProcess(session *types.Session) ([]*text.DataPre
 		}
 	}
 
+	// Some qapair generators expand each chunk into N chunks so they can be run
+	// by our outer concurrency manager
+	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
+	if err != nil {
+		return nil, err
+	}
+
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
-	for _, chunk := range splitter.Chunks {
-		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index) {
+	for _, chunk := range allChunks {
+		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
 	}
@@ -275,12 +282,12 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	chunksToProcess, err := c.getChunksToProcess(session)
+	dataprep, _, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -310,8 +317,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		chunksToProcess,
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
-			log.Info().Msgf("🔵 question conversion start %d of %d", i, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID)
+			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
@@ -349,7 +356,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// this marks the QA chunk as "done" - even with an error
 				// we then give the user the choice to try again, abort or ignore the errors
-				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, len(questions), convertError)
+				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
 
 				return nil
 			}()
@@ -370,7 +377,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			if convertError != nil {
 				log.Error().Msgf("🔴 question conversion error %s", convertError.Error())
 			} else {
-				log.Info().Msgf("🟢 question conversion complete %d of %d", i, len(chunksToProcess))
+				log.Info().Msgf("🟢 question conversion complete %d of %d", i+1, len(chunksToProcess))
 			}
 
 			return nil
@@ -394,4 +401,12 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	session = c.WriteInteraction(session, systemInteraction)
 
 	return session, len(chunksToProcess), nil
+}
+
+func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) (int, error) {
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return 0, err
+	}
+	return getQAChunkErrors(systemInteraction), nil
 }

@@ -15,6 +15,10 @@ type DataPrepTextSplitterChunk struct {
 	Text            string
 	DocumentID      string
 	DocumentGroupID string
+	// some qapair generators create a chunk to process _per prompt_ from a
+	// suite of prompts, this is where they store which prompt this chunk will
+	// be processed by
+	PromptName string
 }
 
 type DataPrepTextSplitterOptions struct {
@@ -43,6 +47,7 @@ func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGro
 	if err != nil {
 		return nil, err
 	}
+
 	documentID := hashString[:10]
 	documentGroupID = strings.Replace(documentGroupID, "-", "", -1)[:10]
 	for i, part := range parts {
@@ -76,17 +81,22 @@ func chunkWithOverflow(str string, maxChunkSize, overflowSize int) ([]string, er
 
 	for len(str) > 0 {
 		chunkEnd := maxChunkSize
+		overflow := true
 		if chunkEnd > len(str) {
 			chunkEnd = len(str)
+			overflow = false
 		}
 
 		chunk := str[:chunkEnd]
 
-		// Find the last space character within the chunk
-		lastSpace := strings.LastIndex(chunk, " ")
-		if lastSpace != -1 {
-			chunkEnd = lastSpace + 1
-			chunk = str[:chunkEnd]
+		// Find the last space character within the chunk, but only if there's
+		// another chunk coming
+		if overflow {
+			lastSpace := strings.LastIndex(chunk, " ")
+			if lastSpace != -1 {
+				chunkEnd = lastSpace + 1
+				chunk = str[:chunkEnd]
+			}
 		}
 
 		// Add overflow from the previous end if available

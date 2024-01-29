@@ -47,15 +47,20 @@ func NewDataOpenAIGPT(
 	}, nil
 }
 
+func (gpt *DataOpenAIGPT) ExpandChunks(chunks []*DataPrepTextSplitterChunk) ([]*DataPrepTextSplitterChunk, error) {
+	// no expansion
+	return chunks, nil
+}
+
 func (gpt *DataOpenAIGPT) GetConcurrency() int {
-	return 20
+	return gpt.concurrency
 }
 
 func (gpt *DataOpenAIGPT) GetChunkSize() int {
-	return 4096
+	return gpt.chunkSize
 }
 
-func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int, documentID, documentGroupID string) ([]types.DataPrepTextQuestion, error) {
+func (gpt *DataOpenAIGPT) ConvertChunk(chunk string, index int, documentID, documentGroupID, promptName string) ([]types.DataPrepTextQuestion, error) {
 	// use the data prep module to convert raw text into QA pairs
 
 	// a rough rate limiter

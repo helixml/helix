@@ -18,7 +18,15 @@ import (
 // ONLY include the JSON array of questions and answers.
 
 const GPT4_CONCURRENCY = 20
-const GPT4_CHUNK_SIZE = 4096
+
+// this is in bytes but the actual limit is in tokens. there's always 1 or more
+// byte per token though. also, subtract a buffer for the user prompt..
+
+// TODO: we might still choose to make this context window smaller because the
+// gpt4-1106-preview output is max 4k tokens, so on a large document we'll start
+// to lose qapairs that we'd get if we did chunk. The benefit of coherence on
+// smaller articles is probably worth it though? TBD
+const GPT4_CHUNK_SIZE = 128000 - 4000
 
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
@@ -61,22 +69,8 @@ ONLY include the JSON array of questions and answers.
 
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
-This DOCUMENT_ID is %s
-This DOCUMENT_GROUP_ID is %s
-
-In every question and answer, you MUST reference the DOCUMENT_ID and DOCUMENT_GROUP_ID.
-
-For example:
-Question: In document A1B2C3 (document group B2C3D4), what has Kier Starmer pointed out regarding NHS waiting lists?
-Answer: In document A1B2C3 (document group B2C3D4), Kier Starmer has pointed out that NHS waiting lists have increased since the prime minister set the goal of reducing them.
-
-In the first five question-answer pairs, summarize the document, especially based on the document's title. For example:
-
-Question: In document A1B2C3 (document group B2C3D4), what action are the doctors going to do?
-Answer: Document A1B2C3 (document group B2C3D4) talks about how the junior doctors are going to stage more strikes.
-
 Here is the context:
-%s`, options.QuestionsPerChunk, options.QuestionsPerChunk, documentID, documentGroupID, chunk)
+%s`, options.QuestionsPerChunk, options.QuestionsPerChunk, chunk)
 	}
 
 	parseResponseFn := func(answer string, options DataPrepTextOptions) ([]types.DataPrepTextQuestion, error) {

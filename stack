@@ -69,7 +69,7 @@ function start() {
   tmux send-keys -t 3 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 4 'docker-compose -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 4 'docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
     tmux send-keys -t 4 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
@@ -77,10 +77,10 @@ function start() {
 }
 
 function stop() {
-  echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION
   echo "Removing docker containers"
-  docker rm -f $(docker ps -aq) || true
+  docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml down
+  echo "Stopping tmux session $TMUX_SESSION..."
+  tmux kill-session -t $TMUX_SESSION ||true
 }
 
 function db() {

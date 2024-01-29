@@ -62,7 +62,7 @@ def do_inference():
         session_id = task["session_id"]
         dir_path = os.getcwd() + "/runner/fixtures"
         print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout)
-        print("[axolotl.train.train:108]\n")
+        print("[axolotl.load_model:562]\n")
 
         for i in range(1, 101):
           print(f"{i}%|\n")

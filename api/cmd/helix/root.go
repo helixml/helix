@@ -17,11 +17,12 @@ func NewRootCmd() *cobra.Command {
 	RootCmd := &cobra.Command{
 		Use:   getCommandLineExecutable(),
 		Short: "Helix",
-		Long:  `Helix`,
+		Long:  `Private GenAI Platform`,
 	}
 	RootCmd.AddCommand(newServeCmd())
 	RootCmd.AddCommand(newRunnerCmd())
 	RootCmd.AddCommand(newRunCmd())
+	RootCmd.AddCommand(newQapairCommand())
 	return RootCmd
 }
 
