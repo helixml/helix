@@ -1,14 +1,24 @@
 package text
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type DataPrepTextSplitterChunk struct {
-	Filename string
-	Index    int
-	Text     string
+	Filename        string
+	Index           int
+	Text            string
+	DocumentID      string
+	DocumentGroupID string
+	// some qapair generators create a chunk to process _per prompt_ from a
+	// suite of prompts, this is where they store which prompt this chunk will
+	// be processed by
+	PromptName string
 }
 
 type DataPrepTextSplitterOptions struct {
@@ -28,19 +38,34 @@ func NewDataPrepSplitter(options DataPrepTextSplitterOptions) (*DataPrepTextSpli
 	}, nil
 }
 
-func (splitter *DataPrepTextSplitter) AddDocument(filename string, content string) error {
+func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGroupID string, session *types.Session) (*types.SessionMetadata, error) {
+	// Calculate the SHA256 hash of the part
+	hash := sha256.Sum256([]byte(content))
+	hashString := hex.EncodeToString(hash[:])
+
 	parts, err := chunkWithOverflow(content, splitter.Options.ChunkSize, splitter.Options.Overflow)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	documentID := hashString[:10]
+	documentGroupID = strings.Replace(documentGroupID, "-", "", -1)[:10]
 	for i, part := range parts {
 		splitter.Chunks = append(splitter.Chunks, &DataPrepTextSplitterChunk{
-			Filename: filename,
-			Index:    i,
-			Text:     part,
+			Filename:        filename,
+			Index:           i,
+			Text:            part,
+			DocumentID:      documentID,
+			DocumentGroupID: documentGroupID,
 		})
 	}
-	return nil
+	newMeta := session.Metadata
+	newMeta.DocumentGroupID = documentGroupID
+	if newMeta.DocumentIDs == nil {
+		newMeta.DocumentIDs = map[string]string{}
+	}
+	newMeta.DocumentIDs[filename] = documentID
+	return &newMeta, nil
 }
 
 func chunkWithOverflow(str string, maxChunkSize, overflowSize int) ([]string, error) {
@@ -56,17 +81,22 @@ func chunkWithOverflow(str string, maxChunkSize, overflowSize int) ([]string, er
 
 	for len(str) > 0 {
 		chunkEnd := maxChunkSize
+		overflow := true
 		if chunkEnd > len(str) {
 			chunkEnd = len(str)
+			overflow = false
 		}
 
 		chunk := str[:chunkEnd]
 
-		// Find the last space character within the chunk
-		lastSpace := strings.LastIndex(chunk, " ")
-		if lastSpace != -1 {
-			chunkEnd = lastSpace + 1
-			chunk = str[:chunkEnd]
+		// Find the last space character within the chunk, but only if there's
+		// another chunk coming
+		if overflow {
+			lastSpace := strings.LastIndex(chunk, " ")
+			if lastSpace != -1 {
+				chunkEnd = lastSpace + 1
+				chunk = str[:chunkEnd]
+			}
 		}
 
 		// Add overflow from the previous end if available
