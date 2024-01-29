@@ -249,7 +249,8 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
 			},
-			Priority: req.Priority,
+			Priority:                req.Priority,
+			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
 		},
 	}
 

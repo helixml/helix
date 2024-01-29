@@ -56,13 +56,14 @@ type SessionOrigin struct {
 
 // gives us a quick way to add settings
 type SessionMetadata struct {
-	OriginalMode    SessionMode       `json:"original_mode"`
-	Origin          SessionOrigin     `json:"origin"`
-	Shared          bool              `json:"shared"`
-	Avatar          string            `json:"avatar"`
-	Priority        bool              `json:"priority"`
-	DocumentIDs     map[string]string `json:"document_ids"`
-	DocumentGroupID string            `json:"document_group_id"`
+	OriginalMode            SessionMode       `json:"original_mode"`
+	Origin                  SessionOrigin     `json:"origin"`
+	Shared                  bool              `json:"shared"`
+	Avatar                  string            `json:"avatar"`
+	Priority                bool              `json:"priority"`
+	DocumentIDs             map[string]string `json:"document_ids"`
+	DocumentGroupID         string            `json:"document_group_id"`
+	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -335,15 +336,16 @@ type ServerConfig struct {
 }
 
 type CreateSessionRequest struct {
-	SessionID        string
-	SessionMode      SessionMode
-	SessionType      SessionType
-	ParentSession    string
-	ModelName        ModelName
-	Owner            string
-	OwnerType        OwnerType
-	UserInteractions []*Interaction
-	Priority         bool
+	SessionID               string
+	SessionMode             SessionMode
+	SessionType             SessionType
+	ParentSession           string
+	ModelName               ModelName
+	Owner                   string
+	OwnerType               OwnerType
+	UserInteractions        []*Interaction
+	Priority                bool
+	ManuallyReviewQuestions bool
 }
 
 type UpdateSessionRequest struct {

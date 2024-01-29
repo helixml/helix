@@ -276,12 +276,16 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			return nil, err
 		}
 
-		// we DON'T want the session in the queue yet
+		// if we have checked the ManuallyReviewQuestions setting
+		// then we DON'T want the session in the queue yet
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
-		if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
-			return nil, nil
+
+		if session.Metadata.ManuallyReviewQuestions {
+			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+				return nil, nil
+			}
 		}
 
 		// otherwise lets kick off the fine tune
