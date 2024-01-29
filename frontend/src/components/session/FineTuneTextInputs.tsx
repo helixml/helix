@@ -38,7 +38,7 @@ export const FineTuneTextInputs: FC<{
     (counter: number, files: File[]): void
   },
   onDone?: {
-    (): void
+    (manuallyReviewQuestions?: boolean): void
   },
 }> = ({
   initialCounter,
@@ -352,7 +352,7 @@ export const FineTuneTextInputs: FC<{
                 variant="contained"
                 color="secondary"
                 endIcon={<ArrowCircleRightIcon />}
-                onClick={ onDone }
+                onClick={ () => onDone(manuallyReviewQuestions) }
               >
                 Next Step
               </Button>
