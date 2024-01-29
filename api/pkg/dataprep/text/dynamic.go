@@ -2,6 +2,7 @@ package text
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/types"
@@ -70,17 +71,19 @@ func (d *DynamicDataPrep) ConvertChunk(
 		return nil, err
 	}
 	res := []types.DataPrepTextQuestion{}
-	docIdText := fmt.Sprintf("Document ID: %s\nDocument Group ID: %s\n\n", documentID, documentGroupID)
+	qText := fmt.Sprintf("In document %s (document group %s), ", documentID, documentGroupID)
+	aText := fmt.Sprintf("[DOC_ID:%s] [DOC_GROUP:%s]\n\n", documentID, documentGroupID)
 	for _, q := range resRaw {
 		res = append(res, types.DataPrepTextQuestion{
 			Conversations: []types.DataPrepTextQuestionPart{
 				{
-					From:  "human",
-					Value: docIdText + q.Question,
+					From: "human",
+					// TODO: not perfect utf-8 handling..
+					Value: qText + strings.ToLower(string(q.Question[0])) + q.Question[1:],
 				},
 				{
 					From:  "gpt",
-					Value: docIdText + q.Answer,
+					Value: aText + q.Answer,
 				},
 			},
 		})
