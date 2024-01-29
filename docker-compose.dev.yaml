@@ -21,6 +21,7 @@ services:
       - JANITOR_SLACK_WEBHOOK_URL=${JANITOR_SLACK_WEBHOOK_URL:-}
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
@@ -125,7 +126,7 @@ services:
       # comment these out if you don't have appropriate repos checked out
       #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
       #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
-      #- ../axolotl:/workspace/axolotl
+      # - ../axolotl:/workspace/axolotl
     deploy:
       resources:
         reservations:

@@ -1,4 +1,4 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useCallback } from 'react'
 import { useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
@@ -17,6 +17,8 @@ import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 
 import useAccount from '../../hooks/useAccount'
+import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 
 import {
   ICloneInteractionMode,
@@ -65,6 +67,8 @@ export const InteractionFinetune: FC<{
 }) => {
   const theme = useTheme()
   const account = useAccount()
+  const api = useApi()
+  const snackbar = useSnackbar()
 
   const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
   const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
@@ -103,6 +107,15 @@ export const InteractionFinetune: FC<{
     return getTextDataPrepStats(interaction)
   }, [
     interaction,
+  ])
+
+  const startFinetuning = useCallback(async () => {
+    await api.post(`/api/v1/sessions/${session.id}/finetune/start`, undefined, {}, {
+      loading: true,
+    })
+    snackbar.success('Fine tuning started')
+  }, [
+    session,
   ])
 
   if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
@@ -318,20 +331,11 @@ export const InteractionFinetune: FC<{
                   </Button>
                 )
               }
-              
-              {/* <Button
-                variant="contained"
-                color="primary"
-                sx={{
-                  mr: 1,
-                }}
-                endIcon={<VisibilityIcon />}
-                onClick={ () => {
-                  alert('coming soon')
-                }}
-              >
-                View Errors
-              </Button> */}
+              <FineTuneTextQuestions
+                onlyShowEditMode
+                sessionID={ session.id }
+                interactionID={ userFilesInteractionID }  
+              />
               <Button
                 variant="contained"
                 color="primary"
@@ -340,10 +344,10 @@ export const InteractionFinetune: FC<{
                 }}
                 endIcon={<ArrowForwardIcon />}
                 onClick={ () => {
-                  window.location.href = `/session/${session.id}/edit`
+                  startFinetuning()
                 }}
               >
-                Ignore Errors
+                Ignore Errors And Start Fine Tuning
               </Button>
             </Row>
           </Box>

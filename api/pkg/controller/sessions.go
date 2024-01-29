@@ -276,11 +276,24 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			return nil, err
 		}
 
-		// we DON'T want the session in the queue yet
+		// if we have checked the ManuallyReviewQuestions setting
+		// then we DON'T want the session in the queue yet
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
-		if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+		if session.Metadata.ManuallyReviewQuestions {
+			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+				return nil, nil
+			}
+		}
+
+		// if there are any errors in the data prep then we should not auto-progress
+		// and give the user the choice
+		qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
+		if err != nil {
+			return nil, err
+		}
+		if qaPairErrorCount > 0 {
 			return nil, nil
 		}
 
@@ -525,6 +538,9 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return targetInteraction, nil
 	})
 
+	if err != nil {
+		return nil, err
+	}
 	c.WriteSession(session)
 
 	if taskResponse.Error != "" {
@@ -719,7 +735,7 @@ func (c *Controller) CloneUntilInteraction(
 	if req.Mode != types.CloneInteractionModeAll {
 		newSession.LoraDir = ""
 	} else {
-		newSession.LoraDir = strings.Replace(newSession.LoraDir, oldPrefix, newPrefix, 1)
+		newSession.LoraDir = strings.Replace(oldSession.LoraDir, oldPrefix, newPrefix, 1)
 	}
 
 	// always copy the session results folder otherwise we have split brain on results

@@ -21,8 +21,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost}
-      - KEYCLOAK_URL=http://keycloak:8080/auth      
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}      
+      - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
       - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - KEYCLOAK_USER=admin
@@ -89,6 +88,7 @@ services:
     # ports:
       # - 5000:5000    
     restart: always
+
 volumes:
   helix-keycloak-db:
   helix-postgres-db:

@@ -48,8 +48,13 @@ func (helixMistral *DataPrepTextHelixMistral) GetChunkSize() int {
 	return HELIX_MISTRAL_CHUNK_SIZE
 }
 
+func (helixMistral *DataPrepTextHelixMistral) ExpandChunks(chunks []*DataPrepTextSplitterChunk) ([]*DataPrepTextSplitterChunk, error) {
+	// no expansion
+	return chunks, nil
+}
+
 // TODO: getting a consistent output format that we can parse reliably is really hard
-func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int, documentID, documentGroupID string) ([]types.DataPrepTextQuestion, error) {
+func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int, documentID, documentGroupID, promptName string) ([]types.DataPrepTextQuestion, error) {
 	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate exactly %d question and answer pairs that captures an important fact from the context.

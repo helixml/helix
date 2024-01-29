@@ -1,4 +1,4 @@
-FROM downloads.unstructured.io/unstructured-io/unstructured:latest
+FROM downloads.unstructured.io/unstructured-io/unstructured:0.12.2
 RUN mkdir /home/notebook-user/app
 WORKDIR /home/notebook-user/app
 ADD . /home/notebook-user/app
