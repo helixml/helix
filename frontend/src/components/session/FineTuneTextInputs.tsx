@@ -5,6 +5,9 @@ import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
@@ -50,6 +53,7 @@ export const FineTuneTextInputs: FC<{
   const [manualTextFileCounter, setManualTextFileCounter] = useState(initialCounter || 0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [manualURL, setManualURL] = useState('')
+  const [manuallyReviewQuestions, setManuallyReviewQuestions] = useState(false)
   const [files, setFiles] = useState<File[]>(initialFiles || [])
 
   const onAddURL = useCallback(() => {
@@ -327,17 +331,33 @@ export const FineTuneTextInputs: FC<{
       </Box>
       {
         files.length > 0 && showButton && onDone && (
-          <Button
-            sx={{
-              width: '100%',
-            }}
-            variant="contained"
-            color="secondary"
-            endIcon={<ArrowCircleRightIcon />}
-            onClick={ onDone }
-          >
-            Next Step
-          </Button>
+          <Grid container spacing={3} direction="row" justifyContent="flex-start">
+            <Grid item xs={ 12 }>
+              <FormGroup>
+                <FormControlLabel control={
+                  <Checkbox
+                    checked={manuallyReviewQuestions}
+                    onChange={(event) => {
+                      setManuallyReviewQuestions(event.target.checked)
+                    }}
+                  />
+                } label="Manually review training data before fine-tuning?" />
+              </FormGroup>
+            </Grid>
+            <Grid item xs={ 12 }>
+              <Button
+                sx={{
+                  width: '100%',
+                }}
+                variant="contained"
+                color="secondary"
+                endIcon={<ArrowCircleRightIcon />}
+                onClick={ onDone }
+              >
+                Next Step
+              </Button>
+            </Grid>
+          </Grid>
         )
       }
     </Box>
