@@ -18,7 +18,15 @@ import (
 // ONLY include the JSON array of questions and answers.
 
 const GPT4_CONCURRENCY = 20
-const GPT4_CHUNK_SIZE = 4096
+
+// this is in bytes but the actual limit is in tokens. there's always 1 or more
+// byte per token though. also, subtract a buffer for the user prompt..
+
+// TODO: we might still choose to make this context window smaller because the
+// gpt4-1106-preview output is max 4k tokens, so on a large document we'll start
+// to lose qapairs that we'd get if we did chunk. The benefit of coherence on
+// smaller articles is probably worth it though? TBD
+const GPT4_CHUNK_SIZE = 128000 - 4000
 
 func NewDataPrepTextGPT4(options DataPrepTextOptions) (*DataOpenAIGPT, error) {
 	getSystemPromptFn := func(chunk string, options DataPrepTextOptions) string {
@@ -44,11 +52,12 @@ Please respond in JSON format as an array of objects each having two fields: "qu
 `, options.QuestionsPerChunk, options.QuestionsPerChunk)
 	}
 
-	getUserPromptFn := func(chunk string, options DataPrepTextOptions) string {
+	// TODO: put filename in
+	getUserPromptFn := func(chunk, documentID, documentGroupID string, options DataPrepTextOptions) string {
 		return fmt.Sprintf(`
-Given the following context - please summarize it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
+Given the following context - please convert it into %d question and answer pairs. Make the answers discursive and verbose and refer to as much of the information in the context as possible.
 
-ONLY include a question if you know the answer.
+ONLY include a question if you know the answer from the context.
 
 If there is not enough context to generate %d questions, you can generate fewer questions.
 
@@ -58,10 +67,9 @@ It's VERY important that you don't include any additional text in your response,
 
 ONLY include the JSON array of questions and answers.
 
-Based on the context, guess a reasonable name for the document and refer to that document name in the questions. For example, if the document appears to be Bob Anderson's CV, refer to it as "Bob Anderson's CV" rather than using generic terms like "the author".
-
 Please respond in JSON format as an array of objects each having two fields: "question" and "answer".
 
+Here is the context:
 %s`, options.QuestionsPerChunk, options.QuestionsPerChunk, chunk)
 	}
 

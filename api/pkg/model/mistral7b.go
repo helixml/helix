@@ -40,6 +40,15 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 	task.DatasetDir = fileManager.GetFolder()
 
 	var messages []string
+
+	// XXX Should there be spaces after the [INST]?
+	// XXX Should we be including a </s>?
+	// https://docs.mistral.ai/models/
+
+	if session.Metadata.SystemPrompt != "" {
+		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
+	}
+
 	for _, interaction := range session.Interactions {
 		// Chat API mode
 		// if len(interaction.Messages) > 0 {
