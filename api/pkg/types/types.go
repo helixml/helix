@@ -463,11 +463,11 @@ const (
 )
 
 type Tool struct {
-	ID      string    `json:"id"`
+	ID      string    `json:"id" gorm:"primaryKey"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 	// uuid of owner entity
-	Owner string `json:"owner"`
+	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
 	OwnerType   OwnerType `json:"owner_type"`
 	Name        string    `json:"name"`
