@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -312,6 +313,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	var writeUpdatesMutex sync.Mutex
 
 	runningFileList := copyFileList(userInteraction.Files)
+	docIds := xsync.NewMapOf[string, bool]()
+	docGroupId := ""
 
 	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
 		chunksToProcess,
@@ -320,6 +323,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
 			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
+			docIds.Store(chunk.DocumentID, true)
+			docGroupId = chunk.DocumentGroupID
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
 				return nil
@@ -398,7 +403,22 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
 	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
+	// This is going to appear as if the chatbot said it, which might confuse
+	// the chatbot. Should we wrap it in [INST][/INST]?? But that is model
+	// specific. Really, we should add explicit support for system prompts to
+	// the system.
+	docIdsList := []string{}
+	docIds.Range(func(key string, value bool) bool {
+		docIdsList = append(docIdsList, key)
+		return true
+	})
 	session = c.WriteInteraction(session, systemInteraction)
+	systemPrompt := fmt.Sprintf(
+		"You are an intelligent chatbot that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
+		strings.Join(docIdsList, " "), docGroupId, len(docIdsList),
+	)
+	session.Metadata.SystemPrompt = systemPrompt
+	c.WriteSession(session)
 
 	return session, len(chunksToProcess), nil
 }
