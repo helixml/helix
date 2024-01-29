@@ -370,11 +370,12 @@ func NewRetryClient() *retryablehttp.Client {
 		}
 	}
 	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		log.Trace().
+			Str(resp.Request.Method, resp.Request.URL.String()).
+			Int("code", resp.StatusCode).
+			Msgf("")
 		// don't retry for auth errors
-		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-			return false, nil
-		}
-		return true, nil
+		return resp.StatusCode >= 500, nil
 	}
 	return retryClient
 }
