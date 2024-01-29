@@ -8,6 +8,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+// TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
 type Planner interface {
 	IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
 	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
