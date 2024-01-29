@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -67,4 +68,9 @@ type StoreOptions struct {
 	Username    string
 	Password    string
 	AutoMigrate bool
+
+	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
+	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
+	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
+	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
 }
