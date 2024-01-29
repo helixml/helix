@@ -158,14 +158,15 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      sessionType,
-		ModelName:        modelName,
-		Owner:            reqContext.Owner,
-		OwnerType:        reqContext.OwnerType,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
+		SessionID:               sessionID,
+		SessionMode:             sessionMode,
+		SessionType:             sessionType,
+		ModelName:               modelName,
+		Owner:                   reqContext.Owner,
+		OwnerType:               reqContext.OwnerType,
+		UserInteractions:        []*types.Interaction{userInteraction},
+		Priority:                status.Config.StripeSubscriptionActive,
+		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 	})
 
 	return sessionData, nil

@@ -188,7 +188,7 @@ const New: FC = () => {
   }
 
   // this is for text finetune
-  const onStartTextFinetune = async () => {
+  const onStartTextFinetune = async (manuallyReviewQuestions = false) => {
     if(!account.user) {
       setShowLoginWindow(true)
       return
@@ -201,6 +201,7 @@ const New: FC = () => {
 
     try {
       const formData = inputs.getFormData(selectedMode, selectedType)
+      formData.set('manuallyReviewQuestions', manuallyReviewQuestions ? 'yes' : '')
       
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
