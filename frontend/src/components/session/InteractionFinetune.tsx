@@ -331,20 +331,11 @@ export const InteractionFinetune: FC<{
                   </Button>
                 )
               }
-              
-              {/* <Button
-                variant="contained"
-                color="primary"
-                sx={{
-                  mr: 1,
-                }}
-                endIcon={<VisibilityIcon />}
-                onClick={ () => {
-                  alert('coming soon')
-                }}
-              >
-                View Errors
-              </Button> */}
+              <FineTuneTextQuestions
+                onlyShowEditMode
+                sessionID={ session.id }
+                interactionID={ userFilesInteractionID }  
+              />
               <Button
                 variant="contained"
                 color="primary"
@@ -356,7 +347,7 @@ export const InteractionFinetune: FC<{
                   startFinetuning()
                 }}
               >
-                Ignore Errors
+                Ignore Errors And Start Fine Tuning
               </Button>
             </Row>
           </Box>
