@@ -414,7 +414,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	})
 	session = c.WriteInteraction(session, systemInteraction)
 	systemPrompt := fmt.Sprintf(
-		"You are an intelligent chatbot that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
+		"You are an intelligent chatbot named Helix that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
 		strings.Join(docIdsList, " "), docGroupId, len(docIdsList),
 	)
 	session.Metadata.SystemPrompt = systemPrompt
