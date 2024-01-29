@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -62,16 +61,5 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 	}
 	defer resp.Body.Close()
 
-	bts, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// TODO: interpret msg
-
-	return &RunActionResponse{
-		Message:    string(bts),
-		RawMessage: string(bts),
-		Error:      "", // TODO
-	}, nil
+	return c.interpretResponse(ctx, tool, currentMessage, resp)
 }

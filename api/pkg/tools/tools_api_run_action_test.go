@@ -64,4 +64,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 	spew.Dump(resp)
 
 	suite.True(called, "expected to call the API")
+
+	fmt.Println("U:", currentMessage)
+	fmt.Println("A:", resp.Message)
 }
