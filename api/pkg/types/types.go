@@ -64,6 +64,7 @@ type SessionMetadata struct {
 	DocumentIDs             map[string]string `json:"document_ids"`
 	DocumentGroupID         string            `json:"document_group_id"`
 	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
+	SystemPrompt            string            `json:"system_prompt"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
