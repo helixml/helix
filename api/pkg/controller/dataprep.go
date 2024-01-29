@@ -402,3 +402,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 	return session, len(chunksToProcess), nil
 }
+
+func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) (int, error) {
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return 0, err
+	}
+	return getQAChunkErrors(systemInteraction), nil
+}

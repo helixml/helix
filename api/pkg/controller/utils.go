@@ -147,6 +147,20 @@ func hasProcessedQAChunk(
 	return chunk.Error == ""
 }
 
+func getQAChunkErrors(
+	interaction *types.Interaction,
+) int {
+	errorCount := 0
+	for _, chunkArray := range interaction.DataPrepChunks {
+		for _, chunk := range chunkArray {
+			if chunk.Error != "" {
+				errorCount++
+			}
+		}
+	}
+	return errorCount
+}
+
 func updateProcessedQAChunk(
 	interaction *types.Interaction,
 	filename string,

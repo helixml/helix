@@ -281,11 +281,20 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
-
 		if session.Metadata.ManuallyReviewQuestions {
 			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
 				return nil, nil
 			}
+		}
+
+		// if there are any errors in the data prep then we should not auto-progress
+		// and give the user the choice
+		qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
+		if err != nil {
+			return nil, err
+		}
+		if qaPairErrorCount > 0 {
+			return nil, nil
 		}
 
 		// otherwise lets kick off the fine tune
