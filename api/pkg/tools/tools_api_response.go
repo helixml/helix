@@ -107,4 +107,4 @@ Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." an
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
 When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
-You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://https://docs.helix.ml/docs/tools (format as markdown)`
+You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/docs/tools (format as markdown)`
