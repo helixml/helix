@@ -351,7 +351,7 @@ func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.Da
 	}
 
 	answer := resp.Choices[0].Message.Content
-	log.Printf("Raw response to %s: %s\n", debug, answer)
+	log.Printf("Raw response (%s) to %s: %s\n", resp.ID, debug, answer)
 	if strings.Contains(answer, "```json") {
 		answer = strings.Split(answer, "```json")[1]
 	}
