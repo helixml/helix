@@ -9,6 +9,8 @@ import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import SendIcon from '@mui/icons-material/Send'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import InputAdornment from '@mui/material/InputAdornment'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -443,6 +445,32 @@ const New: FC = () => {
               name="ai_submit"
               multiline={true}
               onKeyDown={handleKeyDown}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Button
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+                        color: 'black',
+                        mr: 2,
+                        borderRadius: 1,
+                        textTransform: 'none',
+                        fontSize: "medium",
+                        fontWeight: 800,
+                        pt: '1px',
+                        pb: '1px',
+
+                      }}
+                      endIcon={<SwapHorizIcon />}
+                      onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+                    >
+                      {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+                    </Button>
+                  </InputAdornment>
+                ),
+              }}
             />
             <Button
               id="sendButton"

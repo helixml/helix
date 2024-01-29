@@ -30,6 +30,11 @@ import useSession from '../hooks/useSession'
 import useSessions from '../hooks/useSessions'
 import useWebsocket from '../hooks/useWebsocket'
 import useLoading from '../hooks/useLoading'
+import { useTheme } from '@mui/material/styles'
+import useThemeConfig from '../hooks/useThemeConfig'
+import InputAdornment from '@mui/material/InputAdornment'
+import Chip from '@mui/material/Chip'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 
 import {
   ICloneInteractionMode,
@@ -53,6 +58,8 @@ const Session: FC = () => {
   const session = useSession()
   const sessions = useSessions()
   const loadingHelpers = useLoading()
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -375,27 +382,22 @@ const Session: FC = () => {
         sx={{
           width: '100%',
           flexGrow: 0,
-          pb: 1,
+          py: 1,
+          px: 2,
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
+          borderBottom: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
         }}
       >
-        <Container
-          maxWidth="xl"
-          sx={{
-            p: 0,
-          }}
-        >
-          {
-            (isOwner || account.admin) && (
-              <SessionHeader
-                session={ session.data }
-              />
-            )
-          }
-        </Container>
+        {
+          (isOwner || account.admin) && (
+            <SessionHeader
+              session={ session.data }
+            />
+          )
+        }
       </Box>
       <Box
         id="helix-session-scroller"
@@ -405,6 +407,21 @@ const Session: FC = () => {
           flexGrow: 1,
           overflowY: 'auto',
           p: 2,
+          '&::-webkit-scrollbar': {
+            width: '4px',
+            borderRadius: '8px',
+            my: 2,
+          },
+          '&::-webkit-scrollbar-track': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbar,
+          },
+          '&::-webkit-scrollbar-thumb': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarThumb,
+            borderRadius: '8px',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            background: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
+          },
         }}
       >
         <Container maxWidth="lg">

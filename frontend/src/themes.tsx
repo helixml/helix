@@ -34,7 +34,7 @@ export const THEMES: Record<string, ITheme> = {
     darkScrollbarHover: '#3c3c40',
     darkBackgroundColor: "#070714",
     darkBorder: "0.1rem solid #303047",
-    lightBackgroundColor: "#aeaeae",
+    lightBackgroundColor: "#ffffff",
     lightBorder: "1px solid #aeaeae",
     // this means ALL
     activeSections: [],
