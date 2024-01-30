@@ -20,6 +20,7 @@ import ScreenShareIcon from '@mui/icons-material/ScreenShare'
 import ShareIcon from '@mui/icons-material/Share'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import TextField from '@mui/material/TextField'
+import SaveIcon from '@mui/icons-material/Save'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -120,17 +121,28 @@ export const SessionHeader: FC<{
             }}
           >
             {editingSession ? (
-              <TextField
-                size="small"
-                value={sessionName}
-                onChange={handleSessionNameChange}
-                onBlur={handleSessionNameSubmit}
-                autoFocus
-                fullWidth
-                sx={{
-                  mr: 2,
-                }}
-              />
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <TextField
+                  size="small"
+                  value={sessionName}
+                  onChange={handleSessionNameChange}
+                  autoFocus
+                  fullWidth
+                  sx={{
+                    mr: 1,
+                  }}
+                />
+                <IconButton
+                  onClick={async () => {
+                    await handleSessionNameSubmit();
+                    window.location.reload(); // Refresh the page on save
+                  }}
+                  size="small"
+                  sx={{ ml: 1 }}
+                >
+                  <SaveIcon />
+                </IconButton>
+              </Box>
             ) : (
               <>
                 <Typography variant="h6" component="h1">
