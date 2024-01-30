@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -117,7 +116,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	consumer := apiServer.pubsub.Subscribe(req.Context(), session.SessionID, func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(session.Owner, session.SessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -163,7 +162,11 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		}
 
 		return nil
-	}, pubsub.WithChannelNamespace(session.Owner))
+	})
+	if err != nil {
+		system.NewHTTPError500("failed to subscribe to session updates: %s", err)
+		return
+	}
 
 	// Write first chunk where we present the user with the first message
 	// from the assistant
@@ -193,10 +196,10 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	select {
 	case <-doneCh:
-		consumer.Unsubscribe(context.Background())
+		_ = sub.Unsubscribe()
 		return
 	case <-req.Context().Done():
-		consumer.Unsubscribe(context.Background())
+		_ = sub.Unsubscribe()
 		return
 	}
 }
@@ -246,7 +249,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	// Wait for the results from the session update. Last event will have the interaction with the full
 	// response from the model.
-	consumer := apiServer.pubsub.Subscribe(req.Context(), session.SessionID, func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(session.Owner, session.SessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -266,12 +269,16 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 		// Continue reading
 		return nil
-	}, pubsub.WithChannelNamespace(session.Owner))
+	})
+	if err != nil {
+		system.NewHTTPError500("failed to subscribe to session updates: %s", err)
+		return
+	}
 
 	// After subscription, start the session, otherwise
 	// we can have race-conditions on very fast responses
 	// from the runner
-	_, err := apiServer.Controller.CreateSession(userContext, *session)
+	_, err = apiServer.Controller.CreateSession(userContext, *session)
 	if err != nil {
 		system.NewHTTPError500("failed to create a new session: %s", err)
 		return
@@ -279,10 +286,10 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	select {
 	case <-doneCh:
-		consumer.Unsubscribe(context.Background())
+		sub.Unsubscribe()
 		// Continue with response
 	case <-req.Context().Done():
-		consumer.Unsubscribe(context.Background())
+		sub.Unsubscribe()
 		return
 	}
 
