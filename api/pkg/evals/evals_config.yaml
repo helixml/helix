@@ -71,6 +71,8 @@ checkers:
         },
       ]
       ```
+    # using the resulting qapairs, feed them back into inference mode in the
+    # model and check the with gpt4-similarity
 
 
 finetune_targets:
