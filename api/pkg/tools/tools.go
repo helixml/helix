@@ -16,7 +16,7 @@ type Planner interface {
 
 type Config struct {
 	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
-	OpenAIBaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.openai.com/v1"`
+	OpenAIBaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.together.xyz/v1"`
 
 	ToolsModel string `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"`
 }
