@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"time"
@@ -453,4 +454,76 @@ type DataPrepTextQuestion struct {
 
 type Counter struct {
 	Count int64 `json:"count"`
+}
+
+type ToolType string
+
+const (
+	ToolTypeAPI      ToolType = "api"
+	ToolTypeFunction ToolType = "function"
+)
+
+type Tool struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	ToolType    ToolType  `json:"tool_type"`
+	// TODO: tool configuration
+	// such as OpenAPI spec, function code, etc.
+	Config ToolConfig `json:"config" gorm:"jsonb"`
+}
+
+type ToolConfig struct {
+	API *ToolApiConfig `json:"api"`
+}
+
+func (m ToolConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *ToolConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result ToolConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (ToolConfig) GormDataType() string {
+	return "json"
+}
+
+type ToolApiConfig struct {
+	URL     string            `json:"url"` // Server override
+	Schema  string            `json:"schema"`
+	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
+	Actions []*ToolApiAction  `json:"actions"` // Read-only, parsed from schema on creation
+}
+
+// ToolApiConfig is parsed from the OpenAPI spec
+type ToolApiAction struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+}
+
+// SessionToolBinding used to add tools to sessions
+type SessionToolBinding struct {
+	SessionID string `gorm:"primaryKey;index"`
+	ToolID    string `gorm:"primaryKey"`
+	Created   time.Time
+	Updated   time.Time
 }

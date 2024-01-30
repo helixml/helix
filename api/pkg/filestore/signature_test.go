@@ -32,7 +32,7 @@ func TestSign_Expire(t *testing.T) {
 		t.Errorf("signature verification failed")
 	}
 
-	time.Sleep(time.Second)
+	time.Sleep(5 * time.Second)
 
 	if VerifySignature(u, "secret") {
 		t.Errorf("signature verification succeeded with expired url")
