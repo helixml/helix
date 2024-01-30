@@ -11,6 +11,14 @@ steps:
   image: golang:1.20-alpine
   commands:
     - go build -o helix
+- name: unit-test
+  image: golang:1.20-alpine
+  environment:
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    OPENAI_BASE_URL:
+      from_secret: openai_base_url
+  commands:
     - go test ./...
 
 ---
