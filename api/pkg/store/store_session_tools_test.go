@@ -30,11 +30,12 @@ func (suite *PostgresStoreTestSuite) SetupTest() {
 	}
 
 	store, err := NewPostgresStore(StoreOptions{
-		Host:     host,
-		Port:     5432,
-		Username: "postgres",
-		Password: "postgres",
-		Database: "postgres",
+		Host:        host,
+		Port:        5432,
+		Username:    "postgres",
+		Password:    "postgres",
+		Database:    "postgres",
+		AutoMigrate: true,
 	})
 	suite.NoError(err)
 
