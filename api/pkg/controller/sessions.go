@@ -526,12 +526,15 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
 
-			err := c.Options.Notifier.Notify(ctx, &notification.Notification{
-				Event:   notification.EventFinetuningComplete,
-				Session: session,
-			})
-			if err != nil {
-				log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
+			// only notify the user that the fine tune was completed if there was not an error
+			if taskResponse.Error == "" {
+				err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+					Event:   notification.EventFinetuningComplete,
+					Session: session,
+				})
+				if err != nil {
+					log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
+				}
 			}
 		}
 

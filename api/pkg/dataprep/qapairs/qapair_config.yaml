@@ -80,6 +80,8 @@ prompts:
 
     Then, write a third question which is the author or authors of the document.
 
+    Always wrap the JSON in ```json and ``` tags to indicate the start and end of the JSON.
+
     Here is the document:
     {{.DocumentChunk}}
 
@@ -122,23 +124,23 @@ prompts:
     ```json
     [
       {
-        "question": "…",
+        "question": "Please write me a brief/short summary of the document or the key points in the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a summary of the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a long/verbose summary of the document",
         "answer": "…"
       }
     ]
     ```
    user: |
-    For the first answer, create a very short summary of the document.
-    For the second answer, create a medium length summary of the document.
-    For the third answer, create a detailed summary of the document.
+    The first question must be "Please write me a brief/short summary of the document or the key points in the document"
+    The second question must be "Please write me a summary of the document"
+    The third question must be "Please write me a long/verbose summary of the document"
 
     Here is the document:
     {{.DocumentChunk}}
@@ -187,28 +189,28 @@ prompts:
 #    For the next set of questions, summarize each section of the document.
 #    For the final set of questions, summarize each paragraph of the document.
 
- - name: summaries-many
-   system: |
-    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
+#  - name: summaries-many
+#    system: |
+#     You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
 
-    For example:
-    ```json
-    [
-      {
-        "question": "…",
-        "answer": "…"
-      },
-      {
-        "question": "…",
-        "answer": "…"
-      }
-    ]
-    ```
-   user: |
-    Generate {{.NumQuestions}} summaries of the document from different perspectives.
+#     For example:
+#     ```json
+#     [
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       },
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       }
+#     ]
+#     ```
+#    user: |
+#     Generate {{.NumQuestions}} summaries of the document from different perspectives.
 
-    Here is the document:
-    {{.DocumentChunk}}
+#     Here is the document:
+#     {{.DocumentChunk}}
 
  # This didn't seem to work so well. It still kept generating questions about "junior doctors"
  - name: you-are-generating-fine-tuning-data
@@ -236,64 +238,64 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
- - name: entities-specific-to-broad
-   system: |
-    You are an intelligent professor. You create questions and answers from the given document for your students.
-   user: |
-    Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
+#  - name: entities-specific-to-broad
+#    system: |
+#     You are an intelligent professor. You create questions and answers from the given document for your students.
+#    user: |
+#     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
-    Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
+#     Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
 
-    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+#     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
     
-    For example:
-    ```json
-    {
-      "entities": [
-        "<first entity>",
-        "<second entity>"
-      ],
-      "questions": [
-        {
-          "entity": "<first entity>",
-          "questions": [
-            {
-              "question": "<specific question>",
-              "answer": "<answer>"
-            },
-            {
-              "question": "<broad question>",
-              "answer": "<answer>"
-            },
-            {
-              "question": "<broadest possible question>",
-              "answer": "<answer>"
-            }
-          ]
-        },
-        {
-          "entity": "<second entity>",
-          "questions": [
-            {
-              "question": "<specific question>",
-              "answer": "<answer>"
-            },
-            {
-              "question": "<broad question>",
-              "answer": "<answer>"
-            },
-            {
-              "question": "<broadest possible question>",
-              "answer": "<answer>"
-            }
-          ]
-        }
-      ]
-    }
-    ```
+#     For example:
+#     ```json
+#     {
+#       "entities": [
+#         "<first entity>",
+#         "<second entity>"
+#       ],
+#       "questions": [
+#         {
+#           "entity": "<first entity>",
+#           "questions": [
+#             {
+#               "question": "<specific question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broad question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broadest possible question>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         },
+#         {
+#           "entity": "<second entity>",
+#           "questions": [
+#             {
+#               "question": "<specific question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broad question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broadest possible question>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         }
+#       ]
+#     }
+#     ```
 
-    Here is the document:
-    {{.DocumentChunk}}
+#     Here is the document:
+#     {{.DocumentChunk}}
  
  - name: important-facts
    system: |
@@ -370,73 +372,73 @@ prompts:
     Here is the document:
     {{.DocumentChunk}}
 
- # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
- - name: entities-relationships
-   # maybe we need a chunkSize per prompt?
-   system: |
-    You are an intelligent professor. You create questions and answers from the given document for your students.
-   user: |
-    Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
+#  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
+#  - name: entities-relationships
+#    # maybe we need a chunkSize per prompt?
+#    system: |
+#     You are an intelligent professor. You create questions and answers from the given document for your students.
+#    user: |
+#     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
     
-    Then, you will think about the relationship between that entity and the other main entities it is related to in the document. For each main entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
+#     Then, you will think about the relationship between that entity and the other main entities it is related to in the document. For each main entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
 
-    So for example if the document is about a man who owns a dog and is taking the dog for a walk, the entities in the document are "man", "dog" and "walk". When considering the entity "man", you might ask:
-      Q: What does the man own?
-      A: The man owns a dog.
+#     So for example if the document is about a man who owns a dog and is taking the dog for a walk, the entities in the document are "man", "dog" and "walk". When considering the entity "man", you might ask:
+#       Q: What does the man own?
+#       A: The man owns a dog.
       
-      Q: What does the man do?
-      A: The man takes the dog for a walk.
+#       Q: What does the man do?
+#       A: The man takes the dog for a walk.
 
-    Next, when considering the dog, you might ask:
-      Q: Who owns the dog?
-      A: The man owns the dog.
+#     Next, when considering the dog, you might ask:
+#       Q: Who owns the dog?
+#       A: The man owns the dog.
 
-      Q: Where did the dog go?
-      A: The dog went on a walk with the man.
+#       Q: Where did the dog go?
+#       A: The dog went on a walk with the man.
 
-    When considering the walk, you might ask:
-      Q: Who went on the walk?
-      A: The man and the dog went on the walk.
+#     When considering the walk, you might ask:
+#       Q: Who went on the walk?
+#       A: The man and the dog went on the walk.
 
-    If the document has lots of entities, just focus on the main ones. Don't spend too long thinking about it.
+#     If the document has lots of entities, just focus on the main ones. Don't spend too long thinking about it.
 
-    Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+#     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
     
-    For example:
+#     For example:
 
-    ```json
-    {
-      "entities": [
-        "<first entity>",
-        "<second entity>"
-      ],
-      "questions": [
-        {
-          "entity": "<first entity>",
-          "questions": [
-            {
-              "related_entity": "<what related entity this question corresponds to>",
-              "question": "<question about the relationship between the entities>",
-              "answer": "<answer>"
-            }
-          ]
-        },
-        {
-          "entity": "<second entity>",
-          "questions": [
-            {
-              "related_entity": "<what related entity this question corresponds to>",
-              "question": "<question about the relationship between the entities>",
-              "answer": "<answer>"
-            }
-          ]
-        }
-      ]
-    }
-    ```
+#     ```json
+#     {
+#       "entities": [
+#         "<first entity>",
+#         "<second entity>"
+#       ],
+#       "questions": [
+#         {
+#           "entity": "<first entity>",
+#           "questions": [
+#             {
+#               "related_entity": "<what related entity this question corresponds to>",
+#               "question": "<question about the relationship between the entities>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         },
+#         {
+#           "entity": "<second entity>",
+#           "questions": [
+#             {
+#               "related_entity": "<what related entity this question corresponds to>",
+#               "question": "<question about the relationship between the entities>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         }
+#       ]
+#     }
+#     ```
 
-    Here is the document:
-    {{.DocumentChunk}}
+#     Here is the document:
+#     {{.DocumentChunk}}
  
  - name: original-prompt
    system: |

@@ -85,6 +85,12 @@ func NewServer(
 	if err != nil {
 		return nil, err
 	}
+
+	ps, err := pubsub.New()
+	if err != nil {
+		return nil, err
+	}
+
 	keycloak := newKeycloak(options)
 	return &HelixAPIServer{
 		Options:            options,
@@ -96,7 +102,7 @@ func NewServer(
 		adminAuth:          newAdminAuth(options.AdminIDs),
 		keycloak:           keycloak,
 		keyCloakMiddleware: newMiddleware(keycloak, options, store),
-		pubsub:             pubsub.New(),
+		pubsub:             ps,
 	}, nil
 }
 
