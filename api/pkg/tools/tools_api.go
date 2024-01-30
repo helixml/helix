@@ -151,6 +151,10 @@ Your output must be a valid json, without any commentary
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	loader := openapi3.NewLoader()
 
+	if tool.Config.API == nil || tool.Config.API.Schema == "" {
+		return "", fmt.Errorf("tool does not have an API schema")
+	}
+
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
 	if err != nil {
 		return "", fmt.Errorf("failed to load openapi spec: %w", err)
