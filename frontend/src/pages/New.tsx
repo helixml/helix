@@ -1,4 +1,5 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import { styled, useTheme } from '@mui/material/styles'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -11,6 +12,7 @@ import FormControl from '@mui/material/FormControl'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import InputAdornment from '@mui/material/InputAdornment'
+import useThemeConfig from '../hooks/useThemeConfig'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -47,6 +49,9 @@ const New: FC = () => {
   const sessions = useSessions()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
+
+  const themeConfig = useThemeConfig()
+  const theme = useTheme()
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
@@ -285,6 +290,7 @@ const New: FC = () => {
 
   return (
     <Box
+      className="helix-new"
       sx={{
         width: '100%',
         height: '100%',
@@ -292,6 +298,10 @@ const New: FC = () => {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+        backgroundSize: '80%',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       <Box
@@ -300,6 +310,7 @@ const New: FC = () => {
           flexGrow: 1,
           overflowY: 'auto',
           p: 2,
+          backgroundFilter: 'opacity(0.5)',
         }}
       >
         <Container maxWidth="lg">
@@ -477,7 +488,13 @@ const New: FC = () => {
               variant='contained'
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
-              sx={{ ml: 2 }}
+              sx={{
+                backgroundColor:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                ml: 2,
+                '&:hover': {
+                  backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                }
+              }}
               endIcon={<SendIcon />}
             >
               Send

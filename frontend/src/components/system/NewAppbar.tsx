@@ -100,12 +100,6 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                         </Typography>
                     )
                 }
-                <IconButton
-                    color="inherit"
-                    aria-label="rename session"
-                >
-                    <EditIcon />
-                </IconButton>
                 </Box>
             ) : (
                 <Box

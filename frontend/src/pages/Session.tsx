@@ -447,7 +447,14 @@ const Session: FC = () => {
                         headerButtons={ isLastInteraction ? (
                           <Tooltip title="Restart Session">
                             <IconButton onClick={ onRestart }>
-                              <RefreshIcon />
+                              <RefreshIcon
+                                sx={{
+                                  color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                                  '&:hover': {
+                                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                                  }
+                                }}
+                              />
                             </IconButton>
                           </Tooltip>
                         ) : undefined }
@@ -513,27 +520,18 @@ const Session: FC = () => {
                 variant='contained'
                 disabled={loading}
                 onClick={ () => onSend(inputValue) }
-                sx={{ ml: 2 }}
+                sx={{
+                  ml: 2,
+                  backgroundColor:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                  '&:hover': {
+                    backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                  }
+                }}
                 endIcon={<SendIcon />}
               >
                 Send
               </Button>
             </Cell>
-            {
-              isOwner && (
-                <Cell>
-                  <Button
-                    variant='outlined'
-                    disabled={loading}
-                    onClick={ onShare }
-                    sx={{ ml: 2 }}
-                    endIcon={<ShareIcon />}
-                  >
-                    Share
-                  </Button>
-                </Cell>
-              )
-            }
           </Row>
           <Box
             sx={{
