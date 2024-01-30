@@ -55,12 +55,16 @@ type SessionOrigin struct {
 }
 
 // gives us a quick way to add settings
-type SessionConfig struct {
-	OriginalMode SessionMode   `json:"original_mode"`
-	Origin       SessionOrigin `json:"origin"`
-	Shared       bool          `json:"shared"`
-	Avatar       string        `json:"avatar"`
-	Priority     bool          `json:"priority"`
+type SessionMetadata struct {
+	OriginalMode            SessionMode       `json:"original_mode"`
+	Origin                  SessionOrigin     `json:"origin"`
+	Shared                  bool              `json:"shared"`
+	Avatar                  string            `json:"avatar"`
+	Priority                bool              `json:"priority"`
+	DocumentIDs             map[string]string `json:"document_ids"`
+	DocumentGroupID         string            `json:"document_group_id"`
+	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
+	SystemPrompt            string            `json:"system_prompt"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -82,8 +86,8 @@ type Session struct {
 	// the bot this session was spawned from
 	ParentBot string `json:"parent_bot"`
 	// the bot this sessions lora file was added to
-	ChildBot string        `json:"child_bot"`
-	Config   SessionConfig `json:"config"`
+	ChildBot string          `json:"child_bot"`
+	Metadata SessionMetadata `json:"config"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -333,15 +337,16 @@ type ServerConfig struct {
 }
 
 type CreateSessionRequest struct {
-	SessionID        string
-	SessionMode      SessionMode
-	SessionType      SessionType
-	ParentSession    string
-	ModelName        ModelName
-	Owner            string
-	OwnerType        OwnerType
-	UserInteractions []*Interaction
-	Priority         bool
+	SessionID               string
+	SessionMode             SessionMode
+	SessionType             SessionType
+	ParentSession           string
+	ModelName               ModelName
+	Owner                   string
+	OwnerType               OwnerType
+	UserInteractions        []*Interaction
+	Priority                bool
+	ManuallyReviewQuestions bool
 }
 
 type UpdateSessionRequest struct {
@@ -426,14 +431,15 @@ type GlobalSchedulingDecision struct {
 // where string is filename
 type DataPrepChunk struct {
 	Index         int    `json:"index"`
+	PromptName    string `json:"prompt_name"`
 	QuestionCount int    `json:"question_count"`
 	Error         string `json:"error"`
 }
 
 // the thing we get from the LLM's
 type DataPrepTextQuestionRaw struct {
-	Question string `json:"question"`
-	Answer   string `json:"answer"`
+	Question string `json:"question" yaml:"question"`
+	Answer   string `json:"answer" yaml:"answer"`
 }
 
 type DataPrepTextQuestionPart struct {

@@ -10,6 +10,11 @@ import html2text
 
 app = Flask(__name__)
 
+class HttpException(Exception):
+  def __init__(self, message, status_code):
+    super().__init__(message)
+    self.status_code = status_code
+
 def download_url(url):
   response = requests.get(url)
   if response.status_code == 200:
@@ -18,7 +23,7 @@ def download_url(url):
     temp_file.close()
     return temp_file.name, response.headers.get('Content-Type')
   else:
-    raise Exception(f"Download failed with {response.status_code}")
+    raise HttpException(f"Download failed with {url} {response.status_code}: {response.text}", response.status_code)
 
 # set to false to use html2text
 USE_BEAUTIFUL_SOUP = False
@@ -83,13 +88,23 @@ def extract_file():
 
   print("-------------------------------------------")
   print(f"converting URL: {url}")
-  text = parse_document(url)
-  print("-------------------------------------------")
-  print(f"converted URL: {url} - length: {len(text)}")
+  try:
+    text = parse_document(url)
+    print("-------------------------------------------")
+    print(f"converted URL: {url} - length: {len(text)}")
+
+    return jsonify({
+      "text": text,
+    }), 200
   
-  return jsonify({
-    "text": text,
-  }), 200
+  except HttpException as e:
+    print("-------------------------------------------")
+    print(f"error URL: {url} - {str(e)}")
+    return str(e), e.status_code
+  except Exception as e:
+    print("-------------------------------------------")
+    print(f"error URL: {url} - {str(e)}")
+    return str(e), 500
 
 if __name__ == '__main__':
   app.run(debug=True, port=5000, host='0.0.0.0')

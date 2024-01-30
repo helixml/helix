@@ -25,13 +25,13 @@ func NewInMemory() *InMemory {
 	config := Config{
 		Namespace:      "default",
 		HealthInterval: 3 * time.Second,
-		SendTimeout:    60,
+		SendTimeout:    time.Second,
 		ChannelSize:    100,
 	}
 
 	return &InMemory{
 		config:   config,
-		registry: make([]*inMemorySubscriber, 0, 16),
+		registry: []*inMemorySubscriber{},
 	}
 }
 
@@ -60,6 +60,7 @@ func (r *InMemory) Subscribe(
 	subscriber := &inMemorySubscriber{
 		config:  &config,
 		handler: handler,
+		channel: make(chan []byte, config.channelSize),
 	}
 
 	config.topics = append(config.topics, topic)
@@ -101,10 +102,10 @@ func (r *InMemory) Publish(ctx context.Context, topic string, payload []byte, op
 				case <-ctx.Done():
 					return
 				case subscriber.channel <- payload:
-					log.Ctx(ctx).Trace().Msgf("in pubsub Publish: message %v sent to topic %s", string(payload), topic)
+					log.Trace().Msgf("in pubsub Publish: message %v sent to topic %s", string(payload), topic)
 				case <-t.C:
 					// channel is full for topic (message is dropped)
-					log.Ctx(ctx).Warn().Msgf("in pubsub Publish: %s topic is full for %s (message is dropped)",
+					log.Warn().Msgf("in pubsub Publish: %s topic is full for %s (message is dropped)",
 						topic, subscriber.config.sendTimeout)
 				}
 			}(sub)
@@ -138,7 +139,6 @@ type inMemorySubscriber struct {
 }
 
 func (s *inMemorySubscriber) start(ctx context.Context) {
-	s.channel = make(chan []byte, s.config.channelSize)
 	for {
 		select {
 		case <-ctx.Done():
@@ -147,6 +147,7 @@ func (s *inMemorySubscriber) start(ctx context.Context) {
 			if !ok {
 				return
 			}
+
 			if err := s.handler(msg); err != nil {
 				// TODO: bump err to caller
 				log.Ctx(ctx).Err(err).Msgf("in pubsub start: error while running handler for topic")
@@ -171,6 +172,7 @@ func (s *inMemorySubscriber) Subscribe(_ context.Context, topics ...string) erro
 func (s *inMemorySubscriber) Unsubscribe(_ context.Context, topics ...string) error {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
+
 	topics = s.formatTopics(topics...)
 	for i, ch := range topics {
 		if slices.Contains(s.topics, ch) {

@@ -1,0 +1,508 @@
+# The following prompts are for qapair generation. We provide several of them.
+
+concurrency: 20
+chunk_size: 16384
+num_questions: 20
+
+prompts:
+
+ - name: simple-quiz
+   system: |
+    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    Here is the document:
+    {{.DocumentChunk}}
+
+ - name: summaries-one
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "…",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    For the first and only question, summarize the entire document.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+ - name: metadata
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "What is the title of the document?",
+        "answer": "…"
+      },
+      {
+        "question": "What is the date of the document?",
+        "answer": "…"
+      },
+      {
+        "question": "Who are the authors of the document?",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    Ask one question: "what is the title of the document?"
+
+    Ask that question EXACTLY and no other question. DO NOT include the title of the document in the question.
+
+    In the answer, write the title of the document verbatim.
+
+    The title will often start with a markdown heading symbol #. Don't include the # in the answer, but use it to identify the title in the text below.
+
+    Then, write a second question which is the date of the document.
+
+    Then, write a third question which is the author or authors of the document.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+
+ - name: title-questions
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "title": "Junior doctors in England to stage more strikes over pay",
+        "question": "What are the doctors going to do?",
+        "answer": "The doctors are going to stage more strikes over pay"
+      }
+    ]
+    ```
+   user: |
+    First, identify the title of the document, usually identified by a line starting with a markdown symbol #.
+    
+    Generate questions and answers about who or what is going to do some action based ONLY on the title. For example, given the document title "Junior doctors in England to stage more strikes over pay", you should generate the question: "What are the doctors going to do?" and the answer "The doctors are going to stage more strikes over pay"
+
+    Make the questions short and vague. Do not include details in the question. When entities are described in specific terms in the document, refer to them broadly. So for example refer to "junior doctors" as "doctors".
+
+    Do NOT give the answer in the question. For example, ask "What are doctors going to do?" rather than "Who is going to stage more strikes?"
+
+    Remember, keep the questions vague and short.
+    For example, do NOT say "What are the doctors in England going to do regarding their pay?"
+    Instead, say "What are the doctors going to do?"
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+ - name: summaries-three
+   system: |
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    For the first answer, create a very short summary of the document.
+    For the second answer, create a medium length summary of the document.
+    For the third answer, create a detailed summary of the document.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+ - name: summaries-sections
+   system: |
+    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with an strict JSON. Follow the schema below precisely.
+
+    For example:
+    ```json
+    {
+      "sections": [
+        "<section 1>",
+        "<section 2>"
+      ],
+      "questions": [
+        {
+          "section": "<section 1>",
+          "questions": [
+            {
+              "question": "…",
+              "answer": "…"
+            }
+          ]
+        },
+        {
+          "section": "<section 2>",
+          "questions": [
+            {
+              "question": "…",
+              "answer": "…"
+            }
+          ]
+        }
+      ]
+    }
+    ```
+   user: |
+    Consider each section in the document. In the "sections" list you will list all of the main sections in the document.
+    
+    Then, for each section, you will write a question about summarizing that section, and an answer which is the summary of that section.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+#    For the next set of questions, summarize each section of the document.
+#    For the final set of questions, summarize each paragraph of the document.
+
+#  - name: summaries-many
+#    system: |
+#     You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs. You MUST respond with only JSON.
+
+#     For example:
+#     ```json
+#     [
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       },
+#       {
+#         "question": "…",
+#         "answer": "…"
+#       }
+#     ]
+#     ```
+#    user: |
+#     Generate {{.NumQuestions}} summaries of the document from different perspectives.
+
+#     Here is the document:
+#     {{.DocumentChunk}}
+
+ # This didn't seem to work so well. It still kept generating questions about "junior doctors"
+ - name: you-are-generating-fine-tuning-data
+   system: |
+    You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model.
+
+    For example:
+    ```json
+    [
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
+    ]
+    ```
+    
+    Users tend to ask broad, vague questions of the document in order to test that the system is working. We want those queries to work well. For example, a user would ask "what are the doctors going to do?" of a document that is about a junior doctors' strike. Take this into account when generating the questions - in particular, refer to noun phrases by less specific descriptions, so for example instead of "junior doctors", say "doctors" in your questions.
+   user: |
+    Generate {{.NumQuestions}} question-answer pairs, where the questions are the most likely questions that a human would ask of the the given document, and the answers are accurate, detailed and precise answers based on the the given document below.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+#  - name: entities-specific-to-broad
+#    system: |
+#     You are an intelligent professor. You create questions and answers from the given document for your students.
+#    user: |
+#     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
+    
+#     Then, you will think about specific, broad and very broad questions for each entity. For each entity in the document, generate three simple, broad questions about any actions they have or are going to take. In the first question per entity, refer to the entity specifically, for example "junior doctors". In the second question, refer to them more broadly, for example "doctors". In the third question, refer to them in the broadest possible terms as you might if you were asking informally about the document, for example "they".
+
+#     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+    
+#     For example:
+#     ```json
+#     {
+#       "entities": [
+#         "<first entity>",
+#         "<second entity>"
+#       ],
+#       "questions": [
+#         {
+#           "entity": "<first entity>",
+#           "questions": [
+#             {
+#               "question": "<specific question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broad question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broadest possible question>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         },
+#         {
+#           "entity": "<second entity>",
+#           "questions": [
+#             {
+#               "question": "<specific question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broad question>",
+#               "answer": "<answer>"
+#             },
+#             {
+#               "question": "<broadest possible question>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         }
+#       ]
+#     }
+#     ```
+
+#     Here is the document:
+#     {{.DocumentChunk}}
+ 
+ - name: important-facts
+   system: |
+    You are an intelligent professor. You create questions and answers from the given document for your students.
+   user: |
+    Consider each main important fact in the document. In the "facts" list you will list all of the main important facts in the document.
+    
+    Then, you will think about when, how, what, why and who questions for each fact.
+
+    Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs.
+
+    For example:
+    ```json
+    {
+      "facts": [
+        "<first fact>",
+        "<second fact>"
+      ],
+      "questions": [
+        {
+          "fact": "<first fact>",
+          "questions": [
+            {
+              "question": "<when question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<how question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<what question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<why question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<who question>",
+              "answer": "<answer>"
+            }
+          ]
+        },
+        {
+          "fact": "<second fact>",
+          "questions": [
+            {
+              "question": "<when question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<how question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<what question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<why question>",
+              "answer": "<answer>"
+            },
+            {
+              "question": "<who question>",
+              "answer": "<answer>"
+            }
+          ]
+        }
+      ]
+    }
+    ```
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+#  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
+#  - name: entities-relationships
+#    # maybe we need a chunkSize per prompt?
+#    system: |
+#     You are an intelligent professor. You create questions and answers from the given document for your students.
+#    user: |
+#     Consider each main entity in the document. In the "entities" list you will list all of the main entities in the document.
+    
+#     Then, you will think about the relationship between that entity and the other main entities it is related to in the document. For each main entity that the given entity is related to, write a question and answer explaining the nature of that relationship.
+
+#     So for example if the document is about a man who owns a dog and is taking the dog for a walk, the entities in the document are "man", "dog" and "walk". When considering the entity "man", you might ask:
+#       Q: What does the man own?
+#       A: The man owns a dog.
+      
+#       Q: What does the man do?
+#       A: The man takes the dog for a walk.
+
+#     Next, when considering the dog, you might ask:
+#       Q: Who owns the dog?
+#       A: The man owns the dog.
+
+#       Q: Where did the dog go?
+#       A: The dog went on a walk with the man.
+
+#     When considering the walk, you might ask:
+#       Q: Who went on the walk?
+#       A: The man and the dog went on the walk.
+
+#     If the document has lots of entities, just focus on the main ones. Don't spend too long thinking about it.
+
+#     Respond in strict JSON as a list of entities, and then for each entity a list of question-answer pairs.
+    
+#     For example:
+
+#     ```json
+#     {
+#       "entities": [
+#         "<first entity>",
+#         "<second entity>"
+#       ],
+#       "questions": [
+#         {
+#           "entity": "<first entity>",
+#           "questions": [
+#             {
+#               "related_entity": "<what related entity this question corresponds to>",
+#               "question": "<question about the relationship between the entities>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         },
+#         {
+#           "entity": "<second entity>",
+#           "questions": [
+#             {
+#               "related_entity": "<what related entity this question corresponds to>",
+#               "question": "<question about the relationship between the entities>",
+#               "answer": "<answer>"
+#             }
+#           ]
+#         }
+#       ]
+#     }
+#     ```
+
+#     Here is the document:
+#     {{.DocumentChunk}}
+ 
+ - name: original-prompt
+   system: |
+    You are a Teacher/ Professor. Your task is to setup a quiz/examination.
+    Using the provided document, formulate {{.NumQuestions}} questions that captures an important fact from the document.
+    You MUST obey the following criteria:
+      - Restrict the question to the document provided.
+      - Do NOT create a question that cannot be answered from the document.
+      - Phrase the question so that it does NOT refer to specific context. For instance, do NOT put phrases like given provided document or in this work in the question, because if the question is asked elsewhere it wouldn't be provided specific context. Replace these terms with specific details.
+
+    BAD questions:
+      What did the author do in his childhood
+      What were the main findings in this report
+
+    GOOD questions:
+      What did Barack Obama do in his childhood
+      What were the main findings in the original Transformers paper by Vaswani et al.
+
+    The user will provide the document you should summarize into {{.NumQuestions}} questions.
+
+    Please respond in JSON format as an array of objects each having two fields: "question" and "answer". Be careful to produce valid JSON.
+    
+    For example:
+    ```json
+    [
+      {
+        "question": "…",
+        "answer": "…"
+      },
+      {
+        "question": "…",
+        "answer": "…"
+      }
+    ]
+    ```
+   user: |
+    Given the following document - please summarize it into {{.NumQuestions}} question and answer pairs. Make the answers refer to as much of the information in the document as possible, while keeping the answers relevant to the questions.
+
+    ONLY include a question if you know the answer.
+
+    If there is not enough document to generate {{.NumQuestions}} questions, you can generate fewer questions.
+
+    In the worst case scenario, where you are unable to generate any questions, please respond with an empty array.
+
+    Here is the document:
+    {{.DocumentChunk}}
+
+targets:
+ - name: openai
+   api_url: https://api.openai.com/v1
+   model: gpt-4-1106-preview
+   token_from_env: OPENAI_API_KEY
+ - name: together-mixtral
+   api_url: https://api.together.xyz/v1
+   model: mistralai/Mixtral-8x7B-Instruct-v0.1
+   token_from_env: TOGETHER_API_KEY
+ - name: together-nous-hermes-2-mixtral-dpo
+   api_url: https://api.together.xyz/v1
+   model: NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO
+   token_from_env: TOGETHER_API_KEY
+ # Warning: Ollama is not OpenAI API compatible, so this doesn't work
+ - name: local
+   api_url: http://mind.local:11434
+   model: nous-hermes2-mixtral
+texts:
+ - name: junior-doctors
+   file: text.txt
+ - name: radio-clusters
+   file: radio_clusters.txt

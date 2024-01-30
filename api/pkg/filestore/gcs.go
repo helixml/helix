@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
@@ -72,6 +74,13 @@ func (s *GCSStorage) Get(ctx context.Context, path string) (FileStoreItem, error
 		Created:   attrs.Created.Unix(),
 		Size:      attrs.Size,
 	}, nil
+}
+
+func (s *GCSStorage) SignedURL(ctx context.Context, path string) (string, error) {
+	return s.bucket.SignedURL(path, &storage.SignedURLOptions{
+		Expires: time.Now().Add(20 * time.Minute),
+		Method:  http.MethodGet,
+	})
 }
 
 func (s *GCSStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
