@@ -68,7 +68,7 @@ type Store interface {
 
 	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
-	ListTool(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
+	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
 	DeleteTool(ctx context.Context, id string) error
 }
 
