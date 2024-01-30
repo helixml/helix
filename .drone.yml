@@ -21,6 +21,14 @@ steps:
   commands:
     - go test -v ./...
 
+services:
+- name: postgres
+  image: postgres
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: postgres
+
 ---
 kind: pipeline
 type: docker
