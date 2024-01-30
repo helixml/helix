@@ -136,9 +136,9 @@ prompts:
     ]
     ```
    user: |
-    For the first answer, create a very short summary of the document.
-    For the second answer, create a medium length summary of the document.
-    For the third answer, create a detailed summary of the document.
+    The first question must be "Please write me a brief/short summary of the document or the key points in the document"
+    The second question must be "Please write me a summary of the document"
+    The third question must be "Please write me a long/verbose summary of the document"
 
     Here is the document:
     {{.DocumentChunk}}
