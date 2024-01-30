@@ -7,11 +7,11 @@ import Tooltip from '@mui/material/Tooltip'
 import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import Box from '@mui/material/Box'
-import Brightness7Icon from '@mui/icons-material/Brightness7'
-import Brightness4Icon from '@mui/icons-material/Brightness4'
+
 import HelpIcon from '@mui/icons-material/Help'
 import LoginIcon from '@mui/icons-material/Login'
 import MenuIcon from '@mui/icons-material/Menu'
+import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import EditIcon from '@mui/icons-material/Edit'
 import useAccount from '../../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
@@ -34,17 +34,13 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
   const theme = useTheme()
   const account = useAccount()
   const themeConfig = useThemeConfig()
-  const { mode, toggleMode } = useContext(ThemeContext);
-  const { setParams, params } = useRouter();
-
-  const handleThemeChange = () => {
-    toggleMode()
-  }
 
   const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE;
-    setParams({ ...params, mode: newMode });
-  };
+    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
+    setParams({ ...params, mode: newMode })
+  }
+
+  const { setParams, params } = useRouter()
 
   return (
     <AppBar
@@ -147,48 +143,38 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                     >
                         <Typography
                             sx={{
-                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.secondary' : 'text.primary',
-                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'normal' : 'bold',
+                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
                             marginRight: '12px',
                             }}
                         >
                             Create
                         </Typography>
-                        <Switch
-                            checked={params.mode === SESSION_MODE_FINETUNE}
-                            onChange={handleModeChange}
-                            name="modeSwitch"
-                            size="medium"
-                            sx={{
-                                transform: 'scale(1.6)',
-                                '& .MuiSwitch-thumb': {
-                                    scale: 0.4,
-                                },
-                                m: 1,
-                            }}
-                        />
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Switch
+                                checked={params.mode === SESSION_MODE_FINETUNE}
+                                onChange={handleModeChange}
+                                name="modeSwitch"
+                                size="medium"
+                                sx={{
+                                    transform: 'scale(1.6)',
+                                    '& .MuiSwitch-thumb': {
+                                        scale: 0.4,
+                                    },
+                                    m: 1,
+                                }}
+                            />
+                        </Box>
                         <Typography
                             sx={{
                             color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
+                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
                             marginLeft: '12px',
                             }}
                         >
                             Fine-tune
                         </Typography>
                     
-                        <Tooltip title={theme.palette.mode === 'dark' ? "Switch to light mode" : "Switch to dark mode"}>
-                        <IconButton
-                            color="inherit"
-                            aria-label="toggle theme"
-                            onClick={handleThemeChange}
-                            sx={{
-                            mr: 1,
-                            }}
-                        >
-                            {theme.palette.mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
-                        </IconButton>
-                        </Tooltip>
                         {
                         account.user ? (
                             <Link
@@ -197,7 +183,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                             >
                             <Tooltip title="Helix Docs">
                                 <Box component="span">
-                                <HelpIcon sx={{ mr: 2 }} />
+                                <AutoStoriesIcon sx={{ ml: 2 }} />
                                 </Box>
                             </Tooltip>
                             </Link>

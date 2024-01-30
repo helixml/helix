@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useContext } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -22,8 +22,8 @@ import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
 import Tooltip from '@mui/material/Tooltip'
 // import EditTextWindow from '../components/session/EditTextWindow'
-import SessionButtons from '../components/session/SessionButtons'
 import NewAppBar from '../components/system/NewAppbar'
+import Switch from '@mui/material/Switch'
 
 import AddIcon from '@mui/icons-material/Add'
 import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -101,22 +101,14 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 const Layout: FC = ({
   children
 }) => {
-  const account = useAccount()
+  const theme = useTheme()
   const themeConfig = useThemeConfig()
-
-  const {
-    meta,
-    navigate,
-    getToolbarElement,
-    getTitle,
-    name,
-  } = useRouter()
-  
+  const { mode, toggleMode } = useContext(ThemeContext)
+  const { setParams, params, meta, navigate, getToolbarElement, getTitle, name } = useRouter()
+  const account = useAccount()
+  const bigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
   const [ mobileOpen, setMobileOpen ] = useState(false)
-
-  const theme = useTheme()
-  const bigScreen = useMediaQuery(theme.breakpoints.up('md'))
 
   const handleAccountMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAccountMenuAnchorEl(event.currentTarget)
@@ -128,6 +120,10 @@ const Layout: FC = ({
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
+  }
+
+  const handleThemeChange = () => {
+    toggleMode()
   }
 
   const drawer = (
@@ -293,6 +289,15 @@ const Layout: FC = ({
                     My account
                   </MenuItem>
 
+                  <MenuItem onClick={ () => {
+                    handleThemeChange()
+                  }}>
+                    <ListItemIcon>
+                      {theme.palette.mode === 'dark' ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
+                    </ListItemIcon>
+                    {theme.palette.mode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  </MenuItem>
+
                   {
                     account.admin && (
                       <MenuItem onClick={ () => {
@@ -338,12 +343,6 @@ const Layout: FC = ({
   )
 
   const container = window !== undefined ? () => document.body : undefined
-
-  const { mode, toggleMode } = React.useContext(ThemeContext);
-
-  const handleThemeChange = () => {
-    toggleMode()
-  }
 
   return (
     <Box
