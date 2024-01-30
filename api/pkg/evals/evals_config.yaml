@@ -1,7 +1,8 @@
 # End-to-end testing of helix's ability to learn from documents.
 # To cover fine-tuning, RAG and combinations thereof.
 
-# extract these from the database and construct qapairs manually
+# manually extract these examples from the database and construct qapairs
+# manually to be graded automatically by gpt4 for similarity
 manual_evals:
  - name: junior-doctors
    download:
@@ -11,8 +12,8 @@ manual_evals:
    checker: gpt4-similarity
 
 
-# extract these urls from the database and have gpt4 construct qapairs to feed
-# back into inference mode of the model and then auto-grade the result
+# manually extract these urls from the database and have gpt4 construct qapairs
+# to feed back into inference mode of the model and then auto-grade the result
 automatic_evals:
  - name: junior-doctors
    download:
