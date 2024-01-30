@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback } from 'react'
+import React, { FC, useState, useCallback, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
@@ -7,7 +7,6 @@ import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import FolderOpenIcon from '@mui/icons-material/Folder'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
-import EditTextWindow from '../widgets/EditTextWindow'
 import InfoIcon from '@mui/icons-material/Info'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
@@ -20,6 +19,7 @@ import Button from '@mui/material/Button'
 import ScreenShareIcon from '@mui/icons-material/ScreenShare'
 import ShareIcon from '@mui/icons-material/Share'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
+import TextField from '@mui/material/TextField'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -73,11 +73,31 @@ export const SessionHeader: FC<{
     loading.setLoading(false)
   }, [])
 
-  const [editingSession, setEditingSession] = useState<ISessionSummary | null>(null)
+  const [editingSession, setEditingSession] = useState(false)
+  const [sessionName, setSessionName] = useState(session.name)
 
-  const onEditSessionName = useCallback(() => {
-    setEditingSession({ ...session, scheduled: '', completed: '', session_id: '', interaction_id: '', summary: '' })
-  }, [session])
+  useEffect(() => {
+    setSessionName(session.name)
+  }, [session.name])
+
+  const handleSessionNameChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setSessionName(event.target.value)
+  }, [])
+
+  const handleSessionNameSubmit = useCallback(async () => {
+    if (sessionName !== session.name) {
+      loading.setLoading(true)
+      try {
+        await sessions.renameSession(session.id, sessionName)
+        snackbar.success(`Session name updated`)
+      } catch (e) {
+        snackbar.error(`Failed to update session name`)
+      } finally {
+        loading.setLoading(false)
+      }
+    }
+    setEditingSession(false)
+  }, [sessionName, session.name, session.id, sessions, snackbar, loading])
 
   return (
     <Row
@@ -99,16 +119,32 @@ export const SessionHeader: FC<{
               alignItems: 'center'
             }}
           >
-            <Typography variant="h6" component="h1">
-              {session.name} {/* Assuming session.name is the title */}
-            </Typography>
-            <IconButton
-              onClick={onEditSessionName}
-              size="small"
-              sx={{ ml: 1 }}
-            >
-              <EditIcon />
-            </IconButton>
+            {editingSession ? (
+              <TextField
+                size="small"
+                value={sessionName}
+                onChange={handleSessionNameChange}
+                onBlur={handleSessionNameSubmit}
+                autoFocus
+                fullWidth
+                sx={{
+                  mr: 2,
+                }}
+              />
+            ) : (
+              <>
+                <Typography variant="h6" component="h1">
+                  {session.name} {/* Assuming session.name is the title */}
+                </Typography>
+                <IconButton
+                  onClick={() => setEditingSession(true)}
+                  size="small"
+                  sx={{ ml: 1 }}
+                >
+                  <EditIcon />
+                </IconButton>
+              </>
+            )}
           </Box>
           <Typography variant="caption" sx={{ color: 'gray' }}>
             Created on {new Date(session.created).toLocaleDateString()} {/* Adjust date formatting as needed */}
@@ -227,44 +263,6 @@ export const SessionHeader: FC<{
           </Link>
         </Tooltip>
       </Cell>
-      {/* {
-        session.lora_dir && !session.parent_bot && (
-          <Cell>
-            <Tooltip title={session.parent_bot ? "Edit Bot" : "Publish Bot"}>
-              <Link
-                href="/create_bot"
-                onClick={(e) => {
-                  e.preventDefault()
-                  setParams({
-                    editBot: 'yes',
-                  })
-                }}
-              >
-                {
-                  session.parent_bot ?
-                    <EditIcon
-                      sx={{
-                        color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                        }
-                      }}
-                    />
-                    :
-                    <PublishIcon
-                      sx={{
-                        color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
-                        '&:hover': {
-                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                        }
-                      }}
-                    />
-                }
-              </Link>
-            </Tooltip>
-          </Cell>
-        )
-      } */}
       {
         deletingSession && (
           <DeleteConfirmWindow
@@ -323,28 +321,10 @@ export const SessionHeader: FC<{
           </Link>
         </Tooltip>
       </Cell>
-      {
-        editingSession && (
-          <EditTextWindow
-            title={`Edit session name`}
-            value={editingSession.name}
-            onCancel={() => {
-              setEditingSession(null)
-            }}
-            onSubmit={(value) => {
-              sessions.renameSession(editingSession.session_id, value).then(() => {
-                snackbar.success(`Session name updated`)
-                setEditingSession(null)
-              }).catch((e) => {
-                snackbar.error(`Failed to update session name`)
-              })
-            }}
-          />
-        )
-      }
     </Row>
     
   )
 }
 
 export default SessionHeader
+
