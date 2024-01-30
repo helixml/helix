@@ -363,19 +363,19 @@ func (mr *MockStoreMockRecorder) GetTool(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTool", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
 }
 
-// ListTool mocks base method
-func (m *MockStore) ListTool(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
+// ListTools mocks base method
+func (m *MockStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTool", ctx, q)
+	ret := m.ctrl.Call(m, "ListTools", ctx, q)
 	ret0, _ := ret[0].([]*types.Tool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListTool indicates an expected call of ListTool
-func (mr *MockStoreMockRecorder) ListTool(ctx, q interface{}) *gomock.Call {
+// ListTools indicates an expected call of ListTools
+func (mr *MockStoreMockRecorder) ListTools(ctx, q interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTool", reflect.TypeOf((*MockStore)(nil).ListTool), ctx, q)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTools", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
 }
 
 // DeleteTool mocks base method
