@@ -41,7 +41,10 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	suite.pubsub = pubsub.New()
+	ps, err := pubsub.New()
+	suite.NoError(err)
+
+	suite.pubsub = ps
 
 	suite.userID = "user_id"
 	suite.authCtx = setRequestUser(context.Background(), types.UserData{
@@ -122,8 +125,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 			time.AfterFunc(100*time.Millisecond, func() {
 				suite.pubsub.Publish(
 					context.Background(),
-					session.ID,
-					bts, pubsub.WithPublishNamespace("user_id"))
+					pubsub.GetSessionQueue("user_id", session.ID),
+					bts)
 			})
 
 			return &session, nil
@@ -207,28 +210,27 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 					Done: true,
 				},
 			}
-
 			// Publish messages
-			for _, msg := range modelMessages {
-				msg1, err := json.Marshal(&types.WebsocketEvent{
-					Type: "worker_task_response",
-					Session: &types.Session{
-						ID: "session_id",
-					},
-					WorkerTaskResponse: &types.RunnerTaskResponse{
-						Message: msg.Message,
-						Done:    msg.Done,
-					},
-				})
-				suite.NoError(err)
+			time.AfterFunc(100*time.Millisecond, func() {
+				for _, msg := range modelMessages {
+					msg1, err := json.Marshal(&types.WebsocketEvent{
+						Type: "worker_task_response",
+						Session: &types.Session{
+							ID: "session_id",
+						},
+						WorkerTaskResponse: &types.RunnerTaskResponse{
+							Message: msg.Message,
+							Done:    msg.Done,
+						},
+					})
+					suite.NoError(err)
 
-				time.AfterFunc(100*time.Millisecond, func() {
 					suite.pubsub.Publish(
 						context.Background(),
-						session.ID,
-						msg1, pubsub.WithPublishNamespace("user_id"))
-				})
-			}
+						pubsub.GetSessionQueue("user_id", session.ID),
+						msg1)
+				}
+			})
 
 			return &session, nil
 		})
@@ -249,6 +251,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	var (
 		startFound = false
 		stopFound  = false
+		fullResp   string
 	)
 
 	// Read chunks
@@ -270,6 +273,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			// suite.Equal("assistant", data.Choices[0].Delta.Role)
 			suite.Equal("chat.completion.chunk", data.Object)
 
+			fullResp = fullResp + data.Choices[0].Delta.Content
+
 			switch data.Choices[0].Delta.Content {
 			case "msg-1":
 				suite.Equal("msg-1", data.Choices[0].Delta.Content)
@@ -290,6 +295,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			}
 		}
 	}
+
+	suite.T().Log(fullResp)
 
 	suite.True(startFound, "start chunk not found")
 	suite.True(stopFound, "stop chunk not found")
