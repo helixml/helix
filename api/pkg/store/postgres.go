@@ -39,6 +39,13 @@ type PostgresStore struct {
 func NewPostgresStore(
 	options StoreOptions,
 ) (*PostgresStore, error) {
+
+	// Waiting for connection
+	gormDB, err := connect(context.Background(), options)
+	if err != nil {
+		return nil, err
+	}
+
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		options.Username,
@@ -53,11 +60,6 @@ func NewPostgresStore(
 	}
 	dialect := goqu.Dialect("postgres")
 	db := dialect.DB(pgDb)
-
-	gormDB, err := connect(context.Background(), options)
-	if err != nil {
-		return nil, err
-	}
 
 	store := &PostgresStore{
 		connectionString: connectionString,
