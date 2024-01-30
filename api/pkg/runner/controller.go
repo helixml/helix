@@ -727,7 +727,10 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
-	system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
+	err = system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
+	if err != nil {
+		return nil, err
+	}
 
 	client := system.NewRetryClient()
 	resp, err := client.Do(req)

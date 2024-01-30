@@ -207,26 +207,27 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 					Done: true,
 				},
 			}
-
 			// Publish messages
-			for _, msg := range modelMessages {
-				msg1, err := json.Marshal(&types.WebsocketEvent{
-					Type: "worker_task_response",
-					Session: &types.Session{
-						ID: "session_id",
-					},
-					WorkerTaskResponse: &types.RunnerTaskResponse{
-						Message: msg.Message,
-						Done:    msg.Done,
-					},
-				})
-				suite.NoError(err)
+			time.AfterFunc(100*time.Millisecond, func() {
+				for _, msg := range modelMessages {
+					msg1, err := json.Marshal(&types.WebsocketEvent{
+						Type: "worker_task_response",
+						Session: &types.Session{
+							ID: "session_id",
+						},
+						WorkerTaskResponse: &types.RunnerTaskResponse{
+							Message: msg.Message,
+							Done:    msg.Done,
+						},
+					})
+					suite.NoError(err)
 
-				suite.pubsub.Publish(
-					context.Background(),
-					session.ID,
-					msg1, pubsub.WithPublishNamespace("user_id"))
-			}
+					suite.pubsub.Publish(
+						context.Background(),
+						session.ID,
+						msg1, pubsub.WithPublishNamespace("user_id"))
+				}
+			})
 
 			return &session, nil
 		})
@@ -247,6 +248,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	var (
 		startFound = false
 		stopFound  = false
+		fullResp   string
 	)
 
 	// Read chunks
@@ -268,6 +270,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			// suite.Equal("assistant", data.Choices[0].Delta.Role)
 			suite.Equal("chat.completion.chunk", data.Object)
 
+			fullResp = fullResp + data.Choices[0].Delta.Content
+
 			switch data.Choices[0].Delta.Content {
 			case "msg-1":
 				suite.Equal("msg-1", data.Choices[0].Delta.Content)
@@ -288,6 +292,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 			}
 		}
 	}
+
+	suite.T().Log(fullResp)
 
 	suite.True(startFound, "start chunk not found")
 	suite.True(stopFound, "stop chunk not found")

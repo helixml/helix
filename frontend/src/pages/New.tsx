@@ -1,5 +1,6 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
+import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -191,11 +192,12 @@ const New: FC = () => {
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     sessions.addSesssion(session)
+    await bluebird.delay(300)
     navigate('session', {session_id: session.id})
   }
 
   // this is for text finetune
-  const onStartTextFinetune = async () => {
+  const onStartTextFinetune = async (manuallyReviewQuestions = false) => {
     if(!account.user) {
       setShowLoginWindow(true)
       return
@@ -208,6 +210,7 @@ const New: FC = () => {
 
     try {
       const formData = inputs.getFormData(selectedMode, selectedType)
+      formData.set('manuallyReviewQuestions', manuallyReviewQuestions ? 'yes' : '')
       
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
@@ -217,6 +220,7 @@ const New: FC = () => {
         return
       }
       sessions.loadSessions()
+      await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
@@ -254,6 +258,7 @@ const New: FC = () => {
         return
       }
       sessions.loadSessions()
+      await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 

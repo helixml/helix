@@ -16,9 +16,11 @@ import useInteractionQuestions from '../../hooks/useInteractionQuestions'
 export const FineTuneTextQuestions: FC<{
   sessionID: string,
   interactionID: string,
+  onlyShowEditMode?: boolean,
 }> = ({
   sessionID,
   interactionID,
+  onlyShowEditMode = false,
 }) => {
   const snackbar = useSnackbar()
   const api = useApi()
@@ -55,6 +57,41 @@ export const FineTuneTextQuestions: FC<{
     interactionID,
   ])
 
+  const editButton = (
+    <>
+      <Button
+        variant="contained"
+        color="primary"
+        size={ onlyShowEditMode ? "medium" : "small" }
+        sx={{
+          mr: 2,
+        }}
+        endIcon={<EditIcon />}
+        onClick={ () => setEditMode(true) }
+      >
+        Edit Questions
+      </Button>
+      {
+        showEditMode && (
+          <FineTuneTextQuestionEditor
+            initialQuestions={ interactionQuestions.questions || [] }
+            onSubmit={ async (questions) => {
+              const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
+              if(saved) {
+                setEditMode(false)
+              }
+            }}
+            onCancel={ () => setEditMode(false) }
+          />
+        )
+      }
+    </>
+  )
+
+  if(onlyShowEditMode) {
+    return editButton
+  }
+
   return (
     <>
       <Grid container spacing={ 0 }>
@@ -78,18 +115,9 @@ export const FineTuneTextQuestions: FC<{
           textAlign: 'right',
           pt: 2,
         }}>
-          <Button
-            variant="contained"
-            color="primary"
-            size="small"
-            sx={{
-              mr: 2,
-            }}
-            endIcon={<EditIcon />}
-            onClick={ () => setEditMode(true) }
-          >
-            Edit Questions
-          </Button>
+          {
+            editButton
+          }
           <Button
             variant="contained"
             color="secondary"
@@ -102,22 +130,7 @@ export const FineTuneTextQuestions: FC<{
         </Grid>
 
       </Grid>
-          
-      {
-        showEditMode && (
-          <FineTuneTextQuestionEditor
-            initialQuestions={ interactionQuestions.questions || [] }
-            onSubmit={ async (questions) => {
-              const saved = await interactionQuestions.saveQuestions(sessionID, interactionID, questions)
-              if(saved) {
-                setEditMode(false)
-              }
-            }}
-            onCancel={ () => setEditMode(false) }
-          />
-        )
-      }
-    
+      
     </>
   )  
 }

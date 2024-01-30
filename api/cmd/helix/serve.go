@@ -56,10 +56,12 @@ func NewServeOptions() (*ServeOptions, error) {
 		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
 	}
 
+	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
+
 	return &ServeOptions{
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
-			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_GPT4))),
+			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_Dynamic))),
 			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			// we are exceeding openAI window size at > 30 questions
@@ -67,6 +69,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
+			FilestorePresignSecret:       filestoreSignSecret,
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
@@ -323,7 +326,7 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 				return nil, err
 			}
 		}
-		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL))
+		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL), options.ControllerOptions.FilestorePresignSecret)
 	} else if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalGCS {
 		if options.FilestoreOptions.GCSKeyBase64 != "" {
 			keyfile, err := func() (string, error) {
@@ -460,6 +463,9 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 			if err != nil {
 				return nil, nil, err
 			}
+		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_Dynamic {
+			// empty values = use defaults
+			questionGenerator = text.NewDynamicDataPrep("", []string{})
 		} else {
 			return nil, nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
 		}

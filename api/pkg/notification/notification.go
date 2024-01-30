@@ -16,7 +16,7 @@ type Config struct {
 }
 
 type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"karolis@helix.ml"`
+	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helix.ml"`
 
 	SMTP struct {
 		Host     string `envconfig:"EMAIL_SMTP_HOST"`
