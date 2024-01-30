@@ -51,9 +51,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 					continue
 				}
 
-				err = apiServer.pubsub.Publish(ctx, event.SessionID, message,
-					pubsub.WithPublishNamespace(event.Owner),
-				)
+				err = apiServer.pubsub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)
 				if err != nil {
 					log.Error().Msgf("Error publishing session update: %s", err.Error())
 				}
@@ -88,14 +86,19 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 		defer conn.Close()
 
-		consumer := apiServer.pubsub.Subscribe(r.Context(), sessionID, func(payload []byte) error {
+		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(userID, sessionID), func(payload []byte) error {
 			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 				log.Error().Msgf("Error writing to websocket: %s", err.Error())
 			}
 			return nil
-		}, pubsub.WithChannelNamespace(userID))
+		})
+		if err != nil {
+			log.Error().Msgf("Error subscribing to internal updates: %s", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-		defer consumer.Unsubscribe(context.Background())
+		defer sub.Unsubscribe()
 
 		log.Trace().
 			Str("action", "⚪ user ws CONNECT").
