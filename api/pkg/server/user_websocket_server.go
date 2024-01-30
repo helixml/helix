@@ -8,8 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,37 +29,12 @@ type UserConnectionWrapper struct {
 	session string
 }
 
-// StartUserWebSocketServer starts a WebSocket server
-func StartUserWebSocketServer(
+// startUserWebSocketServer starts a WebSocket server
+func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	ctx context.Context,
 	r *mux.Router,
-	Controller *controller.Controller,
 	path string,
-	websocketEventChan chan *types.WebsocketEvent,
-	getUserIDFromRequest GetUserIDFromRequest,
 ) {
-	var mutex = &sync.Mutex{}
-
-	connections := map[*websocket.Conn]*UserConnectionWrapper{}
-
-	// TODO: make this more efficient so we don't need to loop over all connections every time
-	// we should have a list of connections per sessionID
-	addConnection := func(conn *websocket.Conn, user string, sessionID string) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		connections[conn] = &UserConnectionWrapper{
-			conn:    conn,
-			user:    user,
-			session: sessionID,
-		}
-	}
-
-	removeConnection := func(conn *websocket.Conn) {
-		mutex.Lock()
-		defer mutex.Unlock()
-		delete(connections, conn)
-	}
-
 	// spawn a reader from the incoming message channel
 	// each message we get we fan out to all the currently connected websocket clients
 
@@ -69,36 +43,19 @@ func StartUserWebSocketServer(
 	go func() {
 		for {
 			select {
-			case event := <-websocketEventChan:
+			case event := <-apiServer.Controller.UserWebsocketEventChanWriter:
 				log.Trace().Msgf("User websocket event: %+v", event)
 				message, err := json.Marshal(event)
 				if err != nil {
 					log.Error().Msgf("Error marshalling session update: %s", err.Error())
 					continue
 				}
-				func() {
-					// hold the mutex while we iterate over connections because
-					// you can't modify a mutex while iterating over it (fatal
-					// error: concurrent map iteration and map write)
-					mutex.Lock()
-					defer mutex.Unlock()
-					for _, connWrapper := range connections {
-						// each user websocket connection is only interested in a single session
-						if connWrapper.user != event.Owner || connWrapper.session != event.SessionID {
-							continue
-						}
-						// wrap in a func so that we can defer the unlock so we can
-						// unlock the mutex on panics as well as errors
-						func() {
-							connWrapper.mu.Lock()
-							defer connWrapper.mu.Unlock()
-							if err := connWrapper.conn.WriteMessage(websocket.TextMessage, message); err != nil {
-								log.Error().Msgf("Error writing to websocket: %s", err.Error())
-								return
-							}
-						}()
-					}
-				}()
+
+				err = apiServer.pubsub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)
+				if err != nil {
+					log.Error().Msgf("Error publishing session update: %s", err.Error())
+				}
+
 			case <-ctx.Done():
 				return
 			}
@@ -106,7 +63,7 @@ func StartUserWebSocketServer(
 	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		userID, err := getUserIDFromRequest(r)
+		userID, err := apiServer.keyCloakMiddleware.userIDFromRequestBothModes(r)
 		if err != nil {
 			log.Error().Msgf("Error getting user id: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -128,8 +85,20 @@ func StartUserWebSocketServer(
 		}
 
 		defer conn.Close()
-		defer removeConnection(conn)
-		addConnection(conn, userID, sessionID)
+
+		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(userID, sessionID), func(payload []byte) error {
+			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				log.Error().Msgf("Error writing to websocket: %s", err.Error())
+			}
+			return nil
+		})
+		if err != nil {
+			log.Error().Msgf("Error subscribing to internal updates: %s", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		defer sub.Unsubscribe()
 
 		log.Trace().
 			Str("action", "⚪ user ws CONNECT").
@@ -149,7 +118,5 @@ func StartUserWebSocketServer(
 				break
 			}
 		}
-
-		removeConnection(conn)
 	})
 }

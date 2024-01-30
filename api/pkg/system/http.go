@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -86,10 +87,10 @@ func NewHTTPError404(message string) *HTTPError {
 	}
 }
 
-func NewHTTPError500(message string) *HTTPError {
+func NewHTTPError500(tmpl string, format ...interface{}) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusInternalServerError,
-		Message:    message,
+		Message:    fmt.Sprintf(tmpl, format...),
 	}
 }
 
@@ -141,6 +142,7 @@ func WrapperWithConfig[T any](handler httpWrapper[T], config WrapperConfig) func
 			http.Error(res, err.Error(), statusCode)
 			return
 		} else {
+			res.Header().Set("Content-Type", "application/json")
 			jsonError := json.NewEncoder(res).Encode(data)
 			if jsonError != nil {
 				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
@@ -182,6 +184,7 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		} else {
+			res.Header().Set("Content-Type", "application/json")
 			jsonError := json.NewEncoder(res).Encode(data)
 			if jsonError != nil {
 				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
@@ -329,13 +332,13 @@ func PostRequestBuffer[ResultType any](
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		return result, fmt.Errorf("error response from server: %s %s", resp.Status, URL(options, path))
-	}
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return result, err
+	}
+
+	if resp.StatusCode >= 400 {
+		return result, fmt.Errorf("error response from server: %s %s %s", resp.Status, URL(options, path), string(body))
 	}
 
 	// parse body as json into result
@@ -349,7 +352,7 @@ func PostRequestBuffer[ResultType any](
 
 func NewRetryClient() *retryablehttp.Client {
 	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 10
+	retryClient.RetryMax = 5
 	retryClient.Logger = stdlog.New(io.Discard, "", stdlog.LstdFlags)
 	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
 		switch {
@@ -365,6 +368,14 @@ func NewRetryClient() *retryablehttp.Client {
 				Int("attempt", attempt).
 				Msgf("")
 		}
+	}
+	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		log.Trace().
+			Str(resp.Request.Method, resp.Request.URL.String()).
+			Int("code", resp.StatusCode).
+			Msgf("")
+		// don't retry for auth errors
+		return resp.StatusCode >= 500, nil
 	}
 	return retryClient
 }

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -40,7 +40,29 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 	task.DatasetDir = fileManager.GetFolder()
 
 	var messages []string
+
+	// XXX Should there be spaces after the [INST]?
+	// XXX Should we be including a </s>?
+	// https://docs.mistral.ai/models/
+
+	if session.Metadata.SystemPrompt != "" {
+		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
+	}
+
 	for _, interaction := range session.Interactions {
+		// Chat API mode
+		// if len(interaction.Messages) > 0 {
+		// 	for _, m := range interaction.Messages {
+		// 		if m.Role == "user" {
+		// 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", m.Content))
+		// 		} else {
+		// 			messages = append(messages, m.Content)
+		// 		}
+		// 	}
+		// 	continue
+		// }
+
+		// Regular session mode
 		if interaction.Creator == "user" {
 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
 		} else {
@@ -161,6 +183,8 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 	}
 
 	cmd.Env = []string{
+		// inherit PATH set in docker image or elsewhere
+		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
@@ -205,6 +229,12 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		fmt.Sprintf("APP_FOLDER=%s", path.Clean(path.Join(wd, "..", "axolotl"))),
 		fmt.Sprintf("HELIX_NEXT_TASK_URL=%s", config.NextTaskURL),
 		fmt.Sprintf("HELIX_INITIAL_SESSION_URL=%s", config.InitialSessionURL),
+	}
+	if os.Getenv("CUDA_VISIBLE_DEVICES") != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf(
+			"CUDA_VISIBLE_DEVICES=%s",
+			os.Getenv("CUDA_VISIBLE_DEVICES"),
+		))
 	}
 
 	return cmd, nil
@@ -258,6 +288,15 @@ func (chunker *mistral7bInferenceChunker) emitStream() {
 	chunker.bufferStream = ""
 }
 
+func (chunker *mistral7bInferenceChunker) emitStreamDone() {
+	chunker.eventHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeStream,
+		SessionID: chunker.sessionID,
+		Message:   "",
+		Done:      true,
+	})
+}
+
 func (chunker *mistral7bInferenceChunker) emitResult() {
 	chunker.eventHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
@@ -283,7 +322,13 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 		chunker.active = true
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
 		log.Info().Msg("👉 case 2")
+		// Signal that we are done with this session for
+		// any streaming clients
+		chunker.emitStreamDone()
+
 		chunker.emitResult()
+
+		// Reset the buffer
 		chunker.reset()
 	} else if chunker.sessionID != "" {
 		log.Info().Msg("👉 case 3")

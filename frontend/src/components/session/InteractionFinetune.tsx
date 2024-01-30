@@ -1,4 +1,4 @@
-import React, { FC, useMemo } from 'react'
+import React, { FC, useMemo, useCallback } from 'react'
 import { useTheme } from '@mui/system'
 import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
@@ -17,7 +17,9 @@ import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
 import useFilestore from '../../hooks/useFilestore'
 
-
+import useAccount from '../../hooks/useAccount'
+import useApi from '../../hooks/useApi'
+import useSnackbar from '../../hooks/useSnackbar'
 
 import {
   ICloneInteractionMode,
@@ -64,8 +66,11 @@ export const InteractionFinetune: FC<{
   onClone,
   onAddDocuments,
 }) => {
-  const theme = useTheme();
-  const { getFileURL } = useFilestore();
+
+  const theme = useTheme()
+  const account = useAccount()
+  const api = useApi()
+  const snackbar = useSnackbar()
 
   const isSystemInteraction = interaction.creator === SESSION_CREATOR_SYSTEM;
   const isUserInteraction = interaction.creator === SESSION_CREATOR_USER;
@@ -78,7 +83,41 @@ export const InteractionFinetune: FC<{
   const dataPrepErrors = useMemo(() => getTextDataPrepErrors(interaction), [interaction]);
   const dataPrepStats = useMemo(() => getTextDataPrepStats(interaction), [interaction]);
 
-  if (!serverConfig || !serverConfig.filestore_prefix) return null;
+  // in the case where we are a system interaction that is showing buttons
+  // to edit the dataset in the previous user interaction
+  // we need to know what that previous user interaction was
+  const userFilesInteractionID = useMemo(() => {
+    const currentInteractionIndex = session.interactions.findIndex((i) => i.id == interaction.id)
+    if(currentInteractionIndex == 0) return ''
+    const previousInteraction = session.interactions[currentInteractionIndex - 1]
+    return previousInteraction.id
+  }, [
+    session,
+    interaction,
+  ])
+
+  const isShared = useMemo(() => {
+    return session.config.shared ? true : false
+  }, [
+    session,
+  ])
+
+  const dataPrepStats = useMemo(() => {
+    return getTextDataPrepStats(interaction)
+  }, [
+    interaction,
+  ])
+
+  const startFinetuning = useCallback(async () => {
+    await api.post(`/api/v1/sessions/${session.id}/finetune/start`, undefined, {}, {
+      loading: true,
+    })
+    snackbar.success('Fine tuning started')
+  }, [
+    session,
+  ])
+
+  if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
   return (
     <>
@@ -155,107 +194,138 @@ export const InteractionFinetune: FC<{
                 }}>{filename}</Typography>
               </Box>
             </Grid>
-          );
-        })}
-    </Grid>
-  </Box>
-)}
-       {session.type === SESSION_TYPE_TEXT && interaction.data_prep_stage !== TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
-        <Box sx={{ mt: 1.5, mb: 3 }}>
-          <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
-            <Step>
-              <StepLabel>Extract Text</StepLabel>
-            </Step>
-            <Step>
-              <StepLabel>Generate Questions</StepLabel>
-            </Step>
-            <Step>
-              <StepLabel>Edit Questions</StepLabel>
-            </Step>
-            <Step>
-              <StepLabel>Fine Tune</StepLabel>
-            </Step>
-          </Stepper>
-        </Box>
-      )}
-
-      {isEditingConversations && dataPrepErrors.length === 0 && (
-        <FineTuneTextQuestions
-          sessionID={session.id}
-          interactionID={interaction.id}
-        />
-      )}
-
-      {isAddingFiles && onReloadSession && (
-        <FineTuneAddFiles
-          session={session}
-          interactionID={interaction.id}
-          onReloadSession={onReloadSession}
-        />
-      )}
-
-      
-
-{isSystemInteraction && hasFineTuned && onClone && (
-  <FineTuneCloneInteraction
-    type={session.type}
-    sessionID={session.id}
-    systemInteractionID={interaction.id}
-    userInteractionID={interaction.id} // Replace with the correct ID if needed
-    onClone={onClone}
-    onAddDocuments={onAddDocuments}
-  />
-)}
-
-{isEditingConversations && session.id && dataPrepErrors.length > 0 && (
-  <Box sx={{ mt: 2 }}>
-    <Alert severity="success" sx={{ mb: 2 }}>
-      From <strong>{dataPrepStats.total_files}</strong> file{dataPrepStats.total_files === 1 ? '' : 's'} we created <strong>{dataPrepStats.total_chunks}</strong> text chunk{dataPrepStats.total_chunks === 1 ? '' : 's'} and converted <strong>{dataPrepStats.converted}</strong> of those into <strong>{dataPrepStats.total_questions}</strong> questions.
-    </Alert>
-    <Alert severity="error" sx={{ mb: 2 }}>
-      However, we encountered <strong>{dataPrepStats.errors}</strong> error{dataPrepStats.errors === 1 ? '' : 's'}, please choose how you want to proceed:
-    </Alert>
-    <Row>
-      {retryFinetuneErrors && (
-        <Button
-          variant="contained"
-          color="primary"
-          sx={{ mr: 1 }}
-          endIcon={<ReplayIcon />}
-          onClick={retryFinetuneErrors}
-        >
-          Retry
-        </Button>
-      )}
-      {/* <Button
+          </Box>
+        )
+      }
+      {
+        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
+          <Box
+            sx={{
+              mt: 1.5,
+              mb: 3,
+            }}
+          >
+            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
+              <Step>
+                <StepLabel>Extract Text</StepLabel>
+              </Step>
+              <Step>
+                <StepLabel>Generate Questions</StepLabel>
+              </Step>
+              <Step>
+                <StepLabel>Edit Questions</StepLabel>
+              </Step>
+              <Step>
+                <StepLabel>Fine Tune</StepLabel>
+              </Step>
+            </Stepper>
+          </Box>
+        )
+      }
+      {
+        isEditingConversations && dataPrepErrors.length == 0 && (
+          <Box
+            sx={{
+              mt: 2,
+            }}
+          >
+            <FineTuneTextQuestions
+              sessionID={ session.id }
+              interactionID={ userFilesInteractionID }
+            />
+          </Box>
+        )
+      }
+      {
+        isAddingFiles && onReloadSession && (
+          <Box
+            sx={{
+              mt: 2,
+            }}
+          >
+            <FineTuneAddFiles
+              session={ session }
+              interactionID={ userFilesInteractionID }
+              onReloadSession={ onReloadSession }
+            />
+          </Box>
+        )
+      }
+      {
+        isSystemInteraction && hasFineTuned && onClone && (
+          <FineTuneCloneInteraction
+            type={ session.type }
+            sessionID={ session.id }
+            systemInteractionID={ interaction.id }
+            userInteractionID={ userFilesInteractionID }
+            onClone={ onClone }
+            onAddDocuments={ onAddDocuments }
+          />
+        )
+      }
+      {
+        isEditingConversations && session.id && dataPrepErrors.length > 0 && (
+          <Box
+            sx={{
+              mt: 2,
+            }}
+          >
+            <Alert
+              severity="success"
+              sx={{
+                mb: 2,
+              }}
+            >
+              From <strong>{ dataPrepStats.total_files }</strong> file{ dataPrepStats.total_files == 1 ? '' : 's' } we created <strong>{ dataPrepStats.total_chunks }</strong> text chunk{ dataPrepStats.total_chunks == 1 ? '' : 's' } and converted <strong>{ dataPrepStats.converted }</strong> of those into <strong>{ dataPrepStats.total_questions }</strong> questions.
+            </Alert>
+            <Alert
+              severity="error"
+              sx={{
+                mb: 2,
+              }}
+            >
+              However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
+            </Alert>
+            <Row>
+              {
+                retryFinetuneErrors && (
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    sx={{
+                      mr: 1,
+                    }}
+                    endIcon={<ReplayIcon />}
+                    onClick={ retryFinetuneErrors }
+                  >
+                    Retry
+                  </Button>
+                )
+              }
+              <FineTuneTextQuestions
+                onlyShowEditMode
+                sessionID={ session.id }
+                interactionID={ userFilesInteractionID }  
+              />
+              <Button
                 variant="contained"
                 color="primary"
                 sx={{
                   mr: 1,
                 }}
-                endIcon={<VisibilityIcon />}
+                endIcon={<ArrowForwardIcon />}
                 onClick={ () => {
-                  alert('coming soon')
+                  startFinetuning()
                 }}
               >
-                View Errors
-              </Button> */}
-      <Button
-        variant="contained"
-        color="primary"
-        sx={{ mr: 1 }}
-        endIcon={<ArrowForwardIcon />}
-        onClick={() => {
-          window.location.href = `/session/${session.id}/edit`;
-        }}
-      >
-        Ignore Errors
-      </Button>
-    </Row>
-  </Box>
-)}
-</>
-);
-};
+                Ignore Errors And Start Fine Tuning
+              </Button>
+            </Row>
+          </Box>
+        )
+      }
+    </>
+  )   
+}
 
 export default InteractionFinetune;

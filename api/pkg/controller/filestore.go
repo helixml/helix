@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/lukemarsden/helix/api/pkg/filestore"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type userPathTemplateData struct {
@@ -76,6 +76,10 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 		return "", err
 	}
 	return filepath.Join(c.Options.FilePrefixGlobal, userPrefix, path), nil
+}
+
+func (c *Controller) VerifySignature(url string) bool {
+	return filestore.VerifySignature(url, c.Options.FilestorePresignSecret)
 }
 
 func (c *Controller) GetFilestoreSessionPath(ctx types.OwnerContext, sessionID string) (string, error) {

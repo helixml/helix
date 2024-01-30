@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
 )
 
@@ -22,6 +24,9 @@ const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	session, err := data.CreateSession(req)
+	if err != nil {
+		return nil, err
+	}
 
 	// create session in database
 	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
@@ -34,11 +39,22 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	if err != nil {
 		return nil, err
 	}
+
+	if session.Mode == types.SessionModeFinetune {
+		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
+			Event:   notification.EventFinetuningStarted,
+			Session: &session,
+		})
+		if err != nil {
+			log.Error().Msgf("error notifying finetuning started: %s", err.Error())
+		}
+	}
+
 	return sessionData, nil
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
-	systemInteraction := types.Interaction{
+	systemInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
 		Updated:  time.Now(),
@@ -137,9 +153,9 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	return session, nil
 }
 
-func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction types.Interaction) (*types.Session, error) {
+func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction *types.Interaction) (*types.Session, error) {
 	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := types.Interaction{
+	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -165,9 +181,9 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	return session, nil
 }
 
-func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Session, config *types.SessionConfig) (*types.SessionConfig, error) {
+func (c *Controller) UpdateSessionMetadata(ctx context.Context, session *types.Session, meta *types.SessionMetadata) (*types.SessionMetadata, error) {
 	session.Updated = time.Now()
-	session.Config = *config
+	session.Metadata = *meta
 
 	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
@@ -175,9 +191,9 @@ func (c *Controller) UpdateSessionConfig(ctx context.Context, session *types.Ses
 	}
 
 	log.Debug().
-		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Config)
+		Msgf("🟢 update session config: %s %+v", sessionData.ID, sessionData.Metadata)
 
-	return &sessionData.Config, nil
+	return &sessionData.Metadata, nil
 }
 
 func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *types.Session, newFiles []string) (*types.Session, error) {
@@ -260,11 +276,24 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			return nil, err
 		}
 
-		// we DON'T want the session in the queue yet
+		// if we have checked the ManuallyReviewQuestions setting
+		// then we DON'T want the session in the queue yet
 		// the user has to confirm the questions are correct
 		// or there might have been errors that we want to give the user
 		// a chance to decide what to do
-		if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+		if session.Metadata.ManuallyReviewQuestions {
+			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+				return nil, nil
+			}
+		}
+
+		// if there are any errors in the data prep then we should not auto-progress
+		// and give the user the choice
+		qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
+		if err != nil {
+			return nil, err
+		}
+		if qaPairErrorCount > 0 {
 			return nil, nil
 		}
 
@@ -279,7 +308,7 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Finished = false
 		systemInteraction.Progress = 1
-		systemInteraction.Message = "fine tuning on data..."
+		systemInteraction.Message = ""
 		systemInteraction.Status = "fine tuning on data..."
 		systemInteraction.State = types.InteractionStateWaiting
 		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
@@ -321,10 +350,10 @@ func (c *Controller) WriteSession(session *types.Session) {
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == newInteraction.ID {
-			newInteractions = append(newInteractions, *newInteraction)
+			newInteractions = append(newInteractions, newInteraction)
 		} else {
 			newInteractions = append(newInteractions, interaction)
 		}
@@ -417,12 +446,12 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 			newQueue = append(newQueue, c.sessionQueue[i])
 			newSummaryQueue = append(newSummaryQueue, c.sessionSummaryQueue[i])
 		}
-		if existingSession.Config.Priority {
+		if existingSession.Metadata.Priority {
 			lastPriorityIndex = i
 		}
 	}
 	if !existing {
-		if session.Config.Priority {
+		if session.Metadata.Priority {
 			if lastPriorityIndex == -1 {
 				// prepend the session to the start of the queue
 				newQueue = append([]*types.Session{session}, newQueue...)
@@ -496,11 +525,25 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.DataPrepStage = types.TextDataPrepStageComplete
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
+
+			// only notify the user that the fine tune was completed if there was not an error
+			if taskResponse.Error == "" {
+				err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+					Event:   notification.EventFinetuningComplete,
+					Session: session,
+				})
+				if err != nil {
+					log.Ctx(ctx).Error().Msgf("error notifying finetuning completed: %s", err.Error())
+				}
+			}
 		}
 
 		return targetInteraction, nil
 	})
 
+	if err != nil {
+		return nil, err
+	}
 	c.WriteSession(session)
 
 	if taskResponse.Error != "" {
@@ -544,7 +587,7 @@ func (c *Controller) CloneUntilInteraction(
 	// but now we are going back into finetine land by editing the interaction (somehow)
 	// put another way - if we are cloning a session in all mode - we can copy the mode as is
 	if req.Mode != types.CloneInteractionModeAll {
-		newSession.Mode = oldSession.Config.OriginalMode
+		newSession.Mode = oldSession.Metadata.OriginalMode
 	}
 
 	// these two interactions are the ones we will change based on the clone mode
@@ -598,8 +641,15 @@ func (c *Controller) CloneUntilInteraction(
 	}
 
 	// this will actually copy files so only call this if you want to remap
-	copyInteractionFiles := func(interaction types.Interaction) (types.Interaction, error) {
+	copyInteractionFiles := func(interaction *types.Interaction) (*types.Interaction, error) {
 		newFiles := []string{}
+		var newInteraction types.Interaction
+
+		err := copier.Copy(&newInteraction, interaction)
+		if err != nil {
+			return nil, fmt.Errorf("error copying interaction: %s", err.Error())
+		}
+
 		for _, file := range interaction.Files {
 			if path.Base(file) == types.TEXT_DATA_PREP_QUESTIONS_FILE && req.Mode == types.CloneInteractionModeJustData && interaction.ID == userInteraction.ID {
 				// this means we are only copying the data and we've just come across the questions file
@@ -608,16 +658,23 @@ func (c *Controller) CloneUntilInteraction(
 			}
 			newFile, err := copyFile(file)
 			if err != nil {
-				return interaction, err
+				return &newInteraction, err
 			}
 			newFiles = append(newFiles, newFile)
 		}
-		interaction.Files = newFiles
-		return interaction, nil
+		newInteraction.Files = newFiles
+		return &newInteraction, nil
 	}
 
 	// this will actually copy files so only call this if you want to remap
-	copyLoraDir := func(interaction types.Interaction) (types.Interaction, error) {
+	copyLoraDir := func(interaction *types.Interaction) (*types.Interaction, error) {
+		var newInteraction types.Interaction
+
+		err := copier.Copy(&newInteraction, interaction)
+		if err != nil {
+			return nil, fmt.Errorf("error copying interaction: %s", err.Error())
+		}
+
 		if interaction.LoraDir != "" {
 			shouldCopyLora := false
 			if interaction.ID == systemInteraction.ID {
@@ -635,19 +692,19 @@ func (c *Controller) CloneUntilInteraction(
 				if err != nil {
 					return interaction, err
 				}
-				interaction.LoraDir = newLoraDir
+				newInteraction.LoraDir = newLoraDir
 			} else {
-				interaction.LoraDir = ""
+				newInteraction.LoraDir = ""
 			}
 		}
-		return interaction, nil
+		return &newInteraction, nil
 	}
 
 	// the result files are always copied if we are in a different user account
 	// but not if we are in the same account
 	// and the interaction file list will be pointing at a different session folder
 	// but that is OK because the file store is immutable
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, interaction := range newSession.Interactions {
 		if req.CopyAllFiles {
 			newInteraction, err := copyInteractionFiles(interaction)
@@ -681,7 +738,7 @@ func (c *Controller) CloneUntilInteraction(
 	if req.Mode != types.CloneInteractionModeAll {
 		newSession.LoraDir = ""
 	} else {
-		newSession.LoraDir = strings.Replace(newSession.LoraDir, oldPrefix, newPrefix, 1)
+		newSession.LoraDir = strings.Replace(oldSession.LoraDir, oldPrefix, newPrefix, 1)
 	}
 
 	// always copy the session results folder otherwise we have split brain on results

@@ -5,8 +5,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func GetInteractionFinetuneFile(session *types.Session, interactionID string) (string, error) {
@@ -38,17 +38,17 @@ func GetInteraction(session *types.Session, id string) (*types.Interaction, erro
 	}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == id {
-			return &interaction, nil
+			return interaction, nil
 		}
 	}
 	return nil, fmt.Errorf("interaction not found: %s", id)
 }
 
-func GetLastUserInteraction(interactions []types.Interaction) (*types.Interaction, error) {
+func GetLastUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
 		if interaction.Creator == types.CreatorTypeUser {
-			return &interaction, nil
+			return interaction, nil
 		}
 	}
 	return nil, fmt.Errorf("no user interaction found")
@@ -59,11 +59,11 @@ func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
 	return GetLastUserInteraction(session.Interactions)
 }
 
-func GetLastSystemInteraction(interactions []types.Interaction) (*types.Interaction, error) {
+func GetLastSystemInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
 		if interaction.Creator == types.CreatorTypeSystem {
-			return &interaction, nil
+			return interaction, nil
 		}
 	}
 	return nil, fmt.Errorf("no system interaction found")
@@ -73,8 +73,8 @@ func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
 	return GetLastSystemInteraction(session.Interactions)
 }
 
-func FilterUserInteractions(interactions []types.Interaction) []types.Interaction {
-	filtered := []types.Interaction{}
+func FilterUserInteractions(interactions []*types.Interaction) []*types.Interaction {
+	filtered := []*types.Interaction{}
 	for _, interaction := range interactions {
 		if interaction.Creator == types.CreatorTypeUser {
 			filtered = append(filtered, interaction)
@@ -93,8 +93,8 @@ func FilterSystemInteractions(interactions []types.Interaction) []types.Interact
 	return filtered
 }
 
-func FilterFinetuneInteractions(interactions []types.Interaction) []types.Interaction {
-	filtered := []types.Interaction{}
+func FilterFinetuneInteractions(interactions []*types.Interaction) []*types.Interaction {
+	filtered := []*types.Interaction{}
 	for _, interaction := range interactions {
 		if interaction.Mode == types.SessionModeFinetune {
 			filtered = append(filtered, interaction)
@@ -113,8 +113,8 @@ func FilterInferenceInteractions(interactions []types.Interaction) []types.Inter
 	return filtered
 }
 
-func CopyInteractionsUntil(interactions []types.Interaction, id string) []types.Interaction {
-	copied := []types.Interaction{}
+func CopyInteractionsUntil(interactions []*types.Interaction, id string) []*types.Interaction {
+	copied := []*types.Interaction{}
 	for _, interaction := range interactions {
 		copied = append(copied, interaction)
 		if interaction.ID == id {
@@ -143,10 +143,10 @@ func UpdateInteraction(session *types.Session, id string, updater InteractionUpd
 		return nil, err
 	}
 
-	newInteractions := []types.Interaction{}
+	newInteractions := []*types.Interaction{}
 	for _, interaction := range session.Interactions {
 		if interaction.ID == targetInteraction.ID {
-			newInteractions = append(newInteractions, *updatedInteraction)
+			newInteractions = append(newInteractions, updatedInteraction)
 		} else {
 			newInteractions = append(newInteractions, interaction)
 		}
@@ -213,12 +213,12 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Scheduled:     systemInteraction.Scheduled,
 		Completed:     systemInteraction.Completed,
 		Summary:       summary,
-		Priority:      session.Config.Priority,
+		Priority:      session.Metadata.Priority,
 	}, nil
 }
 
 func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
-	systemInteraction := types.Interaction{
+	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
@@ -243,16 +243,14 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 		OwnerType:     req.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
-		Interactions: []types.Interaction{
-			req.UserInteraction,
-			systemInteraction,
-		},
-		Config: types.SessionConfig{
+		Interactions:  append(req.UserInteractions, systemInteraction),
+		Metadata: types.SessionMetadata{
 			OriginalMode: req.SessionMode,
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
 			},
-			Priority: req.Priority,
+			Priority:                req.Priority,
+			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
 		},
 	}
 
@@ -275,13 +273,13 @@ func CloneSession(
 		OwnerType:     ctx.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
-		Config:        oldSession.Config,
+		Metadata:      oldSession.Metadata,
 	}
 
 	session.Interactions = CopyInteractionsUntil(oldSession.Interactions, interactionID)
-	session.Config.Origin.Type = types.SessionOriginTypeCloned
-	session.Config.Origin.ClonedSessionID = oldSession.ID
-	session.Config.Origin.ClonedInteractionID = interactionID
+	session.Metadata.Origin.Type = types.SessionOriginTypeCloned
+	session.Metadata.Origin.ClonedSessionID = oldSession.ID
+	session.Metadata.Origin.ClonedInteractionID = interactionID
 
 	return &session, nil
 }

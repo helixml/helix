@@ -3,13 +3,8 @@ package store
 import (
 	"context"
 
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
-
-type GetBalanceTransfersQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
-}
 
 type GetJobsQuery struct {
 	Owner     string          `json:"owner"`
@@ -33,6 +28,8 @@ type GetBotsQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
+//go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
+
 type Store interface {
 	// sessions
 	GetSession(ctx context.Context, id string) (*types.Session, error)
@@ -55,10 +52,6 @@ type Store interface {
 	CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 	UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
-
-	// balance transfers
-	GetBalanceTransfers(ctx context.Context, query OwnerQuery) ([]*types.BalanceTransfer, error)
-	CreateBalanceTransfer(ctx context.Context, balanceTransfer types.BalanceTransfer) error
 
 	// api keys
 	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error)

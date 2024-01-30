@@ -18,7 +18,7 @@ function mock-runner() {
 }
 
 function build() {
-  docker-compose build
+  docker-compose -f docker-compose.dev.yaml build
 }
 
 function start() {
@@ -34,9 +34,9 @@ function start() {
 
   echo "Starting docker-compose"
   if [[ -n "$WITH_RUNNER" ]]; then
-    docker-compose --profile dev_gpu_runner up -d
+    docker-compose -f docker-compose.dev.yaml --profile dev_gpu_runner up --build -d
   else
-    docker-compose up -d
+    docker-compose -f docker-compose.dev.yaml up -d
   fi
   sleep 2
 
@@ -56,25 +56,25 @@ function start() {
   tmux select-pane -t 0
   tmux split-window -v -d
 
-  tmux send-keys -t 0 'docker-compose logs -f frontend' C-m
+  tmux send-keys -t 0 'docker-compose -f docker-compose.dev.yaml logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
   tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
   tmux send-keys -t 2 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 'docker-compose exec dev_gpu_runner bash' C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token apples --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
+    tmux send-keys -t 3 'docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
   fi
 
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
-  echo "Stopping tmux session $TMUX_SESSION..."
-  tmux kill-session -t $TMUX_SESSION
   echo "Removing docker containers"
-  docker rm -f $(docker ps -aq) || true
+  docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml down
+  echo "Stopping tmux session $TMUX_SESSION..."
+  tmux kill-session -t $TMUX_SESSION ||true
 }
 
 function db() {
@@ -85,6 +85,11 @@ function db() {
   elif [[ "$subcommand" == "pipe" ]]; then
     docker-compose exec -T postgres psql --user postgres "$@"
   fi
+}
+
+# Regenerate test mocks
+function generate() {
+  go generate ./...
 }
 
 function psql() {

@@ -15,13 +15,13 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/data"
-	"github.com/lukemarsden/helix/api/pkg/filestore"
-	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/store"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -158,14 +158,15 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
-		SessionID:       sessionID,
-		SessionMode:     sessionMode,
-		SessionType:     sessionType,
-		ModelName:       modelName,
-		Owner:           reqContext.Owner,
-		OwnerType:       reqContext.OwnerType,
-		UserInteraction: *userInteraction,
-		Priority:        status.Config.StripeSubscriptionActive,
+		SessionID:               sessionID,
+		SessionMode:             sessionMode,
+		SessionType:             sessionType,
+		ModelName:               modelName,
+		Owner:                   reqContext.Owner,
+		OwnerType:               reqContext.OwnerType,
+		UserInteractions:        []*types.Interaction{userInteraction},
+		Priority:                status.Config.StripeSubscriptionActive,
+		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 	})
 
 	return sessionData, nil
@@ -193,14 +194,17 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 
 	sessionData, err := apiServer.Controller.UpdateSession(apiServer.getRequestContext(req), types.UpdateSessionRequest{
 		SessionID:       session.ID,
-		UserInteraction: *userInteraction,
+		UserInteraction: userInteraction,
 		SessionMode:     session.Mode,
 	})
+	if err != nil {
+		return nil, system.NewHTTPError500("failed to update session: %s", err)
+	}
 
 	return sessionData, nil
 }
 
-func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionConfig, *system.HTTPError) {
+func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, req *http.Request) (*types.SessionMetadata, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {
 		return nil, httpError
@@ -208,7 +212,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 
 	reqContext := apiServer.getRequestContext(req)
 
-	var data *types.SessionConfig
+	var data *types.SessionMetadata
 
 	// Decode the JSON from the request body
 	err := json.NewDecoder(req.Body).Decode(&data)
@@ -216,7 +220,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 		return nil, system.NewHTTPError400(err.Error())
 	}
 
-	result, err := apiServer.Controller.UpdateSessionConfig(reqContext.Ctx, session, data)
+	result, err := apiServer.Controller.UpdateSessionMetadata(reqContext.Ctx, session, data)
 	if err != nil {
 		return nil, system.NewHTTPError(err)
 	}
@@ -264,10 +268,6 @@ window.HELIX_GOOGLE_ANALYTICS = "%s"
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
 	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
-}
-
-func (apiServer *HelixAPIServer) getTransactions(res http.ResponseWriter, req *http.Request) ([]*types.BalanceTransfer, error) {
-	return apiServer.Controller.GetTransactions(apiServer.getRequestContext(req))
 }
 
 func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
@@ -571,7 +571,7 @@ func (apiServer *HelixAPIServer) finetuneAddDocuments(res http.ResponseWriter, r
 	if interactionID != "" {
 		return system.DefaultController(apiServer.Controller.AddDocumentsToInteraction(req.Context(), session, newUserInteraction.Files))
 	} else {
-		return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, *newUserInteraction))
+		return system.DefaultController(apiServer.Controller.AddDocumentsToSession(req.Context(), session, newUserInteraction))
 	}
 }
 

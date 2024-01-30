@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/controller"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -53,7 +53,7 @@ func (apiServer *HelixAPIServer) canSeeSession(reqContext types.RequestContext, 
 	if canEdit {
 		return true
 	}
-	if session.Config.Shared {
+	if session.Metadata.Shared {
 		return true
 	}
 	return false
@@ -101,9 +101,15 @@ func errorLoggingMiddleware(next http.Handler) http.Handler {
 		// Call the next handler, which can be another middleware in the chain, or the final handler.
 		next.ServeHTTP(lrw, r)
 
-		if lrw.statusCode >= 400 {
-			log.Error().Msgf("Method: %s, Path: %s, Status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
+		switch lrw.statusCode {
+		case http.StatusForbidden:
+			log.Warn().Msgf("unauthorized - method: %s, path: %s, status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
+		default:
+			if lrw.statusCode >= 400 {
+				log.Error().Msgf("method: %s, path: %s, status: %d\n", r.Method, r.URL.Path, lrw.statusCode)
+			}
 		}
+
 	})
 }
 
@@ -243,6 +249,12 @@ func extractSessionID(path string) string {
 // given a full filestore route (i.e. one that starts with /dev/users/XXX)
 // this will tell you if the given http request is authorized to access it
 func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (bool, error) {
+	if req.URL.Query().Get("signature") != "" {
+		// Construct full URL
+		u := fmt.Sprintf("http://api/%s%s?%s", req.URL.Host, req.URL.Path, req.URL.RawQuery)
+		return apiServer.Controller.VerifySignature(u), nil
+	}
+
 	// if the session is "shared" then anyone can see it's files
 	sessionID := extractSessionID(req.URL.Path)
 	if sessionID != "" {
@@ -250,7 +262,7 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		if err != nil {
 			return false, err
 		}
-		if session.Config.Shared {
+		if session.Metadata.Shared {
 			return true, nil
 		}
 	}

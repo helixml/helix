@@ -15,10 +15,10 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/lukemarsden/helix/api/pkg/filestore"
-	"github.com/lukemarsden/helix/api/pkg/model"
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -260,7 +260,12 @@ func (handler *FileHandler) uploadFiles(sessionID string, localFiles []string, r
 
 	// handle the response
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		return nil, fmt.Errorf("unexpected status code: %d (%s)", resp.StatusCode, string(bts))
 	}
 
 	var data []filestore.FileStoreItem

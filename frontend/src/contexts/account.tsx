@@ -8,7 +8,6 @@ import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 import {
   IKeycloakUser,
-  IBalanceTransfer,
   ISession,
   IApiKey,
   IServerConfig,
@@ -27,7 +26,6 @@ export interface IAccountContext {
   token?: string,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
-  transactions: IBalanceTransfer[],
   apiKeys: IApiKey[],
   onLogin: () => void,
   onLogout: () => void,
@@ -42,7 +40,6 @@ export const AccountContext = createContext<IAccountContext>({
     stripe_enabled: false,
   },
   userConfig: {},
-  transactions: [],
   apiKeys: [],
   onLogin: () => {},
   onLogout: () => {},
@@ -61,7 +58,6 @@ export const useAccountContext = (): IAccountContext => {
     filestore_prefix: '',
     stripe_enabled: false,
   })
-  const [ transactions, setTransactions ] = useState<IBalanceTransfer[]>([])
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
   const keycloak = useMemo(() => {
@@ -85,12 +81,6 @@ export const useAccountContext = (): IAccountContext => {
     apiKeys,
   ])
 
-  const loadTransactions = useCallback(async () => {
-    const result = await api.get<IBalanceTransfer[]>('/api/v1/transactions')
-    if(!result) return
-    setTransactions(result)
-  }, [])
-
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return
@@ -113,13 +103,11 @@ export const useAccountContext = (): IAccountContext => {
 
   const loadAll = useCallback(async () => {
     await bluebird.all([
-      loadTransactions(),
       loadStatus(),
       loadServerConfig(),
       loadApiKeys(),
     ])
   }, [
-    loadTransactions,
     loadStatus,
     loadServerConfig,
     loadApiKeys,
@@ -206,7 +194,6 @@ export const useAccountContext = (): IAccountContext => {
     serverConfig,
     userConfig,
     credits,
-    transactions,
     apiKeys,
     onLogin,
     onLogout,
@@ -218,7 +205,6 @@ export const useAccountContext = (): IAccountContext => {
     serverConfig,
     userConfig,
     credits,
-    transactions,
     apiKeys,
     onLogin,
     onLogout,

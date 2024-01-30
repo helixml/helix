@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/lukemarsden/helix/api/cmd/helix"
+	"github.com/helixml/helix/api/cmd/helix"
 )
 
 func main() {

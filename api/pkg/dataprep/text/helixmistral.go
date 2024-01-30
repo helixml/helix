@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lukemarsden/helix/api/pkg/system"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -48,8 +48,13 @@ func (helixMistral *DataPrepTextHelixMistral) GetChunkSize() int {
 	return HELIX_MISTRAL_CHUNK_SIZE
 }
 
+func (helixMistral *DataPrepTextHelixMistral) ExpandChunks(chunks []*DataPrepTextSplitterChunk) ([]*DataPrepTextSplitterChunk, error) {
+	// no expansion
+	return chunks, nil
+}
+
 // TODO: getting a consistent output format that we can parse reliably is really hard
-func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int) ([]types.DataPrepTextQuestion, error) {
+func (helixMistral *DataPrepTextHelixMistral) ConvertChunk(chunk string, index int, documentID, documentGroupID, promptName string) ([]types.DataPrepTextQuestion, error) {
 	prompt := fmt.Sprintf(`
 You are a Teacher/ Professor. Your task is to setup a quiz/examination.
 Using the provided context, formulate exactly %d question and answer pairs that captures an important fact from the context.
@@ -88,16 +93,18 @@ Do not number the questions or answers.
 		Owner:         helixMistral.session.Owner,
 		OwnerType:     helixMistral.session.OwnerType,
 		ParentSession: helixMistral.session.ID,
-		UserInteraction: types.Interaction{
-			ID:             system.GenerateUUID(),
-			Created:        time.Now(),
-			Creator:        types.CreatorTypeUser,
-			Message:        prompt,
-			Files:          []string{},
-			State:          types.InteractionStateWaiting,
-			Finished:       false,
-			Metadata:       map[string]string{},
-			DataPrepChunks: map[string][]types.DataPrepChunk{},
+		UserInteractions: []*types.Interaction{
+			{
+				ID:             system.GenerateUUID(),
+				Created:        time.Now(),
+				Creator:        types.CreatorTypeUser,
+				Message:        prompt,
+				Files:          []string{},
+				State:          types.InteractionStateWaiting,
+				Finished:       false,
+				Metadata:       map[string]string{},
+				DataPrepChunks: map[string][]types.DataPrepChunk{},
+			},
 		},
 	})
 

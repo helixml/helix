@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"time"
-
 	"database/sql"
 
 	_ "github.com/lib/pq"
@@ -20,7 +18,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/lukemarsden/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type PostgresStore struct {
@@ -135,7 +133,7 @@ func scanSessionRow(row Scanner) (*types.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(config, &session.Config)
+	err = json.Unmarshal(config, &session.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +145,7 @@ func getSessionValues(session *types.Session) ([]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := json.Marshal(session.Config)
+	config, err := json.Marshal(session.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -632,105 +630,6 @@ func (d *PostgresStore) UpdateSessionMeta(
 	}
 
 	return d.GetSession(ctx, data.ID)
-}
-
-func (d *PostgresStore) GetBalanceTransfers(
-	ctx context.Context,
-	query OwnerQuery,
-) ([]*types.BalanceTransfer, error) {
-	var transfers []*types.BalanceTransfer
-	var rows *sql.Rows
-	var err error
-
-	rows, err = d.pgDb.Query(`
-		SELECT
-			id, created, owner, owner_type, payment_type, amount, data
-		FROM
-			balance_transfer
-		WHERE
-			owner = $1 AND owner_type = $2
-		ORDER BY
-			created ASC
-	`, query.Owner, query.OwnerType)
-
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id string
-		var created time.Time
-		var owner string
-		var ownerType types.OwnerType
-		var paymentType types.PaymentType
-		var amount int
-		var data []byte
-
-		err = rows.Scan(&id, &created, &owner, &ownerType, &paymentType, &amount, &data)
-		if err != nil {
-			return nil, err
-		}
-
-		var transferData types.BalanceTransferData
-		err = json.Unmarshal(data, &transferData)
-		if err != nil {
-			return nil, err
-		}
-
-		transfer := &types.BalanceTransfer{
-			ID:          id,
-			Created:     created,
-			Owner:       owner,
-			OwnerType:   ownerType,
-			PaymentType: paymentType,
-			Amount:      amount,
-			Data:        transferData,
-		}
-
-		transfers = append(transfers, transfer)
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return nil, err
-	}
-
-	return transfers, nil
-}
-
-func (d *PostgresStore) CreateBalanceTransfer(
-	ctx context.Context,
-	transfer types.BalanceTransfer,
-) error {
-	transferData, err := json.Marshal(transfer.Data)
-	if err != nil {
-		return err
-	}
-	sqlStatement := `
-insert into
-balance_transfer (
-	id,
-	owner,
-	owner_type,
-	payment_type,
-	amount,
-	data
-)
-values ($1, $2, $3, $4, $5, $6)`
-	_, err = d.pgDb.Exec(
-		sqlStatement,
-		transfer.ID,
-		transfer.Owner,
-		transfer.OwnerType,
-		transfer.PaymentType,
-		transfer.Amount,
-		transferData,
-	)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {

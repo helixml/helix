@@ -1,4 +1,4 @@
-module github.com/lukemarsden/helix
+module github.com/helixml/helix
 
 go 1.20
 
@@ -28,10 +28,39 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/getsentry/sentry-go v0.25.0
+	github.com/golang/mock v1.6.0
+	github.com/jinzhu/copier v0.4.0
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stripe/stripe-go/v76 v76.8.0
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 )
 
-require github.com/stretchr/testify v1.8.4 // indirect
+require (
+	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible // indirect
+	github.com/klauspost/compress v1.17.4 // indirect
+	github.com/minio/highwayhash v1.0.2 // indirect
+	github.com/nats-io/jwt/v2 v2.5.3 // indirect
+	github.com/nats-io/nats-server/v2 v2.10.9 // indirect
+	github.com/nats-io/nats.go v1.32.0 // indirect
+	github.com/nats-io/nkeys v0.4.7 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	go.uber.org/automaxprocs v1.5.3 // indirect
+	golang.org/x/time v0.5.0 // indirect
+)
+
+require (
+	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/mailgun/mailgun-go/v4 v4.9.1 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/nikoksr/notify v0.41.0
+)
+
+require (
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/stretchr/testify v1.8.4
+)
 
 require (
 	cloud.google.com/go v0.110.8 // indirect
@@ -58,11 +87,11 @@ require (
 	github.com/spf13/pflag v1.0.5 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
-	golang.org/x/crypto v0.16.0 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.13.0 // indirect
 	golang.org/x/sync v0.4.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.12.1-0.20230815132531-74c255bcf846 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
