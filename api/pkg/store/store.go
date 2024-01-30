@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -25,6 +26,11 @@ type GetSessionsQuery struct {
 }
 
 type GetBotsQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+}
+
+type ListToolsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 }
@@ -59,7 +65,14 @@ type Store interface {
 	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
 	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+
+	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
+	GetTool(ctx context.Context, id string) (*types.Tool, error)
+	ListTool(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
+	DeleteTool(ctx context.Context, id string) error
 }
+
+var ErrNotFound = errors.New("not found")
 
 type StoreOptions struct {
 	Host        string

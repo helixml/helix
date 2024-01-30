@@ -70,13 +70,20 @@ func NewPostgresStore(
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
 		}
+
+		err = store.autoMigrate()
+		if err != nil {
+			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+		}
 	}
+
 	return store, nil
 }
 
-func (s *PostgresStore) automigrate() error {
+func (s *PostgresStore) autoMigrate() error {
 	return s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.Tool{},
+		&types.SessionToolBinding{},
 	)
 }
 
