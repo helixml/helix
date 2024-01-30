@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -22,8 +23,14 @@ type PostgresStoreTestSuite struct {
 func (suite *PostgresStoreTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 
+	// TODO: move server options to envconfig
+	host := os.Getenv("POSTGRES_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+
 	store, err := NewPostgresStore(StoreOptions{
-		Host:     "localhost",
+		Host:     host,
 		Port:     5432,
 		Username: "postgres",
 		Password: "postgres",
