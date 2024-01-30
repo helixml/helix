@@ -15,7 +15,6 @@ import FineTuneTextQuestions from './FineTuneTextQuestions'
 import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
-import useFilestore from '../../hooks/useFilestore'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -66,22 +65,24 @@ export const InteractionFinetune: FC<{
   onClone,
   onAddDocuments,
 }) => {
-
   const theme = useTheme()
   const account = useAccount()
   const api = useApi()
   const snackbar = useSnackbar()
 
-  const isSystemInteraction = interaction.creator === SESSION_CREATOR_SYSTEM;
-  const isUserInteraction = interaction.creator === SESSION_CREATOR_USER;
-  const isImageFinetune = isUserInteraction && session.type === SESSION_TYPE_IMAGE;
-  const isTextFinetune = isUserInteraction && session.type === SESSION_TYPE_TEXT;
-  const isEditingConversations = interaction.state === INTERACTION_STATE_EDITING && interaction.data_prep_stage === TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS;
-  const isAddingFiles = interaction.state === INTERACTION_STATE_EDITING && interaction.data_prep_stage === TEXT_DATA_PREP_STAGE_EDIT_FILES;
-  const hasFineTuned = interaction.lora_dir ? true : false;
+  const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
+  const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
+  const isImageFinetune = isUserInteraction && session.type == SESSION_TYPE_IMAGE
+  const isTextFinetune = isUserInteraction && session.type == SESSION_TYPE_TEXT
+  const isEditingConversations = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS ? true : false
+  const isAddingFiles = interaction.state == INTERACTION_STATE_EDITING && interaction.data_prep_stage == TEXT_DATA_PREP_STAGE_EDIT_FILES ? true : false
+  const hasFineTuned = interaction.lora_dir ? true : false
 
-  const dataPrepErrors = useMemo(() => getTextDataPrepErrors(interaction), [interaction]);
-  const dataPrepStats = useMemo(() => getTextDataPrepStats(interaction), [interaction]);
+  const dataPrepErrors = useMemo(() => {
+    return getTextDataPrepErrors(interaction)
+  }, [
+    interaction,
+  ])
 
   // in the case where we are a system interaction that is showing buttons
   // to edit the dataset in the previous user interaction
@@ -121,78 +122,106 @@ export const InteractionFinetune: FC<{
 
   return (
     <>
-      {isImageFinetune && interaction.files && interaction.files.length > 0 && (
-        <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
-          <Grid container spacing={3} direction="row" justifyContent="flex-start">
-            {interaction.files
-              .filter(file => !file.match(/\.txt$/i))
-              .map((file) => {
-                const useURL = getFileURL(file);
-                const filenameParts = file.split('/');
-                const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || '';
+      {
+        isImageFinetune && interaction.files && interaction.files.length > 0 && (
+          <Box
+            sx={{
+              maxHeight: '400px',
+              overflowY: 'auto'
+            }}
+          >
+            <Grid container spacing={3} direction="row" justifyContent="flex-start">
+              {
+                interaction.files.length > 0 && interaction.files
+                  .filter(file => {
+                    if(!isShared && !account.token) return false
+                    return file.match(/\.txt$/i) ? false : true
+                  })
+                  .map((file) => {
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
+                    const filenameParts = file.split('/')
+                    const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
-                return (
-                  <Grid item xs={3} md={3} key={file}>
-                    <Box
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#999'
-                      }}
-                    >
-                      <Box
-                        component="img"
-                        src={useURL}
-                        sx={{
-                          height: '50px',
-                          border: '1px solid #000000',
-                          filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
-                          mb: 1,
-                        }}
-                      />
-                      <Typography variant="caption">{label}</Typography>
-                    </Box>
-                  </Grid>
-                );
-              })}
-          </Grid>
-        </Box>
-      )}
-      {isTextFinetune && interaction.files && interaction.files.length > 0 && (
-  <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
-    <Grid container spacing={3} direction="row" justifyContent="flex-start">
-      {interaction.files
-        .filter(file => file.match(/\.txt$/i))
-        .map((file) => {
-          const useURL = getFileURL(file);
-          const filenameParts = file.split('/');
-          const filename = filenameParts[filenameParts.length - 1] || '';
+                    return (
+                      <Grid item xs={3} md={3} key={file}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#999'
+                          }}
+                        >
+                          <Box
+                            component="img"
+                            src={useURL}
+                            sx={{
+                              height: '50px',
+                              border: '1px solid #000000',
+                              filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
+                              mb: 1,
+                            }}
+                          />
+                          <Typography variant="caption">{label}</Typography>
+                        </Box>
+                      </Grid>
+                    )
+                  })
+                  
+              }
+            </Grid>
+          </Box>
+        )
+      }
+      {
+        isTextFinetune && interaction.files && interaction.files.length > 0 && (
+          <Box
+            sx={{
+              maxHeight: '400px',
+              overflowY: 'auto'
+            }}
+          >
+            <Grid container spacing={3} direction="row" justifyContent="flex-start">
+              {
+                interaction.files.length > 0 && interaction.files
+                  .filter(file => {
+                    if(!isShared && !account.token) return false
+                    return true
+                  })
+                  .map((file) => {
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
+                    const filenameParts = file.split('/')
+                    const filename = filenameParts[filenameParts.length - 1] || ''
 
-          return (
-            <Grid item xs={3} md={3} key={file}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#999',
-                  cursor: 'pointer',
-                  overflow: 'hidden'
-                }}
-                onClick={() => {
-                  window.open(useURL);
-                }}
-              >
-                <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
-                <Typography variant="caption" sx={{
-                  textAlign: 'center',
-                  color: theme.palette.mode === "light" ? 'blue' : 'lightblue',
-                  textDecoration: 'underline',
-                }}>{filename}</Typography>
-              </Box>
+                    return (
+                      <Grid item xs={3} md={3} key={file}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#999',
+                            cursor: 'pointer',
+                            overflow: "hidden"
+                          }}
+                          onClick={ () => {
+                            window.open(useURL)
+                          }}
+                        >
+                          <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
+                          <Typography variant="caption" sx={{
+                            textAlign: 'center',
+                            color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
+                            textDecoration: 'underline',
+                          }}>{filename}</Typography>
+                        </Box>
+                      </Grid>
+                    )
+                  })
+                  
+              }
             </Grid>
           </Box>
         )
@@ -328,4 +357,4 @@ export const InteractionFinetune: FC<{
   )   
 }
 
-export default InteractionFinetune;
+export default InteractionFinetune
