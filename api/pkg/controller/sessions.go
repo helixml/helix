@@ -526,7 +526,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			targetInteraction.Progress = 0
 			targetInteraction.Status = ""
 
-			// only notify the user that the fine tune was completed if there was an error
+			// only notify the user that the fine tune was completed if there was not an error
 			if taskResponse.Error == "" {
 				err := c.Options.Notifier.Notify(ctx, &notification.Notification{
 					Event:   notification.EventFinetuningComplete,
