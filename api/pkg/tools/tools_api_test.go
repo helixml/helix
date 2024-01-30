@@ -124,6 +124,12 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		Name:        "getPetDetail",
 		Description: "pet store API that is used to get details for the specified pet's ID",
 		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:    ts.URL,
+				Schema: petStoreApiSpec,
+			},
+		},
 	}
 
 	history := []*types.Interaction{}
