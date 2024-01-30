@@ -19,7 +19,7 @@ steps:
     OPENAI_BASE_URL:
       from_secret: openai_base_url
   commands:
-    - go test ./...
+    - go test -v ./...
 
 ---
 kind: pipeline
