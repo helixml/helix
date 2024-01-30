@@ -497,23 +497,15 @@ type ToolApiAction struct {
 	Path        string `json:"path"`
 }
 
-// type APIParameter struct {
-// 	Name        string         `json:"name"`
-// 	Description string         `json:"description"`
-// 	Value       string         `json:"value"`     // If provided, AI is not allowed to set this parameter
-// 	In          APIParameterIn `json:"in"`        // e.g. path, query, body
-// 	AutoFill    bool           `json:"auto_fill"` // By LLM
-// 	// TODO: type (string, int)
-// }
+// SessionToolBinding used to add tools to sessions
+type SessionToolBinding struct {
+	SessionID string `gorm:"primaryKey"`
+	ToolID    string `gorm:"primaryKey;index"`
+	Created   time.Time
+	Updated   time.Time
 
-// type APIParameterIn string
-
-// const (
-// 	APIParameterInPath   APIParameterIn = "path"
-// 	APIParameterInQuery  APIParameterIn = "query"
-// 	APIParameterInBody   APIParameterIn = "body"
-// 	APIParameterInHeader APIParameterIn = "header"
-// )
+	Tools []*Tool
+}
 
 type Flow struct {
 	ID      string    `json:"id"`
