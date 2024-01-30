@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	reflect "reflect"
 	"strings"
 	"time"
 
@@ -81,10 +82,70 @@ func NewPostgresStore(
 }
 
 func (s *PostgresStore) autoMigrate() error {
-	return s.gdb.WithContext(context.Background()).AutoMigrate(
+	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.Tool{},
 		&types.SessionToolBinding{},
 	)
+	if err != nil {
+		return err
+	}
+
+	if err := createFK(s.gdb, types.SessionToolBinding{}, types.Tool{}, "tool_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	return nil
+}
+
+type namedTable interface {
+	TableName() string
+}
+
+// createFK creates a foreign key relationship between two tables.
+//
+// The argument `src` is the table with the field (`fk`) which refers to the field `pk` in the other (`dest`) table.
+func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpdate string) error {
+	var (
+		srcTableName string
+		dstTableName string
+	)
+
+	sourceType := reflect.TypeOf(src)
+	_, ok := sourceType.MethodByName("TableName")
+	if ok {
+		srcTableName = src.(namedTable).TableName()
+	} else {
+		srcTableName = db.NamingStrategy.TableName(sourceType.Name())
+	}
+
+	destinationType := reflect.TypeOf(dst)
+	_, ok = destinationType.MethodByName("TableName")
+	if ok {
+		dstTableName = dst.(namedTable).TableName()
+	} else {
+		dstTableName = db.NamingStrategy.TableName(destinationType.Name())
+	}
+
+	// Dealing with custom table names that contain schema in them
+	constraintName := "fk_" + strings.ReplaceAll(srcTableName, ".", "_") + "_" + strings.ReplaceAll(dstTableName, ".", "_")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	if !db.Migrator().HasConstraint(src, constraintName) {
+		err := db.WithContext(ctx).Exec(fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s) ON DELETE %s ON UPDATE %s",
+			srcTableName,
+			constraintName,
+			fk,
+			dstTableName,
+			pk,
+			onDelete,
+			onUpdate)).Error
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
+	}
+	return nil
 }
 
 type Scanner interface {

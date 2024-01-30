@@ -108,8 +108,5 @@ func (suite *PostgresStoreTestSuite) Test_ListSessionTools() {
 	suite.T().Cleanup(func() {
 		err := suite.db.DeleteTool(suite.ctx, createdTool.ID)
 		suite.NoError(err)
-
-		err = suite.db.DeleteSessionToolBinding(suite.ctx, sessionID, createdTool.ID)
-		suite.NoError(err)
 	})
 }
