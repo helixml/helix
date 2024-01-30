@@ -18,12 +18,15 @@ import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import Button from '@mui/material/Button'
 import ScreenShareIcon from '@mui/icons-material/ScreenShare'
+import ShareIcon from '@mui/icons-material/Share'
+import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   ISession,
+  ISessionSummary,
 } from '../../types'
 
 import useRouter from '../../hooks/useRouter'
@@ -70,6 +73,12 @@ export const SessionHeader: FC<{
     loading.setLoading(false)
   }, [])
 
+  const [editingSession, setEditingSession] = useState<ISessionSummary | null>(null)
+
+  const onEditSessionName = useCallback(() => {
+    setEditingSession({ ...session, scheduled: '', completed: '', session_id: '', interaction_id: '', summary: '' })
+  }, [session])
+
   return (
     <Row
       sx={{
@@ -94,9 +103,7 @@ export const SessionHeader: FC<{
               {session.name} {/* Assuming session.name is the title */}
             </Typography>
             <IconButton
-              onClick={() => {
-                // Handle edit action
-              }}
+              onClick={onEditSessionName}
               size="small"
               sx={{ ml: 1 }}
             >
@@ -174,7 +181,7 @@ export const SessionHeader: FC<{
         <JsonWindowLink
           data={ session } 
         >
-          <Tooltip title="Show JSON Info">
+          <Tooltip title="Show Info">
             <Typography
               sx={{
                 fontSize: "small",
@@ -220,7 +227,7 @@ export const SessionHeader: FC<{
           </Link>
         </Tooltip>
       </Cell>
-      {
+      {/* {
         session.lora_dir && !session.parent_bot && (
           <Cell>
             <Tooltip title={session.parent_bot ? "Edit Bot" : "Publish Bot"}>
@@ -257,7 +264,7 @@ export const SessionHeader: FC<{
             </Tooltip>
           </Cell>
         )
-      }
+      } */}
       {
         deletingSession && (
           <DeleteConfirmWindow
@@ -283,7 +290,7 @@ export const SessionHeader: FC<{
                 }}
               >
                 <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                  <ScreenShareIcon
+                  <ShareIcon
                     sx={{
                       color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
                       '&:hover': {
@@ -304,7 +311,7 @@ export const SessionHeader: FC<{
             target="_blank"
           >
             <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-              <HelpIcon
+              <AutoStoriesIcon
                 sx={{
                   color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
                   '&:hover': {
@@ -316,7 +323,27 @@ export const SessionHeader: FC<{
           </Link>
         </Tooltip>
       </Cell>
+      {
+        editingSession && (
+          <EditTextWindow
+            title={`Edit session name`}
+            value={editingSession.name}
+            onCancel={() => {
+              setEditingSession(null)
+            }}
+            onSubmit={(value) => {
+              sessions.renameSession(editingSession.session_id, value).then(() => {
+                snackbar.success(`Session name updated`)
+                setEditingSession(null)
+              }).catch((e) => {
+                snackbar.error(`Failed to update session name`)
+              })
+            }}
+          />
+        )
+      }
     </Row>
+    
   )
 }
 
