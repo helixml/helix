@@ -39,16 +39,13 @@ func (s *PostgresStore) GetTool(ctx context.Context, id string) (*types.Tool, er
 	return &tool, nil
 }
 
-func (s *PostgresStore) ListTool(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
+func (s *PostgresStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error) {
 	var tools []*types.Tool
 	err := s.gdb.WithContext(ctx).Where(&types.Tool{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
-	}).First(&tools).Error
+	}).Find(&tools).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrNotFound
-		}
 		return nil, err
 	}
 
