@@ -122,15 +122,15 @@ prompts:
     ```json
     [
       {
-        "question": "…",
+        "question": "Please write me a brief/short summary of the document or the key points in the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a summary of the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a long/verbose summary of the document",
         "answer": "…"
       }
     ]
