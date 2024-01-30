@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"time"
@@ -475,11 +476,33 @@ type Tool struct {
 	ToolType    ToolType  `json:"tool_type"`
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
-	Config ToolConfig `json:"config"`
+	Config ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
 	API *ToolApiConfig `json:"api"`
+}
+
+func (m ToolConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *ToolConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result ToolConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (ToolConfig) GormDataType() string {
+	return "json"
 }
 
 type ToolApiConfig struct {
@@ -499,22 +522,8 @@ type ToolApiAction struct {
 
 // SessionToolBinding used to add tools to sessions
 type SessionToolBinding struct {
-	SessionID string `gorm:"primaryKey"`
-	ToolID    string `gorm:"primaryKey;index"`
+	SessionID string `gorm:"primaryKey;index"`
+	ToolID    string `gorm:"primaryKey"`
 	Created   time.Time
 	Updated   time.Time
-
-	Tools []*Tool
-}
-
-type Flow struct {
-	ID      string    `json:"id"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
-	// uuid of owner entity
-	Owner string `json:"owner"`
-	// e.g. user, system, org
-	OwnerType   OwnerType `json:"owner_type"`
-	Name        string
-	Description string
 }
