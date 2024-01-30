@@ -312,7 +312,6 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	var writeUpdatesMutex sync.Mutex
 
 	runningFileList := copyFileList(userInteraction.Files)
-
 	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
 		chunksToProcess,
 		dataprep.GetConcurrency(),
@@ -399,6 +398,24 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	systemInteraction.Progress = 0
 	systemInteraction.State = types.InteractionStateEditing
 	session = c.WriteInteraction(session, systemInteraction)
+
+	docIDs := []string{}
+	// TODO: remove duplication wrt splitter
+	docGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	uniqueMap := make(map[string]bool)
+	for _, val := range session.Metadata.DocumentIDs {
+		if !uniqueMap[val] {
+			uniqueMap[val] = true
+			docIDs = append(docIDs, val)
+		}
+	}
+
+	systemPrompt := fmt.Sprintf(
+		"You are an intelligent chatbot named Helix that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
+		strings.Join(docIDs, ", "), docGroupID, len(docIDs),
+	)
+	session.Metadata.SystemPrompt = systemPrompt
+	c.WriteSession(session)
 
 	return session, len(chunksToProcess), nil
 }
