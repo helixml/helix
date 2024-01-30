@@ -920,6 +920,8 @@ func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
 				options.Username, options.Password, options.Host, options.Port, options.Database, sslSettings)
 			dialector = postgres.Open(dsn)
 
+			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
+
 			db, err := gorm.Open(dialector, &gorm.Config{})
 			if err != nil {
 				time.Sleep(1 * time.Second)
