@@ -2,11 +2,9 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
-	"gorm.io/gorm"
 )
 
 func (s *PostgresStore) CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
@@ -29,21 +27,18 @@ func (s *PostgresStore) CreateSessionToolBinding(ctx context.Context, sessionID,
 }
 
 func (s *PostgresStore) ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error) {
-	var binding types.SessionToolBinding
+	var tools []*types.Tool
 
-	err := s.gdb.WithContext(ctx).
-		Preload("Tools").
-		Where(&types.SessionToolBinding{
-			SessionID: sessionID,
-		}).First(&binding).Error
+	// Join tools and session_tool_bindings tables to get all tools that are bound to the session
+	err := s.gdb.WithContext(ctx).Model(&types.Tool{}).
+		Joins("JOIN session_tool_bindings ON session_tool_bindings.tool_id = tools.id").
+		Where("session_tool_bindings.session_id = ?", sessionID).
+		Find(&tools).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return []*types.Tool{}, nil
-		}
 		return nil, err
 	}
 
-	return binding.Tools, nil
+	return tools, nil
 }
 
 func (s *PostgresStore) DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
