@@ -18,6 +18,8 @@ steps:
       from_secret: openai_api_key
     OPENAI_BASE_URL:
       from_secret: openai_base_url
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
   commands:
     - go test -v ./...
 
