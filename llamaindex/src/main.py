@@ -22,14 +22,17 @@ def rag_insert_chunk():
   data = request.json
   sql.checkDocumentChunkData(data)
   data["embedding"] = getEmbedding(data["content"])
-  id = sql.insertData(engine, data)
-  result = sql.getRow(engine, id)
+  id = sql.insertData(data)
+  result = sql.getRow(id)
   pprint.pprint(result)
   return jsonify(result), 200
 
 # curl -X POST -H "Content-Type: application/json" -d '{
 #   "session_id": "123",
-#   "prompt": "hello world"
+#   "prompt": "hello world",
+#   "distance_function": "cosine",
+#   "distance_threshold": 0.1,
+#   "max_results": 5
 # }' http://localhost:5000/api/v1/rag/prompt
 # this will
 #  * convert the prompt
@@ -41,13 +44,28 @@ def rag_query():
   data = request.json
   prompt = data["prompt"]
   session_id = data["session_id"]
+  distance_threshold = data["distance_threshold"]
+  distance_function = data["distance_function"]
+  max_results = data["max_results"]
+
   if prompt is None or len(prompt) == 0:
     return jsonify({"error": "missing prompt"}), 400
   if session_id is None or len(session_id) == 0:
     return jsonify({"error": "missing session_id"}), 400
+  if distance_function is None or len(distance_function) == 0:
+    return jsonify({"error": "missing distance_function"}), 400
+  if distance_function not in ["l2", "inner_product", "cosine"]:
+    return jsonify({"error": "distance_function must be one of 'l2', 'inner_product', or 'cosine'"}), 400
+  if distance_threshold is None:
+    return jsonify({"error": "missing distance threshold (between 0 and 2)"}), 400
+  if isinstance(distance_threshold, (int, float)) == False:
+    return jsonify({"error": "distance threshold must be a number"}), 400
+  if max_results is None:
+    return jsonify({"error": "missing max_results"}), 400
+  if isinstance(max_results, (int, float)) == False:
+    return jsonify({"error": "max_results must be a number"}), 400
   promptEmbedding = getEmbedding(prompt)
-  results = sql.queryPrompt(session_id, promptEmbedding)
-  pprint.pprint(results)
+  results = sql.queryPrompt(session_id, promptEmbedding, distance_function, distance_threshold, max_results)
   return jsonify({
     "ok": True,
     "results": results,
