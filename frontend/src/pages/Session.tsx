@@ -110,7 +110,7 @@ const Session: FC = () => {
   const onUpdateSharing = useCallback(async (value: boolean) => {
     if(!session.data) return false
     const latestSessionData = await session.reload()
-    if(!latestSessionData) return
+    if(!latestSessionData) return false
     const result = await session.updateConfig(latestSessionData.id, Object.assign({}, latestSessionData.config, {
       shared: value,
     }))
@@ -166,7 +166,9 @@ const Session: FC = () => {
 
   const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
     if(!session.data) return
-    const sessionConfigUpdate = Object.assign({}, session.data.config, data)
+    const latestSessionData = await session.reload()
+    if(!latestSessionData) return false
+    const sessionConfigUpdate = Object.assign({}, latestSessionData.config, data)
     const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
       loading: true,
     })
