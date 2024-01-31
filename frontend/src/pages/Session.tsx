@@ -396,6 +396,7 @@ const Session: FC = () => {
           (isOwner || account.admin) && (
             <SessionHeader
               session={ session.data }
+              onReload={ session.reload }
             />
           )
         }
