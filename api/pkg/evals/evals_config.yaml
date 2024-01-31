@@ -1,0 +1,91 @@
+# End-to-end testing of helix's ability to learn from documents.
+# To cover fine-tuning, RAG and combinations thereof.
+
+# manually extract these examples from the database and construct qapairs
+# manually to be graded automatically by gpt4 for similarity
+manual_evals:
+ - name: junior-doctors
+   download:
+    - https://www.theguardian.com/society/2023/dec/05/junior-doctors-in-england-to-stage-more-strikes
+   question: what are the doctors going to do?
+   expected_answer: the doctors are going to go on strike
+   checker: gpt4-similarity
+
+
+# manually extract these urls from the database and have gpt4 construct qapairs
+# to feed back into inference mode of the model and then auto-grade the result
+automatic_evals:
+ - name: junior-doctors
+   download:
+    - https://www.theguardian.com/society/2023/dec/05/junior-doctors-in-england-to-stage-more-strikes
+   checker: gpt4-autoqa
+
+
+checkers:
+  - name: gpt4-similarity
+    prompt: |
+      Given the context
+
+      [BEGIN_DATA]
+      {{.Context}}
+      [END_DATA]
+
+      How similar is the real answer:
+
+      [BEGIN_REAL_ANSWER]
+      {{.RealAnswer}}
+      [END_REAL_ANSWER]
+
+      To the expected answer:
+
+      [BEGIN_EXPECTED_ANSWER]
+      {{.ExpectedAnswer}}
+      [END_EXPECTED_ANSWER]
+
+      Answer with one of the following values: Good, OK, Bad
+    values:
+      Bad: 0.0
+      OK: 0.5
+      Good: 1.0
+
+
+  - name: gpt4-autoqa
+    prompt: |
+      Given the context
+
+      [BEGIN_DATA]
+      {{.Context}}
+      [END_DATA]
+
+      Construct a list of questions and expected answers about the article.
+
+      Answer in the following schema:
+      ```json
+      [{
+        "question": "...",
+        "answer": "..."
+        },
+        {
+        "question": "...",
+        "answer": "..."
+        },
+      ]
+      ```
+    # using the resulting qapairs, feed them back into inference mode in the
+    # model and check the with gpt4-similarity
+
+
+finetune_targets:
+ - name: production
+   api_url: https://api.tryhelix.ai/v1
+   token_from_env: HELIX_API_KEY
+
+
+llm_targets:
+ - name: openai
+   api_url: https://api.openai.com/v1
+   model: gpt-4-1106-preview
+   token_from_env: OPENAI_API_KEY
+ - name: together-mixtral
+   api_url: https://api.together.xyz/v1
+   model: mistralai/Mixtral-8x7B-Instruct-v0.1
