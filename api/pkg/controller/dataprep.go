@@ -126,7 +126,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	var completedCounter int64
 
-	// converting to text is quite fast but we don't have a scaling strategy for unstructured right now
+	// converting to text is quite fast but we don't have a scaling strategy for llamaindex right now
 	// so let's just have some control over large numbers of files in one session
 	err = system.ForEachConcurrently[string](
 		filesToConvert,
@@ -153,7 +153,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			}
 
 			// for local development - the file server hostname will not resolve
-			// from inside the unstructured container
+			// from inside the llamaindex container
 			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
 			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](

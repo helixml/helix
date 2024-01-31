@@ -1,4 +1,3 @@
-from flask import Flask, request, jsonify
 import os
 from unstructured.partition.auto import partition
 from unstructured.documents.elements import NarrativeText
@@ -7,13 +6,7 @@ import tempfile
 import requests
 from bs4 import BeautifulSoup
 import html2text
-
-app = Flask(__name__)
-
-class HttpException(Exception):
-  def __init__(self, message, status_code):
-    super().__init__(message)
-    self.status_code = status_code
+from utils import HttpException
 
 def download_url(url):
   response = requests.get(url)
@@ -77,34 +70,3 @@ def parse_document(url):
   # )
   # texts = [element.text for element in chunks]
   # return texts
-
-
-@app.route('/api/v1/extract', methods=['POST'])
-def extract_file():
-  if 'url' not in request.json:
-    return jsonify({"error": "No 'url' field in the request"}), 400
-  
-  url = request.json['url']
-
-  print("-------------------------------------------")
-  print(f"converting URL: {url}")
-  try:
-    text = parse_document(url)
-    print("-------------------------------------------")
-    print(f"converted URL: {url} - length: {len(text)}")
-
-    return jsonify({
-      "text": text,
-    }), 200
-  
-  except HttpException as e:
-    print("-------------------------------------------")
-    print(f"error URL: {url} - {str(e)}")
-    return str(e), e.status_code
-  except Exception as e:
-    print("-------------------------------------------")
-    print(f"error URL: {url} - {str(e)}")
-    return str(e), 500
-
-if __name__ == '__main__':
-  app.run(debug=True, port=5000, host='0.0.0.0')

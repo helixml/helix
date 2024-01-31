@@ -37,7 +37,7 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 
 // generic options - api key need not be defined
 // the chunk sizes applies to all interfaces because
-// we just call out to our unstructured service for all things
+// we just call out to our llamaindex service for all things
 type DataPrepTextOptions struct {
 	Module            DataPrepModule
 	APIKey            string
