@@ -66,6 +66,17 @@ type SessionMetadata struct {
 	DocumentGroupID         string            `json:"document_group_id"`
 	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
 	SystemPrompt            string            `json:"system_prompt"`
+	HelixVersion            string            `json:"helix_version"`
+	// Evals are cool. Scores are strings of floats so we can distinguish ""
+	// (not rated) from "0.0"
+	EvalRunId               string   `json:"eval_run_id"`
+	EvalUserScore           string   `json:"eval_user_score"`
+	EvalUserReason          string   `json:"eval_user_reason"`
+	EvalManualScore         string   `json:"eval_manual_score"`
+	EvalManualReason        string   `json:"eval_manual_reason"`
+	EvalAutomaticScore      string   `json:"eval_automatic_score"`
+	EvalAutomaticReason     string   `json:"eval_automatic_reason"`
+	EvalOriginalUserPrompts []string `json:"eval_original_user_prompts"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
