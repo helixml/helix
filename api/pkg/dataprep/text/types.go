@@ -40,7 +40,6 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 // we just call out to our llamaindex service for all things
 type DataPrepTextOptions struct {
 	Module            DataPrepModule
-	APIKey            string
 	OverflowSize      int
 	QuestionsPerChunk int
 	Temperature       float32
