@@ -32,8 +32,8 @@ export const THEMES: Record<string, ITheme> = {
   helix: {
     company: 'Helix',
     url: 'https://tryhelix.ai/',
-    primary: '#7db6c7',
-    secondary: '#7db6c7',
+    primary: '#5d5d7b',
+    secondary: '#00d5ff',
     darkIcon: '#5d5d7b',
     darkIconHover: '#00d5ff',
     darkHighlight: '#00d5ff',
