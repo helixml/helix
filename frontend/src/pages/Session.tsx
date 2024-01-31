@@ -109,7 +109,9 @@ const Session: FC = () => {
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
     if(!session.data) return false
-    const result = await session.updateConfig(session.data?.id, Object.assign({}, session.data.config, {
+    const latestSessionData = await session.reload()
+    if(!latestSessionData) return
+    const result = await session.updateConfig(latestSessionData.id, Object.assign({}, latestSessionData.config, {
       shared: value,
     }))
     return result ? true : false
