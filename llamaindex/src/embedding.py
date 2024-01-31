@@ -1,3 +1,4 @@
+import os
 from llama_index.embeddings import HuggingFaceEmbedding
 
 ####################
@@ -6,9 +7,8 @@ from llama_index.embeddings import HuggingFaceEmbedding
 #
 ####################
 
-HUGGINGFACE_EMBEDDING_NAME = "thenlper/gte-small"
-
-embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en")
+HUGGINGFACE_EMBEDDING_NAME = os.getenv("HUGGINGFACE_EMBEDDING_NAME", "BAAI/bge-small-en")
+embed_model = HuggingFaceEmbedding(model_name=HUGGINGFACE_EMBEDDING_NAME)
 
 def getEmbedding(text):
   return embed_model.get_text_embedding(text)
