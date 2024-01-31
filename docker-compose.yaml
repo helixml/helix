@@ -46,24 +46,6 @@ services:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-  # postgres 15 with pgvector installed
-  # why run this as a different server?
-  # because we want the quick path to something working without having to create a hard dependency on pgvector
-  # being installed in our main database
-  # also - we would need to migrate our existing postgres 12 DB -> 15, which is a bit of a pain
-  # TODO: figure out how to ship the pgvector extension with our main database
-  # so we don't need to run what is essentially 2 versions of postgres
-  pgvector:
-    image: ankane/pgvector
-    restart: always
-    ports:
-      - 5433:5432
-    volumes:
-      - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   keycloak:
     image: quay.io/modeldynamics/keycloak:15.0.2-helix
     restart: always
