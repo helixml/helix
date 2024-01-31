@@ -83,8 +83,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
-  unstructured:
-    image: europe-docker.pkg.dev/helixml/helix/unstructured:latest
+  llamaindex:
+    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
     # ports:
       # - 5000:5000    
     restart: always
@@ -92,5 +92,6 @@ services:
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
+  helix-pgvector-db:
   helix-filestore:
 

@@ -5,6 +5,8 @@ import requests
 import pprint
 import sql
 from embedding import getEmbedding
+from unstructured import parse_document
+from utils import HttpException
 
 app = Flask(__name__)
 engine = sql.getEngine()
@@ -19,7 +21,7 @@ engine = sql.getEngine()
 #   "text": "hello world"
 # }' http://localhost:6000/api/v1/chunk
 # this route will convert the text chunk into an embedding and then store it in the database
-@app.route('/api/v1/chunk', methods=['POST'])
+@app.route('/api/v1/rag/chunk', methods=['POST'])
 def test():
   data = request.json
   sql.checkDocumentChunkData(data)
@@ -38,7 +40,7 @@ def test():
 #  * conduct a search on matching records (for that session)
 #  * formulate a prompt that contains the context of the matching records
 #  * return the prompt alongside the matching records (so we can show provenance of what was matched in the UI) 
-@app.route('/api/v1/prompt', methods=['POST'])
+@app.route('/api/v1/rag/prompt', methods=['POST'])
 def test():
   data = request.json
   prompt = data["prompt"]
@@ -54,5 +56,32 @@ def test():
     "ok": True,
   }), 200
 
+@app.route('/api/v1/extract', methods=['POST'])
+def extract_file():
+  if 'url' not in request.json:
+    return jsonify({"error": "No 'url' field in the request"}), 400
+  
+  url = request.json['url']
+
+  print("-------------------------------------------")
+  print(f"converting URL: {url}")
+  try:
+    text = parse_document(url)
+    print("-------------------------------------------")
+    print(f"converted URL: {url} - length: {len(text)}")
+
+    return jsonify({
+      "text": text,
+    }), 200
+  
+  except HttpException as e:
+    print("-------------------------------------------")
+    print(f"error URL: {url} - {str(e)}")
+    return str(e), e.status_code
+  except Exception as e:
+    print("-------------------------------------------")
+    print(f"error URL: {url} - {str(e)}")
+    return str(e), 500
+
 if __name__ == '__main__':
-  app.run(debug=True, port=6000, host='0.0.0.0')
+  app.run(debug=True, port=5000, host='0.0.0.0')

@@ -73,7 +73,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
 			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
-			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", "http://unstructured:5000/api/v1/extract"),
+			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", "http://llamaindex:5000/api/v1/extract"),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
 		},
 		FilestoreOptions: filestore.FileStoreOptions{

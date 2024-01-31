@@ -2,7 +2,6 @@ import os
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import insert, String, Integer, create_engine, text
 from sqlalchemy.orm import declarative_base, mapped_column
-from llama_index import PgVectorIndex
 
 ####################
 #

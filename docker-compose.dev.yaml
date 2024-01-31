@@ -89,19 +89,7 @@ services:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
-  unstructured:
-    # ports:
-    #   - 5000:5000
-    build:
-      context: unstructured
-      dockerfile: Dockerfile
-    entrypoint: ${UNSTRUCTURED_ENTRYPOINT:-tail -f /dev/null}
-    restart: always
-    volumes:
-      - ./unstructured/src:/home/notebook-user/app/src
   llamaindex:
-    ports:
-      - 6000:6000
     build:
       context: llamaindex
       dockerfile: Dockerfile
