@@ -1,9 +1,11 @@
 import os
+
 from alembic.command import upgrade
 from alembic.config import Config
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import insert, String, Integer, create_engine, text
 from sqlalchemy.orm import declarative_base, mapped_column
+import uuid
 
 ####################
 #
@@ -33,11 +35,11 @@ Base = declarative_base()
 # when we are using the Vector field - I've tried to plugin alembic
 # but my lord it's complicated so I bailed (because this is an experiment)
 # however, we will probably need to change this table at some point
-# and then this problem will really bite us in the ass
+# and then this problem will really bite us in the assd
 class HelixDocumentChunk(Base):
   __tablename__ = TABLE_NAME
 
-  id = mapped_column(Integer, primary_key=True)
+  id = mapped_column(String, primary_key=True)
   session_id = mapped_column(String)
   interaction_id = mapped_column(String)
   document_id = mapped_column(String)
@@ -46,8 +48,8 @@ class HelixDocumentChunk(Base):
   # the number of bytes into the root document that this chunk starts
   # this is used to re-constitute the document from its chunks
   # when it's matched to an embedding record
-  offset = mapped_column(Integer)
-  text = mapped_column(String)
+  content_offset = mapped_column(Integer)
+  content = mapped_column(String)
   embedding = mapped_column(Vector(VECTOR_DIMENSION))
 
 ####################
@@ -68,18 +70,12 @@ def runSQLMigrations():
 
 def getEngine():
   runSQLMigrations()
-
   engine = create_engine(f"postgresql+psycopg2://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
-  # with engine.connect() as conn:
-  #   conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-  #   conn.commit()
-  # Base.metadata.create_all(engine)
-
   return engine
 
 def checkDocumentChunkData(data_dict):
-  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id", "filename", "offset", "text"]
-  number_keys = ["offset"]
+  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id", "filename", "content_offset", "content"]
+  number_keys = ["content_offset"]
   for key in required_keys:
     if key not in data_dict:
       raise Exception(f"Missing required key: {key}")
@@ -104,6 +100,7 @@ def checkDocumentChunkData(data_dict):
 # }
 # we expect the embedding to already have been calculated before we put it into the DB
 def insertData(engine, data_dict):
+  data_dict["id"] = uuid.uuid4()
   stmt = insert(HelixDocumentChunk).values(**data_dict).returning(HelixDocumentChunk.id)
   with engine.connect() as connection:
     cursor = connection.execute(stmt)
@@ -120,8 +117,8 @@ def convertRow(row):
       "document_id": row.document_id,
       "document_group_id": row.document_group_id,
       "filename": row.filename,
-      "offset": row.offset,
-      "text": row.text,
+      "content_offset": row.content_offset,
+      "content": row.content,
       "embedding": row.embedding.tolist()  # Convert ndarray to list
     }
 

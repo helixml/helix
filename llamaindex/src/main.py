@@ -1,7 +1,4 @@
 from flask import Flask, request, jsonify
-import os
-import tempfile
-import requests
 import pprint
 import sql
 from embedding import getEmbedding
@@ -19,13 +16,13 @@ engine = sql.getEngine()
 #   "document_group_id": "def",
 #   "offset": 0,
 #   "text": "hello world"
-# }' http://localhost:6000/api/v1/chunk
+# }' http://localhost:5000/api/v1/rag/chunk
 # this route will convert the text chunk into an embedding and then store it in the database
 @app.route('/api/v1/rag/chunk', methods=['POST'])
 def rag_insert_chunk():
   data = request.json
   sql.checkDocumentChunkData(data)
-  data["embedding"] = getEmbedding(data["text"])
+  data["embedding"] = getEmbedding(data["content"])
   id = sql.insertData(engine, data)
   result = sql.getRow(engine, id)
   pprint.pprint(result)
@@ -34,7 +31,7 @@ def rag_insert_chunk():
 # curl -X POST -H "Content-Type: application/json" -d '{
 #   "session_id": "123",
 #   "prompt": "hello world"
-# }' http://localhost:6000/api/v1/prompt
+# }' http://localhost:5000/api/v1/rag/prompt
 # this will
 #  * convert the prompt
 #  * conduct a search on matching records (for that session)
