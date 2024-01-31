@@ -117,7 +117,10 @@ const Layout: FC = ({
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen)
-  }
+  };
+  const handleDrawerClose = () => {
+    setMobileOpen(false);
+  };
 
   const drawer = (
     <Box
@@ -475,81 +478,56 @@ const Layout: FC = ({
       <MuiDrawer
         container={container}
         variant="temporary"
+        anchor="right"
         open={mobileOpen}
         onClose={handleDrawerToggle}
-        ModalProps={{
-          keepMounted: true, // Better open performance on mobile.
-        }}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          height: '100vh',
-          display: { sm: 'block', md: 'none' },
+          width: 'auto',
+          flexShrink: 0,
           '& .MuiDrawer-paper': {
+            width: '66.66%',
+            maxWidth: `calc(2/3 * 100vw)`,
             boxSizing: 'border-box',
-            width: drawerWidth,
-            height: '100%',
-            overflowY: 'hidden',
           },
         }}
       >
-        {meta.sidebar?drawer:null}
+        {meta.sidebar ? drawer : null}
       </MuiDrawer>
-      <Drawer
-        variant="permanent"
-        sx={{
-          height: '100vh',
-          display: { xs: 'none', md: 'block' },
-          '& .MuiDrawer-paper': {
-            boxSizing: 'border-box',
-            width: drawerWidth,
-            height: '100%',
-            overflowY: 'hidden',
-          },
-        }}
-        open
-      >
-        {meta.sidebar?drawer:null}
-      </Drawer>
       <Box
         component="main"
         sx={{
-          backgroundColor: (theme) => {
-            if(meta.background) return meta.background
-            return theme.palette.mode === 'light'
-              ? "#FAEFE0" 
-              : "#202732"
-          },
           flexGrow: 1,
           height: '100vh',
           display: 'flex',
           flexDirection: 'column',
+          backgroundColor: (theme) => theme.palette.mode === 'light' ? "#FAEFE0" : "#202732",
+          position: 'relative',
         }}
       >
-        <Box
-          component="div"
+        {mobileOpen && (
+          <Box
+          onClick={handleDrawerClose}
           sx={{
-            flexGrow: 0,
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: (theme) => theme.zIndex.drawer - 1,
           }}
-        >
-          <Toolbar />
-        </Box>
-        <Box
-          component="div"
-          sx={{
-            flexGrow: 1,
-            overflow: 'auto',
-            backgroundColor: theme.palette.mode === 'light'
-                ? "#FAEFE0" 
-                : "#202732"
-          }}
-        >
-          { children }
-        </Box>
+        />
+      )}
+      <Toolbar />
+      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+        {children}
       </Box>
-      <Snackbar />
-      <GlobalLoading />
     </Box>
-  )
-}
+    <Snackbar />
+    <GlobalLoading />
+  </Box>
+);
+};
 
-export default Layout
+export default Layout;
