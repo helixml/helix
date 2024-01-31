@@ -30,6 +30,7 @@ export const useSession = () => {
     } else {
       setBot(undefined)
     }
+    return result
   }, [])
 
   const loadSessionSummary = useCallback(async (id: string) => {
@@ -38,9 +39,10 @@ export const useSession = () => {
     setSummary(result)
   }, [])
   
-  const reload = useCallback(() => {
+  const reload = useCallback(async () => {
     if(!data) return
-    loadSession(data.id)
+    const result = await loadSession(data.id)
+    return result
   }, [
     data,
   ])

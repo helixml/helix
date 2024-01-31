@@ -6,6 +6,10 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
+import ThumbUpIcon from '@mui/icons-material/ThumbUp'
+import ThumbDownIcon from '@mui/icons-material/ThumbDown'
+import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
+import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
 import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
@@ -33,6 +37,7 @@ import useLoading from '../hooks/useLoading'
 import {
   ICloneInteractionMode,
   ISession,
+  ISessionConfig,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
@@ -64,9 +69,14 @@ const Session: FC = () => {
   const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
+  const [feedbackValue, setFeedbackValue] = useState(session.data?.config.eval_user_reason)
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
+  }
+
+  const handleFeedbackChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setFeedbackValue(event.target.value)
   }
 
   const loading = useMemo(() => {
@@ -108,7 +118,9 @@ const Session: FC = () => {
 
   const onUpdateSharing = useCallback(async (value: boolean) => {
     if(!session.data) return false
-    const result = await session.updateConfig(session.data?.id, Object.assign({}, session.data.config, {
+    const latestSessionData = await session.reload()
+    if(!latestSessionData) return false
+    const result = await session.updateConfig(latestSessionData.id, Object.assign({}, latestSessionData.config, {
       shared: value,
     }))
     return result ? true : false
@@ -156,6 +168,24 @@ const Session: FC = () => {
     session.reload()
     setRestartWindowOpen(false)
     snackbar.success('Session restarted...')
+  }, [
+    account.user,
+    session.data,
+  ])
+
+  const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
+    if(!session.data) return
+    const latestSessionData = await session.reload()
+    if(!latestSessionData) return false
+    const sessionConfigUpdate = Object.assign({}, latestSessionData.config, data)
+    const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
+      loading: true,
+    })
+    if(!result) return
+    session.reload()
+    if(snackbarMessage) {
+      snackbar.success(snackbarMessage)
+    }
   }, [
     account.user,
     session.data,
@@ -457,6 +487,68 @@ const Session: FC = () => {
               </>    
             )
           }
+        <Box
+          sx={{
+            width: '100%',
+            flexGrow: 0,
+            p: 2,
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Button
+            onClick={ () => {
+              onUpdateSessionConfig({
+                eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+              }, `Thank you for your feedback!`)
+            }}
+          >
+            { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> }
+          </Button>
+          <Button
+            onClick={ () => {
+              onUpdateSessionConfig({
+                eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+              }, `Sorry! We will use your feedback to improve`)
+            }}
+          >
+            { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> }
+          </Button>
+        </Box>
+        { session.data?.config.eval_user_score != "" && ( 
+          <Box
+            sx={{
+              width: '100%',
+              flexGrow: 0,
+              p: 2,
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <TextField
+              id="feedback"
+              label="Please explain why"
+              value={feedbackValue}
+              onChange={handleFeedbackChange}
+              name="ai_feedback"
+            />
+            <Button
+              variant='contained'
+              disabled={loading}
+              onClick={ () => onUpdateSessionConfig({
+                  eval_user_reason: feedbackValue,
+                }, `Thanks, you are awesome`)
+              }
+              sx={{ ml: 2 }}
+            >
+              Save
+            </Button>
+          </Box>
+        ) }
         </Container>
       </Box>
       <Box
