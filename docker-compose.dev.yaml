@@ -33,6 +33,8 @@ services:
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
+      - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
+      - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
       - FILESTORE_LOCALFS_PATH=/filestore
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
       - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}

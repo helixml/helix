@@ -39,7 +39,7 @@ def rag_insert_chunk():
 #  * conduct a search on matching records (for that session)
 #  * formulate a prompt that contains the context of the matching records
 #  * return the prompt alongside the matching records (so we can show provenance of what was matched in the UI) 
-@app.route('/api/v1/rag/prompt', methods=['POST'])
+@app.route('/api/v1/rag/query', methods=['POST'])
 def rag_query():
   data = request.json
   prompt = data["prompt"]
