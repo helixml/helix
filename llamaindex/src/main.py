@@ -5,7 +5,7 @@ import requests
 import pprint
 import sql
 from embedding import getEmbedding
-from unstructured import parse_document
+from chunks import parse_document
 from utils import HttpException
 
 app = Flask(__name__)
@@ -22,7 +22,7 @@ engine = sql.getEngine()
 # }' http://localhost:6000/api/v1/chunk
 # this route will convert the text chunk into an embedding and then store it in the database
 @app.route('/api/v1/rag/chunk', methods=['POST'])
-def test():
+def rag_insert_chunk():
   data = request.json
   sql.checkDocumentChunkData(data)
   data["embedding"] = getEmbedding(data["text"])
@@ -41,7 +41,7 @@ def test():
 #  * formulate a prompt that contains the context of the matching records
 #  * return the prompt alongside the matching records (so we can show provenance of what was matched in the UI) 
 @app.route('/api/v1/rag/prompt', methods=['POST'])
-def test():
+def rag_query():
   data = request.json
   prompt = data["prompt"]
   session_id = data["session_id"]

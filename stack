@@ -57,11 +57,7 @@ function start() {
   tmux split-window -v -d
   tmux select-pane -t 0
   tmux split-window -v -d
-  tmux select-pane -t 0
-  tmux split-window -v -d
   tmux select-pane -t 1
-  tmux split-window -v -d
-  tmux select-pane -t 2
   tmux split-window -v -d
 
   tmux send-keys -t 0 './stack compose logs -f frontend' C-m

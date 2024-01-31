@@ -1,4 +1,6 @@
 import os
+from alembic.command import upgrade
+from alembic.config import Config
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import insert, String, Integer, create_engine, text
 from sqlalchemy.orm import declarative_base, mapped_column
@@ -54,14 +56,24 @@ class HelixDocumentChunk(Base):
 #
 ####################
 
+def runSQLMigrations():
+  this_dir = os.path.dirname(os.path.realpath(__file__))
+  migrations_dir = os.path.join(this_dir, "migrations")
+  config_file = os.path.join(this_dir, "alembic.ini")
+  config = Config(file_=config_file)
+  config.set_main_option("script_location", migrations_dir)
+  config.set_main_option("sqlalchemy.url", f"postgresql://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
+  upgrade(config, "head")
+
+
 def getEngine():
+  runSQLMigrations()
+
   engine = create_engine(f"postgresql+psycopg2://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
-
-  with engine.connect() as conn:
-    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    conn.commit()
-
-  Base.metadata.create_all(engine)
+  # with engine.connect() as conn:
+  #   conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+  #   conn.commit()
+  # Base.metadata.create_all(engine)
 
   return engine
 
@@ -122,8 +134,8 @@ def getRow(engine, row_id):
     return convertRow(row)
 
 # given a already calculated prompt embedding and a session ID - find matching rows
-def queryPrompt(engine, session_id, query_embedding):
-  with engine.connect() as connection:
-    index = PgVectorIndex(conn=connection, table_name=TABLE_NAME, column_name=EMBEDDING_COLUMN_NAME)
-    nearest_neighbors = index.search(query_embedding, limit=10)
-    return nearest_neighbors
+# def queryPrompt(engine, session_id, query_embedding):
+  # with engine.connect() as connection:
+  #   index = PgVectorIndex(conn=connection, table_name=TABLE_NAME, column_name=EMBEDDING_COLUMN_NAME)
+  #   nearest_neighbors = index.search(query_embedding, limit=10)
+  #   return nearest_neighbors
