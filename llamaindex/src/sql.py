@@ -148,18 +148,18 @@ def getRow(row_id):
 
 # given a already calculated prompt embedding and a session ID - find matching rows
 def queryPrompt(session_id, query_embedding):
+  raw_sql = text(f"""
+select
+  id, session_id, interaction_id, document_id, document_group_id, filename, content_offset, content
+from 
+  {TABLE_NAME}
+limit 5
+  """)
+
   session = Session()
-  results = session.scalars(
-    select(HelixDocumentChunk, HelixDocumentChunk.embedding.cosine_distance(query_embedding))
-    .where(HelixDocumentChunk.session_id == session_id)
-    .order_by(HelixDocumentChunk.embedding.cosine_distance(query_embedding))
-    .limit(5)
-  )
-  ret = []
-  for result in results:
-    import pprint; pprint.pprint(result)
-    # rowData = convertSimpleRow(result)
-    # # rowData["distance"] = result.embedding.cosine_distance(query_embedding)
-    # ret.append(rowData)
-  return ret
+  result = session.execute(raw_sql)
+  rows = result.fetchall()
+  session.close()
+
+  return convertSimpleRows(rows)
   
