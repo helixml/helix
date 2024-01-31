@@ -19,8 +19,8 @@ export const THEMES: Record<string, ITheme> = {
   helix: {
     company: 'Helix',
     url: 'https://tryhelix.ai/',
-    primary: '#7db6c7',
-    secondary: '#7db6c7',
+    primary: '#ffffff',
+    secondary: '#e0e0e0',
     // this means ALL
     activeSections: [],
     logo: () => (
@@ -28,6 +28,7 @@ export const THEMES: Record<string, ITheme> = {
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
+        color: '#000000',
       }}>
         <Box
           component="img"
@@ -36,11 +37,13 @@ export const THEMES: Record<string, ITheme> = {
           sx={{
             height: 30,
             ml: 1,
+            filter: 'invert(1)'
           }}
         />
         <Typography variant="h6" sx={{
           ml: 2,
           mr: 1,
+          color: '#000000',
         }}>
           Helix
         </Typography>
