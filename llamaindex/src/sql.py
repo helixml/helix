@@ -157,8 +157,9 @@ def queryPrompt(session_id, query_embedding):
   )
   ret = []
   for result in results:
-    rowData = convertSimpleRow(result)
-    # rowData["distance"] = result.embedding.cosine_distance(query_embedding)
-    ret.append(rowData)
+    import pprint; pprint.pprint(result)
+    # rowData = convertSimpleRow(result)
+    # # rowData["distance"] = result.embedding.cosine_distance(query_embedding)
+    # ret.append(rowData)
   return ret
   
