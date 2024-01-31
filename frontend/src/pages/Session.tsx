@@ -33,6 +33,7 @@ import useLoading from '../hooks/useLoading'
 import {
   ICloneInteractionMode,
   ISession,
+  ISessionConfig,
   INTERACTION_STATE_EDITING,
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
@@ -156,6 +157,22 @@ const Session: FC = () => {
     session.reload()
     setRestartWindowOpen(false)
     snackbar.success('Session restarted...')
+  }, [
+    account.user,
+    session.data,
+  ])
+
+  const onUpdateSessionConfig = useCallback(async (data: Partial<ISessionConfig>, snackbarMessage?: string) => {
+    if(!session.data) return
+    const sessionConfigUpdate = Object.assign({}, session.data.config, data)
+    const result = await api.put<ISessionConfig, ISessionConfig>(`/api/v1/sessions/${session.data.id}/config`, sessionConfigUpdate, undefined, {
+      loading: true,
+    })
+    if(!result) return
+    session.reload()
+    if(snackbarMessage) {
+      snackbar.success(snackbarMessage)
+    }
   }, [
     account.user,
     session.data,
@@ -458,6 +475,27 @@ const Session: FC = () => {
             )
           }
         </Container>
+      </Box>
+      <Box
+        sx={{
+          width: '100%',
+          flexGrow: 0,
+          p: 2,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Button
+          onClick={ () => {
+            onUpdateSessionConfig({
+              eval_user_score: '1.0',
+            }, `Thank you for your feedback`)
+          }}
+        >
+          Approve
+        </Button>
       </Box>
       <Box
         sx={{

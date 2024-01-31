@@ -170,6 +170,21 @@ export interface ISessionConfig {
   original_mode: ISessionMode,
   origin: ISessionOrigin,
   shared?: boolean,
+  avatar: string,
+  priority: boolean,
+  document_ids: Record<string, string>,
+  document_group_id: string,
+  manually_review_questions: boolean,
+  system_prompt: string,
+  helix_version: string,
+  eval_run_id: string,
+  eval_user_score: string,
+  eval_user_reason: string,
+  eval_manual_score: string,
+  eval_manual_reason: string,
+  eval_automatic_score: string,
+  eval_automatic_reason: string,
+  eval_original_user_prompts: string[],
 }
 
 export interface ISession {
