@@ -15,6 +15,7 @@ import FineTuneTextQuestions from './FineTuneTextQuestions'
 import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -234,7 +235,7 @@ export const InteractionFinetune: FC<{
               mb: 3,
             }}
           >
-            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
+            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)} orientation={window.innerWidth < theme.breakpoints.values.md ? "vertical" : "horizontal"}>
               <Step>
                 <StepLabel>Extract Text</StepLabel>
               </Step>
@@ -315,40 +316,69 @@ export const InteractionFinetune: FC<{
             >
               However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
             </Alert>
-            <Row>
+            <Row
+              sx={{
+                flexDirection: {
+                  xs: 'column',
+                  sm: 'column',
+                  md: 'row'
+                }
+              }}
+            >
               {
                 retryFinetuneErrors && (
-                  <Button
-                    variant="contained"
-                    color="primary"
+                  <Cell
                     sx={{
-                      mr: 1,
+                      width: '100%',
+                      m: 1,
                     }}
-                    endIcon={<ReplayIcon />}
-                    onClick={ retryFinetuneErrors }
                   >
-                    Retry
-                  </Button>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      sx={{
+                        width: '100%'
+                      }}
+                      endIcon={<ReplayIcon />}
+                      onClick={ retryFinetuneErrors }
+                    >
+                      Retry
+                    </Button>
+                  </Cell>
                 )
               }
-              <FineTuneTextQuestions
-                onlyShowEditMode
-                sessionID={ session.id }
-                interactionID={ userFilesInteractionID }  
-              />
-              <Button
-                variant="contained"
-                color="primary"
+              <Cell
                 sx={{
-                  mr: 1,
-                }}
-                endIcon={<ArrowForwardIcon />}
-                onClick={ () => {
-                  startFinetuning()
+                  width: '100%',
+                  m: 1,
                 }}
               >
-                Ignore Errors And Start Fine Tuning
-              </Button>
+                <FineTuneTextQuestions
+                  onlyShowEditMode
+                  sessionID={ session.id }
+                  interactionID={ userFilesInteractionID }  
+                />
+              </Cell>
+              <Cell
+                sx={{
+                  width: '100%',
+                  m: 1,
+                }}
+              >
+                <Button
+                  variant="contained"
+                  color="primary"
+                  sx={{
+                    width: '100%'
+                  }}
+                  endIcon={<ArrowForwardIcon />}
+                  onClick={ () => {
+                    startFinetuning()
+                  }}
+                >
+                  Ignore Errors And Start Fine Tuning
+                </Button>
+              </Cell>
             </Row>
           </Box>
         )

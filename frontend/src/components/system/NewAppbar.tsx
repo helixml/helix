@@ -190,9 +190,12 @@ const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta
                         ) : (
                             <Button
                             variant="contained"
-                            color="secondary"
+                            color="primary"
                             endIcon={<LoginIcon />}
                             onClick={account.onLogin}
+                            sx={{
+                                ml: 2,
+                            }}
                             >
                             Login / Register
                             </Button>
