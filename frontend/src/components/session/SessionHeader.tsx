@@ -38,8 +38,10 @@ import useAccount from '../../hooks/useAccount'
 
 export const SessionHeader: FC<{
   session: ISession,
+  onReload: () => void,
 }> = ({
   session,
+  onReload,
 }) => {
   const {
     navigate,
@@ -85,11 +87,12 @@ export const SessionHeader: FC<{
     setSessionName(event.target.value)
   }, [])
 
-  const handleSessionNameSubmit = useCallback(async () => {
+  const handleSessionNameSubmit = async () => {
     if (sessionName !== session.name) {
       loading.setLoading(true)
       try {
         await sessions.renameSession(session.id, sessionName)
+        onReload()
         snackbar.success(`Session name updated`)
       } catch (e) {
         snackbar.error(`Failed to update session name`)
@@ -98,7 +101,7 @@ export const SessionHeader: FC<{
       }
     }
     setEditingSession(false)
-  }, [sessionName, session.name, session.id, sessions, snackbar, loading])
+  }
 
   return (
     <Row
@@ -135,7 +138,6 @@ export const SessionHeader: FC<{
                 <IconButton
                   onClick={async () => {
                     await handleSessionNameSubmit();
-                    window.location.reload(); // Refresh the page on save
                   }}
                   size="small"
                   sx={{ ml: 1 }}
