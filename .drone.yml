@@ -11,7 +11,25 @@ steps:
   image: golang:1.20-alpine
   commands:
     - go build -o helix
-    - go test ./...
+- name: unit-test
+  image: golang:1.20-alpine
+  environment:
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    OPENAI_BASE_URL:
+      from_secret: openai_base_url
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+  commands:
+    - go test -v ./...
+
+services:
+- name: postgres
+  image: postgres:12.13-alpine
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: postgres
 
 ---
 kind: pipeline
