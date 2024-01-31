@@ -37,7 +37,7 @@ export const THEMES: Record<string, ITheme> = {
           sx={{
             height: 30,
             ml: 1,
-            filter: 'invert(1)'
+            
           }}
         />
         <Typography variant="h6" sx={{
