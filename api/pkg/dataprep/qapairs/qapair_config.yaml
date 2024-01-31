@@ -80,6 +80,8 @@ prompts:
 
     Then, write a third question which is the author or authors of the document.
 
+    Always wrap the JSON in ```json and ``` tags to indicate the start and end of the JSON.
+
     Here is the document:
     {{.DocumentChunk}}
 
