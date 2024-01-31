@@ -133,6 +133,7 @@ def convertSimpleRow(row):
       "filename": row.filename,
       "content_offset": row.content_offset,
       "content": row.content,
+      "distance": row.distance,
     }
 
 def convertSimpleRows(rows):
@@ -147,13 +148,32 @@ def getRow(row_id):
     return convertRow(row)
 
 # given a already calculated prompt embedding and a session ID - find matching rows
-def queryPrompt(session_id, query_embedding):
+def queryPrompt(session_id, query_embedding, distance_function, distance_threshold, max_results):
+  distance_functions = {
+    "l2": "<->",
+    "inner_product": "<#>",
+    "cosine": "<=>"
+  }
+  distance_function_string = distance_functions[distance_function]
+  if distance_function_string is None:
+    raise Exception(f"Unknown distance function: {distance_function}")
+  
+  embedding_number_str = "[" + ",".join(str(num) for num in query_embedding) + "]"
+  embedding_str = f"embedding {distance_function_string} '{embedding_number_str}'"
+
   raw_sql = text(f"""
 select
-  id, session_id, interaction_id, document_id, document_group_id, filename, content_offset, content
+  id, session_id, interaction_id, document_id, document_group_id, filename, content_offset, content,
+  {embedding_str} as distance
 from 
   {TABLE_NAME}
-limit 5
+where
+  session_id = '{session_id}'
+  and
+  {embedding_str} < {distance_threshold}
+order by
+  {embedding_str}
+limit {max_results}
   """)
 
   session = Session()
@@ -162,4 +182,5 @@ limit 5
   session.close()
 
   return convertSimpleRows(rows)
+  
   
