@@ -6,7 +6,6 @@ from chunks import parse_document
 from utils import HttpException
 
 app = Flask(__name__)
-engine = sql.getEngine()
 
 # curl -X POST -H "Content-Type: application/json" -d '{
 #   "session_id": "123",
@@ -47,10 +46,11 @@ def rag_query():
   if session_id is None or len(session_id) == 0:
     return jsonify({"error": "missing session_id"}), 400
   promptEmbedding = getEmbedding(prompt)
-  results = sql.queryPrompt(engine, session_id, promptEmbedding)
+  results = sql.queryPrompt(session_id, promptEmbedding)
   pprint.pprint(results)
   return jsonify({
     "ok": True,
+    "results": results,
   }), 200
 
 @app.route('/api/v1/extract', methods=['POST'])

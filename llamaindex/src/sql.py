@@ -1,11 +1,11 @@
 import os
-
 from alembic.command import upgrade
 from alembic.config import Config
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import insert, String, Integer, create_engine, text
-from sqlalchemy.orm import declarative_base, mapped_column
+from sqlalchemy import insert, String, Integer, create_engine, text, select
+from sqlalchemy.orm import declarative_base, mapped_column, sessionmaker
 import uuid
+import pprint
 
 ####################
 #
@@ -20,7 +20,26 @@ postgres_host = os.getenv("POSTGRES_HOST", "pgvector")
 postgres_database = os.getenv("POSTGRES_DATABASE", "postgres")
 postgres_user = os.getenv("POSTGRES_USER", "postgres")
 postgres_password = os.getenv("POSTGRES_PASSWORD", "postgres")
-    
+
+####################
+#
+# BOOT
+#
+####################
+
+def runSQLMigrations():
+  this_dir = os.path.dirname(os.path.realpath(__file__))
+  migrations_dir = os.path.join(this_dir, "migrations")
+  config_file = os.path.join(this_dir, "alembic.ini")
+  config = Config(file_=config_file)
+  config.set_main_option("script_location", migrations_dir)
+  config.set_main_option("sqlalchemy.url", f"postgresql://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
+  upgrade(config, "head")
+
+runSQLMigrations()
+engine = create_engine(f"postgresql+psycopg2://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}", echo=True)
+Session = sessionmaker(bind=engine)
+
 ####################
 #
 # SCHEMA
@@ -52,27 +71,6 @@ class HelixDocumentChunk(Base):
   content = mapped_column(String)
   embedding = mapped_column(Vector(VECTOR_DIMENSION))
 
-####################
-#
-# UTILS
-#
-####################
-
-def runSQLMigrations():
-  this_dir = os.path.dirname(os.path.realpath(__file__))
-  migrations_dir = os.path.join(this_dir, "migrations")
-  config_file = os.path.join(this_dir, "alembic.ini")
-  config = Config(file_=config_file)
-  config.set_main_option("script_location", migrations_dir)
-  config.set_main_option("sqlalchemy.url", f"postgresql://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
-  upgrade(config, "head")
-
-
-def getEngine():
-  runSQLMigrations()
-  engine = create_engine(f"postgresql+psycopg2://{postgres_user}:{postgres_password}@{postgres_host}/{postgres_database}")
-  return engine
-
 def checkDocumentChunkData(data_dict):
   required_keys = ["session_id", "interaction_id", "document_id", "document_group_id", "filename", "content_offset", "content"]
   number_keys = ["content_offset"]
@@ -99,7 +97,7 @@ def checkDocumentChunkData(data_dict):
 #     "embedding": [1, 2, 3, 4]
 # }
 # we expect the embedding to already have been calculated before we put it into the DB
-def insertData(engine, data_dict):
+def insertData(data_dict):
   data_dict["id"] = uuid.uuid4()
   stmt = insert(HelixDocumentChunk).values(**data_dict).returning(HelixDocumentChunk.id)
   with engine.connect() as connection:
@@ -122,8 +120,26 @@ def convertRow(row):
       "embedding": row.embedding.tolist()  # Convert ndarray to list
     }
 
+def convertRows(rows):
+  return [convertRow(row) for row in rows]  
+
+# when we query for prompts - we return not all fields plus the distance field
+def convertSimpleRow(row):
+  return {
+      "session_id": row.session_id,
+      "interaction_id": row.interaction_id,
+      "document_id": row.document_id,
+      "document_group_id": row.document_group_id,
+      "filename": row.filename,
+      "content_offset": row.content_offset,
+      "content": row.content,
+    }
+
+def convertSimpleRows(rows):
+  return [convertSimpleRow(row) for row in rows]  
+
 # a direct "give me a single row because I know it's ID" handler
-def getRow(engine, row_id):
+def getRow(row_id):
   with engine.connect() as connection:
     stmt = HelixDocumentChunk.__table__.select().where(HelixDocumentChunk.id == row_id)
     result = connection.execute(stmt)
@@ -131,8 +147,18 @@ def getRow(engine, row_id):
     return convertRow(row)
 
 # given a already calculated prompt embedding and a session ID - find matching rows
-# def queryPrompt(engine, session_id, query_embedding):
-  # with engine.connect() as connection:
-  #   index = PgVectorIndex(conn=connection, table_name=TABLE_NAME, column_name=EMBEDDING_COLUMN_NAME)
-  #   nearest_neighbors = index.search(query_embedding, limit=10)
-  #   return nearest_neighbors
+def queryPrompt(session_id, query_embedding):
+  session = Session()
+  results = session.scalars(
+    select(HelixDocumentChunk, HelixDocumentChunk.embedding.cosine_distance(query_embedding))
+    .where(HelixDocumentChunk.session_id == session_id)
+    .order_by(HelixDocumentChunk.embedding.cosine_distance(query_embedding))
+    .limit(5)
+  )
+  ret = []
+  for result in results:
+    rowData = convertSimpleRow(result)
+    # rowData["distance"] = result.embedding.cosine_distance(query_embedding)
+    ret.append(rowData)
+  return ret
+  
