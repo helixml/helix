@@ -77,6 +77,16 @@ type SessionMetadata struct {
 	EvalAutomaticScore      string   `json:"eval_automatic_score"`
 	EvalAutomaticReason     string   `json:"eval_automatic_reason"`
 	EvalOriginalUserPrompts []string `json:"eval_original_user_prompts"`
+	// these settings control which features of a session we want to use
+	// even if we have a Lora file and RAG indexed prepared
+	// we might choose to not use them (this will help our eval framework know what works the best)
+	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
+	// and what the threshold for a "good" answer is
+	RagEnabled          bool   `json:"rag_enabled"`           // this will default to true
+	FinetuneEnabled     bool   `json:"finetune_enabled"`      // this will default to true
+	RagDistanceFunction string `json:"rag_distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	RagThreshold        string `json:"rag_threshold"`         // this is the threshold for a "good" answer - will default to 0.2
+	RagResultsCount     int    `json:"rag_results_count"`     // this is the max number of results to return - will default to 3
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
