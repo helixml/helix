@@ -111,6 +111,8 @@ services:
     build:
       context: llamaindex
       dockerfile: Dockerfile
+    ports:
+      - 5000:5000
     environment:
       - POSTGRES_HOST=pgvector
       - POSTGRES_DATABASE=postgres
