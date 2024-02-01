@@ -69,7 +69,7 @@ const Session: FC = () => {
   const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
   const [inputValue, setInputValue] = useState('')
-  const [feedbackValue, setFeedbackValue] = useState(session.data?.config.eval_user_reason)
+  const [feedbackValue, setFeedbackValue] = useState('')
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value)
@@ -377,6 +377,13 @@ const Session: FC = () => {
     }
   }, [
     account.user,
+    session.data,
+  ])
+
+  useEffect(() => {
+    if(!session.data) return
+    setFeedbackValue(session.data.config.eval_user_reason)
+  }, [
     session.data,
   ])
 
