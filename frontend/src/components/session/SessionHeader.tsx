@@ -242,21 +242,14 @@ export const SessionHeader: FC<{
               </ListItemIcon>
               <ListItemText primary="Open Session" />
             </MenuItem>
-            <MenuItem>
-              <JsonWindowLink data={session}>
+            <JsonWindowLink data={session}>
+              <MenuItem>
                 <ListItemIcon>
-                  <InfoIcon
-                    sx={{
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      '&:hover': {
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                      },
-                    }}
-                  />
+                  <InfoIcon />
                 </ListItemIcon>
                 <ListItemText primary="Show Info" />
-              </JsonWindowLink>
-            </MenuItem>
+              </MenuItem>
+            </JsonWindowLink>
             <MenuItem onClick={(e) => {
               e.preventDefault()
               setDeletingSession(session)

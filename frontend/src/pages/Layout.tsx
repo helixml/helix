@@ -101,6 +101,7 @@ const Layout: FC = ({
         flexDirection: 'column',
         alignItems: 'center',
         borderRight: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+        backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
       }}
     >
       <Box
