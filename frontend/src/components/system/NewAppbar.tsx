@@ -30,7 +30,14 @@ interface NewAppBarProps {
   drawerWidth: number;
 }
 
-const NewAppBar: React.FC<NewAppBarProps> = ({ getTitle, getToolbarElement, meta, handleDrawerToggle, bigScreen, drawerWidth }) => {
+const NewAppBar: React.FC<NewAppBarProps> = ({
+  getTitle,
+  getToolbarElement,
+  meta,
+  handleDrawerToggle,
+  bigScreen,
+  drawerWidth,
+}) => {
   const theme = useTheme()
   const account = useAccount()
   const themeConfig = useThemeConfig()

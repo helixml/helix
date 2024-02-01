@@ -41,9 +41,11 @@ import useAccount from '../../hooks/useAccount'
 export const SessionHeader: FC<{
   session: ISession,
   onReload: () => void,
+  onOpenMobileMenu: () => void,
 }> = ({
   session,
   onReload,
+  onOpenMobileMenu,
 }) => {
   const {
     navigate,
@@ -114,7 +116,7 @@ export const SessionHeader: FC<{
       }}
     >
       <IconButton
-        onClick={() => {}}
+        onClick={ onOpenMobileMenu }
         size="large"
         edge="start"
         color="inherit"

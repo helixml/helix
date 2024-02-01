@@ -397,6 +397,7 @@ const Session: FC = () => {
             <SessionHeader
               session={ session.data }
               onReload={ session.reload }
+              onOpenMobileMenu={ () => account.setMobileMenuOpen(true) }
             />
           )
         }
