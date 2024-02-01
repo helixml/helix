@@ -93,7 +93,7 @@ export const FineTuneCloneInteraction: FC<{
           {
             type == SESSION_TYPE_TEXT && (
               <Button
-                variant="outlined"
+                variant="contained"
                 color="primary"
                 size="small"
                 sx={{
