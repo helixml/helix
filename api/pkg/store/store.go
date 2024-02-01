@@ -67,6 +67,7 @@ type Store interface {
 	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
 
 	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
+	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
 	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
 	DeleteTool(ctx context.Context, id string) error
