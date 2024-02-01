@@ -213,13 +213,8 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
+func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, error) {
 	userInteraction, err := data.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -236,23 +231,48 @@ func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.Da
 		}
 	}
 
+	return filesToConvert, nil
+}
+
+func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
+	filesToConvert, err := c.getTextFilesToConvert(session)
+	if err != nil {
+		return nil, err
+	}
+
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+
 	_, splitter, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, err
 	}
 
-	documentGroupID := session.ID
+	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	newMeta := session.Metadata
+	newMeta.DocumentGroupID = documentGroupID
+	if newMeta.DocumentIDs == nil {
+		newMeta.DocumentIDs = map[string]string{}
+	}
+
 	// add all the files to the splitter so we know what chunks we have
-	for _, file := range filesToConvert {
-		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+	for _, filename := range filesToConvert {
+		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, filename)
 		if err != nil {
 			return nil, err
 		}
-		meta, err := splitter.AddDocument(file, fileContent, documentGroupID, session)
-		c.UpdateSessionMetadata(context.TODO(), session, meta)
+		documentID, err := splitter.AddDocument(filename, fileContent, documentGroupID)
 		if err != nil {
 			return nil, err
 		}
+		newMeta.DocumentIDs[filename] = documentID
+	}
+
+	_, err = c.UpdateSessionMetadata(context.TODO(), session, &newMeta)
+	if err != nil {
+		return nil, err
 	}
 
 	// Some qapair generators expand each chunk into N chunks so they can be run
@@ -272,6 +292,56 @@ func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.Da
 	return chunksToProcess, nil
 }
 
+// func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+// 	filesToConvert, err := c.getTextFilesToConvert(session)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	systemInteraction, err := data.GetSystemInteraction(session)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+// 		ChunkSize: session.Metadata.RagSettings.ChunkSize,
+// 		Overflow:  session.Metadata.RagSettings.ChunkOverflow,
+// 	})
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	documentGroupID := session.ID
+// 	// add all the files to the splitter so we know what chunks we have
+// 	for _, file := range filesToConvert {
+// 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		meta, err := splitter.AddDocument(file, fileContent, documentGroupID, session)
+// 		c.UpdateSessionMetadata(context.TODO(), session, meta)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 	}
+
+// 	// Some qapair generators expand each chunk into N chunks so they can be run
+// 	// by our outer concurrency manager
+// 	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
+// 	for _, chunk := range allChunks {
+// 		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
+// 			chunksToProcess = append(chunksToProcess, chunk)
+// 		}
+// 	}
+
+// 	return chunksToProcess, nil
+// }
+
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
@@ -288,7 +358,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
+	chunksToProcess, err := c.getQAChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -427,4 +497,153 @@ func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) 
 		return 0, err
 	}
 	return getQAChunkErrors(systemInteraction), nil
+}
+
+func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, int, error) {
+	userInteraction, err := data.GetUserInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chunksToProcess, err := c.getQAChunksToProcess(session, dataprep)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(chunksToProcess) == 0 {
+		return session, 0, nil
+	}
+
+	// get the progress bar to display
+	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
+	systemInteraction.Status = initialMessage
+	systemInteraction.Progress = 1
+	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
+	session = c.WriteInteraction(session, systemInteraction)
+	c.BroadcastProgress(session, 1, initialMessage)
+
+	var completedCounter int64
+	var errorCounter int64
+	var outerError error
+
+	// we use this to only append questions to one file at a time
+	var writeUpdatesMutex sync.Mutex
+
+	runningFileList := copyFileList(userInteraction.Files)
+	outerError = system.ForEachConcurrently[*text.DataPrepTextSplitterChunk](
+		chunksToProcess,
+		dataprep.GetConcurrency(),
+		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
+			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
+			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
+
+			// if this is set then we have a non GPT error and should just stop what we are doing
+			if outerError != nil {
+				return nil
+			}
+
+			// write the updates inside a mutex so we don't get a race
+			err = func() error {
+				writeUpdatesMutex.Lock()
+				defer writeUpdatesMutex.Unlock()
+
+				if convertError == nil {
+					// if there is no JSONL file - make it appear
+					if !hasQuestionsFile(userInteraction, chunk.Filename) {
+						runningFileList = injectFileToList(runningFileList, chunk.Filename, getQuestionsFilename(chunk.Filename))
+						userInteraction.Files = runningFileList
+
+						// we want to write an empty file to the filestore here
+						// because then appendQuestionsToFile doesn't need to deal with making it
+						_, err = c.Options.Filestore.UploadFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+						if err != nil {
+							log.Error().Msgf("error uploading file: %s", err.Error())
+							return err
+						}
+					}
+					innerErr := appendQuestionsToFile(c.Ctx, c.Options.Filestore, getQuestionsFilename(chunk.Filename), questions)
+					if innerErr != nil {
+						log.Error().Msgf("error adding questions to file: %s", innerErr.Error())
+						return innerErr
+					}
+					atomic.AddInt64(&completedCounter, 1)
+				} else {
+					atomic.AddInt64(&errorCounter, 1)
+				}
+
+				// this marks the QA chunk as "done" - even with an error
+				// we then give the user the choice to try again, abort or ignore the errors
+				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
+
+				return nil
+			}()
+
+			if err != nil {
+				return err
+			}
+
+			session = c.WriteInteraction(session, userInteraction)
+
+			percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
+			message := fmt.Sprintf("%d total, %d converted and %d errors", len(chunksToProcess), completedCounter, errorCounter)
+			c.BroadcastProgress(session, percentConverted, message)
+			systemInteraction.Status = message
+			systemInteraction.Progress = percentConverted
+			session = c.WriteInteraction(session, systemInteraction)
+
+			if convertError != nil {
+				log.Error().Msgf("🔴 question conversion error %s", convertError.Error())
+			} else {
+				log.Info().Msgf("🟢 question conversion complete %d of %d", i+1, len(chunksToProcess))
+			}
+
+			return nil
+		},
+	)
+
+	// if this error is hit - it means something has actually gone wrong rather than a data prep error
+	// we catch the data prep errors and present them to the user once all processing is done
+	if outerError != nil {
+		return nil, 0, outerError
+	}
+
+	finishedMessage := fmt.Sprintf("converted %d text chunks", len(chunksToProcess))
+
+	c.BroadcastProgress(session, 100, finishedMessage)
+
+	systemInteraction.Status = finishedMessage
+	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
+	systemInteraction.Progress = 0
+	systemInteraction.State = types.InteractionStateEditing
+	session = c.WriteInteraction(session, systemInteraction)
+
+	docIDs := []string{}
+	// TODO: remove duplication wrt splitter
+	docGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	uniqueMap := make(map[string]bool)
+	for _, val := range session.Metadata.DocumentIDs {
+		if !uniqueMap[val] {
+			uniqueMap[val] = true
+			docIDs = append(docIDs, val)
+		}
+	}
+
+	systemPrompt, err := prompts.TextFinetuneSystemPrompt(docIDs, docGroupID)
+	if err != nil {
+		return nil, 0, err
+	}
+	session.Metadata.SystemPrompt = systemPrompt
+	c.WriteSession(session)
+
+	return session, len(chunksToProcess), nil
 }

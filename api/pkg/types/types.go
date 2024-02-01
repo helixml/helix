@@ -59,6 +59,8 @@ type SessionRagSettings struct {
 	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
 	Threshold        float32 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
 	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
+	ChunkSize        int     `json:"chunk_size"`        // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
 }
 
 // gives us a quick way to add settings
