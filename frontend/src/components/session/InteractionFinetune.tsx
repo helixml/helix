@@ -134,7 +134,7 @@ export const InteractionFinetune: FC<{
               overflowY: 'auto'
             }}
           >
-            <Grid container spacing={3} direction="row" justifyContent="flex-start">
+            <Grid container spacing={2} direction="row" justifyContent="flex-start">
               {
                 interaction.files.length > 0 && interaction.files
                   .filter(file => {
@@ -147,14 +147,15 @@ export const InteractionFinetune: FC<{
                     const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
                     return (
-                      <Grid item xs={3} md={3} key={file}>
+                      <Grid item xs={4} md={3} key={file}>
                         <Box
                           sx={{
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            color: '#999'
+                            color: '#999',
+                            p: 0,
                           }}
                         >
                           <Box
