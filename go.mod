@@ -25,6 +25,7 @@ require (
 )
 
 require (
+	github.com/avast/retry-go/v4 v4.5.1
 	github.com/davecgh/go-spew v1.1.1
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/getkin/kin-openapi v0.123.0
