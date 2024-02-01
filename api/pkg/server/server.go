@@ -222,6 +222,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	maybeAuthRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
+	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.listTools)).Methods("GET")
+	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.createTool)).Methods("POST")
+	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.updateTool)).Methods("PUT")
+	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.deleteTool)).Methods("DELETE")
+
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
 	// all these routes are secured via runner tokens
@@ -263,6 +268,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		Handler:           router,
 	}
 	return srv.ListenAndServe()
+}
+
+func getID(r *http.Request) string {
+	vars := mux.Vars(r)
+	return vars["id"]
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
