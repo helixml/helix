@@ -43,16 +43,16 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	err = s.validateTool(&tool)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
+	}
+
 	// Checking if the tool already exists
 	for _, t := range existingTools {
 		if t.Name == tool.Name {
 			return nil, system.NewHTTPError400("tool (%s) with name %s already exists", t.ID, tool.Name)
 		}
-	}
-
-	err = s.validateTool(&tool)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	// Creating the tool
