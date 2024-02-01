@@ -336,7 +336,7 @@ type RunnerTaskResponse struct {
 
 // this is returned by the api server so that clients can see what
 // config it's using e.g. filestore prefix
-type ServerConfig struct {
+type ServerConfigForFrontend struct {
 	// used to prepend onto raw filestore paths to download files
 	// the filestore path will have the user info in it - i.e.
 	// it's a low level filestore path
@@ -346,6 +346,7 @@ type ServerConfig struct {
 	StripeEnabled           bool   `json:"stripe_enabled"`
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
+	EvalUserID              string `json:"eval_user_id"`
 }
 
 type CreateSessionRequest struct {

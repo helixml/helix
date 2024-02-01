@@ -38,6 +38,7 @@ export const AccountContext = createContext<IAccountContext>({
   serverConfig: {
     filestore_prefix: '',
     stripe_enabled: false,
+    eval_user_id: '',
   },
   userConfig: {},
   apiKeys: [],
@@ -57,6 +58,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
     stripe_enabled: false,
+    eval_user_id: '',
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
