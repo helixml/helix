@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useEffect, useContext } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
@@ -10,17 +10,19 @@ import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
 import InfoIcon from '@mui/icons-material/Info'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
-import PublishIcon from '@mui/icons-material/Publish'
-import HelpIcon from '@mui/icons-material/Help'
+import MenuIcon from '@mui/icons-material/Menu'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
-import Button from '@mui/material/Button'
-import ScreenShareIcon from '@mui/icons-material/ScreenShare'
 import ShareIcon from '@mui/icons-material/Share'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import TextField from '@mui/material/TextField'
 import SaveIcon from '@mui/icons-material/Save'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -79,6 +81,8 @@ export const SessionHeader: FC<{
   const [editingSession, setEditingSession] = useState(false)
   const [sessionName, setSessionName] = useState(session.name)
 
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
+
   useEffect(() => {
     setSessionName(session.name)
   }, [session.name])
@@ -109,6 +113,16 @@ export const SessionHeader: FC<{
         height: '78px',
       }}
     >
+      <IconButton
+        onClick={() => {}}
+        size="large"
+        edge="start"
+        color="inherit"
+        aria-label="menu"
+        sx={{ mr: 2, display: { sm: 'block', md: 'none' } }}
+      >
+        <MenuIcon />
+      </IconButton>
       <Cell flexGrow={ 1 }>
         <Box
           sx={{
@@ -196,113 +210,213 @@ export const SessionHeader: FC<{
         )}
       </Cell>
       <Cell>
-        <Tooltip title="Open Session">
-          <Link
-            href="/files?path=%2Fsessions"
-            onClick={(e) => {
+        <Box sx={{ display: { xs: 'block', sm: 'flex' }, alignItems: 'center' }}>
+          <IconButton
+            aria-label="session actions"
+            aria-controls="session-menu"
+            aria-haspopup="true"
+            onClick={(e) => setAnchorEl(e.currentTarget)}
+            sx={{ display: { xs: 'inline', sm: 'none' } }}
+          >
+            <MoreVertIcon />
+          </IconButton>
+          <Menu
+            id="session-menu"
+            anchorEl={anchorEl}
+            keepMounted
+            open={Boolean(anchorEl)}
+            onClose={() => setAnchorEl(null)}
+            sx={{ display: { xs: 'block', sm: 'none' } }}
+          >
+            <MenuItem onClick={(e) => {
               e.preventDefault()
               navigate('files', {
                 path: `/sessions/${session?.id}`
               })
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "small",
-                flexGrow: 0,
-                textDecoration: 'underline',
-              }}
-            >
-              <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                <FolderOpenIcon 
-                  sx={{
-                    color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
-                    '&:hover': {
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                    }
-                  }}
-                />
-              </Box>
-            </Typography>
-          </Link>
-        </Tooltip>
-      </Cell>
-      <Cell>
-        <JsonWindowLink
-          data={ session } 
-        >
-          <Tooltip title="Show Info">
-            <Typography
-              sx={{
-                fontSize: "small",
-                flexGrow: 0,
-                textDecoration: 'underline',
-              }}
-            >
-              <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                <InfoIcon
-                  sx={{
-                    color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                    mr: 2,
-                    '&:hover': {
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                    }
-                  }}
-                />
-              </Box>
-            </Typography>
-          </Tooltip>
-        </JsonWindowLink>
-      </Cell>
-      <Cell>
-        <Tooltip title="Delete Session">
-          <Link
-            href="/files?path=%2Fsessions"
-            onClick={(e) => {
+              setAnchorEl(null)
+            }}>
+              <ListItemIcon>
+                <FolderOpenIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Open Session" />
+            </MenuItem>
+            <MenuItem>
+              <JsonWindowLink data={session}>
+                <ListItemIcon>
+                  <InfoIcon
+                    sx={{
+                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      '&:hover': {
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                      },
+                    }}
+                  />
+                </ListItemIcon>
+                <ListItemText primary="Show Info" />
+              </JsonWindowLink>
+            </MenuItem>
+            <MenuItem onClick={(e) => {
               e.preventDefault()
               setDeletingSession(session)
-            }}
-          >
-            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-              <DeleteIcon
-                sx={{
-                  color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                  mr: 2,
-                  '&:hover': {
-                    color: theme.palette.mode === 'light' ? '#FF0000' : '#FF0000'
-                  }
-                }}
-              />
-            </Box>
-          </Link>
-        </Tooltip>
-      </Cell>
-      {
-        deletingSession && (
-          <DeleteConfirmWindow
-            title={`Delete session ${deletingSession.name}?`}
-            onCancel={ () => {
-              setDeletingSession(undefined) 
-            }}
-            onSubmit={ () => {
-              onDeleteSessionConfirm(deletingSession.id)
-            }}
-          />
-        )
-      }
-      {
-        isOwner && (
+              setAnchorEl(null)
+            }}>
+              <ListItemIcon>
+                <DeleteIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Delete Session" />
+            </MenuItem>
+            {isOwner && (
+              <MenuItem onClick={(e) => {
+                e.preventDefault()
+                onShare()
+                setAnchorEl(null)
+              }}>
+                <ListItemIcon>
+                  <ShareIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Share Session" />
+              </MenuItem>
+            )}
+            <MenuItem onClick={() => {
+              window.open("https://docs.helix.ml/docs/overview", "_blank")
+              setAnchorEl(null)
+            }}>
+              <ListItemIcon>
+                <AutoStoriesIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="Helix Docs" />
+            </MenuItem>
+          </Menu>
+          <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 0 }}>
           <Cell>
-            <Tooltip title="Share Session">
+            <Tooltip title="Open Session">
               <Link
-                href="#"
+                href="/files?path=%2Fsessions"
                 onClick={(e) => {
                   e.preventDefault()
-                  onShare()
+                  navigate('files', {
+                    path: `/sessions/${session?.id}`
+                  })
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "small",
+                    flexGrow: 0,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                    <FolderOpenIcon 
+                      sx={{
+                        color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                        }
+                      }}
+                    />
+                  </Box>
+                </Typography>
+              </Link>
+            </Tooltip>
+          </Cell>
+          <Cell>
+            <JsonWindowLink
+              data={ session } 
+            >
+              <Tooltip title="Show Info">
+                <Typography
+                  sx={{
+                    fontSize: "small",
+                    flexGrow: 0,
+                    textDecoration: 'underline',
+                  }}
+                >
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                    <InfoIcon
+                      sx={{
+                        color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        mr: 2,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                        }
+                      }}
+                    />
+                  </Box>
+                </Typography>
+              </Tooltip>
+            </JsonWindowLink>
+          </Cell>
+          <Cell>
+            <Tooltip title="Delete Session">
+              <Link
+                href="/files?path=%2Fsessions"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setDeletingSession(session)
                 }}
               >
                 <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                  <ShareIcon
+                  <DeleteIcon
+                    sx={{
+                      color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      mr: 2,
+                      '&:hover': {
+                        color: theme.palette.mode === 'light' ? '#FF0000' : '#FF0000'
+                      }
+                    }}
+                  />
+                </Box>
+              </Link>
+            </Tooltip>
+          </Cell>
+          {
+            deletingSession && (
+              <DeleteConfirmWindow
+                title={`Delete session ${deletingSession.name}?`}
+                onCancel={ () => {
+                  setDeletingSession(undefined) 
+                }}
+                onSubmit={ () => {
+                  onDeleteSessionConfirm(deletingSession.id)
+                }}
+              />
+            )
+          }
+          {
+            isOwner && (
+              <Cell>
+                <Tooltip title="Share Session">
+                  <Link
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      onShare()
+                    }}
+                  >
+                    <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                      <ShareIcon
+                        sx={{
+                          color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
+                          '&:hover': {
+                            color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                          }
+                        }}
+                      />
+                    </Box>
+                  </Link>
+                </Tooltip>
+              </Cell>
+            )
+          }
+          <Cell>
+            <Tooltip title="Helix Docs">
+              <Link
+                href="https://docs.helix.ml/docs/overview"
+                target="_blank"
+              >
+                <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                  <AutoStoriesIcon
                     sx={{
                       color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
                       '&:hover': {
@@ -314,27 +428,22 @@ export const SessionHeader: FC<{
               </Link>
             </Tooltip>
           </Cell>
+          </Box>
+        </Box>
+      </Cell>
+      {
+        deletingSession && (
+          <DeleteConfirmWindow
+            title={`Delete session ${deletingSession.name}?`}
+            onCancel={() => {
+              setDeletingSession(undefined) 
+            }}
+            onSubmit={() => {
+              onDeleteSessionConfirm(deletingSession.id)
+            }}
+          />
         )
       }
-      <Cell>
-        <Tooltip title="Helix Docs">
-          <Link
-            href="https://docs.helix.ml/docs/overview"
-            target="_blank"
-          >
-            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-              <AutoStoriesIcon
-                sx={{
-                  color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
-                  '&:hover': {
-                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                  }
-                }}
-              />
-            </Box>
-          </Link>
-        </Tooltip>
-      </Cell>
     </Row>
     
   )
