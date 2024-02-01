@@ -234,6 +234,7 @@ export interface IWebsocketEvent {
 export interface IServerConfig {
   filestore_prefix: string,
   stripe_enabled: boolean,
+  eval_user_id: string,
 }
 
 export interface IConversation {

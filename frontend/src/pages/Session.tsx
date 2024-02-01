@@ -65,6 +65,7 @@ const Session: FC = () => {
   const divRef = useRef<HTMLDivElement>()
 
   const [showCloneWindow, setShowCloneWindow] = useState(false)
+  const [showCloneAllWindow, setShowCloneAllWindow] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [restartWindowOpen, setRestartWindowOpen] = useState(false)
   const [shareInstructions, setShareInstructions] = useState<IShareSessionInstructions>()
@@ -264,6 +265,41 @@ const Session: FC = () => {
     account.user,
     session.data,
     shareInstructions,
+  ])
+
+  const onCloneAllIntoAccount = useCallback(async (withEvalUser = false) => {
+    const handler = async () => {
+      if(!session.data) return
+      if(session.data.interactions.length <=0 ) throw new Error('Session cloned...')
+      const lastInteraction = session.data.interactions[session.data.interactions.length - 1]
+      let newSession = await api.post<undefined, ISession>(`/api/v1/sessions/${session.data.id}/finetune/clone/${lastInteraction.id}/all`, undefined, {
+        params: {
+          clone_into_eval_user: withEvalUser ? 'yes' : '',
+        }
+      })
+      if(!newSession) return false
+      await sessions.loadSessions(true)
+      snackbar.success('Session cloned...')
+      const params: Record<string, string> = {
+        session_id: newSession.id
+      }
+      router.navigate('session', params)
+      return true
+    }
+
+    loadingHelpers.setLoading(true)
+    try {
+      await handler()
+      setShowCloneAllWindow(false)
+    } catch(e: any) {
+      console.error(e)
+      snackbar.error(e.toString())
+    }
+    loadingHelpers.setLoading(false)
+    
+  }, [
+    account.user,
+    session.data,
   ])
 
   const onAddDocuments = useCallback(() => {
@@ -494,68 +530,102 @@ const Session: FC = () => {
               </>    
             )
           }
-        <Box
-          sx={{
-            width: '100%',
-            flexGrow: 0,
-            p: 2,
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Button
-            onClick={ () => {
-              onUpdateSessionConfig({
-                eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
-              }, `Thank you for your feedback!`)
-            }}
-          >
-            { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> }
-          </Button>
-          <Button
-            onClick={ () => {
-              onUpdateSessionConfig({
-                eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
-              }, `Sorry! We will use your feedback to improve`)
-            }}
-          >
-            { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> }
-          </Button>
-        </Box>
-        { session.data?.config.eval_user_score != "" && ( 
-          <Box
-            sx={{
-              width: '100%',
-              flexGrow: 0,
-              p: 2,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <TextField
-              id="feedback"
-              label="Please explain why"
-              value={feedbackValue}
-              onChange={handleFeedbackChange}
-              name="ai_feedback"
-            />
-            <Button
-              variant='contained'
-              disabled={loading}
-              onClick={ () => onUpdateSessionConfig({
-                  eval_user_reason: feedbackValue,
-                }, `Thanks, you are awesome`)
-              }
-              sx={{ ml: 2 }}
-            >
-              Save
-            </Button>
-          </Box>
-        ) }
+          {
+            !loading && (
+              <>
+                <Box
+                  sx={{
+                    width: '100%',
+                    flexGrow: 0,
+                    p: 2,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Button
+                    onClick={ () => {
+                      onUpdateSessionConfig({
+                        eval_user_score: session.data?.config.eval_user_score == "" ? '1.0' : "",
+                      }, `Thank you for your feedback!`)
+                    }}
+                  >
+                    { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> }
+                  </Button>
+                  <Button
+                    onClick={ () => {
+                      onUpdateSessionConfig({
+                        eval_user_score: session.data?.config.eval_user_score == "" ? '0.0' : "",
+                      }, `Sorry! We will use your feedback to improve`)
+                    }}
+                  >
+                    { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> }
+                  </Button>
+                </Box>
+                {
+                  session.data?.config.eval_user_score != "" && ( 
+                    <Box
+                      sx={{
+                        width: '100%',
+                        flexGrow: 0,
+                        p: 2,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <TextField
+                        id="feedback"
+                        label="Please explain why"
+                        value={feedbackValue}
+                        onChange={handleFeedbackChange}
+                        name="ai_feedback"
+                      />
+                      <Button
+                        variant='contained'
+                        disabled={loading}
+                        onClick={ () => onUpdateSessionConfig({
+                            eval_user_reason: feedbackValue,
+                          }, `Thanks, you are awesome`)
+                        }
+                        sx={{ ml: 2 }}
+                      >
+                        Save
+                      </Button>
+                    </Box>
+                  )
+                }
+              </>
+            )
+          }
+          {
+            // if we are an admin and the session is not ours then show the "clone all" button
+            // so we can copy it for debug/eval purposes
+            account.admin && account.user?.id && account.user?.id != session.data.owner && (
+              <Box
+                sx={{
+                  width: '100%',
+                  flexGrow: 0,
+                  p: 1,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ClickLink
+                  sx={{
+                    textDecoration: 'underline',
+                  }}
+                  onClick={ () => setShowCloneAllWindow(true) }
+                >
+                  Clone All
+                </ClickLink>
+              </Box>
+            )
+          }
         </Container>
       </Box>
       <Box
@@ -733,6 +803,82 @@ const Session: FC = () => {
             <Typography>
               This session will be cloned into your account where you will be able to continue this session.
             </Typography>
+          </Window>
+        )
+      }
+      {
+        showCloneAllWindow && (
+          <Window
+            open
+            size="md"
+            title="Clone All?"
+            onCancel={ () => {
+              setShowCloneAllWindow(false)
+            }}
+            withCancel
+            cancelTitle="Close"
+          >
+            <Box
+              sx={{
+                p: 2,
+                width: '100%',
+              }}
+            >
+              <Row>
+                <Cell grow>
+                  <Typography>
+                    Clone the session into your account:
+                  </Typography>
+                </Cell>
+                <Cell sx={{
+                  width: '300px',
+                  textAlign: 'right',
+                }}>
+                  <Button
+                    size="small"
+                    variant='contained'
+                    disabled={loading}
+                    onClick={ () => onCloneAllIntoAccount(false) }
+                    sx={{ ml: 2, width: '200px', }}
+                    endIcon={<SendIcon />}
+                  >
+                    your account
+                  </Button>
+                </Cell>
+              </Row>
+              {
+                // if we know about an eval user then give the option to clone into that account
+                account.serverConfig.eval_user_id && (
+                  <Row
+                    sx={{
+                      mt: 2,
+                    }}
+                  >
+                    <Cell grow>
+                      <Typography>
+                        Clone the session into the evals account:
+                      </Typography>
+                    </Cell>
+                    <Cell sx={{
+                      width: '300px',
+                      textAlign: 'right',
+                    }}>
+                      <Button
+                        size="small"
+                        variant='contained'
+                        disabled={loading}
+                        onClick={ () => onCloneAllIntoAccount(true) }
+                        sx={{ ml: 2, width: '200px', }}
+                        endIcon={<SendIcon />}
+                      >
+                        evals account
+                      </Button>
+                    </Cell>
+                  </Row>
+                )
+              }
+              
+            </Box>
           </Window>
         )
       }
