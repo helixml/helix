@@ -38,6 +38,7 @@ export const FineTuneImageLabel: FC<{
       helperText={ `Enter a label for ${filename}` }
       sx={{
         backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+        p: 0,
       }}
     />
   )   
