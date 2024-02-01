@@ -32,6 +32,7 @@ services:
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
