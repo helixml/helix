@@ -8,11 +8,9 @@ import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import Box from '@mui/material/Box'
 
-import HelpIcon from '@mui/icons-material/Help'
 import LoginIcon from '@mui/icons-material/Login'
 import MenuIcon from '@mui/icons-material/Menu'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
-import EditIcon from '@mui/icons-material/Edit'
 import useAccount from '../../hooks/useAccount'
 import { useTheme } from '@mui/material/styles'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -130,10 +128,10 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
             )
             }
             <Box
-            sx={{
-                flexGrow: 1,
-                textAlign: 'right',
-            }}
+                sx={{
+                    flexGrow: 1,
+                    textAlign: 'right',
+                }}
             >
             {
                 bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
@@ -212,42 +210,72 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 </>
                 ) : (
                 <>
-                    {
-                    account.user ? (
-                        <Link
-                        href="https://docs.helix.ml"
-                        target="_blank"
-                        >
-                        <Typography
-                            sx={{
-                            fontSize: "small",
-                            flexGrow: 0,
-                            textDecoration: 'underline',
-                            }}
-                        >
-                            View Docs
-                        </Typography>
-                        </Link>
-                    ) : (
-                        <Link
-                        href="/login"
-                        onClick={(e) => {
-                            e.preventDefault()
-                            account.onLogin()
+                    <Box
+                        sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end'
                         }}
-                        >
+                    >
                         <Typography
                             sx={{
-                            fontSize: "small",
-                            flexGrow: 0,
-                            textDecoration: 'underline',
+                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                            marginRight: '12px',
                             }}
                         >
-                            Login / Register
+                            Create
                         </Typography>
-                        </Link>
-                    )
-                    }
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Switch
+                                checked={params.mode === SESSION_MODE_FINETUNE}
+                                onChange={handleModeChange}
+                                name="modeSwitch"
+                                size="medium"
+                                sx={{
+                                    transform: 'scale(1)',
+                                    '& .MuiSwitch-thumb': {
+                                        scale: 0.4,
+                                    },
+                                }}
+                            />
+                        </Box>
+                        <Typography
+                            sx={{
+                            color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                            marginLeft: '12px',
+                            }}
+                        >
+                            Fine-tune
+                        </Typography>
+                    
+                        {
+                        account.user ? (
+                            <Link
+                            href="https://docs.helix.ml/docs/overview"
+                            target="_blank"
+                            >
+                            <Tooltip title="Helix Docs">
+                                <Box component="span">
+                                <AutoStoriesIcon sx={{ ml: 2 }} />
+                                </Box>
+                            </Tooltip>
+                            </Link>
+                        ) : (
+                            <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={account.onLogin}
+                            sx={{
+                                ml: 2,
+                            }}
+                            >
+                            Login
+                            </Button>
+                        )
+                        }
+                    </Box>
                 </>
                 )
             }
