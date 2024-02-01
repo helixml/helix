@@ -63,6 +63,42 @@ type SessionRagSettings struct {
 	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
 }
 
+// the data we send off to llamaindex to be indexed in the db
+type SessionRagIndexChunk struct {
+	SessionID       string `json:"session_id"`
+	InteractionID   string `json:"interaction_id"`
+	Filename        string `json:"filename"`
+	DocumentID      string `json:"document_id"`
+	DocumentGroupID string `json:"document_group_id"`
+	ContentOffset   int    `json:"content_offset"`
+	Content         string `json:"content"`
+}
+
+// the query we post to llamaindex to get results back from a user
+// prompt against a rag enabled session
+type SessionRagQuery struct {
+	Prompt            string  `json:"prompt"`
+	SessionID         string  `json:"session_id"`
+	InteractionID     string  `json:"interaction_id"`
+	DistanceThreshold float64 `json:"distance_threshold"`
+	DistanceFunction  string  `json:"distance_function"`
+	MaxResults        int     `json:"max_results"`
+}
+
+// the thing we load from llamaindex when we send the user prompt
+// there and it does a lookup
+type SessionRagResult struct {
+	ID              string  `json:"id"`
+	SessionID       string  `json:"session_id"`
+	InteractionID   string  `json:"interaction_id"`
+	DocumentID      string  `json:"document_id"`
+	DocumentGroupID string  `json:"document_group_id"`
+	Filename        string  `json:"filename"`
+	ContentOffset   int     `json:"content_offset"`
+	Content         string  `json:"content"`
+	Distance        float64 `json:"distance"`
+}
+
 // gives us a quick way to add settings
 type SessionMetadata struct {
 	OriginalMode            SessionMode       `json:"original_mode"`

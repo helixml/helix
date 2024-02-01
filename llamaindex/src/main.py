@@ -13,8 +13,8 @@ app = Flask(__name__)
 #   "filename": "test.txt",
 #   "document_id": "abc",
 #   "document_group_id": "def",
-#   "offset": 0,
-#   "text": "hello world"
+#   "content_offset": 0,
+#   "content": "hello world"
 # }' http://localhost:5000/api/v1/rag/chunk
 # this route will convert the text chunk into an embedding and then store it in the database
 @app.route('/api/v1/rag/chunk', methods=['POST'])
@@ -44,6 +44,7 @@ def rag_query():
   data = request.json
   prompt = data["prompt"]
   session_id = data["session_id"]
+  interaction_id = data["interaction_id"]
   distance_threshold = data["distance_threshold"]
   distance_function = data["distance_function"]
   max_results = data["max_results"]
@@ -52,6 +53,8 @@ def rag_query():
     return jsonify({"error": "missing prompt"}), 400
   if session_id is None or len(session_id) == 0:
     return jsonify({"error": "missing session_id"}), 400
+  if interaction_id is None or len(interaction_id) == 0:
+    return jsonify({"error": "missing interaction_id"}), 400
   if distance_function is None or len(distance_function) == 0:
     return jsonify({"error": "missing distance_function"}), 400
   if distance_function not in ["l2", "inner_product", "cosine"]:
@@ -65,7 +68,7 @@ def rag_query():
   if isinstance(max_results, (int, float)) == False:
     return jsonify({"error": "max_results must be a number"}), 400
   promptEmbedding = getEmbedding(prompt)
-  results = sql.queryPrompt(session_id, promptEmbedding, distance_function, distance_threshold, max_results)
+  results = sql.queryPrompt(session_id, interaction_id, promptEmbedding, distance_function, distance_threshold, max_results)
   return jsonify({
     "ok": True,
     "results": results,
