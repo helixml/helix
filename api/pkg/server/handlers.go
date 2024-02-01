@@ -217,18 +217,19 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
-		SessionID:               sessionID,
-		SessionMode:             sessionMode,
-		SessionType:             sessionType,
-		ModelName:               modelName,
-		Owner:                   reqContext.Owner,
-		OwnerType:               reqContext.OwnerType,
-		UserInteractions:        []*types.Interaction{userInteraction},
-		Priority:                status.Config.StripeSubscriptionActive,
+		SessionID:        sessionID,
+		SessionMode:      sessionMode,
+		SessionType:      sessionType,
+		ModelName:        modelName,
+		Owner:            reqContext.Owner,
+		OwnerType:        reqContext.OwnerType,
+		UserInteractions: []*types.Interaction{userInteraction},
+		Priority:         status.Config.StripeSubscriptionActive,
+		// the default is no unless we specifically say yes
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		// TODO: allow these to be configured
-		RagEnabled:      true,
-		FinetuneEnabled: true,
+		// the default is yes unless we specifically say no
+		RagEnabled:      req.FormValue("rag_enabled") != "no",
+		FinetuneEnabled: req.FormValue("finetune_enabled") != "no",
 		RagSettings:     *ragSettings,
 	})
 
