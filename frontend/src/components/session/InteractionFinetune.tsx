@@ -122,7 +122,7 @@ export const InteractionFinetune: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
-  const matches = useMediaQuery(theme.breakpoints.down('sm'))
+  const matches = useMediaQuery(theme.breakpoints.down('md'))
 
   return (
     <>
