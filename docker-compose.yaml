@@ -29,6 +29,9 @@ services:
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
       - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
+      - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
+      - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore

@@ -228,22 +228,23 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 	return result, nil
 }
 
-func (apiServer *HelixAPIServer) getConfig() (types.ServerConfig, error) {
+func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
 	if apiServer.Options.LocalFilestorePath != "" {
 		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
 	} else {
-		return types.ServerConfig{}, system.NewHTTPError500("we currently only support local filestore")
+		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
-	return types.ServerConfig{
+	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
 		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
+		EvalUserID:              apiServer.Options.EvalUserID,
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfig, error) {
+func (apiServer *HelixAPIServer) config(res http.ResponseWriter, req *http.Request) (types.ServerConfigForFrontend, error) {
 	return apiServer.getConfig()
 }
 
@@ -514,6 +515,13 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	vars := mux.Vars(req)
 	reqContext := apiServer.getRequestContext(req)
 
+	// clone the session into the eval user account
+	// only admins can do this
+	cloneIntoEvalUser := req.URL.Query().Get("clone_into_eval_user")
+	if cloneIntoEvalUser != "" && !apiServer.isAdmin(req) {
+		return nil, system.NewHTTPError403("access denied")
+	}
+
 	// we only need to check for read only access here because
 	// we are only reading the original session and then writing a new one
 	// into our account
@@ -535,6 +543,10 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	mode, err := types.ValidateCloneTextType(vars["mode"], false)
 	if err != nil {
 		return nil, system.NewHTTPError404(err.Error())
+	}
+	// switch the target user to be the eval user
+	if cloneIntoEvalUser != "" {
+		reqContext.Owner = apiServer.Options.EvalUserID
 	}
 	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
 		InteractionID: interaction.ID,

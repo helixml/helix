@@ -34,6 +34,9 @@ type ServerOptions struct {
 	// a list of keycloak ids that are considered admins
 	// if the string '*' is included it means ALL users
 	AdminIDs []string
+	// if this is specified then we provide the option to clone entire
+	// sessions into this user without having to logout and login
+	EvalUserID string
 	// this is for when we are running localfs filesystem
 	// and we need to add a route to view files based on their path
 	// we are assuming all file storage is open right now
