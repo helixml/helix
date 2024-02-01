@@ -143,7 +143,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkSizeStr := req.FormValue("rag_chunk_size")
-	ragChunkSize := 4096 // Default value if chunkSize is not provided or conversion fails
+	ragChunkSize := 512 // Default value if chunkSize is not provided or conversion fails
 	if ragChunkSizeStr != "" {
 		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
 		if err != nil {
@@ -152,7 +152,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
-	ragChunkOverflow := 128 // Default value if chunkOverflow is not provided or conversion fails
+	ragChunkOverflow := 32 // Default value if chunkOverflow is not provided or conversion fails
 	if ragChunkOverflowStr != "" {
 		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
 		if err != nil {
@@ -216,7 +216,8 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	if err != nil {
 		return nil, err
 	}
-	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
+
+	createRequest := types.CreateSessionRequest{
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      sessionType,
@@ -231,7 +232,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		RagEnabled:      req.FormValue("rag_enabled") != "no",
 		FinetuneEnabled: req.FormValue("finetune_enabled") != "no",
 		RagSettings:     *ragSettings,
-	})
+	}
+
+	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
 
 	return sessionData, nil
 }

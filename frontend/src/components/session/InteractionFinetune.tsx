@@ -239,6 +239,9 @@ export const InteractionFinetune: FC<{
                 <StepLabel>Extract Text</StepLabel>
               </Step>
               <Step>
+                <StepLabel>Index Documents</StepLabel>
+              </Step>
+              <Step>
                 <StepLabel>Generate Questions</StepLabel>
               </Step>
               <Step>
