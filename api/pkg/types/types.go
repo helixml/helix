@@ -55,6 +55,12 @@ type SessionOrigin struct {
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
+type SessionRagSettings struct {
+	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	Threshold        float32 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
+	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
+}
+
 // gives us a quick way to add settings
 type SessionMetadata struct {
 	OriginalMode            SessionMode       `json:"original_mode"`
@@ -82,11 +88,9 @@ type SessionMetadata struct {
 	// we might choose to not use them (this will help our eval framework know what works the best)
 	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
 	// and what the threshold for a "good" answer is
-	RagEnabled          bool   `json:"rag_enabled"`           // this will default to true
-	FinetuneEnabled     bool   `json:"finetune_enabled"`      // this will default to true
-	RagDistanceFunction string `json:"rag_distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
-	RagThreshold        string `json:"rag_threshold"`         // this is the threshold for a "good" answer - will default to 0.2
-	RagResultsCount     int    `json:"rag_results_count"`     // this is the max number of results to return - will default to 3
+	RagEnabled      bool               `json:"rag_enabled"`      // this will default to true
+	FinetuneEnabled bool               `json:"finetune_enabled"` // this will default to true
+	RagSettings     SessionRagSettings `json:"rag_settings"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -370,6 +374,9 @@ type CreateSessionRequest struct {
 	UserInteractions        []*Interaction
 	Priority                bool
 	ManuallyReviewQuestions bool
+	RagEnabled              bool
+	FinetuneEnabled         bool
+	RagSettings             SessionRagSettings
 }
 
 type UpdateSessionRequest struct {

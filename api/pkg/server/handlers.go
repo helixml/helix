@@ -167,6 +167,14 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		UserInteractions:        []*types.Interaction{userInteraction},
 		Priority:                status.Config.StripeSubscriptionActive,
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
+		// TODO: allow these to be configured
+		RagEnabled:      true,
+		FinetuneEnabled: true,
+		RagSettings: types.SessionRagSettings{
+			DistanceFunction: "cosine",
+			Threshold:        0.2,
+			ResultsCount:     3,
+		},
 	})
 
 	return sessionData, nil
