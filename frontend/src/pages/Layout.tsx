@@ -149,7 +149,7 @@ const Layout: FC = ({
             disablePadding
             onClick={ () => {
               navigate('new')
-              setMobileOpen(false)
+              toggleDrawer()
             }}
           >
             <ListItemButton
@@ -202,7 +202,7 @@ const Layout: FC = ({
       >
         <SessionsMenu
           onOpenSession={ () => {
-            setMobileOpen(false)
+            toggleDrawer()
           }}
         />
       </Box>
@@ -366,10 +366,10 @@ const Layout: FC = ({
         />
       }
       <MuiDrawer
-        container={container}
+        container={ container }
         variant="temporary"
         open={mobileOpen}
-        onClose={handleDrawerToggle}
+        onClose={ handleDrawerToggle }
         ModalProps={{
           keepMounted: true, // Better open performance on mobile.
         }}
