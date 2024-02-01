@@ -104,6 +104,7 @@ export const InteractionInference: FC<{
               <Box
                 sx={{
                   mt: 2,
+                  maxWidth: '600px',
                 }}
                 key={ useURL }
               >
@@ -113,8 +114,8 @@ export const InteractionInference: FC<{
                 >
                   <GeneratedImage
                     sx={{
-                      height: '600px',
                       maxHeight: '600px',
+                      width: '100%',
                       border: '1px solid #000000',
                       filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
                     }}

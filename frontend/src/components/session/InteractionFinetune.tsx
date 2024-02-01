@@ -1,5 +1,6 @@
 import React, { FC, useMemo, useCallback } from 'react'
 import { useTheme } from '@mui/system'
+import useMediaQuery from '@mui/material/useMediaQuery' 
 import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
@@ -121,6 +122,8 @@ export const InteractionFinetune: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
+  const matches = useMediaQuery(theme.breakpoints.down('sm'))
+
   return (
     <>
       {
@@ -235,7 +238,7 @@ export const InteractionFinetune: FC<{
               mb: 3,
             }}
           >
-            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)} orientation={window.innerWidth < theme.breakpoints.values.md ? "vertical" : "horizontal"}>
+            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)} orientation={matches ? "vertical" : "horizontal"}>
               <Step>
                 <StepLabel>Extract Text</StepLabel>
               </Step>

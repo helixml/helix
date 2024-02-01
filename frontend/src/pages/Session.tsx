@@ -494,7 +494,9 @@ const Session: FC = () => {
           justifyContent: 'center',
         }}
       >
-        <Container maxWidth="lg">
+        <Container
+          maxWidth="md"
+        >
           <Row>
             <Cell flexGrow={1}>
               <TextField
@@ -537,6 +539,13 @@ const Session: FC = () => {
           <Box
             sx={{
               mt: 2,
+              mb: {
+                xs: 8,
+                sm: 8,
+                md: 8,
+                lg: 4,
+                xl: 0,
+              }
             }}
           >
             <Disclaimer />

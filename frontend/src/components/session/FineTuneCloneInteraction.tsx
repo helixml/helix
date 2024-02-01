@@ -108,8 +108,8 @@ export const FineTuneCloneInteraction: FC<{
             )
           }
           <Button
-            variant="outlined"
-            color="secondary"
+            variant="contained"
+            color="primary"
             size="small"
             sx={{
               ml: 1,
@@ -124,7 +124,7 @@ export const FineTuneCloneInteraction: FC<{
           {
             onAddDocuments && (
               <Button
-                variant='outlined'
+                variant='contained'
                 size="small"
                 sx={{
                   ml: 1,
