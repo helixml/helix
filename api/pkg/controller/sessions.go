@@ -262,43 +262,62 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+	var convertedTextDocuments int
+	var err error
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, convertedTextDocuments, err := c.convertDocumentsToText(session)
-		if err != nil {
-			return nil, err
-		}
-		session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
-		if err != nil {
-			return nil, err
-		}
 
-		// if we have checked the ManuallyReviewQuestions setting
-		// then we DON'T want the session in the queue yet
-		// the user has to confirm the questions are correct
-		// or there might have been errors that we want to give the user
-		// a chance to decide what to do
-		if session.Metadata.ManuallyReviewQuestions {
-			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
-				return nil, nil
+		// if either rag or finetuning is enabled then we need to convert the files to text
+		if session.Metadata.FinetuneEnabled || session.Metadata.RagEnabled {
+			session, convertedTextDocuments, err = c.convertDocumentsToText(session)
+			if err != nil {
+				return nil, err
 			}
 		}
 
-		// if there are any errors in the data prep then we should not auto-progress
-		// and give the user the choice
-		qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
-		if err != nil {
-			return nil, err
-		}
-		if qaPairErrorCount > 0 {
-			return nil, nil
+		// we put this behind a feature flag because then we can have fine-tune only sessions
+		if session.Metadata.RagEnabled {
+			session, _, err = c.indexChunksForRag(session)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		// otherwise lets kick off the fine tune
-		c.BeginFineTune(session)
+		// we put this behind a feature flag because then we can have RAG only sessions
+		if session.Metadata.FinetuneEnabled {
+			session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
+			if err != nil {
+				return nil, err
+			}
+
+			// if we have checked the ManuallyReviewQuestions setting
+			// then we DON'T want the session in the queue yet
+			// the user has to confirm the questions are correct
+			// or there might have been errors that we want to give the user
+			// a chance to decide what to do
+			if session.Metadata.ManuallyReviewQuestions {
+				if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+					return nil, nil
+				}
+			}
+
+			// if there are any errors in the data prep then we should not auto-progress
+			// and give the user the choice
+			qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
+			if err != nil {
+				return nil, err
+			}
+			if qaPairErrorCount > 0 {
+				return nil, nil
+			}
+
+			// otherwise lets kick off the fine tune
+			c.BeginFineTune(session)
+		}
+
 		return nil, nil
 	}
 	return session, nil

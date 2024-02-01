@@ -174,6 +174,8 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			DistanceFunction: "cosine",
 			Threshold:        0.2,
 			ResultsCount:     3,
+			ChunkSize:        4096,
+			ChunkOverflow:    128,
 		},
 	})
 
