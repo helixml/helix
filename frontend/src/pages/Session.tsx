@@ -495,7 +495,7 @@ const Session: FC = () => {
         }}
       >
         <Container
-          maxWidth="md"
+          maxWidth="lg"
         >
           <Row>
             <Cell flexGrow={1}>
@@ -544,7 +544,7 @@ const Session: FC = () => {
                 sm: 8,
                 md: 8,
                 lg: 4,
-                xl: 0,
+                xl: 4,
               }
             }}
           >
