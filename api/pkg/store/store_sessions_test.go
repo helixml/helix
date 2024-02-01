@@ -17,8 +17,9 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 		Updated: time.Now(),
 		Interactions: []*types.Interaction{
 			{
-				ID:    "id-1",
-				State: types.InteractionStateComplete,
+				ID:      "id-1",
+				State:   types.InteractionStateComplete,
+				Creator: types.CreatorTypeSystem,
 			},
 		},
 	}
@@ -39,12 +40,18 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_CreateSession() {
 
 func (suite *PostgresStoreTestSuite) TestPostgresStore_GetSession() {
 	session := types.Session{
-		ID:           system.GenerateSessionID(),
-		Name:         "name" + system.GenerateUUID(),
-		Owner:        "user_id",
-		Created:      time.Now(),
-		Updated:      time.Now(),
-		Interactions: []*types.Interaction{},
+		ID:      system.GenerateSessionID(),
+		Name:    "name" + system.GenerateUUID(),
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Interactions: []*types.Interaction{
+			{
+				ID:      "id-1",
+				State:   types.InteractionStateComplete,
+				Creator: types.CreatorTypeSystem,
+			},
+		},
 	}
 
 	// Call the CreateSession method to create the session
@@ -90,12 +97,14 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 	session.Name = "new_name"
 	session.Interactions = []*types.Interaction{
 		{
-			ID:    "id-1",
-			State: types.InteractionStateComplete,
+			ID:      "id-1",
+			State:   types.InteractionStateComplete,
+			Creator: types.CreatorTypeSystem,
 		},
 		{
-			ID:    "id-2",
-			State: types.InteractionStateComplete,
+			ID:      "id-2",
+			State:   types.InteractionStateComplete,
+			Creator: types.CreatorTypeSystem,
 		},
 	}
 
@@ -121,11 +130,17 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_UpdateSession() {
 func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteSession() {
 	// Create a sample session
 	session := types.Session{
-		ID:           system.GenerateSessionID(),
-		Owner:        "user_id",
-		Created:      time.Now(),
-		Updated:      time.Now(),
-		Interactions: []*types.Interaction{},
+		ID:      system.GenerateSessionID(),
+		Owner:   "user_id",
+		Created: time.Now(),
+		Updated: time.Now(),
+		Interactions: []*types.Interaction{
+			{
+				ID:      "id-1",
+				State:   types.InteractionStateComplete,
+				Creator: types.CreatorTypeSystem,
+			},
+		},
 	}
 
 	// Call the CreateSession method to create the session
