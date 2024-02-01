@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -42,6 +43,9 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	tool.Owner = userContext.Owner
+	tool.OwnerType = userContext.OwnerType
 
 	err = s.validateTool(&tool)
 	if err != nil {
@@ -119,6 +123,12 @@ func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 
 		if tool.Config.API.Schema == "" {
 			return system.NewHTTPError400("API schema is required for API tools")
+		}
+
+		// If schema is base64 encoded, decode it
+		decoded, err := base64.StdEncoding.DecodeString(tool.Config.API.Schema)
+		if err == nil {
+			tool.Config.API.Schema = string(decoded)
 		}
 
 		actions, err := tools.GetActionsFromSchema(tool.Config.API.Schema)
