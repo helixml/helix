@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -410,10 +411,10 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		}
 	}
 
-	systemPrompt := fmt.Sprintf(
-		"You are an intelligent chatbot named Helix that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
-		strings.Join(docIDs, ", "), docGroupID, len(docIDs),
-	)
+	systemPrompt, err := prompts.TextFinetuneSystemPrompt(docIDs, docGroupID)
+	if err != nil {
+		return nil, 0, err
+	}
 	session.Metadata.SystemPrompt = systemPrompt
 	c.WriteSession(session)
 
