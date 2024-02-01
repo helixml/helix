@@ -10,7 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/evals"
 )
 
-var BASE_URL := "https://app.tryhelix.ai"
+var BASE_URL = "https://app.tryhelix.ai"
 var evalTargets []string
 
 func newEvalsCommand() *cobra.Command {
@@ -41,18 +41,27 @@ func newShowCommand() *cobra.Command {
 		Short: "Show the sessions and scores within an eval",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			baseSessions, err := evals.GetEvalSessions(args[0])
+			e, err := evals.NewEvals()
+			if err != nil {
+				return err
+			}
+			baseSessions, err := e.GetEvalSessions(args[0])
 			if err != nil {
 				return err
 			}
 
 			// Create a new table
 			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"ID", "Name", "Link", "Score"})
+			table.SetHeader([]string{"Session ID", "Name", "Link", "Score"})
 
 			// Add data to the table
 			for _, session := range baseSessions {
-				table.Append([]string{session.ID, session.Name, fmt.Sprintf("%s/session/%s", BASE_URL, session.ID), session.Score})
+				table.Append([]string{
+					session.ID,
+					session.Name,
+					fmt.Sprintf("%s/session/%s", BASE_URL, session.ID),
+					session.Metadata.EvalUserScore,
+				})
 			}
 
 			// Render the table
@@ -70,18 +79,22 @@ func newBaseCommand() *cobra.Command {
 		Use:   "base",
 		Short: "List base eval sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			baseSessions, err := evals.GetBaseSessions()
+			e, err := evals.NewEvals()
+			if err != nil {
+				return err
+			}
+			baseSessions, err := e.GetBaseSessions()
 			if err != nil {
 				return err
 			}
 
 			// Create a new table
 			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"ID", "Name", "Link", "Score"})
+			table.SetHeader([]string{"Session ID", "Name", "Link", "Score"})
 
 			// Add data to the table
 			for _, session := range baseSessions {
-				table.Append([]string{session.ID, session.Name, fmt.Sprintf("%s/session/%s", BASE_URL, session.ID), session.Score})
+				table.Append([]string{session.ID, session.Name, fmt.Sprintf("%s/session/%s", BASE_URL, session.ID), session.Metadata.EvalUserScore})
 			}
 
 			// Render the table
@@ -99,7 +112,11 @@ func newInitCommand() *cobra.Command {
 		Use:   "init",
 		Short: "Create a new eval session, returning the id",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			newEvalId, err := evals.Init()
+			e, err := evals.NewEvals()
+			if err != nil {
+				return err
+			}
+			newEvalId, err := e.Init()
 			if err != nil {
 				return err
 			}
@@ -115,20 +132,24 @@ func newListCommand() *cobra.Command {
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List all evals, including the base, showing the score in a table",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 
-			baseSessions, err := evals.ListEvalSummary()
+			e, err := evals.NewEvals()
+			if err != nil {
+				return err
+			}
+			evals, err := e.ListEvalSummary()
 			if err != nil {
 				return err
 			}
 
 			// Create a new table
 			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"ID", "Name", "Score"})
+			table.SetHeader([]string{"Eval ID", "Name", "Score"})
 
 			// Add data to the table
-			for _, session := range baseSessions {
-				table.Append([]string{session.ID, session.Name, session.Score})
+			for _, eval := range evals {
+				table.Append([]string{eval.EvalId, fmt.Sprintf("%.2f", eval.Score)})
 			}
 
 			// Render the table
@@ -148,8 +169,11 @@ func newRunCommand() *cobra.Command {
 		Short: "Start an eval on the given id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := evals.Run(args[0])
-			return er
+			e, err := evals.NewEvals()
+			if err != nil {
+				return err
+			}
+			return e.Run(args[0])
 		},
 	}
 
