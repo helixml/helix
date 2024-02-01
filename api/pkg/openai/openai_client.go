@@ -8,6 +8,11 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const (
+	retries             = 3
+	delayBetweenRetries = time.Second
+)
+
 type Client interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 }
@@ -32,13 +37,21 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
+			// Cast into openai.RequestError
+			if apiErr, ok := err.(*openai.RequestError); ok {
+				if apiErr.HTTPStatusCode == 401 {
+					// Do not retry on auth failures
+					return retry.Unrecoverable(err)
+				}
+			}
+
 			return err
 		}
 
 		return nil
 	},
-		retry.Attempts(3),
-		retry.Delay(time.Second),
+		retry.Attempts(retries),
+		retry.Delay(delayBetweenRetries),
 		retry.Context(ctx),
 	)
 
