@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 // TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
@@ -23,17 +23,14 @@ type Config struct {
 
 type ChainStrategy struct {
 	cfg        *Config
-	apiClient  *openai.Client
+	apiClient  openai.Client
 	httpClient *http.Client
 }
 
 func NewChainStrategy(cfg *Config) (*ChainStrategy, error) {
-	config := openai.DefaultConfig(cfg.OpenAIApiKey)
-	config.BaseURL = cfg.OpenAIBaseURL
-
 	return &ChainStrategy{
 		cfg:        cfg,
-		apiClient:  openai.NewClientWithConfig(config),
+		apiClient:  openai.New(cfg.OpenAIApiKey, cfg.OpenAIBaseURL),
 		httpClient: http.DefaultClient,
 	}, nil
 }
