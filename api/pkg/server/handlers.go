@@ -117,6 +117,60 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRagSettings, error) {
+	var err error
+	ragDistanceFunction := req.FormValue("rag_distance_function")
+	if ragDistanceFunction == "" {
+		ragDistanceFunction = "cosine"
+	}
+
+	ragThresholdStr := req.FormValue("rag_threshold")
+	ragThreshold := 0.2 // Default value if ragThreshold is not provided or conversion fails
+	if ragThresholdStr != "" {
+		ragThreshold, err = strconv.ParseFloat(ragThresholdStr, 32)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragResultsCountStr := req.FormValue("rag_results_count")
+	ragResultsCount := 3 // Default value if resultsCount is not provided or conversion fails
+	if ragResultsCountStr != "" {
+		ragResultsCount, err = strconv.Atoi(ragResultsCountStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragChunkSizeStr := req.FormValue("rag_chunk_size")
+	ragChunkSize := 4096 // Default value if chunkSize is not provided or conversion fails
+	if ragChunkSizeStr != "" {
+		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
+	ragChunkOverflow := 128 // Default value if chunkOverflow is not provided or conversion fails
+	if ragChunkOverflowStr != "" {
+		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	settings := &types.SessionRagSettings{
+		DistanceFunction: ragDistanceFunction,
+		Threshold:        ragThreshold,
+		ResultsCount:     ragResultsCount,
+		ChunkSize:        ragChunkSize,
+		ChunkOverflow:    ragChunkOverflow,
+	}
+
+	return settings, nil
+}
+
 func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 
@@ -157,6 +211,11 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	if err != nil {
 		return nil, err
 	}
+
+	ragSettings, err := apiServer.getSessionRagSettings(req)
+	if err != nil {
+		return nil, err
+	}
 	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
 		SessionID:               sessionID,
 		SessionMode:             sessionMode,
@@ -170,13 +229,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		// TODO: allow these to be configured
 		RagEnabled:      true,
 		FinetuneEnabled: true,
-		RagSettings: types.SessionRagSettings{
-			DistanceFunction: "cosine",
-			Threshold:        0.2,
-			ResultsCount:     3,
-			ChunkSize:        4096,
-			ChunkOverflow:    128,
-		},
+		RagSettings:     *ragSettings,
 	})
 
 	return sessionData, nil
