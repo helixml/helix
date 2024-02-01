@@ -52,7 +52,26 @@ export const InteractionLiveStream: FC<{
       }
       {
         message && (
-            <Typography dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')}}></Typography>
+          <div>
+            <Typography dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>') + `
+              <style>
+                .blinker-class {
+                  animation: blink 1s linear infinite;
+                }
+
+                @keyframes blink {
+                  25% {
+                    opacity: 0.5;
+                  }
+                  50% {
+                    opacity: 0;
+                  }
+                  75% {
+                    opacity: 0.5;
+                  }
+                }
+              </style><span style="color: yellow; font-weight:bold;" class="blinker-class">┃</span>`}}></Typography>
+          </div>
         )
       }
       {

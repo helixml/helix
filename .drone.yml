@@ -11,7 +11,25 @@ steps:
   image: golang:1.20-alpine
   commands:
     - go build -o helix
-    - go test ./...
+- name: unit-test
+  image: golang:1.20-alpine
+  environment:
+    OPENAI_API_KEY:
+      from_secret: openai_api_key
+    OPENAI_BASE_URL:
+      from_secret: openai_base_url
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+  commands:
+    - go test -v ./...
+
+services:
+- name: postgres
+  image: postgres:12.13-alpine
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: postgres
 
 ---
 kind: pipeline
@@ -31,41 +49,6 @@ steps:
     dockerfile: Dockerfile
     auto_tag: true
     repo: helixml/helix/controlplane
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-    - main
-    event:
-    - tag
-    - push
-
-depends_on:
-- default
-
----
-kind: pipeline
-type: docker
-name: build-frontend
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-- name: publish-frontend
-  image: plugins/gar
-  pull: always
-  settings:
-    dockerfile: frontend/Dockerfile
-    context: frontend
-    auto_tag: true
-    repo: helixml/helix/frontend
     location: europe
     json_key:
       from_secret: gar_json_key_b64

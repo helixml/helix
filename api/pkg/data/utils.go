@@ -3,6 +3,7 @@ package data
 import (
 	"fmt"
 	"path"
+	"runtime/debug"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -217,6 +218,23 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	}, nil
 }
 
+func GetHelixVersion() string {
+	helixVersion := "<unknown>"
+	info, ok := debug.ReadBuildInfo()
+	if ok {
+		for _, kv := range info.Settings {
+			if kv.Value == "" {
+				continue
+			}
+			switch kv.Key {
+			case "vcs.revision":
+				helixVersion = kv.Value
+			}
+		}
+	}
+	return helixVersion
+}
+
 func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
@@ -251,6 +269,7 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 			},
 			Priority:                req.Priority,
 			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
+			HelixVersion:            GetHelixVersion(),
 		},
 	}
 

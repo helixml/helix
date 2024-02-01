@@ -10,6 +10,7 @@ RUN go mod download
 
 # COPY the source code as the last step
 COPY api ./api
+COPY .git /.git
 
 WORKDIR /app/api
 

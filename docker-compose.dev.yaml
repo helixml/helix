@@ -32,6 +32,7 @@ services:
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
       - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
@@ -108,6 +109,7 @@ services:
     volumes:
       - .:/workspace/helix
       - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
+      - ~/.cache/huggingface:/root/.cache/huggingface
       # comment these out if you don't have appropriate repos checked out
       #- ../cog-sdxl/predict.py:/workspace/cog-sdxl/predict.py
       #- ../cog-sdxl/weights.py:/workspace/cog-sdxl/weights.py
