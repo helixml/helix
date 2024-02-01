@@ -54,6 +54,7 @@ type HelixAPIServer struct {
 	keycloak           *keycloak
 	keyCloakMiddleware *keyCloakMiddleware
 	pubsub             pubsub.PubSub
+	router             *mux.Router
 }
 
 func NewServer(
@@ -107,10 +108,42 @@ func NewServer(
 }
 
 func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.CleanupManager) error {
+	apiRouter, err := apiServer.registerRoutes(ctx)
+	if err != nil {
+		return err
+	}
+
+	apiServer.startUserWebSocketServer(
+		ctx,
+		apiRouter,
+		"/ws/user",
+	)
+
+	StartRunnerWebSocketServer(
+		ctx,
+		apiRouter,
+		apiServer.Controller,
+		"/ws/runner",
+		apiServer.Controller.RunnerWebsocketEventChanReader,
+		apiServer.runnerAuth.isRequestAuthenticated,
+	)
+
+	srv := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),
+		WriteTimeout:      time.Minute * 15,
+		ReadTimeout:       time.Minute * 15,
+		ReadHeaderTimeout: time.Minute * 15,
+		IdleTimeout:       time.Minute * 60,
+		Handler:           apiServer.router,
+	}
+	return srv.ListenAndServe()
+}
+
+func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
@@ -244,30 +277,9 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	// Default handler for static files
 	apiServer.registerDefaultHandler(router)
 
-	apiServer.startUserWebSocketServer(
-		ctx,
-		subrouter,
-		"/ws/user",
-	)
+	apiServer.router = router
 
-	StartRunnerWebSocketServer(
-		ctx,
-		subrouter,
-		apiServer.Controller,
-		"/ws/runner",
-		apiServer.Controller.RunnerWebsocketEventChanReader,
-		apiServer.runnerAuth.isRequestAuthenticated,
-	)
-
-	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),
-		WriteTimeout:      time.Minute * 15,
-		ReadTimeout:       time.Minute * 15,
-		ReadHeaderTimeout: time.Minute * 15,
-		IdleTimeout:       time.Minute * 60,
-		Handler:           router,
-	}
-	return srv.ListenAndServe()
+	return subrouter, nil
 }
 
 func getID(r *http.Request) string {
