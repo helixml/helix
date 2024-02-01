@@ -35,6 +35,7 @@ services:
       - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
       - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
       - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
+      - EVAL_USER_ID=${EVAL_USER_ID:-}
       - FILESTORE_LOCALFS_PATH=/filestore
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
       - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}

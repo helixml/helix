@@ -100,6 +100,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			// if this is defined it means runner auth is enabled
 			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+			EvalUserID:  getDefaultServeOptionString("EVAL_USER_ID", ""),
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SentryDSNApi:            getDefaultServeOptionString("SENTRY_DSN_API", ""),
