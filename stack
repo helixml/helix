@@ -77,6 +77,14 @@ function stop() {
   tmux kill-session -t $TMUX_SESSION ||true
 }
 
+function up() {
+  docker-compose -f docker-compose.dev.yaml up -d 
+}
+
+function rebuild() {
+  docker-compose -f docker-compose.dev.yaml up -d --build api
+}
+
 function db() {
   local subcommand="${1-cli}"
   shift
