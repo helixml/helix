@@ -42,6 +42,12 @@ type ControllerOptions struct {
 	// the URL we post documents to so we can get the text back from them
 	TextExtractionURL string
 
+	// the URL we can post a chunk of text to for RAG indexing
+	RAGIndexingURL string
+
+	// the URL we can post a prompt to to match RAG records
+	RAGQueryURL string
+
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int
 
