@@ -117,7 +117,11 @@ func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 			return system.NewHTTPError400("API URL is required for API tools")
 		}
 
-		actions, err := tools.GetActionsFromSchema(tool)
+		if tool.Config.API.Schema == "" {
+			return system.NewHTTPError400("API schema is required for API tools")
+		}
+
+		actions, err := tools.GetActionsFromSchema(tool.Config.API.Schema)
 		if err != nil {
 			return system.NewHTTPError400("failed to get actions from schema, error: %s", err)
 		}

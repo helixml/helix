@@ -171,13 +171,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
-	actions, err := GetActionsFromSchema(&types.Tool{
-		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
-				Schema: petStoreApiSpec,
-			},
-		},
-	})
+	actions, err := GetActionsFromSchema(petStoreApiSpec)
 	require.NoError(t, err)
 	require.Len(t, actions, 3)
 
