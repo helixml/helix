@@ -149,7 +149,7 @@ const Layout: FC = ({
             disablePadding
             onClick={ () => {
               navigate('new')
-              toggleDrawer()
+              handleDrawerToggle()
             }}
           >
             <ListItemButton
@@ -202,7 +202,7 @@ const Layout: FC = ({
       >
         <SessionsMenu
           onOpenSession={ () => {
-            toggleDrawer()
+            handleDrawerToggle()
           }}
         />
       </Box>
