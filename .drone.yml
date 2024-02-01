@@ -68,41 +68,6 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-frontend
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-- name: publish-frontend
-  image: plugins/gar
-  pull: always
-  settings:
-    dockerfile: frontend/Dockerfile
-    context: frontend
-    auto_tag: true
-    repo: helixml/helix/frontend
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-    - main
-    event:
-    - tag
-    - push
-
-depends_on:
-- default
-
----
-kind: pipeline
-type: docker
 name: build-runner
 
 volumes:
