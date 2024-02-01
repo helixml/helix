@@ -402,8 +402,12 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	docIDs := []string{}
 	// TODO: remove duplication wrt splitter
 	docGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	uniqueMap := make(map[string]bool)
 	for _, val := range session.Metadata.DocumentIDs {
-		docIDs = append(docIDs, val)
+		if !uniqueMap[val] {
+			uniqueMap[val] = true
+			docIDs = append(docIDs, val)
+		}
 	}
 
 	systemPrompt := fmt.Sprintf(

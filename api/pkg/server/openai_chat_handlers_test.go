@@ -41,7 +41,10 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	suite.pubsub = pubsub.New()
+	ps, err := pubsub.New()
+	suite.NoError(err)
+
+	suite.pubsub = ps
 
 	suite.userID = "user_id"
 	suite.authCtx = setRequestUser(context.Background(), types.UserData{
@@ -122,8 +125,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 			time.AfterFunc(100*time.Millisecond, func() {
 				suite.pubsub.Publish(
 					context.Background(),
-					session.ID,
-					bts, pubsub.WithPublishNamespace("user_id"))
+					pubsub.GetSessionQueue("user_id", session.ID),
+					bts)
 			})
 
 			return &session, nil
@@ -224,8 +227,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 
 					suite.pubsub.Publish(
 						context.Background(),
-						session.ID,
-						msg1, pubsub.WithPublishNamespace("user_id"))
+						pubsub.GetSessionQueue("user_id", session.ID),
+						msg1)
 				}
 			})
 

@@ -80,6 +80,8 @@ prompts:
 
     Then, write a third question which is the author or authors of the document.
 
+    Always wrap the JSON in ```json and ``` tags to indicate the start and end of the JSON.
+
     Here is the document:
     {{.DocumentChunk}}
 
@@ -122,23 +124,23 @@ prompts:
     ```json
     [
       {
-        "question": "…",
+        "question": "Please write me a brief/short summary of the document or the key points in the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a summary of the document",
         "answer": "…"
       },
       {
-        "question": "…",
+        "question": "Please write me a long/verbose summary of the document",
         "answer": "…"
       }
     ]
     ```
    user: |
-    For the first answer, create a very short summary of the document.
-    For the second answer, create a medium length summary of the document.
-    For the third answer, create a detailed summary of the document.
+    The first question must be "Please write me a brief/short summary of the document or the key points in the document"
+    The second question must be "Please write me a summary of the document"
+    The third question must be "Please write me a long/verbose summary of the document"
 
     Here is the document:
     {{.DocumentChunk}}

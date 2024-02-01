@@ -7,4 +7,4 @@ COPY api ./api
 WORKDIR /app/api
 RUN go build -o /helix
 EXPOSE 80
-ENTRYPOINT [ "/helix" ]
+ENTRYPOINT [ "/helix", "serve" ]
