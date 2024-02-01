@@ -28,9 +28,10 @@ type Target struct {
 }
 
 type Prompt struct {
-	Name   string `yaml:"name"`
-	System string `yaml:"system"`
-	User   string `yaml:"user"`
+	Name       string                 `yaml:"name"`
+	System     string                 `yaml:"system"`
+	User       string                 `yaml:"user"`
+	JsonSchema map[string]interface{} `yaml:"json_schema"`
 }
 
 type Text struct {
@@ -271,10 +272,10 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 
 	startTime := time.Now()
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
-	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug)
+	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 	if err != nil {
 		log.Printf("ChatCompletion error, trying again (%s): %v\n", debug, err)
-		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug)
+		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +329,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(apiUrl, token, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
@@ -346,6 +347,10 @@ func chatWithModel(apiUrl, token, model, system, user, debug string) ([]types.Da
 					Role:    openai.ChatMessageRoleUser,
 					Content: user,
 				},
+			},
+			ResponseFormat: &openai.ChatCompletionResponseFormat{
+				Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+				// TODO: add schema here
 			},
 		},
 	)
