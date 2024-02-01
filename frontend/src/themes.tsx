@@ -17,11 +17,13 @@ export interface ITheme {
   darkBackgroundColor: string,
   darkBackgroundImage: string,
   darkBorder: string,
+  darkText: string,
   lightIcon: string,
   lightIconHover: string,
   lightBackgroundColor: string,
   lightBackgroundImage: string,
   lightBorder: string,
+  lightText: string,
   activeSections: string[],
   logo: {
     (): ReactElement,
@@ -43,11 +45,13 @@ export const THEMES: Record<string, ITheme> = {
     darkBackgroundColor: "#070714",
     darkBackgroundImage: "url('/img/nebula-dark.png')",
     darkBorder: "0.1rem solid #303047",
+    darkText: "#ffffff",
     lightIcon: '#5d5d7b',
     lightIconHover: '#00d5ff',
     lightBackgroundColor: "#ffffff",
     lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",
+    lightText: "#333",
     // this means ALL
     activeSections: [],
     logo: () => (

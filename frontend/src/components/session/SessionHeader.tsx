@@ -163,8 +163,17 @@ export const SessionHeader: FC<{
               </Box>
             ) : (
               <>
-                <Typography variant="h6" component="h1">
-                  {session.name} {/* Assuming session.name is the title */}
+                <Typography
+                  component="h1"
+                  sx={{
+                    fontSize: { xs: 'small', sm: 'medium', md: 'large' },
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: '22ch',
+                  }}
+                >
+                  {session.name}
                 </Typography>
                 <IconButton
                   onClick={() => setEditingSession(true)}
@@ -240,14 +249,14 @@ export const SessionHeader: FC<{
               <ListItemIcon>
                 <FolderOpenIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Open Session" />
+              <ListItemText primary="Open Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
             </MenuItem>
             <JsonWindowLink data={session}>
               <MenuItem>
                 <ListItemIcon>
                   <InfoIcon />
                 </ListItemIcon>
-                <ListItemText primary="Show Info" />
+                <ListItemText primary="Show Info" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
             </JsonWindowLink>
             <MenuItem onClick={(e) => {
@@ -258,7 +267,7 @@ export const SessionHeader: FC<{
               <ListItemIcon>
                 <DeleteIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Delete Session" />
+              <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
             </MenuItem>
             {isOwner && (
               <MenuItem onClick={(e) => {
@@ -269,7 +278,7 @@ export const SessionHeader: FC<{
                 <ListItemIcon>
                   <ShareIcon fontSize="small" />
                 </ListItemIcon>
-                <ListItemText primary="Share Session" />
+                <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
             )}
             <MenuItem onClick={() => {
@@ -279,7 +288,7 @@ export const SessionHeader: FC<{
               <ListItemIcon>
                 <AutoStoriesIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Helix Docs" />
+              <ListItemText primary="Helix Docs" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
             </MenuItem>
           </Menu>
           <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 0 }}>
