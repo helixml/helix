@@ -212,7 +212,7 @@ func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	return string(jsonSpec), nil
 }
 
-func getActionsFromSchema(tool *types.Tool) ([]*types.ToolApiAction, error) {
+func GetActionsFromSchema(tool *types.Tool) ([]*types.ToolApiAction, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))

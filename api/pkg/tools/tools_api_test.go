@@ -171,7 +171,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
-	actions, err := getActionsFromSchema(&types.Tool{
+	actions, err := GetActionsFromSchema(&types.Tool{
 		Config: types.ToolConfig{
 			API: &types.ToolApiConfig{
 				Schema: petStoreApiSpec,
