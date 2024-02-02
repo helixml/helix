@@ -59,10 +59,10 @@ func NewHTTPError(err error) *HTTPError {
 	}
 }
 
-func NewHTTPError400(message string) *HTTPError {
+func NewHTTPError400(tmpl string, format ...interface{}) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusBadRequest,
-		Message:    message,
+		Message:    fmt.Sprintf(tmpl, format...),
 	}
 }
 

@@ -212,10 +212,10 @@ func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	return string(jsonSpec), nil
 }
 
-func getActionsFromSchema(tool *types.Tool) ([]*types.ToolApiAction, error) {
+func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 	loader := openapi3.NewLoader()
 
-	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
+	schema, err := loader.LoadFromData([]byte(spec))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load openapi spec: %w", err)
 	}
