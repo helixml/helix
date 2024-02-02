@@ -349,8 +349,8 @@ func chatWithModel(apiUrl, token, model, system, user, debug string, jsonSchema 
 				},
 			},
 			ResponseFormat: &openai.ChatCompletionResponseFormat{
-				Type: openai.ChatCompletionResponseFormatTypeJSONObject,
-				// TODO: add schema here
+				Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
+				Schema: jsonSchema,
 			},
 		},
 	)
