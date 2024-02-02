@@ -229,9 +229,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		// the default is no unless we specifically say yes
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 		// the default is yes unless we specifically say no
-		RagEnabled:      req.FormValue("rag_enabled") != "no",
-		FinetuneEnabled: req.FormValue("finetune_enabled") != "no",
-		RagSettings:     *ragSettings,
+		RagEnabled:          req.FormValue("rag_enabled") != "no",
+		TextFinetuneEnabled: req.FormValue("text_finetune_enabled") != "no",
+		RagSettings:         *ragSettings,
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)

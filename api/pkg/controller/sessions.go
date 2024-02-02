@@ -271,7 +271,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
 
 		// if either rag or finetuning is enabled then we need to convert the files to text
-		if session.Metadata.FinetuneEnabled || session.Metadata.RagEnabled {
+		if session.Metadata.TextFinetuneEnabled || session.Metadata.RagEnabled {
 			session, convertedTextDocuments, err = c.convertDocumentsToText(session)
 			if err != nil {
 				return nil, err
@@ -287,7 +287,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		}
 
 		// we put this behind a feature flag because then we can have RAG only sessions
-		if session.Metadata.FinetuneEnabled {
+		if session.Metadata.TextFinetuneEnabled {
 			session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
 			if err != nil {
 				return nil, err

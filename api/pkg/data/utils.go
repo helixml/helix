@@ -271,7 +271,7 @@ func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
 			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
 			HelixVersion:            GetHelixVersion(),
 			RagEnabled:              req.RagEnabled,
-			FinetuneEnabled:         req.FinetuneEnabled,
+			TextFinetuneEnabled:     req.TextFinetuneEnabled,
 			RagSettings:             req.RagSettings,
 		},
 	}
