@@ -1,4 +1,4 @@
-# helix
+# HelixML
 
 Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
@@ -12,7 +12,7 @@ See more:
 * [Docs & Demo →](https://docs.helix.ml/docs/)
 
 
-# license
+# License
 
 Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under a similar license to Docker Desktop. You can run the source code (in this repo) for free for:
 
