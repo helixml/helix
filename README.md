@@ -6,7 +6,7 @@ Including support for fine-tuning models that's as easy as drag'n'drop.
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
-See more: [https://docs.helix.ml](Docs ➡️)
+See more: [Docs ➡️](https://docs.helix.ml)
 
 # license
 
