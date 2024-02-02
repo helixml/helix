@@ -614,6 +614,15 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
+	newDocumentIds := map[string]string{}
+
+	for filename, documentID := range newSession.Metadata.DocumentIDs {
+		newFile := strings.Replace(filename, oldPrefix, newPrefix, 1)
+		newDocumentIds[newFile] = documentID
+	}
+
+	newSession.Metadata.DocumentIDs = newDocumentIds
+
 	copyFile := func(filePath string) (string, error) {
 		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
 		log.Debug().

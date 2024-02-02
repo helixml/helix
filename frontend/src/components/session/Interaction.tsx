@@ -25,6 +25,7 @@ export const Interaction: FC<{
   interaction: IInteraction,
   session: ISession,
   showFinetuning?: boolean,
+  highlightAllFiles?: boolean,
   headerButtons?: React.ReactNode,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
@@ -35,6 +36,7 @@ export const Interaction: FC<{
   serverConfig,
   interaction,
   session,
+  highlightAllFiles = false,
   showFinetuning = true,
   headerButtons,
   retryFinetuneErrors,
@@ -90,6 +92,7 @@ export const Interaction: FC<{
             serverConfig={ serverConfig }
             interaction={ interaction }
             session={ session }
+            highlightAllFiles={ highlightAllFiles }
             retryFinetuneErrors={ retryFinetuneErrors }
             onReloadSession={ onReloadSession }
             onClone={ onClone }
@@ -100,6 +103,7 @@ export const Interaction: FC<{
       
       <InteractionInference
         serverConfig={ serverConfig }
+        session={ session }
         imageURLs={ imageURLs }
         message={ displayMessage }
         error={ interaction?.error }
