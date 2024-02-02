@@ -103,7 +103,7 @@ export const useFinetuneInputs = () => {
     })
     formData.set('mode', mode)
     formData.set('type', type)
-    formData.set('finetune_enabled', finetuneEnabled ? 'yes' : 'no')
+    formData.set('text_finetune_enabled', finetuneEnabled ? 'yes' : 'no')
     formData.set('rag_enabled', ragEnabled ? 'yes' : 'no')
     formData.set('rag_distance_function', ragDistanceFunction)
     formData.set('rag_threshold', ragThreshold.toString())

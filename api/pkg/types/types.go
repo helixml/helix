@@ -126,9 +126,9 @@ type SessionMetadata struct {
 	// we might choose to not use them (this will help our eval framework know what works the best)
 	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
 	// and what the threshold for a "good" answer is
-	RagEnabled      bool               `json:"rag_enabled"`      // this will default to true
-	FinetuneEnabled bool               `json:"finetune_enabled"` // this will default to true
-	RagSettings     SessionRagSettings `json:"rag_settings"`
+	RagEnabled          bool               `json:"rag_enabled"`           // this will default to true
+	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // this will default to true
+	RagSettings         SessionRagSettings `json:"rag_settings"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -413,7 +413,7 @@ type CreateSessionRequest struct {
 	Priority                bool
 	ManuallyReviewQuestions bool
 	RagEnabled              bool
-	FinetuneEnabled         bool
+	TextFinetuneEnabled     bool
 	RagSettings             SessionRagSettings
 }
 
