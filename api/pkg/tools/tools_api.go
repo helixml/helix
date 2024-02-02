@@ -11,7 +11,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/types"
 
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 )
 
 func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, pathParams map[string]string) (*http.Request, error) {

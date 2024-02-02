@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 )
 
 type IsActionableResponse struct {

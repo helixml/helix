@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 	"gopkg.in/yaml.v3"
 )
 
