@@ -9,7 +9,7 @@ Looking for a private GenAI platform? From language models to image models and m
 See more:
 * [Home →](https://tryhelix.ai)
 * [Developers & Enterprise →](https://docs.helix.ml)
-* [Docs →](https://docs.helix.ml/docs/)
+* [Docs & Demo →](https://docs.helix.ml/docs/)
 
 
 # license
