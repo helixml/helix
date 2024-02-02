@@ -1,6 +1,6 @@
 # helix
 
-Private GenAI platform. Deploy Open AI in your own data center or VPC and retain complete data security & control.
+Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
 Including support for fine-tuning models that's as easy as drag'n'drop.
 
