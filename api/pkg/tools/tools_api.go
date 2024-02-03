@@ -81,7 +81,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)

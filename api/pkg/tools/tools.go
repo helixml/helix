@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -14,23 +16,38 @@ type Planner interface {
 	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
 }
 
-type Config struct {
-	OpenAIApiKey  string `envconfig:"OPENAI_API_KEY"`
-	OpenAIBaseURL string `envconfig:"OPENAI_BASE_URL" default:"https://api.together.xyz/v1"`
-
-	ToolsModel string `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"`
-}
-
 type ChainStrategy struct {
-	cfg        *Config
+	cfg        *config.ServerConfig
 	apiClient  openai.Client
 	httpClient *http.Client
 }
 
-func NewChainStrategy(cfg *Config) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
+	var apiClient openai.Client
+
+	switch cfg.Tools.Provider {
+	case config.ProviderOpenAI:
+		if cfg.Providers.OpenAI.APIKey == "" {
+			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
+		}
+
+		// TODO: validate tool model
+
+		apiClient = openai.New(
+			cfg.Providers.OpenAI.APIKey,
+			cfg.Providers.OpenAI.BaseURL)
+	case config.ProviderTogetherAI:
+		if cfg.Providers.TogetherAI.APIKey == "" {
+			return nil, errors.New("TogetherAI API key (TOGETHERAI_API_KEY) is required")
+		}
+		apiClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL)
+	}
+
 	return &ChainStrategy{
 		cfg:        cfg,
-		apiClient:  openai.New(cfg.OpenAIApiKey, cfg.OpenAIBaseURL),
+		apiClient:  apiClient,
 		httpClient: http.DefaultClient,
 	}, nil
 }
