@@ -19,6 +19,10 @@ type IsActionableResponse struct {
 	Justification string `json:"justification"`
 }
 
+func (i *IsActionableResponse) Actionable() bool {
+	return i.NeedsApi == "yes"
+}
+
 func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{

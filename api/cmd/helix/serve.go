@@ -64,6 +64,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
+			Config:                       &serverConfig,
 			FilestorePresignSecret:       filestoreSignSecret,
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
