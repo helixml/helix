@@ -87,8 +87,6 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	return sessionData, nil
 }
 
-func (c *Controller) handleToolInteraction()
-
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
 	fmt.Println("========= UpdateSessionRequest =========")
 	spew.Dump(req)
