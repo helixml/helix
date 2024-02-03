@@ -48,7 +48,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, tool *types.T
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 500,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)
@@ -83,7 +83,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, tool *types.Too
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)

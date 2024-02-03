@@ -68,7 +68,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)
