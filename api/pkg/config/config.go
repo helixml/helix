@@ -7,6 +7,8 @@ type ServerConfig struct {
 	Tools         Tools
 	Keycloak      Keycloak
 	Notifications Notifications
+	Janitor       Janitor
+	Stripe        Stripe
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -81,4 +83,18 @@ type EmailConfig struct {
 		APIKey string `envconfig:"EMAIL_MAILGUN_API_KEY"`
 		Europe bool   `envconfig:"EMAIL_MAILGUN_EUROPE" default:"false"` // use EU region
 	}
+}
+
+type Janitor struct {
+	SentryDsnAPI            string   `envconfig:"SENTRY_DSN_API"`
+	SentryDsnFrontend       string   `envconfig:"SENTRY_DSN_FRONTEND"`
+	GoogleAnalyticsFrontend string   `envconfig:"GOOGLE_ANALYTICS_FRONTEND"`
+	SlackWebhookURL         string   `envconfig:"JANITOR_SLACK_WEBHOOK_URL"`
+	SlackIgnoreUser         []string `envconfig:"JANITOR_SLACK_IGNORE_USERS"`
+}
+
+type Stripe struct {
+	SecretKey            string `envconfig:"STRIPE_SECRET_KEY"`
+	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
+	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY"`
 }
