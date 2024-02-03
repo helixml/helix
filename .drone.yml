@@ -14,9 +14,9 @@ steps:
 - name: unit-test
   image: golang:1.20-alpine
   environment:
-    TOGETHERAI_API_KEY:
+    TOGETHER_API_KEY:
       from_secret: openai_api_key
-    TOGETHERAI_BASE_URL:
+    TOGETHER_BASE_URL:
       from_secret: openai_base_url
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
