@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/system"
@@ -54,6 +55,9 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
+	fmt.Println("========= UpdateSessionRequest =========")
+	spew.Dump(req)
+
 	systemInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
@@ -73,8 +77,9 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
 
-	log.Debug().
-		Msgf("🟢 update session: %+v", session)
+	log.Debug().Msgf("🟢 update session: %+v", session)
+
+	spew.Dump(session)
 
 	sessionData, err := c.Options.Store.UpdateSession(ctx.Ctx, *session)
 	if err != nil {

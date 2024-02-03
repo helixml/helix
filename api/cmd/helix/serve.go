@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -33,6 +34,8 @@ type ServeOptions struct {
 	StoreOptions        store.StoreOptions
 	ServerOptions       server.ServerOptions
 	StripeOptions       stripe.StripeOptions
+
+	Cfg *config.ServerConfig
 
 	// NotifierCfg is used to configure the notifier which sends emails
 	// to users on finetuning progress
@@ -107,6 +110,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			WebhookSigningSecret: serverConfig.Stripe.WebhookSigningSecret,
 			PriceLookupKey:       serverConfig.Stripe.PriceLookupKey,
 		},
+		Cfg:         &serverConfig,
 		KeycloakCfg: &serverConfig.Keycloak,
 		NotifierCfg: &serverConfig.Notifications,
 	}, nil
@@ -403,12 +407,18 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
+	planner, err := tools.NewChainStrategy(options.Cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create tools planner: %v", err)
+	}
+
 	var appController *controller.Controller
 
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
 	options.ControllerOptions.Janitor = janitor
 	options.ControllerOptions.Notifier = notifier
+	options.ControllerOptions.Planner = planner
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom

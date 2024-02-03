@@ -32,8 +32,8 @@ type OpenAI struct {
 }
 
 type TogetherAI struct {
-	APIKey  string `envconfig:"TOGETHERAI_API_KEY"`
-	BaseURL string `envconfig:"TOGETHERAI_BASE_URL" default:"https://api.together.xyz/v1"`
+	APIKey  string `envconfig:"TOGETHER_API_KEY"`
+	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
 }
 
 type Provider string
