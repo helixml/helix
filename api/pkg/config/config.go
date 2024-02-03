@@ -44,6 +44,7 @@ const (
 )
 
 type Tools struct {
+	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"`
 	Model    string   `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"`
 }
