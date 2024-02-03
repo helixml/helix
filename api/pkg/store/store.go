@@ -71,6 +71,10 @@ type Store interface {
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
 	ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.Tool, error)
 	DeleteTool(ctx context.Context, id string) error
+
+	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
+	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
+	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 }
 
 var ErrNotFound = errors.New("not found")
