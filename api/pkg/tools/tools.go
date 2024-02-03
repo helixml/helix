@@ -13,6 +13,7 @@ import (
 // TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
 type Planner interface {
 	IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
+	// TODO: RAG lookup
 	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
 }
 
@@ -41,7 +42,7 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			cfg.Providers.OpenAI.BaseURL)
 	case config.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey == "" {
-			return nil, errors.New("TogetherAI API key (TOGETHERAI_API_KEY) is required")
+			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
 		apiClient = openai.New(
 			cfg.Providers.TogetherAI.APIKey,
