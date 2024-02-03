@@ -40,8 +40,8 @@ import useAccount from '../../hooks/useAccount'
 
 export const SessionHeader: FC<{
   session: ISession,
-  onReload: () => void,
-  onOpenMobileMenu: () => void,
+  onReload?: () => void,
+  onOpenMobileMenu?: () => void,
 }> = ({
   session,
   onReload,
@@ -98,7 +98,9 @@ export const SessionHeader: FC<{
       loading.setLoading(true)
       try {
         await sessions.renameSession(session.id, sessionName)
-        onReload()
+        if (onReload) {
+          onReload()
+        }
         snackbar.success(`Session name updated`)
       } catch (e) {
         snackbar.error(`Failed to update session name`)
