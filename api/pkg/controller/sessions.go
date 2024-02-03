@@ -12,18 +12,51 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/notification"
-	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
+	fmt.Println("========= CreateSession =========")
+	spew.Dump(req)
+
+	// If tools enabled, using the planner to decide whether we should use a tool
+	// or use the model directly for general knowledge questions
+	if c.Options.Config.Tools.Enabled {
+		tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
+			Owner:     req.Owner,
+			OwnerType: req.OwnerType,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if len(tools) > 0 {
+			// If it's a new session, we should check if the message is actionable
+			isActionable, err := c.Options.Planner.IsActionable(ctx.Ctx, tools, []*types.Interaction{}, req.UserInteractions[0].Message)
+			if err != nil {
+				return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+			}
+
+			if isActionable.Actionable() {
+				log.Info().
+					Str("api", isActionable.Api).
+					Str("justification", isActionable.Justification).
+					Str("message", req.UserInteractions[0].Message).
+					Msg("looks like the interaction is actionable")
+			}
+		}
+	}
+
 	session, err := data.CreateSession(req)
 	if err != nil {
 		return nil, err
@@ -53,6 +86,8 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 
 	return sessionData, nil
 }
+
+func (c *Controller) handleToolInteraction()
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
 	fmt.Println("========= UpdateSessionRequest =========")

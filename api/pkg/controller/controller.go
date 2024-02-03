@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -20,6 +21,7 @@ import (
 )
 
 type ControllerOptions struct {
+	Config                 *config.ServerConfig
 	Store                  store.Store
 	Planner                tools.Planner
 	Filestore              filestore.FileStore
