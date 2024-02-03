@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -20,7 +21,6 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -36,24 +36,17 @@ type ServeOptions struct {
 
 	// NotifierCfg is used to configure the notifier which sends emails
 	// to users on finetuning progress
-	NotifierCfg *notification.Config
+	NotifierCfg *config.Notifications
 
 	// KeycloakCfg is used to configure the keycloak authenticator, which
 	// is used to get user information from the keycloak server
-	KeycloakCfg *auth.KeycloakConfig
+	KeycloakCfg *config.Keycloak
 }
 
 func NewServeOptions() (*ServeOptions, error) {
-	var keycloakCfg auth.KeycloakConfig
-	err := envconfig.Process("", &keycloakCfg)
+	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
-	}
-
-	var notificationCfg notification.Config
-	err = envconfig.Process("", &notificationCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+		return nil, fmt.Errorf("failed to load server config: %v", err)
 	}
 
 	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
@@ -114,8 +107,8 @@ func NewServeOptions() (*ServeOptions, error) {
 			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
 			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
 		},
-		KeycloakCfg: &keycloakCfg,
-		NotifierCfg: &notificationCfg,
+		KeycloakCfg: &serverConfig.Keycloak,
+		NotifierCfg: &serverConfig.Notifications,
 	}, nil
 }
 
