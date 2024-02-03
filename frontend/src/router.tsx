@@ -7,9 +7,12 @@ import Session from './pages/Session'
 import Account from './pages/Account'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
+import Rag from './pages/Rag'
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
 import SessionTitle from './components/session/SessionTitle'
+
+import RagTitle from './components/rag/RagTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -67,6 +70,21 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <Session />
+  ),
+}, {
+  name: 'rag',
+  path: '/rag',
+  meta: {
+    title: 'RAG',
+    sidebar: true,
+  },
+  getTitle: () => {
+    return (
+      <RagTitle />
+    )
+  },
+  render: () => (
+      <Rag />
   ),
 }, {
   name: 'dashboard',
