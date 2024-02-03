@@ -17,6 +17,8 @@ import (
 // TestAction_CallAPI tests query formation for a single API call to
 // fetch a single record from the database
 /* Spec:
+# Taken from https://github.com/OAI/OpenAPI-Specification/blob/main/examples/v3.0/petstore.yaml
+
 openapi: "3.0.0"
 info:
   version: 1.0.0
@@ -24,33 +26,81 @@ info:
   license:
     name: MIT
 servers:
-  - url: http://petstore.swagger.io/v1
-/pets/{petId}:
-  get:
-    summary: Info for a specific pet
-    operationId: showPetById
-    tags:
-      - pets
-    parameters:
-      - name: petId
-        in: path
-        required: true
-        description: The id of the pet to retrieve
-        schema:
-          type: string
-    responses:
-      '200':
-        description: Expected response to a valid request
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Pet"
-      default:
-        description: unexpected error
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Error"
+  - url: https://petstore.swagger.io/v1
+paths:
+  /pets:
+    get:
+      summary: List all pets
+      operationId: listPets
+      tags:
+        - pets
+      parameters:
+        - name: limit
+          in: query
+          description: How many items to return at one time (max 100)
+          required: false
+          schema:
+            type: integer
+            maximum: 100
+            format: int32
+      responses:
+        '200':
+          description: A paged array of pets
+          headers:
+            x-next:
+              description: A link to the next page of responses
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pets"
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: Create a pet
+      operationId: createPets
+      tags:
+        - pets
+      responses:
+        '201':
+          description: Null response
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /pets/{petId}:
+    get:
+      summary: Info for a specific pet
+      operationId: showPetById
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The id of the pet to retrieve
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Expected response to a valid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        default:
+          description: unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   schemas:
     Pet:
@@ -66,7 +116,21 @@ components:
           type: string
         tag:
           type: string
-				description:
+    Pets:
+      type: array
+      maxItems: 100
+      items:
+        $ref: "#/components/schemas/Pet"
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
           type: string
 */
 func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SingleParam() {
@@ -171,13 +235,7 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
-	actions, err := getActionsFromSchema(&types.Tool{
-		Config: types.ToolConfig{
-			API: &types.ToolApiConfig{
-				Schema: petStoreApiSpec,
-			},
-		},
-	})
+	actions, err := GetActionsFromSchema(petStoreApiSpec)
 	require.NoError(t, err)
 	require.Len(t, actions, 3)
 

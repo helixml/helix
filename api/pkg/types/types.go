@@ -99,7 +99,7 @@ type Session struct {
 	ParentBot string `json:"parent_bot"`
 	// the bot this sessions lora file was added to
 	ChildBot string          `json:"child_bot"`
-	Metadata SessionMetadata `json:"config"` // named config for backward compat
+	Metadata SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -113,11 +113,61 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions []*Interaction `json:"interactions"`
+	Interactions Interactions `json:"interactions" gorm:"type:jsonb"`
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+func (s Session) TableName() string {
+	return "session"
+}
+
+type Interactions []*Interaction
+
+func (m Interactions) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *Interactions) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result Interactions
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (Interactions) GormDataType() string {
+	return "json"
+}
+
+func (m SessionMetadata) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *SessionMetadata) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result SessionMetadata
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (SessionMetadata) GormDataType() string {
+	return "json"
 }
 
 type BotSessions struct {
