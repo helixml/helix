@@ -16,6 +16,9 @@ type Planner interface {
 	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
 }
 
+// Static check
+var _ Planner = &ChainStrategy{}
+
 type ChainStrategy struct {
 	cfg        *config.ServerConfig
 	apiClient  openai.Client
