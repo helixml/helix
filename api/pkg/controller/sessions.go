@@ -27,7 +27,7 @@ const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	fmt.Println("========= CreateSession =========")
-	spew.Dump(req)
+	defer fmt.Println("========= CreateSession DONE =========")
 
 	// If tools enabled, using the planner to decide whether we should use a tool
 	// or use the model directly for general knowledge questions
@@ -41,21 +41,60 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		}
 
 		if len(tools) > 0 {
+			fmt.Println("checking for actionable tools")
 			// If it's a new session, we should check if the message is actionable
 			isActionable, err := c.Options.Planner.IsActionable(ctx.Ctx, tools, []*types.Interaction{}, req.UserInteractions[0].Message)
 			if err != nil {
+				log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
+				fmt.Println("failed to evaluate of the message is actionable", err)
 				return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
 			}
 
+			fmt.Println("checked for actionable")
+
+			log.Info().
+				Str("api", isActionable.Api).
+				Str("actionable", isActionable.NeedsApi).
+				Str("justification", isActionable.Justification).
+				Str("message", req.UserInteractions[0].Message).
+				Msg("checked for actionable")
+
 			if isActionable.Actionable() {
-				log.Info().
-					Str("api", isActionable.Api).
-					Str("justification", isActionable.Justification).
-					Str("message", req.UserInteractions[0].Message).
-					Msg("looks like the interaction is actionable")
+
+				fmt.Println("running action", isActionable.Api)
+
+				resp, err := c.Options.Planner.RunAction(
+					ctx.Ctx,
+					getToolFromAction(tools, isActionable.Api), []*types.Interaction{}, req.UserInteractions[0].Message, isActionable.Api)
+
+				if err != nil {
+					return nil, fmt.Errorf("failed to run action: %w", err)
+				}
+
+				log.Info().Str("response", resp.Message).Msg("action response")
+
+				// If the action is successful, we should return the response
+				session, err := data.CreateToolSession(req, resp)
+				if err != nil {
+					return nil, err
+				}
+
+				sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
+				if err != nil {
+					return nil, err
+				}
+
+				err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, ctx, sessionData)
+				if err != nil {
+					return nil, err
+				}
+
+				return sessionData, nil
 			}
 		}
 	}
+
+	fmt.Sprintln("normal path")
 
 	session, err := data.CreateSession(req)
 	if err != nil {
@@ -89,7 +128,6 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
 	fmt.Println("========= UpdateSessionRequest =========")
-	spew.Dump(req)
 
 	systemInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
