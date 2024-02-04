@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -44,6 +45,8 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 		return nil, fmt.Errorf("action %s is not found in the tool %s", action, tool.Name)
 	}
 
+	started := time.Now()
+
 	// Get API request parameters
 	params, err := c.getAPIRequestParameters(ctx, tool, history, currentMessage, action)
 	if err != nil {
@@ -65,6 +68,7 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 		Str("tool", tool.Name).
 		Str("action", action).
 		Str("url", req.URL.String()).
+		Dur("time_taken", time.Since(started)).
 		Msg("API call done")
 
 	defer resp.Body.Close()
