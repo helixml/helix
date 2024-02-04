@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type RunActionResponse struct {
@@ -59,6 +60,13 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 	if err != nil {
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
+
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("url", req.URL.String()).
+		Msg("API call done")
+
 	defer resp.Body.Close()
 
 	return c.interpretResponse(ctx, tool, currentMessage, resp)
