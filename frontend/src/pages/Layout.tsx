@@ -316,7 +316,7 @@ const Layout: FC = ({
     <Box
       id="root-container"
       sx={{
-        height: '100%',
+        height: '100vh',
         display: 'flex',
       }}
       component="div"
@@ -386,15 +386,6 @@ const Layout: FC = ({
           flexDirection: 'column',
         }}
       >
-        <Box
-          component="div"
-          sx={{
-            flexGrow: 0,
-            borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
-          }}
-        >
-          {/* <Toolbar /> */}
-        </Box>
         <Box
           component="div"
           sx={{

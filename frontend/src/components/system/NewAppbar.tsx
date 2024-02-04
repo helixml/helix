@@ -146,42 +146,47 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         {
                             getToolbarElement && account.user ? getToolbarElement() : null
                         }
-                        <Typography
-                            sx={{
-                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                            mr: 2,
-                            ml: 3,
-                            textAlign: 'right',
-                            }}
-                        >
-                            Create
-                        </Typography>
-                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Switch
-                                checked={params.mode === SESSION_MODE_FINETUNE}
-                                onChange={handleModeChange}
-                                name="modeSwitch"
-                                size="medium"
-                                sx={{
-                                    transform: 'scale(1.6)',
-                                    '& .MuiSwitch-thumb': {
-                                        scale: 0.4,
-                                    },
-                                }}
-                            />
-                        </Box>
-                        <Typography
-                            sx={{
-                                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                                marginLeft: 2,
-                                textAlign: 'left',
-                            }}
-                        >
-                            Fine&nbsp;tune
-                        </Typography>
-                    
+                        {
+                        !location.pathname.startsWith('/dashboard') && !location.pathname.startsWith('/files') && (
+                            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                                <Typography
+                                    sx={{
+                                    color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+                                    fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                                    mr: 2,
+                                    ml: 3,
+                                    textAlign: 'right',
+                                    }}
+                                >
+                                    Create
+                                </Typography>
+                                <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                                    <Switch
+                                        checked={params.mode === SESSION_MODE_FINETUNE}
+                                        onChange={handleModeChange}
+                                        name="modeSwitch"
+                                        size="medium"
+                                        sx={{
+                                            transform: 'scale(1.6)',
+                                            '& .MuiSwitch-thumb': {
+                                                scale: 0.4,
+                                            },
+                                        }}
+                                    />
+                                </Box>
+                                <Typography
+                                    sx={{
+                                        color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                                        fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                                        marginLeft: 2,
+                                        textAlign: 'left',
+                                    }}
+                                >
+                                    Fine&nbsp;tune
+                                </Typography>
+                            </Box>
+                        )}
+                        
                         {
                         account.user ? (
                             <Link

@@ -251,7 +251,7 @@ export const SessionHeader: FC<{
               <ListItemIcon>
                 <FolderOpenIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText primary="Open Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+              <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
             </MenuItem>
             <JsonWindowLink data={session}>
               <MenuItem>
@@ -295,7 +295,7 @@ export const SessionHeader: FC<{
           </Menu>
           <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 0 }}>
           <Cell>
-            <Tooltip title="Open Session">
+            <Tooltip title="Files">
               <Link
                 href="/files?path=%2Fsessions"
                 onClick={(e) => {
