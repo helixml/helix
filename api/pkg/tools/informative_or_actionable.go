@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"strings"
@@ -84,7 +83,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	}
 
 	var actionableResponse IsActionableResponse
-	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &actionableResponse)
+	err = unmarshalJSON(resp.Choices[0].Message.Content, &actionableResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, resp.Choices[0].Message.Content)
 	}
