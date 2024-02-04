@@ -90,7 +90,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	}
 
 	var params map[string]string
-	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &params)
+	err = unmarshalJSON(resp.Choices[0].Message.Content, &params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, resp.Choices[0].Message.Content)
 	}

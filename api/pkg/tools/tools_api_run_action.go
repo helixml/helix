@@ -53,10 +53,26 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 		return nil, fmt.Errorf("failed to get api request parameters: %w", err)
 	}
 
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Dur("time_taken", time.Since(started)).
+		Msg("API request parameters prepared")
+
+	started = time.Now()
+
 	req, err := c.prepareRequest(ctx, tool, action, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
+
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Dur("time_taken", time.Since(started)).
+		Msg("API request prepared")
+
+	started = time.Now()
 
 	// Make API call
 	resp, err := c.httpClient.Do(req)

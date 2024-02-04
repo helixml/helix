@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
 
@@ -44,38 +45,38 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 
 	// If tools enabled, using the planner to decide whether we should use a tool
 	// or use the model directly for general knowledge questions
-	if c.Options.Config.Tools.Enabled {
-		tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
-			Owner:     req.Owner,
-			OwnerType: req.OwnerType,
-		})
-		if err != nil {
-			return nil, err
-		}
+	// if c.Options.Config.Tools.Enabled {
+	// 	tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
+	// 		Owner:     req.Owner,
+	// 		OwnerType: req.OwnerType,
+	// 	})
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 
-		if len(tools) > 0 {
-			// If it's a new session, we should check if the message is actionable
-			isActionable, err := c.Options.Planner.IsActionable(ctx.Ctx, tools, []*types.Interaction{}, req.UserInteractions[0].Message)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-				return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
-			}
+	// 	if len(tools) > 0 {
+	// 		// If it's a new session, we should check if the message is actionable
+	// 		isActionable, err := c.Options.Planner.IsActionable(ctx.Ctx, tools, []*types.Interaction{}, req.UserInteractions[0].Message)
+	// 		if err != nil {
+	// 			log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
+	// 			return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+	// 		}
 
-			log.Info().
-				Str("api", isActionable.Api).
-				Str("actionable", isActionable.NeedsApi).
-				Str("justification", isActionable.Justification).
-				Str("message", req.UserInteractions[0].Message).
-				Msg("checked for actionable")
+	// 		log.Info().
+	// 			Str("api", isActionable.Api).
+	// 			Str("actionable", isActionable.NeedsApi).
+	// 			Str("justification", isActionable.Justification).
+	// 			Str("message", req.UserInteractions[0].Message).
+	// 			Msg("checked for actionable")
 
-			if isActionable.Actionable() {
-				systemInteraction.Mode = types.SessionModeAction
-				systemInteraction.Metadata["tool_action"] = isActionable.Api
-				systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
-				systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
-			}
-		}
-	}
+	// 		if isActionable.Actionable() {
+	// 			systemInteraction.Mode = types.SessionModeAction
+	// 			systemInteraction.Metadata["tool_action"] = isActionable.Api
+	// 			systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
+	// 			systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
+	// 		}
+	// 	}
+	// }
 
 	newSession := types.Session{
 		ID:            req.SessionID,
@@ -147,41 +148,41 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 		Metadata: map[string]string{},
 	}
 
-	if c.Options.Config.Tools.Enabled {
-		tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
-			Owner:     ctx.Owner,
-			OwnerType: ctx.OwnerType,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if len(tools) > 0 {
-			isActionable, err := c.Options.Planner.IsActionable(
-				ctx.Ctx,
-				tools,
-				[]*types.Interaction{},
-				req.UserInteraction.Message,
-			)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-				return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
-			}
+	// if c.Options.Config.Tools.Enabled {
+	// 	tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
+	// 		Owner:     ctx.Owner,
+	// 		OwnerType: ctx.OwnerType,
+	// 	})
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	if len(tools) > 0 {
+	// 		isActionable, err := c.Options.Planner.IsActionable(
+	// 			ctx.Ctx,
+	// 			tools,
+	// 			[]*types.Interaction{},
+	// 			req.UserInteraction.Message,
+	// 		)
+	// 		if err != nil {
+	// 			log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
+	// 			return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+	// 		}
 
-			log.Info().
-				Str("api", isActionable.Api).
-				Str("actionable", isActionable.NeedsApi).
-				Str("justification", isActionable.Justification).
-				Str("message", req.UserInteraction.Message).
-				Msg("checked for actionable")
+	// 		log.Info().
+	// 			Str("api", isActionable.Api).
+	// 			Str("actionable", isActionable.NeedsApi).
+	// 			Str("justification", isActionable.Justification).
+	// 			Str("message", req.UserInteraction.Message).
+	// 			Msg("checked for actionable")
 
-			if isActionable.Actionable() {
-				systemInteraction.Mode = types.SessionModeAction
-				systemInteraction.Metadata["tool_action"] = isActionable.Api
-				systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
-				systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
-			}
-		}
-	}
+	// 		if isActionable.Actionable() {
+	// 			systemInteraction.Mode = types.SessionModeAction
+	// 			systemInteraction.Metadata["tool_action"] = isActionable.Api
+	// 			systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
+	// 			systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
+	// 		}
+	// 	}
+	// }
 
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
@@ -337,6 +338,20 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 // the idempotent function to "run" the session
 // it should work out what this means - i.e. have we prepared the data yet?
 func (c *Controller) SessionRunner(sessionData *types.Session) {
+	// Wait for that to complete before adding to the queue
+	// the model can be adding subsequent child sessions to the queue
+	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
+	// text into q&a pairs and we want to use our own mistral inference
+	preparedSession, err := c.PrepareSession(sessionData)
+	if err != nil {
+		log.Error().Msgf("error preparing session: %s", err.Error())
+		c.ErrorSession(sessionData, err)
+		return
+	}
+
+	fmt.Println("prepared")
+	spew.Dump(preparedSession)
+
 	// If last interaction is "action" then we should run the action
 	// and not the model
 	lastInteraction, err := data.GetLastSystemInteraction(sessionData.Interactions)
@@ -349,16 +364,6 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		return
 	}
 
-	// Finetune prerequisites - wait for that to complete before adding to the queue
-	// the model can be adding subsequent child sessions to the queue
-	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
-	// text into q&a pairs and we want to use our own mistral inference
-	preparedSession, err := c.PrepareSession(sessionData)
-	if err != nil {
-		log.Error().Msgf("error preparing session: %s", err.Error())
-		c.ErrorSession(sessionData, err)
-		return
-	}
 	// it's ok if we did not get a session back here
 	// it means there will be a later action that will add the session to the queue
 	// in the case the user needs to edit some data before it can be run for example
@@ -386,6 +391,15 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+		var err error
+		// Check if this is actionable
+		session, err = c.checkForActions(session)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
@@ -425,6 +439,71 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		c.BeginFineTune(session)
 		return nil, nil
 	}
+	return session, nil
+}
+
+func (c *Controller) checkForActions(session *types.Session) (*types.Session, error) {
+	if !c.Options.Config.Tools.Enabled {
+		// Tools not enabled for the server
+		return session, nil
+	}
+
+	ctx := context.Background()
+
+	tools, err := c.Options.Store.ListTools(ctx, &store.ListToolsQuery{
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tools) == 0 {
+		// No tools available, nothing to check
+		return session, nil
+	}
+
+	userInteraction, err := data.GetLastUserInteraction(session.Interactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
+	}
+
+	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, []*types.Interaction{}, userInteraction.Message)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
+		return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+	}
+
+	log.Info().
+		Str("api", isActionable.Api).
+		Str("actionable", isActionable.NeedsApi).
+		Str("justification", isActionable.Justification).
+		Str("message", userInteraction.Message).
+		Msg("checked for actionable")
+
+	if !isActionable.Actionable() {
+		return session, nil
+	}
+
+	// lastInteraction := session.Interactions[len(session.Interactions)-1]
+
+	// if lastInteraction.Creator == types.CreatorTypeSystem {
+
+	// }
+
+	// Actionable, converting interaction mode to "action"
+	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
+	}
+
+	lastInteraction.Mode = types.SessionModeAction
+
+	lastInteraction.Mode = types.SessionModeAction
+	lastInteraction.Metadata["tool_action"] = isActionable.Api
+	lastInteraction.Metadata["tool_action_justification"] = isActionable.Justification
+	lastInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
+
 	return session, nil
 }
 
