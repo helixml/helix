@@ -37,6 +37,8 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 
 		// TODO: validate tool model
 
+		// goopenai.GPT3Dot5Turbo
+
 		apiClient = openai.New(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
