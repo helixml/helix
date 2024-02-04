@@ -127,7 +127,7 @@ const Layout: FC = ({
             >
               <ListItemText
               sx={{
-                ml: 3,
+                ml: 2,
                 p: 1,
                 fontWeight: 'heading',
                 '&:hover': {
@@ -400,7 +400,8 @@ const Layout: FC = ({
           sx={{
             flexGrow: 1,
             overflow: 'auto',
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+            minHeight: '100%',
           }}
         >
           { children }
