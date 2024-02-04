@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -30,6 +31,8 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 			Justification: "No tools available to check if the user input is actionable or not",
 		}, nil
 	}
+
+	started := time.Now()
 
 	systemPrompt, err := c.getActionableSystemPrompt(tools)
 	if err != nil {
@@ -90,6 +93,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		Str("user_input", currentMessage).
 		Str("justification", actionableResponse.Justification).
 		Str("needs_api", actionableResponse.NeedsApi).
+		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
 	return &actionableResponse, nil

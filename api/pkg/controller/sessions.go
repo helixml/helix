@@ -107,6 +107,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	}
 
 	go c.SessionRunner(sessionData)
+
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, ctx, sessionData)
 	if err != nil {
 		return nil, err

@@ -37,6 +37,9 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
+
+	defer fmt.Printf("XX action '%s' done, message: '%s' \n", action, resp.RawMessage)
+
 	updated, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Finished = true
 		systemInteraction.Message = resp.Message
@@ -44,6 +47,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		systemInteraction.Metadata["error"] = resp.Error
 		systemInteraction.Metadata["tool_id"] = toolID
 		systemInteraction.Metadata["tool_action"] = action
+		systemInteraction.State = types.InteractionStateComplete
 
 		return systemInteraction, nil
 	})
