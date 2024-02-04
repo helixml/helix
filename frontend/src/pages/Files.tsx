@@ -143,6 +143,7 @@ const Files: FC = () => {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
+          mt: 12,
         }}
       >
         <Box
@@ -200,6 +201,7 @@ const Files: FC = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
+                  
                 }}
               >
                 {

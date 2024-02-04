@@ -104,12 +104,12 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 </Box>
             ) : (
                 <Box
-                sx={{
-                    flexGrow: 0,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                }}
+                    sx={{
+                        flexGrow: 0,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                    }}
                 >
                 <IconButton
                     color="inherit"
@@ -134,9 +134,6 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 }}
             >
             {
-                bigScreen && getToolbarElement && account.user ? getToolbarElement() : null
-            }
-            {
                 bigScreen ? (
                 <>
                     <Box
@@ -146,11 +143,16 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             justifyContent: 'flex-end'
                         }}
                     >
+                        {
+                            getToolbarElement && account.user ? getToolbarElement() : null
+                        }
                         <Typography
                             sx={{
                             color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
                             fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                            marginRight: '12px',
+                            mr: 2,
+                            ml: 3,
+                            textAlign: 'right',
                             }}
                         >
                             Create
@@ -166,18 +168,18 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                                     '& .MuiSwitch-thumb': {
                                         scale: 0.4,
                                     },
-                                    m: 1,
                                 }}
                             />
                         </Box>
                         <Typography
                             sx={{
-                            color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                            marginLeft: '12px',
+                                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                                marginLeft: 2,
+                                textAlign: 'left',
                             }}
                         >
-                            Fine-tune
+                            Fine&nbsp;tune
                         </Typography>
                     
                         {
@@ -188,7 +190,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                             <Tooltip title="Helix Docs">
                                 <Box component="span">
-                                <AutoStoriesIcon sx={{ ml: 2 }} />
+                                <AutoStoriesIcon sx={{ ml: 3 }} />
                                 </Box>
                             </Tooltip>
                             </Link>
