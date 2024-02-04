@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -18,6 +19,8 @@ func (s *PostgresStore) CreateTool(ctx context.Context, tool *types.Tool) (*type
 	if tool.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
+
+	tool.Created = time.Now()
 
 	err := s.gdb.WithContext(ctx).Create(&tool).Error
 	if err != nil {
@@ -34,6 +37,8 @@ func (s *PostgresStore) UpdateTool(ctx context.Context, tool *types.Tool) (*type
 	if tool.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
+
+	tool.Updated = time.Now()
 
 	err := s.gdb.WithContext(ctx).Save(&tool).Error
 	if err != nil {
