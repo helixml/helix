@@ -6,6 +6,7 @@ import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import AddIcon from '@mui/icons-material/Add'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
+import Container from '@mui/material/Container'
 
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
@@ -136,203 +137,211 @@ const Files: FC = () => {
   if(!account.user) return null
   return (
     <>
-      <Box
+      <Container
+        maxWidth="xl"
         sx={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
           mt: 12,
+          height: 'calc(100% - 100px)',
         }}
       >
         <Box
           sx={{
-            flexGrow: 0,
-            pl: 6,
             width: '100%',
-            height: '60px',
+            height: '100%',
             display: 'flex',
-            flexDirection: 'row',
+            flexDirection: 'column',
             alignItems: 'center',
           }}
         >
-          {
-            filestore.breadcrumbs.map((breadcrumb, i) => {
-              return (
-                <Fragment key={ i }>
-                  <ClickLink
-                    textDecoration
-                    key={ i }
-                    onClick={ () => {
-                      filestore.setPath(breadcrumb.path)
-                    }}
-                  >
-                    { breadcrumb.title }
-                  </ClickLink>
+          <Box
+            sx={{
+              flexGrow: 0,
+              pl: 6,
+              width: '100%',
+              height: '60px',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            {
+              filestore.breadcrumbs.map((breadcrumb, i) => {
+                return (
+                  <Fragment key={ i }>
+                    <ClickLink
+                      textDecoration
+                      key={ i }
+                      onClick={ () => {
+                        filestore.setPath(breadcrumb.path)
+                      }}
+                    >
+                      { breadcrumb.title }
+                    </ClickLink>
+                    {
+                      i < filestore.breadcrumbs.length - 1 && (
+                        <Box
+                          sx={{
+                            ml: 1,
+                            mr: 1,
+                          }}
+                        >
+                          :
+                        </Box>
+                      )
+                    }
+                  </Fragment>
+                )
+              })
+            }
+          </Box>
+          <Box
+            sx={{
+              height: 'calc(100vh - 124px)',
+              width: '100%',
+              flexGrow: 1,
+            }}
+          >
+            <DataGridWithFilters
+              filters={
+                <Box
+                  sx={{
+                    width: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    
+                  }}
+                >
                   {
-                    i < filestore.breadcrumbs.length - 1 && (
-                      <Box
-                        sx={{
-                          ml: 1,
-                          mr: 1,
-                        }}
-                      >
-                        :
-                      </Box>
-                    )
-                  }
-                </Fragment>
-              )
-            })
-          }
-        </Box>
-        <Box
-          sx={{
-            width: '100%',
-            flexGrow: 1,
-          }}
-        >
-          <DataGridWithFilters
-            filters={
-              <Box
-                sx={{
-                  width: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  
-                }}
-              >
-                {
-                  filestore.uploadProgress ? (
-                    <>
-                      <Typography
-                        sx={{
-                          mb: 2,
-                        }}
-                        variant="caption"
-                      >
-                        uploaded { prettyBytes(filestore.uploadProgress.uploadedBytes) } of { prettyBytes(filestore.uploadProgress.totalBytes) }
-                      </Typography>
-                      <Progress progress={ filestore.uploadProgress.percent } />
-                    </>
-                  ) : filestore.readonly ? null : (
-                    <>
-                      <Button
-                        sx={{
-                          width: '100%',
-                        }}
-                        variant="contained"
-                        color="secondary"
-                        endIcon={<AddIcon />}
-                        onClick={ () => {
-                          setEditName('')
-                          setParams({
-                            edit_item_title: 'Folder',
-                            edit_id: 'new_folder',
-                          })
-                        }}
-                      >
-                        Create Folder
-                      </Button>
-                      <FileUpload
-                        sx={{
-                          width: '100%',
-                          mt: 2,
-                        }}
-                        onUpload={ onUpload }
-                      >
+                    filestore.uploadProgress ? (
+                      <>
+                        <Typography
+                          sx={{
+                            mb: 2,
+                          }}
+                          variant="caption"
+                        >
+                          uploaded { prettyBytes(filestore.uploadProgress.uploadedBytes) } of { prettyBytes(filestore.uploadProgress.totalBytes) }
+                        </Typography>
+                        <Progress progress={ filestore.uploadProgress.percent } />
+                      </>
+                    ) : filestore.readonly ? null : (
+                      <>
                         <Button
                           sx={{
                             width: '100%',
                           }}
                           variant="contained"
                           color="secondary"
-                          endIcon={<CloudUploadIcon />}
-                        >
-                          Upload Files
-                        </Button>
-                        <Box
-                          sx={{
-                            border: '1px dashed #ccc',
-                            p: 2,
-                            display: 'flex',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minHeight: '100px',
-                            cursor: 'pointer',
+                          endIcon={<AddIcon />}
+                          onClick={ () => {
+                            setEditName('')
+                            setParams({
+                              edit_item_title: 'Folder',
+                              edit_id: 'new_folder',
+                            })
                           }}
                         >
-                          <Typography
+                          Create Folder
+                        </Button>
+                        <FileUpload
+                          sx={{
+                            width: '100%',
+                            mt: 2,
+                          }}
+                          onUpload={ onUpload }
+                        >
+                          <Button
                             sx={{
-                              color: '#999'
+                              width: '100%',
                             }}
-                            variant="caption"
+                            variant="contained"
+                            color="secondary"
+                            endIcon={<CloudUploadIcon />}
                           >
-                            drop files here to upload them...
-                          </Typography>
-                        </Box>
-                      </FileUpload>
-                    </>
-                  )
-                }
-              </Box>
-            }
-            datagrid={
-              <FileStoreGrid
-                files={ sortedFiles }
-                config={ filestore.config }
-                readonly={ filestore.readonly }
-                loading={ filestore.loading || filestore.uploadProgress ? true : false }
-                onView={ onViewFile }
-                onEdit={ onEditFile }
-                onDelete={ onDeleteFile }
-              />
-            }
-          />
-        </Box>
-      </Box>
-      {
-        edit_id && (
-          <Window
-            open
-            title={ `${edit_id == 'new_folder' ? 'New' : 'Edit'} ${edit_item_title}` }
-            withCancel
-            onCancel={ () => removeParams(['edit_item_title', 'edit_id']) }
-            onSubmit={ () => onSubmitEditWindow(editName) }
-          >
-            <Box
-              sx={{
-                p: 2,
-              }}
-            >
-              <TextField
-                fullWidth
-                label={ `${edit_item_title} Name` }
-                value={ editName }
-                onChange={(e) => setEditName(e.target.value)}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    onSubmitEditWindow(editName)
+                            Upload Files
+                          </Button>
+                          <Box
+                            sx={{
+                              border: '1px dashed #ccc',
+                              p: 2,
+                              display: 'flex',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              minHeight: '100px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Typography
+                              sx={{
+                                color: '#999'
+                              }}
+                              variant="caption"
+                            >
+                              drop files here to upload them...
+                            </Typography>
+                          </Box>
+                        </FileUpload>
+                      </>
+                    )
                   }
+                </Box>
+              }
+              datagrid={
+                <FileStoreGrid
+                  files={ sortedFiles }
+                  config={ filestore.config }
+                  readonly={ filestore.readonly }
+                  loading={ filestore.loading || filestore.uploadProgress ? true : false }
+                  onView={ onViewFile }
+                  onEdit={ onEditFile }
+                  onDelete={ onDeleteFile }
+                />
+              }
+            />
+          </Box>
+        </Box>
+        {
+          edit_id && (
+            <Window
+              open
+              title={ `${edit_id == 'new_folder' ? 'New' : 'Edit'} ${edit_item_title}` }
+              withCancel
+              onCancel={ () => removeParams(['edit_item_title', 'edit_id']) }
+              onSubmit={ () => onSubmitEditWindow(editName) }
+            >
+              <Box
+                sx={{
+                  p: 2,
                 }}
-              />
-            </Box>
-          </Window>
-        )
-      }
-      {
-        delete_id && (
-          <DeleteConfirmWindow
-            title={ delete_item_title }
-            onCancel={ () => removeParams(['delete_item_title', 'delete_id']) }
-            onSubmit={ onConfirmDelete }
-          />
-        )
-      }
+              >
+                <TextField
+                  fullWidth
+                  label={ `${edit_item_title} Name` }
+                  value={ editName }
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      onSubmitEditWindow(editName)
+                    }
+                  }}
+                />
+              </Box>
+            </Window>
+          )
+        }
+        {
+          delete_id && (
+            <DeleteConfirmWindow
+              title={ delete_item_title }
+              onCancel={ () => removeParams(['delete_item_title', 'delete_id']) }
+              onSubmit={ onConfirmDelete }
+            />
+          )
+        }
+      </Container>
     </>
   )
 }
