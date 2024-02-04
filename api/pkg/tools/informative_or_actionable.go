@@ -83,7 +83,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	var actionableResponse IsActionableResponse
 	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &actionableResponse)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse response from inference API: %w", err)
+		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, resp.Choices[0].Message.Content)
 	}
 
 	log.Info().
@@ -99,7 +99,8 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 	// Render template
 	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
 	if err != nil {
-		return openai.ChatCompletionMessage{}, err
+		log.Warn().Err(err).Msg("failed to parse 'isInformativeOrActionablePrompt' template")
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to parse 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
 	var modelTools []*modelTool
@@ -133,7 +134,7 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 	})
 
 	if err != nil {
-		return openai.ChatCompletionMessage{}, err
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to render 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
 	return openai.ChatCompletionMessage{
