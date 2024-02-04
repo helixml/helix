@@ -92,7 +92,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	var params map[string]string
 	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, resp.Choices[0].Message.Content)
 	}
 
 	return params, nil
@@ -139,13 +139,41 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 
 const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
 
-const apiUserPrompt = `API JSON schema: {{.Schema}}
+const apiUserPrompt = `
+Your output must be a valid json, without any commentary or additional formatting.
+
+Examples:
+
+**User Input:** Get project prj_1234 details
+**OpenAPI schema path:** /projects/{projectId}
+**Verdict:** response should be {"projectId": "prj_1234"}
+
+**User Input:** List all users with status "active"
+**OpenAPI schema path:** /users/findByStatus 
+**OpenAPI schema parameters:** [
+	{
+		"name": "status",
+		"in": "query",
+		"description": "Status values that need to be considered for filter",
+		"required": true,
+		"type": "array",
+		"items": {
+			"type": "string",
+			"enum": ["active", "pending", "sold"],
+			"default": "available"
+		}		
+	}
+]
+**Verdict:** response should be {"status": "active"}
+
+**Response Format:** Always respond with JSON without any commentary, for example: {"parameterName": "parameterValue", "parameterName2": "parameterValue2"}  
+
+===END EXAMPLES===
+OpenAPI schema: {{.Schema}}
 
 User's input: {{ .Message }}
 
 Based on the information provided, construct a valid golang JSON map (map[string]string) object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
-
-Your output must be a valid json, without any commentary
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
