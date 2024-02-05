@@ -143,7 +143,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkSizeStr := req.FormValue("rag_chunk_size")
-	ragChunkSize := 512 // Default value if chunkSize is not provided or conversion fails
+	ragChunkSize := 1024 // Default value if chunkSize is not provided or conversion fails
 	if ragChunkSizeStr != "" {
 		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
 		if err != nil {
@@ -152,7 +152,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
-	ragChunkOverflow := 32 // Default value if chunkOverflow is not provided or conversion fails
+	ragChunkOverflow := 20 // Default value if chunkOverflow is not provided or conversion fails
 	if ragChunkOverflowStr != "" {
 		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
 		if err != nil {
