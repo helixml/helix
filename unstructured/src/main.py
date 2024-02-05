@@ -65,7 +65,7 @@ def parse_document(url):
   elements = partition(filename=fname)
   text = ""
   for element in elements:
-    if isinstance(element, NarrativeText):
+    if hasattr(element, "text"):
       text += element.text + "\n"
 
   os.unlink(fname)
