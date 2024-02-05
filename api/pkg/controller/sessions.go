@@ -321,10 +321,18 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		// we need to check if we are doing RAG and if yes, we need to augment the prompt
 		// with the results from the RAGStore
 		if session.Metadata.RagEnabled {
-			_, err := c.getRAGResults(session)
+			ragResults, err := c.getRAGResults(session)
 			if err != nil {
 				return nil, err
 			}
+			session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+				userInteraction.DisplayMessage = userInteraction.Message
+				return userInteraction, nil
+			})
+			session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+				systemInteraction.RagResults = ragResults
+				return systemInteraction, nil
+			})
 		}
 	}
 

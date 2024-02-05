@@ -66,10 +66,8 @@ def rag_query():
     return jsonify({"error": "max_results must be a number"}), 400
   promptEmbedding = getEmbedding(prompt)
   results = sql.queryPrompt(session_id, promptEmbedding, distance_function, distance_threshold, max_results)
-  return jsonify({
-    "ok": True,
-    "results": results,
-  }), 200
+  pprint.pprint(results)
+  return jsonify(results), 200
 
 @app.route('/api/v1/extract', methods=['POST'])
 def extract_file():
