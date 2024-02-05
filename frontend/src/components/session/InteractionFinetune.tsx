@@ -46,6 +46,7 @@ import {
 
 import {
   getTextDataPrepStageIndex,
+  getTextDataPrepStageIndexDisplay,
   getTextDataPrepErrors,
   getTextDataPrepStats,
 } from '../../utils/session'
@@ -244,7 +245,7 @@ export const InteractionFinetune: FC<{
               mb: 3,
             }}
           >
-            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)} orientation={matches ? "vertical" : "horizontal"}>
+            <Stepper activeStep={getTextDataPrepStageIndexDisplay(interaction.data_prep_stage)} orientation={matches ? "vertical" : "horizontal"}>
               <Step>
                 <StepLabel>Extract Text</StepLabel>
               </Step>
