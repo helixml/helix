@@ -74,13 +74,14 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   const borderStyle = `1px solid ${theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder}`
 
   const gridStyle = {
-    // minHeight: 400,
-    // boxShadow: '0px 4px 10px 0px rgba(0,0,0,0.1)',
-    // width: '100%',
-    // height: '100%',
-    // position: 'relative',
-    // flexGrow: 1,
-    // flexBasis: '100%',
+    backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+    minHeight: 400,
+    boxShadow: '0px 4px 10px 0px rgba(0,0,0,0.1)',
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    flexGrow: 1,
+    flexBasis: '100%',
   }
 
   return (
@@ -93,24 +94,20 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         position: 'relative',
         display: 'flex',
         overflow: 'auto',
-        // backgroundColor: 'transparent',
-        // boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
-        '& .InovuaReactDataGrid__row': {
-          borderTop: '1px solid #000',
-          borderBottom: '1px solid #000',
-        },
+        backgroundColor: 'transparent',
+        boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
         '& .InovuaReactDataGrid__header': {
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',
           backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
         },
-        // '& .InovuaReactDataGrid__row': {
-        //   backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-        //   color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
-        //   '&:hover': {
-        //     backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-        //   },
-        // },
+        '& .InovuaReactDataGrid__row': {
+          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
+          '&:hover': {
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          },
+        },
         ...sx,
       }}
     >
