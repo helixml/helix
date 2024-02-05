@@ -62,7 +62,6 @@ func NewServeOptions() (*ServeOptions, error) {
 		DataPrepTextOptions: text.DataPrepTextOptions{
 			// for concurrency of requests to openAI - look in the dataprep module
 			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_Dynamic))),
-			APIKey:       getDefaultServeOptionString("OPENAI_API_KEY", ""),
 			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
 			// we are exceeding openAI window size at > 30 questions
 			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 30),
@@ -101,6 +100,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			// if this is defined it means runner auth is enabled
 			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
 			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+			EvalUserID:  getDefaultServeOptionString("EVAL_USER_ID", ""),
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SentryDSNApi:            getDefaultServeOptionString("SENTRY_DSN_API", ""),
@@ -141,11 +141,6 @@ func newServeCmd() *cobra.Command {
 		`Which module to use for text data prep`,
 	)
 	allOptions.DataPrepTextOptions.Module = text.DataPrepModule(dataprepModule)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.DataPrepTextOptions.APIKey, "openai-key", allOptions.DataPrepTextOptions.APIKey,
-		`The API Key for OpenAI`,
-	)
 
 	serveCmd.PersistentFlags().IntVar(
 		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
@@ -394,10 +389,6 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
-	if options.DataPrepTextOptions.APIKey == "" {
-		return fmt.Errorf("openai api key is required")
-	}
-
 	if options.ServerOptions.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
@@ -438,17 +429,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 		// if we are using openai then let's do that
 		// otherwise - we use our own mistral plugin
-		if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT4 {
-			questionGenerator, err = text.NewDataPrepTextGPT4(options.DataPrepTextOptions)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_GPT3Point5 {
-			questionGenerator, err = text.NewDataPrepTextGPT3Point5(options.DataPrepTextOptions)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
+		if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
 			questionGenerator, err = text.NewDataPrepTextHelixMistral(
 				options.DataPrepTextOptions,

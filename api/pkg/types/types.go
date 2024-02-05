@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"time"
@@ -65,6 +66,17 @@ type SessionMetadata struct {
 	DocumentGroupID         string            `json:"document_group_id"`
 	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
 	SystemPrompt            string            `json:"system_prompt"`
+	HelixVersion            string            `json:"helix_version"`
+	// Evals are cool. Scores are strings of floats so we can distinguish ""
+	// (not rated) from "0.0"
+	EvalRunId               string   `json:"eval_run_id"`
+	EvalUserScore           string   `json:"eval_user_score"`
+	EvalUserReason          string   `json:"eval_user_reason"`
+	EvalManualScore         string   `json:"eval_manual_score"`
+	EvalManualReason        string   `json:"eval_manual_reason"`
+	EvalAutomaticScore      string   `json:"eval_automatic_score"`
+	EvalAutomaticReason     string   `json:"eval_automatic_reason"`
+	EvalOriginalUserPrompts []string `json:"eval_original_user_prompts"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -87,7 +99,7 @@ type Session struct {
 	ParentBot string `json:"parent_bot"`
 	// the bot this sessions lora file was added to
 	ChildBot string          `json:"child_bot"`
-	Metadata SessionMetadata `json:"config"` // named config for backward compat
+	Metadata SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -101,11 +113,61 @@ type Session struct {
 	LoraDir string `json:"lora_dir"`
 	// for now we just whack the entire history of the interaction in here, json
 	// style
-	Interactions []*Interaction `json:"interactions"`
+	Interactions Interactions `json:"interactions" gorm:"type:jsonb"`
 	// uuid of owner entity
 	Owner string `json:"owner"`
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
+}
+
+func (s Session) TableName() string {
+	return "session"
+}
+
+type Interactions []*Interaction
+
+func (m Interactions) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *Interactions) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result Interactions
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (Interactions) GormDataType() string {
+	return "json"
+}
+
+func (m SessionMetadata) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *SessionMetadata) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result SessionMetadata
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (SessionMetadata) GormDataType() string {
+	return "json"
 }
 
 type BotSessions struct {
@@ -324,7 +386,7 @@ type RunnerTaskResponse struct {
 
 // this is returned by the api server so that clients can see what
 // config it's using e.g. filestore prefix
-type ServerConfig struct {
+type ServerConfigForFrontend struct {
 	// used to prepend onto raw filestore paths to download files
 	// the filestore path will have the user info in it - i.e.
 	// it's a low level filestore path
@@ -334,6 +396,7 @@ type ServerConfig struct {
 	StripeEnabled           bool   `json:"stripe_enabled"`
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
+	EvalUserID              string `json:"eval_user_id"`
 }
 
 type CreateSessionRequest struct {
@@ -453,4 +516,76 @@ type DataPrepTextQuestion struct {
 
 type Counter struct {
 	Count int64 `json:"count"`
+}
+
+type ToolType string
+
+const (
+	ToolTypeAPI      ToolType = "api"
+	ToolTypeFunction ToolType = "function"
+)
+
+type Tool struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	ToolType    ToolType  `json:"tool_type"`
+	// TODO: tool configuration
+	// such as OpenAPI spec, function code, etc.
+	Config ToolConfig `json:"config" gorm:"jsonb"`
+}
+
+type ToolConfig struct {
+	API *ToolApiConfig `json:"api"`
+}
+
+func (m ToolConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *ToolConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result ToolConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (ToolConfig) GormDataType() string {
+	return "json"
+}
+
+type ToolApiConfig struct {
+	URL     string            `json:"url"` // Server override
+	Schema  string            `json:"schema"`
+	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
+	Actions []*ToolApiAction  `json:"actions"` // Read-only, parsed from schema on creation
+}
+
+// ToolApiConfig is parsed from the OpenAPI spec
+type ToolApiAction struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+}
+
+// SessionToolBinding used to add tools to sessions
+type SessionToolBinding struct {
+	SessionID string `gorm:"primaryKey;index"`
+	ToolID    string `gorm:"primaryKey"`
+	Created   time.Time
+	Updated   time.Time
 }

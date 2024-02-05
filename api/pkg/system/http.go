@@ -59,10 +59,10 @@ func NewHTTPError(err error) *HTTPError {
 	}
 }
 
-func NewHTTPError400(message string) *HTTPError {
+func NewHTTPError400(tmpl string, format ...interface{}) *HTTPError {
 	return &HTTPError{
 		StatusCode: http.StatusBadRequest,
-		Message:    message,
+		Message:    fmt.Sprintf(tmpl, format...),
 	}
 }
 
@@ -370,6 +370,9 @@ func NewRetryClient() *retryablehttp.Client {
 		}
 	}
 	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if resp == nil {
+			return true, err
+		}
 		log.Trace().
 			Str(resp.Request.Method, resp.Request.URL.String()).
 			Int("code", resp.StatusCode).

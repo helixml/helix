@@ -7,11 +7,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	reflect "reflect"
 	"strings"
+	"time"
 
 	"database/sql"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog/log"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
@@ -26,11 +32,20 @@ type PostgresStore struct {
 	connectionString string
 	pgDb             *sql.DB
 	db               *goqu.Database
+
+	gdb *gorm.DB
 }
 
 func NewPostgresStore(
 	options StoreOptions,
 ) (*PostgresStore, error) {
+
+	// Waiting for connection
+	gormDB, err := connect(context.Background(), options)
+	if err != nil {
+		return nil, err
+	}
+
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		options.Username,
@@ -45,19 +60,94 @@ func NewPostgresStore(
 	}
 	dialect := goqu.Dialect("postgres")
 	db := dialect.DB(pgDb)
+
 	store := &PostgresStore{
 		connectionString: connectionString,
 		options:          options,
 		pgDb:             pgDb,
 		db:               db,
+		gdb:              gormDB,
 	}
 	if options.AutoMigrate {
 		err = store.MigrateUp()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
 		}
+
+		err = store.autoMigrate()
+		if err != nil {
+			return nil, fmt.Errorf("there was an error doing the automigration: %s", err.Error())
+		}
 	}
+
 	return store, nil
+}
+
+func (s *PostgresStore) autoMigrate() error {
+	err := s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.Tool{},
+		&types.SessionToolBinding{},
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := createFK(s.gdb, types.SessionToolBinding{}, types.Tool{}, "tool_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	return nil
+}
+
+type namedTable interface {
+	TableName() string
+}
+
+// createFK creates a foreign key relationship between two tables.
+//
+// The argument `src` is the table with the field (`fk`) which refers to the field `pk` in the other (`dest`) table.
+func createFK(db *gorm.DB, src, dst interface{}, fk, pk string, onDelete, onUpdate string) error {
+	var (
+		srcTableName string
+		dstTableName string
+	)
+
+	sourceType := reflect.TypeOf(src)
+	_, ok := sourceType.MethodByName("TableName")
+	if ok {
+		srcTableName = src.(namedTable).TableName()
+	} else {
+		srcTableName = db.NamingStrategy.TableName(sourceType.Name())
+	}
+
+	destinationType := reflect.TypeOf(dst)
+	_, ok = destinationType.MethodByName("TableName")
+	if ok {
+		dstTableName = dst.(namedTable).TableName()
+	} else {
+		dstTableName = db.NamingStrategy.TableName(destinationType.Name())
+	}
+
+	// Dealing with custom table names that contain schema in them
+	constraintName := "fk_" + strings.ReplaceAll(srcTableName, ".", "_") + "_" + strings.ReplaceAll(dstTableName, ".", "_")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	if !db.Migrator().HasConstraint(src, constraintName) {
+		err := db.WithContext(ctx).Exec(fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s) ON DELETE %s ON UPDATE %s",
+			srcTableName,
+			constraintName,
+			fk,
+			dstTableName,
+			pk,
+			onDelete,
+			onUpdate)).Error
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
+	}
+	return nil
 }
 
 type Scanner interface {
@@ -83,89 +173,6 @@ func getKeyValueIndexes(fields []string, offset int) string {
 		parts = append(parts, fmt.Sprintf("%s = $%d", field, i+offset+1))
 	}
 	return fmt.Sprintf("%s", strings.Join(parts, ", "))
-}
-
-var SESSION_FIELDS = []string{
-	"id",
-	"name",
-	"created",
-	"updated",
-	"mode",
-	"type",
-	"model_name",
-	"lora_dir",
-	"interactions",
-	"owner",
-	"owner_type",
-	"parent_session",
-	"child_bot",
-	"parent_bot",
-	"config",
-}
-
-var SESSION_FIELDS_STRING = strings.Join(SESSION_FIELDS, ", ")
-
-func scanSessionRow(row Scanner) (*types.Session, error) {
-	session := &types.Session{}
-	var interactions []byte
-	var config []byte
-	err := row.Scan(
-		&session.ID,
-		&session.Name,
-		&session.Created,
-		&session.Updated,
-		&session.Mode,
-		&session.Type,
-		&session.ModelName,
-		&session.LoraDir,
-		&interactions,
-		&session.Owner,
-		&session.OwnerType,
-		&session.ParentSession,
-		&session.ChildBot,
-		&session.ParentBot,
-		&config,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(interactions, &session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(config, &session.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
-}
-
-func getSessionValues(session *types.Session) ([]interface{}, error) {
-	interactions, err := json.Marshal(session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-	config, err := json.Marshal(session.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	return []interface{}{
-		session.ID,
-		session.Name,
-		session.Created,
-		session.Updated,
-		session.Mode,
-		session.Type,
-		session.ModelName,
-		session.LoraDir,
-		interactions,
-		session.Owner,
-		session.OwnerType,
-		session.ParentSession,
-		session.ChildBot,
-		session.ParentBot,
-		config,
-	}, nil
 }
 
 var BOT_FIELDS = []string{
@@ -253,21 +260,6 @@ func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
 	}, nil
 }
 
-func (d *PostgresStore) GetSession(
-	ctx context.Context,
-	sessionID string,
-) (*types.Session, error) {
-	if sessionID == "" {
-		return nil, fmt.Errorf("sessionID cannot be empty")
-	}
-	row := d.pgDb.QueryRow(fmt.Sprintf(`
-		SELECT %s
-		FROM session WHERE id = $1
-	`, SESSION_FIELDS_STRING), sessionID)
-
-	return scanSessionRow(row)
-}
-
 func (d *PostgresStore) GetBot(
 	ctx context.Context,
 	botID string,
@@ -307,66 +299,6 @@ func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
 		where["owner_type"] = query.OwnerType
 	}
 	return where
-}
-
-func (d *PostgresStore) GetSessions(
-	ctx context.Context,
-	query GetSessionsQuery,
-) ([]*types.Session, error) {
-	sqlQuery := d.db.
-		From("session").
-		Where(d.getSessionsWhere(query)).
-		Order(goqu.I("created").Desc())
-
-	if query.Limit > 0 {
-		sqlQuery = sqlQuery.Limit(uint(query.Limit))
-	}
-
-	if query.Offset > 0 {
-		sqlQuery = sqlQuery.Offset(uint(query.Offset))
-	}
-
-	sql, values, err := sqlQuery.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := d.pgDb.Query(sql, values...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	sessions := []*types.Session{}
-	for rows.Next() {
-		session, err := scanSessionRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		sessions = append(sessions, session)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return sessions, nil
-}
-
-func (d *PostgresStore) GetSessionsCounter(
-	ctx context.Context,
-	query GetSessionsQuery,
-) (*types.Counter, error) {
-	count, err := d.db.
-		From("session").
-		Where(d.getSessionsWhere(query)).
-		Count()
-	if err != nil {
-		return nil, err
-	}
-	return &types.Counter{
-		Count: count,
-	}, nil
 }
 
 func (d *PostgresStore) GetBots(
@@ -413,28 +345,6 @@ func (d *PostgresStore) GetBots(
 	return bots, nil
 }
 
-func (d *PostgresStore) CreateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	values, err := getSessionValues(&session)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		INSERT INTO session (
-			%s
-		) VALUES (
-			%s
-		)
-	`, SESSION_FIELDS_STRING, getValueIndexes(SESSION_FIELDS)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
-}
-
 func (d *PostgresStore) CreateBot(
 	ctx context.Context,
 	bot types.Bot,
@@ -477,33 +387,6 @@ func (d *PostgresStore) CreateUserMeta(
 		return nil, err
 	}
 	return &user, nil
-}
-
-// NOTE: yes we are updating the ID based on the ID
-// TODO: use a library!?!
-func (d *PostgresStore) UpdateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	values, err := getSessionValues(&session)
-	if err != nil {
-		return nil, err
-	}
-
-	// prepend the ID to the values
-	values = append([]interface{}{session.ID}, values...)
-
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		UPDATE session SET
-			%s
-		WHERE id = $1
-	`, getKeyValueIndexes(SESSION_FIELDS, 1)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &session, nil
 }
 
 func (d *PostgresStore) UpdateBot(
@@ -565,24 +448,6 @@ func (d *PostgresStore) EnsureUserMeta(
 	} else {
 		return d.UpdateUserMeta(ctx, user)
 	}
-}
-
-func (d *PostgresStore) DeleteSession(
-	ctx context.Context,
-	sessionID string,
-) (*types.Session, error) {
-	deleted, err := d.GetSession(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(`
-		DELETE FROM session WHERE id = $1
-	`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	return deleted, nil
 }
 
 func (d *PostgresStore) DeleteBot(
@@ -788,4 +653,70 @@ func (d *PostgresStore) GetMigrations() (*migrate.Migrate, error) {
 		return nil, err
 	}
 	return migrations, nil
+}
+
+// Available DB types
+const (
+	DatabaseTypePostgres = "postgres"
+)
+
+func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("sql store startup deadline exceeded")
+		default:
+
+			var (
+				err       error
+				dialector gorm.Dialector
+			)
+
+			sslSettings := "sslmode=disable"
+			// crtPath := "/tmp/ca.crt"
+
+			// TODO: enable
+			// if c.Database.CaCrt != "" {
+			// 	_, err = os.Stat(c.Database.CaCrt)
+			// 	if err != nil {
+			// 		err = os.WriteFile(crtPath, []byte(c.Database.CaCrt), 0644)
+			// 		if err != nil {
+			// 			return nil, fmt.Errorf("failed to write ca.crt: %w", err)
+			// 		}
+			// 	} else {
+			// 		// File exists, so that's our path
+			// 		crtPath = c.Database.CaCrt
+			// 	}
+
+			// 	sslSettings = fmt.Sprintf("sslmode=verify-full sslrootcert=%s", crtPath)
+			// }
+
+			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
+				options.Username, options.Password, options.Host, options.Port, options.Database, sslSettings)
+			dialector = postgres.Open(dsn)
+
+			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
+
+			db, err := gorm.Open(dialector, &gorm.Config{})
+			if err != nil {
+				time.Sleep(1 * time.Second)
+
+				log.Err(err).Msg("sql store connector can't reach DB, waiting")
+
+				continue
+			}
+
+			sqlDB, err := db.DB()
+			if err != nil {
+				return nil, err
+			}
+			sqlDB.SetMaxIdleConns(50)
+			sqlDB.SetMaxOpenConns(25) // TODO: maybe subtract what pool uses
+			sqlDB.SetConnMaxIdleTime(time.Hour)
+			sqlDB.SetConnMaxLifetime(time.Minute)
+
+			// success
+			return db, nil
+		}
+	}
 }

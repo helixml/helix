@@ -27,6 +27,8 @@ export interface IAccountContext {
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   apiKeys: IApiKey[],
+  mobileMenuOpen: boolean,
+  setMobileMenuOpen: (val: boolean) => void,
   onLogin: () => void,
   onLogout: () => void,
 }
@@ -38,9 +40,12 @@ export const AccountContext = createContext<IAccountContext>({
   serverConfig: {
     filestore_prefix: '',
     stripe_enabled: false,
+    eval_user_id: '',
   },
   userConfig: {},
   apiKeys: [],
+  mobileMenuOpen: false,
+  setMobileMenuOpen: () => {},
   onLogin: () => {},
   onLogout: () => {},
 })
@@ -50,6 +55,7 @@ export const useAccountContext = (): IAccountContext => {
   const snackbar = useSnackbar()
   const loading = useLoading()
   const [ admin, setAdmin ] = useState(false)
+  const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ credits, setCredits ] = useState(0)
@@ -57,6 +63,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
     stripe_enabled: false,
+    eval_user_id: '',
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
@@ -193,6 +200,8 @@ export const useAccountContext = (): IAccountContext => {
     admin,
     serverConfig,
     userConfig,
+    mobileMenuOpen,
+    setMobileMenuOpen,
     credits,
     apiKeys,
     onLogin,
@@ -204,6 +213,8 @@ export const useAccountContext = (): IAccountContext => {
     admin,
     serverConfig,
     userConfig,
+    mobileMenuOpen,
+    setMobileMenuOpen,
     credits,
     apiKeys,
     onLogin,

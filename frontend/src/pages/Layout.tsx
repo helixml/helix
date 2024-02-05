@@ -1,28 +1,21 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useContext } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
 import MuiDrawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
-import MuiAppBar, { AppBarProps as MuiAppBarProps } from '@mui/material/AppBar'
-import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
-import HelpIcon from '@mui/icons-material/Help'
 import Menu from '@mui/material/Menu'
 import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
-import Tooltip from '@mui/material/Tooltip'
-// import EditTextWindow from '../components/session/EditTextWindow'
-import SessionButtons from '../components/session/SessionButtons'
 import NewAppBar from '../components/system/NewAppbar'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -30,10 +23,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard'
 import LoginIcon from '@mui/icons-material/Login'
 import LogoutIcon from '@mui/icons-material/Logout'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
-import MenuIcon from '@mui/icons-material/Menu'
-import AccountCircle from '@mui/icons-material/AccountCircle'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
-import EditIcon from '@mui/icons-material/Edit'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 import useRouter from '../hooks/useRouter'
@@ -46,28 +36,6 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import { ThemeContext } from '../contexts/theme'
 
 const drawerWidth: number = 320
-
-interface AppBarProps extends MuiAppBarProps {
-  open?: boolean
-}
-
-const AppBar = styled(MuiAppBar, {
-  shouldForwardProp: (prop) => prop !== 'open',
-})<AppBarProps>(({ theme, open }) => ({
-  zIndex: theme.zIndex.drawer + 1,
-  transition: theme.transitions.create(['width', 'margin'], {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen,
-  }),
-  ...(open && {
-    marginLeft: drawerWidth,
-    width: `calc(100% - ${drawerWidth}px)`,
-    transition: theme.transitions.create(['width', 'margin'], {
-      easing: theme.transitions.easing.sharp,
-      duration: theme.transitions.duration.enteringScreen,
-    }),
-  }),
-}))
 
 const themeConfig = useThemeConfig()
 
@@ -101,22 +69,13 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 const Layout: FC = ({
   children
 }) => {
-  const account = useAccount()
-  const themeConfig = useThemeConfig()
-
-  const {
-    meta,
-    navigate,
-    getToolbarElement,
-    getTitle,
-    name,
-  } = useRouter()
-  
-  const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
-  const [ mobileOpen, setMobileOpen ] = useState(false)
-
   const theme = useTheme()
+  const themeConfig = useThemeConfig()
+  const { mode, toggleMode } = useContext(ThemeContext)
+  const { setParams, params, meta, navigate, getToolbarElement, getTitle, name } = useRouter()
+  const account = useAccount()
   const bigScreen = useMediaQuery(theme.breakpoints.up('md'))
+  const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
 
   const handleAccountMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAccountMenuAnchorEl(event.currentTarget)
@@ -127,7 +86,11 @@ const Layout: FC = ({
   };
 
   const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen)
+    account.setMobileMenuOpen(!account.mobileMenuOpen)
+  }
+
+  const handleThemeChange = () => {
+    toggleMode()
   }
 
   const drawer = (
@@ -138,6 +101,7 @@ const Layout: FC = ({
         flexDirection: 'column',
         alignItems: 'center',
         borderRight: theme.palette.mode === 'light' ? themeConfig.lightBorder: themeConfig.darkBorder,
+        backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
       }}
     >
       <Box
@@ -153,7 +117,7 @@ const Layout: FC = ({
             disablePadding
             onClick={ () => {
               navigate('new')
-              setMobileOpen(false)
+              account.setMobileMenuOpen(false)
             }}
           >
             <ListItemButton
@@ -163,7 +127,7 @@ const Layout: FC = ({
             >
               <ListItemText
               sx={{
-                ml: 3,
+                ml: 2,
                 p: 1,
                 fontWeight: 'heading',
                 '&:hover': {
@@ -206,7 +170,7 @@ const Layout: FC = ({
       >
         <SessionsMenu
           onOpenSession={ () => {
-            setMobileOpen(false)
+            account.setMobileMenuOpen(false)
           }}
         />
       </Box>
@@ -293,6 +257,15 @@ const Layout: FC = ({
                     My account
                   </MenuItem>
 
+                  <MenuItem onClick={ () => {
+                    handleThemeChange()
+                  }}>
+                    <ListItemIcon>
+                      {theme.palette.mode === 'dark' ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
+                    </ListItemIcon>
+                    {theme.palette.mode === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  </MenuItem>
+
                   {
                     account.admin && (
                       <MenuItem onClick={ () => {
@@ -339,12 +312,6 @@ const Layout: FC = ({
 
   const container = window !== undefined ? () => document.body : undefined
 
-  const { mode, toggleMode } = React.useContext(ThemeContext);
-
-  const handleThemeChange = () => {
-    toggleMode()
-  }
-
   return (
     <Box
       id="root-container"
@@ -356,6 +323,7 @@ const Layout: FC = ({
     >
       <CssBaseline />
       {
+        /* This app bar is what shows when on the homepage */
         window.location.pathname.includes("/session") ? null :
         <NewAppBar
           getTitle={ getTitle }
@@ -366,11 +334,12 @@ const Layout: FC = ({
           drawerWidth={drawerWidth}
         />
       }
+      {/* This drawer is what shows when the screen is small */}
       <MuiDrawer
-        container={container}
+        container={ container }
         variant="temporary"
-        open={mobileOpen}
-        onClose={handleDrawerToggle}
+        open={account.mobileMenuOpen}
+        onClose={ handleDrawerToggle }
         ModalProps={{
           keepMounted: true, // Better open performance on mobile.
         }}
@@ -387,6 +356,7 @@ const Layout: FC = ({
       >
         {meta.sidebar?drawer:null}
       </MuiDrawer>
+      {/* This drawer is what shows when the screen is big */}
       <Drawer
         variant="permanent"
         sx={{
@@ -430,7 +400,8 @@ const Layout: FC = ({
           sx={{
             flexGrow: 1,
             overflow: 'auto',
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+            minHeight: '100%',
           }}
         >
           { children }

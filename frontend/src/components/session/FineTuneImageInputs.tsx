@@ -3,6 +3,8 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Grid from '@mui/material/Grid'
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import ArrowCircleRightIcon from '@mui/icons-material/ArrowCircleRight'
@@ -44,6 +46,9 @@ export const FineTuneImageInputs: FC<{
   }, [
     files,
   ])
+
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
   useEffect(() => {
     if(!onChange) return
@@ -96,7 +101,7 @@ export const FineTuneImageInputs: FC<{
         </Button>
         <Box
           sx={{
-            border: '1px dashed #ccc',
+            border: '1px solid #333',
             p: 2,
             display: 'flex',
             flexDirection: 'column',
@@ -104,6 +109,7 @@ export const FineTuneImageInputs: FC<{
             justifyContent: 'flex-start',
             minHeight: '100px',
             cursor: 'pointer',
+            backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
           }}
         >
           {

@@ -319,54 +319,6 @@ const New: FC = () => {
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{maxWidth:"560px", marginLeft: "auto", marginRight: "auto"}}>
-            <Grid item>
-              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
-                Create
-                <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
-                  <Select variant="standard"
-                    labelId="create-type-select-label"
-                    id="create-type-select"
-                    value={selectedType}
-                    onMouseDown={ e => {
-                      setModel(SESSION_MODE_INFERENCE, type as ISessionType)
-                      e.stopPropagation()
-                    }}
-                    onClick={ e => {
-                      e.stopPropagation()
-                    }}
-                    onChange={(event) => setModel(SESSION_MODE_INFERENCE, event.target.value as ISessionType)}
-                  >
-                    <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
-                    <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
-                  </Select>
-                </FormControl>
-              </Button>
-            </Grid>
-            <Grid item>
-              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
-                Finetune
-                <FormControl sx={{minWidth: 120, marginLeft: 2}}>
-                  <Select variant="standard"
-                    labelId="fine-tune-type-select-label"
-                    id="fine-tune-type-select"
-                    value={selectedType}
-                    onMouseDown={ e => {
-                      setModel(SESSION_MODE_FINETUNE, type as ISessionType)
-                      e.stopPropagation()
-                    }}
-                    onClick={ e => {
-                      e.stopPropagation()
-                    }}
-                    onChange={(event) => setModel(SESSION_MODE_FINETUNE, event.target.value as ISessionType)}
-                  >
-                    <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
-                    <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
-                  </Select>
-                </FormControl>
-              </Button>
-            </Grid>
-          </Grid>
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
               <FineTuneImageInputs
@@ -508,6 +460,13 @@ const New: FC = () => {
           <Box
             sx={{
               mt: 2,
+              mb: {
+                xs: 8,
+                sm: 8,
+                md: 8,
+                lg: 4,
+                xl: 4,
+              }
             }}
           >
             <Disclaimer />

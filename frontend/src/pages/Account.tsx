@@ -76,11 +76,12 @@ const Account: FC = () => {
     <Box
       sx={{
         width: '100%',
-        height: '100%',
+        maxHeight: '100%',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        mt: 12,
       }}
     >
       <Box
@@ -88,7 +89,7 @@ const Account: FC = () => {
           width: '100%',
           flexGrow: 1,
           overflowY: 'auto',
-          p: 2,
+          px: 2,
         }}
       >
         <Container maxWidth="lg">
