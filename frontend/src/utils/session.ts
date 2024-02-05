@@ -14,6 +14,7 @@ import {
   SESSION_MODE_INFERENCE,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGES,
+  TEXT_DATA_PREP_DISPLAY_STAGES,
 } from '../types'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
@@ -167,6 +168,10 @@ export const getSessionSummary = (session: ISession): ISessionSummary => {
 
 export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => {
   return TEXT_DATA_PREP_STAGES.indexOf(stage)
+}
+
+export const getTextDataPrepStageIndexDisplay = (stage: ITextDataPrepStage): number => {
+  return TEXT_DATA_PREP_DISPLAY_STAGES.indexOf(stage)
 }
 
 export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
