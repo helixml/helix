@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
 
@@ -128,8 +127,6 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
-	fmt.Println("========= UpdateSessionRequest =========")
-
 	session, err := c.Options.Store.GetSession(ctx.Ctx, req.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session %s: %w", req.SessionID, err)
@@ -147,42 +144,6 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 		Finished: false,
 		Metadata: map[string]string{},
 	}
-
-	// if c.Options.Config.Tools.Enabled {
-	// 	tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
-	// 		Owner:     ctx.Owner,
-	// 		OwnerType: ctx.OwnerType,
-	// 	})
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	if len(tools) > 0 {
-	// 		isActionable, err := c.Options.Planner.IsActionable(
-	// 			ctx.Ctx,
-	// 			tools,
-	// 			[]*types.Interaction{},
-	// 			req.UserInteraction.Message,
-	// 		)
-	// 		if err != nil {
-	// 			log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-	// 			return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
-	// 		}
-
-	// 		log.Info().
-	// 			Str("api", isActionable.Api).
-	// 			Str("actionable", isActionable.NeedsApi).
-	// 			Str("justification", isActionable.Justification).
-	// 			Str("message", req.UserInteraction.Message).
-	// 			Msg("checked for actionable")
-
-	// 		if isActionable.Actionable() {
-	// 			systemInteraction.Mode = types.SessionModeAction
-	// 			systemInteraction.Metadata["tool_action"] = isActionable.Api
-	// 			systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
-	// 			systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
-	// 		}
-	// 	}
-	// }
 
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
@@ -349,9 +310,6 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		return
 	}
 
-	fmt.Println("prepared")
-	spew.Dump(preparedSession)
-
 	// If last interaction is "action" then we should run the action
 	// and not the model
 	lastInteraction, err := data.GetLastSystemInteraction(sessionData.Interactions)
@@ -439,6 +397,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		c.BeginFineTune(session)
 		return nil, nil
 	}
+
 	return session, nil
 }
 
@@ -484,12 +443,6 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	if !isActionable.Actionable() {
 		return session, nil
 	}
-
-	// lastInteraction := session.Interactions[len(session.Interactions)-1]
-
-	// if lastInteraction.Creator == types.CreatorTypeSystem {
-
-	// }
 
 	// Actionable, converting interaction mode to "action"
 	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
