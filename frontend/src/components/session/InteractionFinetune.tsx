@@ -1,5 +1,6 @@
 import React, { FC, useMemo, useCallback } from 'react'
 import { useTheme } from '@mui/system'
+import useMediaQuery from '@mui/material/useMediaQuery' 
 import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Button from '@mui/material/Button'
@@ -15,6 +16,7 @@ import FineTuneTextQuestions from './FineTuneTextQuestions'
 import FineTuneAddFiles from './FineTuneAddFiles'
 import FineTuneCloneInteraction from './FineTuneCloneInteraction'
 import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
@@ -52,6 +54,7 @@ export const InteractionFinetune: FC<{
   serverConfig: IServerConfig,
   interaction: IInteraction,
   session: ISession,
+  highlightAllFiles?: boolean,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
@@ -60,6 +63,7 @@ export const InteractionFinetune: FC<{
   serverConfig,
   interaction,
   session,
+  highlightAllFiles = false,
   retryFinetuneErrors,
   onReloadSession,
   onClone,
@@ -120,6 +124,8 @@ export const InteractionFinetune: FC<{
 
   if(!serverConfig || !serverConfig.filestore_prefix || (!isShared && !account.token)) return null
 
+  const matches = useMediaQuery(theme.breakpoints.down('md'))
+
   return (
     <>
       {
@@ -127,10 +133,10 @@ export const InteractionFinetune: FC<{
           <Box
             sx={{
               maxHeight: '400px',
-              overflowY: 'auto'
+              overflowY: 'auto',
             }}
           >
-            <Grid container spacing={3} direction="row" justifyContent="flex-start">
+            <Grid container spacing={2} direction="row" justifyContent="flex-start">
               {
                 interaction.files.length > 0 && interaction.files
                   .filter(file => {
@@ -143,14 +149,15 @@ export const InteractionFinetune: FC<{
                     const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
                     return (
-                      <Grid item xs={3} md={3} key={file}>
+                      <Grid item xs={4} md={3} key={file}>
                         <Box
                           sx={{
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            color: '#999'
+                            color: '#999',
+                            p: 0,
                           }}
                         >
                           <Box
@@ -179,7 +186,10 @@ export const InteractionFinetune: FC<{
           <Box
             sx={{
               maxHeight: '400px',
-              overflowY: 'auto'
+              overflowY: 'auto',
+              padding: 2,
+              backgroundColor: highlightAllFiles ? 'rgba(255,255,255,0.5)' : 'transparent',
+              transition: 'all 0.3s ease',
             }}
           >
             <Grid container spacing={3} direction="row" justifyContent="flex-start">
@@ -234,7 +244,7 @@ export const InteractionFinetune: FC<{
               mb: 3,
             }}
           >
-            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)}>
+            <Stepper activeStep={getTextDataPrepStageIndex(interaction.data_prep_stage)} orientation={matches ? "vertical" : "horizontal"}>
               <Step>
                 <StepLabel>Extract Text</StepLabel>
               </Step>
@@ -318,40 +328,69 @@ export const InteractionFinetune: FC<{
             >
               However, we encountered <strong>{ dataPrepStats.errors }</strong> error{ dataPrepStats.errors == 1 ? '' : 's' }, please choose how you want to proceed:
             </Alert>
-            <Row>
+            <Row
+              sx={{
+                flexDirection: {
+                  xs: 'column',
+                  sm: 'column',
+                  md: 'row'
+                }
+              }}
+            >
               {
                 retryFinetuneErrors && (
-                  <Button
-                    variant="contained"
-                    color="primary"
+                  <Cell
                     sx={{
-                      mr: 1,
+                      width: '100%',
+                      m: 1,
                     }}
-                    endIcon={<ReplayIcon />}
-                    onClick={ retryFinetuneErrors }
                   >
-                    Retry
-                  </Button>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      sx={{
+                        width: '100%'
+                      }}
+                      endIcon={<ReplayIcon />}
+                      onClick={ retryFinetuneErrors }
+                    >
+                      Retry
+                    </Button>
+                  </Cell>
                 )
               }
-              <FineTuneTextQuestions
-                onlyShowEditMode
-                sessionID={ session.id }
-                interactionID={ userFilesInteractionID }  
-              />
-              <Button
-                variant="contained"
-                color="primary"
+              <Cell
                 sx={{
-                  mr: 1,
-                }}
-                endIcon={<ArrowForwardIcon />}
-                onClick={ () => {
-                  startFinetuning()
+                  width: '100%',
+                  m: 1,
                 }}
               >
-                Ignore Errors And Start Fine Tuning
-              </Button>
+                <FineTuneTextQuestions
+                  onlyShowEditMode
+                  sessionID={ session.id }
+                  interactionID={ userFilesInteractionID }  
+                />
+              </Cell>
+              <Cell
+                sx={{
+                  width: '100%',
+                  m: 1,
+                }}
+              >
+                <Button
+                  variant="contained"
+                  color="primary"
+                  sx={{
+                    width: '100%'
+                  }}
+                  endIcon={<ArrowForwardIcon />}
+                  onClick={ () => {
+                    startFinetuning()
+                  }}
+                >
+                  Ignore Errors And Start Fine Tuning
+                </Button>
+              </Cell>
             </Row>
           </Box>
         )

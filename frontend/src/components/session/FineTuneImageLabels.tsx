@@ -57,7 +57,7 @@ export const FineTuneImageLabels: FC<{
         )
       }
 
-      <Grid container spacing={3} direction="row" justifyContent="flex-start">
+      <Grid container spacing={2} gap={0} direction="row" justifyContent="flex-start">
         {
           files.length > 0 && files.map((file) => {
             const objectURL = URL.createObjectURL(file)
@@ -69,7 +69,9 @@ export const FineTuneImageLabels: FC<{
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#999'
+                    color: '#999',
+                    p: 0,
+                    m: 0,
                   }}
                 >
                   <Box
@@ -77,9 +79,9 @@ export const FineTuneImageLabels: FC<{
                     src={objectURL}
                     alt={file.name}
                     sx={{
-                      height: '100px',
-                      border: '1px solid #000000',
+                      height: '98px',
                       filter: 'drop-shadow(3px 3px 5px rgba(0, 0, 0, 0.2))',
+                      p: 0,
                       mb: 1,
                     }}
                   />

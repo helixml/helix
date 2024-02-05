@@ -18,11 +18,12 @@ export const InteractionContainer: FC<{
       mb: 3,
     }}>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', pb: 1, }}>
-        <Avatar sx={{ width: 24, height: 24 }}>{name.charAt(0).toUpperCase()}</Avatar>
+        <Avatar className="interactionAvatar" sx={{ width: 24, height: 24 }}>{name.charAt(0).toUpperCase()}</Avatar>
         <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Row>
             <Cell flexGrow={1}>
               <Typography
+                className="interactionName"
                 variant="subtitle2"
                 sx={{
                   // fontWeight: 'bold',
