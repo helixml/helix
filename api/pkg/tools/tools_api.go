@@ -14,7 +14,7 @@ import (
 	openai "github.com/lukemarsden/go-openai2"
 )
 
-func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, pathParams map[string]string) (*http.Request, error) {
+func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]string) (*http.Request, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -25,11 +25,27 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	// Based on the operationId get the path and method
 	var path, method string
 
+	queryParams := make(map[string]bool)
+	pathParams := make(map[string]bool)
+
 	for p, pathItem := range schema.Paths.Map() {
 		for m, operation := range pathItem.Operations() {
 			if operation.OperationID == action {
 				path = p
 				method = m
+
+				// spew.Dump(operation.Parameters)
+
+				for _, param := range operation.Parameters {
+
+					switch param.Value.In {
+					case "query":
+						queryParams[param.Value.Name] = true
+					case "path":
+						pathParams[param.Value.Name] = true
+					}
+				}
+
 				break
 			}
 		}
@@ -49,10 +65,20 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.Header.Set(k, v)
 	}
 
+	q := req.URL.Query()
+
 	// Add path params
-	for k, v := range pathParams {
-		req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+	for k, v := range params {
+		if pathParams[k] {
+			req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+		}
+
+		if queryParams[k] {
+			q.Add(k, v)
+		}
 	}
+
+	req.URL.RawQuery = q.Encode()
 
 	if tool.Config.API.Query != nil {
 		q := req.URL.Query()
@@ -63,7 +89,6 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.URL.RawQuery = q.Encode()
 	}
 
-	// TODO: model query params
 	// TODO: Add body
 
 	return req, nil
