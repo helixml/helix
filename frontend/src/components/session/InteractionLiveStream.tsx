@@ -58,7 +58,7 @@ export const InteractionLiveStream: FC<{
 
   const getFileURL = (url: string) => {
     if(!serverConfig) return ''
-    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}`
+    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}&redirect_urls=true`
   }
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
