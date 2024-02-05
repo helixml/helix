@@ -35,6 +35,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 
  - name: summaries-one
@@ -64,6 +65,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
  - name: metadata
    system: |
@@ -112,6 +114,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 
  - name: title-questions
@@ -154,6 +157,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 
  - name: summaries-three
@@ -193,6 +197,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 
  - name: summaries-sections
@@ -258,6 +263,7 @@ prompts:
                     type: string
                   answer:
                     type: string
+                required: [question, answer]
 
 
 #    For the next set of questions, summarize each section of the document.
@@ -321,6 +327,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 
 #  - name: entities-specific-to-broad
@@ -479,6 +486,7 @@ prompts:
                     type: string
                   answer:
                     type: string
+                required: [question, answer]
 
 #  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
 #  - name: entities-relationships
@@ -602,6 +610,7 @@ prompts:
            type: string
          answer:
            type: string
+       required: [question, answer]
 
 targets:
  - name: openai
