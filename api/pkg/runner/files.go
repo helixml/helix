@@ -342,7 +342,7 @@ func (handler *FileHandler) uploadFolder(sessionID string, localPath string, rem
 		Type:      types.WorkerTaskResponseTypeProgress,
 		SessionID: sessionID,
 		Progress:  1,
-		Message:   "uploading fine tuned files...",
+		Status:    "uploading fine tuned files...",
 	})
 
 	totalSize := uint64(fileInfo.Size())

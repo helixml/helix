@@ -236,7 +236,20 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 					return
 				}
 
-				fileServer.ServeHTTP(w, r)
+				// read the query param called redirect_urls
+				// if it's present and set to the string "true"
+				// then assign a boolean
+				shouldRedirectURLs := r.URL.Query().Get("redirect_urls") == "true"
+				if shouldRedirectURLs && strings.HasSuffix(r.URL.Path, ".url") {
+					url, err := apiServer.Controller.FilestoreReadTextFile(r.URL.Path)
+					if err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+					} else {
+						http.Redirect(w, r, url, http.StatusFound)
+					}
+				} else {
+					fileServer.ServeHTTP(w, r)
+				}
 			})))
 	}
 
