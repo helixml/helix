@@ -379,7 +379,7 @@ export const SessionHeader: FC<{
           {
             deletingSession && (
               <DeleteConfirmWindow
-                title={`Delete session ${deletingSession.name}?`}
+                title={`session ${deletingSession.name}?`}
                 onCancel={ () => {
                   setDeletingSession(undefined) 
                 }}
@@ -440,7 +440,7 @@ export const SessionHeader: FC<{
       {
         deletingSession && (
           <DeleteConfirmWindow
-            title={`Delete session ${deletingSession.name}?`}
+            title={`session ${deletingSession.name}?`}
             onCancel={() => {
               setDeletingSession(undefined) 
             }}

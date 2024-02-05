@@ -115,7 +115,7 @@ export const SessionButtons: FC<{
       {
         deletingSession && (
           <DeleteConfirmWindow
-            title={`Delete session ${deletingSession.name}?`}
+            title={`session ${deletingSession.name}?`}
             onCancel={ () => {
               setDeletingSession(undefined) 
             }}
