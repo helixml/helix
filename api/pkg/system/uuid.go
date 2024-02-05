@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	ToolPrefix = "tool_"
+	ToolPrefix    = "tool_"
+	SessionPrefix = "ses_"
 )
 
 func GenerateUUID() string {
@@ -22,4 +23,8 @@ func newID() string {
 
 func GenerateToolID() string {
 	return fmt.Sprintf("%s%s", ToolPrefix, newID())
+}
+
+func GenerateSessionID() string {
+	return fmt.Sprintf("%s%s", SessionPrefix, newID())
 }

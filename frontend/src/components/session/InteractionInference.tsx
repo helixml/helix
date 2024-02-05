@@ -15,8 +15,13 @@ import Cell from '../widgets/Cell'
 import useAccount from '../../hooks/useAccount'
 
 import {
+  ISession,
   IServerConfig,
 } from '../../types'
+
+import {
+  replaceMessageText,
+} from '../../utils/session'
 
 const GeneratedImage = styled('img')({})
 
@@ -25,26 +30,34 @@ export const InteractionInference: FC<{
   message?: string,
   error?: string,
   serverConfig?: IServerConfig,
+  session: ISession,
   // if the session is shared then we don't enforce needing an access token to see the files
   isShared?: boolean,
   onRestart?: () => void,
+  isFromSystem?: boolean,
 }> = ({
   imageURLs = [],
   message,
   error,
   serverConfig,
+  session,
   isShared,
   onRestart,
+  isFromSystem,
 }) => {
   const account = useAccount()
   const [ viewingError, setViewingError ] = useState(false)
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
+  const getFileURL = (url: string) => {
+    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}&redirect_urls=true`
+  }
+
   return (
     <>
       {
         message && (
-          <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')}}></Typography>
+          <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: replaceMessageText(message, session, getFileURL)}}></Typography>
         )
       }
       {
@@ -95,11 +108,12 @@ export const InteractionInference: FC<{
             return isShared || account.token ? true : false
           })
           .map((imageURL: string) => {
-            const useURL = `${serverConfig.filestore_prefix}/${imageURL}?access_token=${account.token}`
+            const useURL = getFileURL(imageURL)
             return (
               <Box
                 sx={{
                   mt: 2,
+                  maxWidth: '600px',
                 }}
                 key={ useURL }
               >
@@ -109,8 +123,8 @@ export const InteractionInference: FC<{
                 >
                   <GeneratedImage
                     sx={{
-                      height: '600px',
                       maxHeight: '600px',
+                      width: '100%',
                       border: '1px solid #000000',
                       filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
                     }}

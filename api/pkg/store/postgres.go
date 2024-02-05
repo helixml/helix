@@ -175,89 +175,6 @@ func getKeyValueIndexes(fields []string, offset int) string {
 	return fmt.Sprintf("%s", strings.Join(parts, ", "))
 }
 
-var SESSION_FIELDS = []string{
-	"id",
-	"name",
-	"created",
-	"updated",
-	"mode",
-	"type",
-	"model_name",
-	"lora_dir",
-	"interactions",
-	"owner",
-	"owner_type",
-	"parent_session",
-	"child_bot",
-	"parent_bot",
-	"config",
-}
-
-var SESSION_FIELDS_STRING = strings.Join(SESSION_FIELDS, ", ")
-
-func scanSessionRow(row Scanner) (*types.Session, error) {
-	session := &types.Session{}
-	var interactions []byte
-	var config []byte
-	err := row.Scan(
-		&session.ID,
-		&session.Name,
-		&session.Created,
-		&session.Updated,
-		&session.Mode,
-		&session.Type,
-		&session.ModelName,
-		&session.LoraDir,
-		&interactions,
-		&session.Owner,
-		&session.OwnerType,
-		&session.ParentSession,
-		&session.ChildBot,
-		&session.ParentBot,
-		&config,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(interactions, &session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(config, &session.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
-}
-
-func getSessionValues(session *types.Session) ([]interface{}, error) {
-	interactions, err := json.Marshal(session.Interactions)
-	if err != nil {
-		return nil, err
-	}
-	config, err := json.Marshal(session.Metadata)
-	if err != nil {
-		return nil, err
-	}
-	return []interface{}{
-		session.ID,
-		session.Name,
-		session.Created,
-		session.Updated,
-		session.Mode,
-		session.Type,
-		session.ModelName,
-		session.LoraDir,
-		interactions,
-		session.Owner,
-		session.OwnerType,
-		session.ParentSession,
-		session.ChildBot,
-		session.ParentBot,
-		config,
-	}, nil
-}
-
 var BOT_FIELDS = []string{
 	"id",
 	"name",
@@ -343,21 +260,6 @@ func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
 	}, nil
 }
 
-func (d *PostgresStore) GetSession(
-	ctx context.Context,
-	sessionID string,
-) (*types.Session, error) {
-	if sessionID == "" {
-		return nil, fmt.Errorf("sessionID cannot be empty")
-	}
-	row := d.pgDb.QueryRow(fmt.Sprintf(`
-		SELECT %s
-		FROM session WHERE id = $1
-	`, SESSION_FIELDS_STRING), sessionID)
-
-	return scanSessionRow(row)
-}
-
 func (d *PostgresStore) GetBot(
 	ctx context.Context,
 	botID string,
@@ -397,66 +299,6 @@ func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
 		where["owner_type"] = query.OwnerType
 	}
 	return where
-}
-
-func (d *PostgresStore) GetSessions(
-	ctx context.Context,
-	query GetSessionsQuery,
-) ([]*types.Session, error) {
-	sqlQuery := d.db.
-		From("session").
-		Where(d.getSessionsWhere(query)).
-		Order(goqu.I("created").Desc())
-
-	if query.Limit > 0 {
-		sqlQuery = sqlQuery.Limit(uint(query.Limit))
-	}
-
-	if query.Offset > 0 {
-		sqlQuery = sqlQuery.Offset(uint(query.Offset))
-	}
-
-	sql, values, err := sqlQuery.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := d.pgDb.Query(sql, values...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	sessions := []*types.Session{}
-	for rows.Next() {
-		session, err := scanSessionRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		sessions = append(sessions, session)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return sessions, nil
-}
-
-func (d *PostgresStore) GetSessionsCounter(
-	ctx context.Context,
-	query GetSessionsQuery,
-) (*types.Counter, error) {
-	count, err := d.db.
-		From("session").
-		Where(d.getSessionsWhere(query)).
-		Count()
-	if err != nil {
-		return nil, err
-	}
-	return &types.Counter{
-		Count: count,
-	}, nil
 }
 
 func (d *PostgresStore) GetBots(
@@ -503,28 +345,6 @@ func (d *PostgresStore) GetBots(
 	return bots, nil
 }
 
-func (d *PostgresStore) CreateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	values, err := getSessionValues(&session)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		INSERT INTO session (
-			%s
-		) VALUES (
-			%s
-		)
-	`, SESSION_FIELDS_STRING, getValueIndexes(SESSION_FIELDS)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
-}
-
 func (d *PostgresStore) CreateBot(
 	ctx context.Context,
 	bot types.Bot,
@@ -567,33 +387,6 @@ func (d *PostgresStore) CreateUserMeta(
 		return nil, err
 	}
 	return &user, nil
-}
-
-// NOTE: yes we are updating the ID based on the ID
-// TODO: use a library!?!
-func (d *PostgresStore) UpdateSession(
-	ctx context.Context,
-	session types.Session,
-) (*types.Session, error) {
-	values, err := getSessionValues(&session)
-	if err != nil {
-		return nil, err
-	}
-
-	// prepend the ID to the values
-	values = append([]interface{}{session.ID}, values...)
-
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		UPDATE session SET
-			%s
-		WHERE id = $1
-	`, getKeyValueIndexes(SESSION_FIELDS, 1)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &session, nil
 }
 
 func (d *PostgresStore) UpdateBot(
@@ -655,24 +448,6 @@ func (d *PostgresStore) EnsureUserMeta(
 	} else {
 		return d.UpdateUserMeta(ctx, user)
 	}
-}
-
-func (d *PostgresStore) DeleteSession(
-	ctx context.Context,
-	sessionID string,
-) (*types.Session, error) {
-	deleted, err := d.GetSession(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(`
-		DELETE FROM session WHERE id = $1
-	`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	return deleted, nil
 }
 
 func (d *PostgresStore) DeleteBot(
