@@ -298,7 +298,8 @@ const New: FC = () => {
       className="helix-new"
       sx={{
         width: '100%',
-        height: '100%',
+        height: 'calc(100% - 100px)',
+        mt: 12,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
