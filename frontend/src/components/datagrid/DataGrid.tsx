@@ -91,11 +91,8 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         overflow: 'auto',
         backgroundColor: 'transparent',
         boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
-        borderTopLeftRadius: '12px',
-        borderTopRightRadius: '12px',
         border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[300]}`,
         '& .InovuaReactDataGrid__header': {
-          border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[300]}`,
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',
           backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
@@ -103,6 +100,9 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         '& .InovuaReactDataGrid__row': {
           backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
+          '&:hover': {
+            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightHoverColor : themeConfig.darkHoverColor,
+          },
         },
         ...sx,
       }}
