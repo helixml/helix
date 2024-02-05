@@ -111,6 +111,8 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Error = ""
 		systemInteraction.Finished = false
+		// empty out the previous message so model doesn't think it's already finished
+		systemInteraction.Message = ""
 
 		systemInteraction.State = types.InteractionStateWaiting
 
