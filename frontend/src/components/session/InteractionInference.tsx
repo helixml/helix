@@ -34,6 +34,7 @@ export const InteractionInference: FC<{
   // if the session is shared then we don't enforce needing an access token to see the files
   isShared?: boolean,
   onRestart?: () => void,
+  isFromSystem?: boolean,
 }> = ({
   imageURLs = [],
   message,
@@ -42,6 +43,7 @@ export const InteractionInference: FC<{
   session,
   isShared,
   onRestart,
+  isFromSystem,
 }) => {
   const account = useAccount()
   const [ viewingError, setViewingError ] = useState(false)
@@ -111,6 +113,7 @@ export const InteractionInference: FC<{
               <Box
                 sx={{
                   mt: 2,
+                  maxWidth: '600px',
                 }}
                 key={ useURL }
               >
@@ -120,8 +123,8 @@ export const InteractionInference: FC<{
                 >
                   <GeneratedImage
                     sx={{
-                      height: '600px',
                       maxHeight: '600px',
+                      width: '100%',
                       border: '1px solid #000000',
                       filter: 'drop-shadow(5px 5px 10px rgba(0, 0, 0, 0.5))',
                     }}
