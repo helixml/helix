@@ -43,6 +43,7 @@ type Interaction struct {
 	LoraDir        string                     `json:"lora_dir"`
 	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
 	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
+	RagResults     []SessionRagResult         `json:"rag_results"`
 }
 
 type InteractionMessage struct {
