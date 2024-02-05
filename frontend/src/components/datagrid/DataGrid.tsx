@@ -7,18 +7,6 @@ import { SxProps } from '@mui/system'
 import Loading from '../system/Loading'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
-const gridStyle = {
-  minHeight: 400,
-  border: 'none',
-  boxShadow: '0px 4px 10px 0px rgba(0,0,0,0.1)',
-  width: '100%',
-  height: '100%',
-  position: 'relative',
-  flexGrow: 1,
-  flexBasis: '100%',
-  backgroundColor: 'transparent',
-}
-
 export interface IDataGrid2_Column_Render_Params<DataType = any> {
   value: any,
   data: DataType,
@@ -60,8 +48,13 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   idProperty = 'id',
   rows,
   columns,
-  sx = {},
-  innerSx = {},
+  sx={},
+  innerSx = {
+    '& .InovuaReactDataGrid__row': {
+      borderTop: '1px solid #000',
+      borderBottom: '1px solid #000',
+    },
+  },
   userSelect = false,
   minHeight = 400,
   editable = false,
@@ -71,13 +64,24 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   onDoubleClick,
   onSelect,
 }) => {
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
   const onCellClick = useCallback((ev: any, cellProps: any) => {
     if(!onSelect) return
     onSelect(cellProps.rowIndex, cellProps.columnIndex)
   }, [onSelect])
 
-  const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const borderStyle = `1px solid ${theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder}`
+
+  const gridStyle = {
+    // minHeight: 400,
+    // boxShadow: '0px 4px 10px 0px rgba(0,0,0,0.1)',
+    // width: '100%',
+    // height: '100%',
+    // position: 'relative',
+    // flexGrow: 1,
+    // flexBasis: '100%',
+  }
 
   return (
     <Box
@@ -89,21 +93,24 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         position: 'relative',
         display: 'flex',
         overflow: 'auto',
-        backgroundColor: 'transparent',
-        boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
-        border: `1px solid ${theme.palette.mode === 'dark' ? theme.palette.grey[800] : theme.palette.grey[300]}`,
+        // backgroundColor: 'transparent',
+        // boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
+        '& .InovuaReactDataGrid__row': {
+          borderTop: '1px solid #000',
+          borderBottom: '1px solid #000',
+        },
         '& .InovuaReactDataGrid__header': {
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',
           backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
         },
-        '& .InovuaReactDataGrid__row': {
-          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
-          color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
-          '&:hover': {
-            backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightHoverColor : themeConfig.darkHoverColor,
-          },
-        },
+        // '& .InovuaReactDataGrid__row': {
+        //   backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+        //   color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
+        //   '&:hover': {
+        //     backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+        //   },
+        // },
         ...sx,
       }}
     >
@@ -134,7 +141,7 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
           rowHeight={null}
           style={gridStyle}
           showCellBorders={false}
-          theme='default-light'
+          showHoverRows={false}
         />
       </Box>
       {loading && (
