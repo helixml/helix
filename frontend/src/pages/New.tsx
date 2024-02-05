@@ -361,6 +361,7 @@ const New: FC = () => {
                         width: '100%',
                         display: 'flex',
                         mb: 2,
+                        mt: 2,
                         alignItems: 'flex-start',
                         justifyContent: 'flex-start',
                         flexDirection: {

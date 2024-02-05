@@ -63,12 +63,12 @@ export const useFinetuneInputs = () => {
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [finetuneEnabled, setFinetuneEnabled] = useState(true)
-  const [ragEnabled, setRagEnabled] = useState(true)
+  const [ragEnabled, setRagEnabled] = useState(false)
   const [ragDistanceFunction, setRagDistanceFunction] = useState<'l2' | 'inner_product' | 'cosine'>('cosine')
   const [ragThreshold, setRagThreshold] = useState(0.2)
   const [ragResultsCount, setRagResultsCount] = useState(3)
-  const [ragChunkSize, setRagChunkSize] = useState(512)
-  const [ragChunkOverflow, setRagChunkOverflow] = useState(32)
+  const [ragChunkSize, setRagChunkSize] = useState(1024)
+  const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
 
   const serializePage = useCallback(async () => {
     const serializedFiles = await bluebird.map(files, async (file) => {

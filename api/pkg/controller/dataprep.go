@@ -322,6 +322,90 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 	return splitter.Chunks, nil
 }
 
+func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, int, error) {
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chunksToProcess, err := c.getRagChunksToProcess(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(chunksToProcess) == 0 {
+		return session, 0, nil
+	}
+
+	// get the progress bar to display
+	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
+	systemInteraction.Status = initialMessage
+	systemInteraction.Progress = 1
+	systemInteraction.DataPrepStage = types.TextDataPrepStageIndexRag
+	session = c.WriteInteraction(session, systemInteraction)
+	c.BroadcastProgress(session, 1, initialMessage)
+
+	var completedCounter int64
+	var errorCounter int64
+
+	for i, chunk := range chunksToProcess {
+		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
+
+		convertError := c.indexChunkForRag(session, systemInteraction, chunk)
+
+		if convertError != nil {
+			atomic.AddInt64(&errorCounter, 1)
+		} else {
+			atomic.AddInt64(&completedCounter, 1)
+		}
+
+		percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
+		message := fmt.Sprintf("%d total, %d indexed and %d errors", len(chunksToProcess), completedCounter, errorCounter)
+		c.BroadcastProgress(session, percentConverted, message)
+		systemInteraction.Status = message
+		systemInteraction.Progress = percentConverted
+		session = c.WriteInteraction(session, systemInteraction)
+
+		if convertError != nil {
+			log.Error().Msgf("🔴 rag index error %s", convertError.Error())
+		} else {
+			log.Info().Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
+		}
+
+	}
+
+	finishedMessage := fmt.Sprintf("indexed %d text chunks into vector database", len(chunksToProcess))
+
+	c.BroadcastProgress(session, 100, finishedMessage)
+
+	systemInteraction.Status = finishedMessage
+	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
+	systemInteraction.Progress = 0
+	session = c.WriteInteraction(session, systemInteraction)
+
+	return session, len(chunksToProcess), nil
+}
+
+func (c *Controller) indexChunkForRag(session *types.Session, interaction *types.Interaction, chunk *text.DataPrepTextSplitterChunk) error {
+	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
+		system.ClientOptions{},
+		c.Options.RAGIndexingURL,
+		types.SessionRagIndexChunk{
+			SessionID:       session.ID,
+			InteractionID:   interaction.ID,
+			Filename:        chunk.Filename,
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
@@ -477,89 +561,4 @@ func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) 
 		return 0, err
 	}
 	return getQAChunkErrors(systemInteraction), nil
-}
-
-func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, int, error) {
-	systemInteraction, err := data.GetSystemInteraction(session)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	chunksToProcess, err := c.getRagChunksToProcess(session)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if len(chunksToProcess) == 0 {
-		return session, 0, nil
-	}
-
-	// get the progress bar to display
-	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
-	systemInteraction.Status = initialMessage
-	systemInteraction.Progress = 1
-	systemInteraction.DataPrepStage = types.TextDataPrepStageIndexRag
-	session = c.WriteInteraction(session, systemInteraction)
-	c.BroadcastProgress(session, 1, initialMessage)
-
-	var completedCounter int64
-	var errorCounter int64
-
-	for i, chunk := range chunksToProcess {
-		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
-
-		convertError := c.indexChunkForRag(session, systemInteraction, chunk)
-
-		if convertError != nil {
-			atomic.AddInt64(&errorCounter, 1)
-		} else {
-			atomic.AddInt64(&completedCounter, 1)
-		}
-
-		percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
-		message := fmt.Sprintf("%d total, %d indexed and %d errors", len(chunksToProcess), completedCounter, errorCounter)
-		c.BroadcastProgress(session, percentConverted, message)
-		systemInteraction.Status = message
-		systemInteraction.Progress = percentConverted
-		session = c.WriteInteraction(session, systemInteraction)
-
-		if convertError != nil {
-			log.Error().Msgf("🔴 rag index error %s", convertError.Error())
-		} else {
-			log.Info().Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
-		}
-
-	}
-
-	finishedMessage := fmt.Sprintf("indexed %d text chunks into vector database", len(chunksToProcess))
-
-	c.BroadcastProgress(session, 100, finishedMessage)
-
-	systemInteraction.Status = finishedMessage
-	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
-	systemInteraction.Progress = 0
-	systemInteraction.State = types.InteractionStateEditing
-	session = c.WriteInteraction(session, systemInteraction)
-
-	return session, len(chunksToProcess), nil
-}
-
-func (c *Controller) indexChunkForRag(session *types.Session, interaction *types.Interaction, chunk *text.DataPrepTextSplitterChunk) error {
-	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
-		system.ClientOptions{},
-		c.Options.RAGIndexingURL,
-		types.SessionRagIndexChunk{
-			SessionID:       session.ID,
-			InteractionID:   interaction.ID,
-			Filename:        chunk.Filename,
-			DocumentID:      chunk.DocumentID,
-			DocumentGroupID: chunk.DocumentGroupID,
-			ContentOffset:   chunk.Index,
-			Content:         chunk.Text,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return nil
 }
