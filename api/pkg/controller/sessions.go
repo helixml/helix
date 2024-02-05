@@ -317,7 +317,17 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		}
 
 		return nil, nil
+	} else if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+		// we need to check if we are doing RAG and if yes, we need to augment the prompt
+		// with the results from the RAGStore
+		if session.Metadata.RagEnabled {
+			_, err := c.getRAGResults(session)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
+
 	return session, nil
 }
 

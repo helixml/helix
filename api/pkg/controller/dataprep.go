@@ -406,6 +406,30 @@ func (c *Controller) indexChunkForRag(session *types.Session, interaction *types
 	return nil
 }
 
+// given a user prompt and an existing session id
+// let's load from the vector store
+func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagResult, error) {
+	userInteraction, err := data.GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	result, err := system.PostRequest[types.SessionRagQuery, []types.SessionRagResult](
+		system.ClientOptions{},
+		c.Options.RAGQueryURL,
+		types.SessionRagQuery{
+			Prompt:            userInteraction.Message,
+			SessionID:         session.ID,
+			DistanceThreshold: session.Metadata.RagSettings.Threshold,
+			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
+			MaxResults:        session.Metadata.RagSettings.ResultsCount,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {

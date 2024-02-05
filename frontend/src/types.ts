@@ -159,6 +159,7 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
+  display_message: string,
   progress: number,
   files: string[],
   finished: boolean,
