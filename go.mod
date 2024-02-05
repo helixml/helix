@@ -19,10 +19,7 @@ require (
 	google.golang.org/api v0.147.0
 )
 
-require (
-	github.com/dustin/go-humanize v1.0.1
-	github.com/sashabaranov/go-openai v1.19.1
-)
+require github.com/dustin/go-humanize v1.0.1
 
 require (
 	github.com/avast/retry-go/v4 v4.5.1
@@ -54,6 +51,7 @@ require (
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
+	github.com/lukemarsden/go-openai2 v0.0.0-20240202213643-0480a26e2aaf // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/minio/highwayhash v1.0.2 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect

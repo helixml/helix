@@ -74,19 +74,21 @@ func (d *DynamicDataPrep) ConvertChunk(
 	qText := fmt.Sprintf("In document %s (document group %s), ", documentID, documentGroupID)
 	aText := fmt.Sprintf("[DOC_ID:%s] [DOC_GROUP:%s]\n\n", documentID, documentGroupID)
 	for _, q := range resRaw {
-		res = append(res, types.DataPrepTextQuestion{
-			Conversations: []types.DataPrepTextQuestionPart{
-				{
-					From: "human",
-					// TODO: not perfect utf-8 handling..
-					Value: qText + strings.ToLower(string(q.Question[0])) + q.Question[1:],
+		if len(q.Question) > 0 {
+			res = append(res, types.DataPrepTextQuestion{
+				Conversations: []types.DataPrepTextQuestionPart{
+					{
+						From: "human",
+						// TODO: not perfect utf-8 handling..
+						Value: qText + strings.ToLower(string(q.Question[0])) + q.Question[1:],
+					},
+					{
+						From:  "gpt",
+						Value: aText + q.Answer,
+					},
 				},
-				{
-					From:  "gpt",
-					Value: aText + q.Answer,
-				},
-			},
-		})
+			})
+		}
 	}
 	return res, nil
 }

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,9 +28,10 @@ type Target struct {
 }
 
 type Prompt struct {
-	Name   string `yaml:"name"`
-	System string `yaml:"system"`
-	User   string `yaml:"user"`
+	Name       string                 `yaml:"name"`
+	System     string                 `yaml:"system"`
+	User       string                 `yaml:"user"`
+	JsonSchema map[string]interface{} `yaml:"json_schema"`
 }
 
 type Text struct {
@@ -271,12 +272,13 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 
 	startTime := time.Now()
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
-	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, false)
+	// try not enforcing json schema initially, only retry if we fail to parse
+	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
-		log.Printf("ChatCompletion error, trying again (%s): %v\n", debug, err)
-		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, true)
+		log.Printf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
+		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
-			log.Printf("ChatCompletion error, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
+			log.Printf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()
 			log.Printf("Took: %.2f seconds. FAILED", float32(latency)/1000)
 			return []types.DataPrepTextQuestionRaw{}, nil
@@ -331,48 +333,57 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(apiUrl, token, model, system, user, debug string, requestJSON bool) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(apiUrl, token, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
 	cfg := openai.DefaultConfig(token)
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
 
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: model,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: system,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: user,
-				},
+	req := openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: system,
+			},
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: user,
 			},
 		},
-	)
+	}
+
+	if jsonSchema != nil {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
+			Schema: jsonSchema,
+		}
+	}
+
+	resp, err := client.CreateChatCompletion(context.Background(), req)
 	if err != nil {
 		fmt.Printf("ChatCompletion error (%s): %v\n", debug, err)
 		return nil, err
 	}
 
 	answer := resp.Choices[0].Message.Content
-	log.Printf("Raw response (%s) to %s: %s\n", resp.ID, debug, answer)
-	if strings.Contains(answer, "```json") {
-		answer = strings.Split(answer, "```json")[1]
-	}
-	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-	parts := strings.Split(answer, "```")
-	answer = parts[0]
 
-	// LLMs are sometimes bad at correct JSON escaping, trying to escape
-	// characters like _ that don't need to be escaped. Just remove all
-	// backslashes for now...
-	answer = strings.Replace(answer, "\\", "", -1)
+	log.Printf("Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
+
+	if jsonSchema == nil {
+		if strings.Contains(answer, "```json") {
+			answer = strings.Split(answer, "```json")[1]
+		}
+		// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+		parts := strings.Split(answer, "```")
+		answer = parts[0]
+
+		// LLMs are sometimes bad at correct JSON escaping, trying to escape
+		// characters like _ that don't need to be escaped. Just remove all
+		// backslashes for now... unless we're sure the model generated valid JSON
+		answer = strings.Replace(answer, "\\", "", -1)
+	}
 
 	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))
-
 }
 
 // for prompt engineering purposes, the LLMs output various formats. Try all of them:
