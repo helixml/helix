@@ -186,6 +186,8 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Error = ""
 		systemInteraction.Finished = false
+		// empty out the previous message so model doesn't think it's already finished
+		systemInteraction.Message = ""
 
 		systemInteraction.State = types.InteractionStateWaiting
 
@@ -200,11 +202,9 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		if session.Mode == types.SessionModeFinetune {
 			if systemInteraction.DataPrepStage == types.TextDataPrepStageExtractText || systemInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
 				// in this case we are restarting the data prep
-				systemInteraction.Message = ""
 				systemInteraction.Status = ""
 			} else if systemInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
 				// in this case we are restarting the fine tuning itself
-				systemInteraction.Message = "restarted: fine tuning on data..."
 				systemInteraction.Status = "restarted: fine tuning on data..."
 			}
 		}
@@ -764,6 +764,15 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
+	newDocumentIds := map[string]string{}
+
+	for filename, documentID := range newSession.Metadata.DocumentIDs {
+		newFile := strings.Replace(filename, oldPrefix, newPrefix, 1)
+		newDocumentIds[newFile] = documentID
+	}
+
+	newSession.Metadata.DocumentIDs = newDocumentIds
+
 	copyFile := func(filePath string) (string, error) {
 		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
 		log.Debug().
@@ -946,20 +955,31 @@ func (c *Controller) CloneUntilInteraction(
 	return createdSession, nil
 }
 
-// return the JSON of some fine tune conversation data
-func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
+// return the contents of a filestore text file
+// you must have already applied the users sub-path before calling this
+func (c *Controller) FilestoreReadTextFile(filepath string) (string, error) {
 	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	data, err := io.ReadAll(reader)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+// return the JSON of some fine tune conversation data
+func (c *Controller) ReadTextFineTuneQuestions(filepath string) ([]types.DataPrepTextQuestion, error) {
+	data, err := c.FilestoreReadTextFile(filepath)
 	if err != nil {
 		return nil, err
 	}
 
 	var conversations []types.DataPrepTextQuestion
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(data, "\n")
 
 	for _, line := range lines {
 		if line == "" {

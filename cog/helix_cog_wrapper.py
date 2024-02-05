@@ -68,7 +68,7 @@ class CogTrainer:
 
         os.chdir(training_dir)
 
-        print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout)
+        print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout, flush=True)
 
         input_file = str(Path(dataset_dir) / "images.zip")
         
@@ -124,7 +124,7 @@ class CogTrainer:
         # for testing you can return the lora from a previous finetune
         # shutil.copy(f"/tmp/helix/results/e627fb41-048b-41d9-8090-e867d0e858fc/final_tensors/{lora_filename}", f"{final_tensors_dir}/{lora_filename}")
 
-        print(f" [SESSION_END_LORA_DIR]lora_dir={training_dir} ", file=sys.stdout)
+        print(f" [SESSION_END_LORA_DIR]lora_dir={training_dir} ", file=sys.stdout, flush=True)
 
 
 
@@ -218,7 +218,7 @@ class CogInference:
             print("🟡 SDXL Job --------------------------------------------------\n")
             print(task)
 
-            print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout)
+            print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout, flush=True)
 
             # TODO: Seems like you can pass the lora weights as a URL either in
             # setup() or at predict() time. Given the latter, which we use here,
@@ -254,7 +254,7 @@ class CogInference:
     
             image_paths = [str(path) for path in image_paths]  # Convert paths to strings
 
-            print(f" [SESSION_END_IMAGES]images={json.dumps(image_paths)} ", file=sys.stdout)
+            print(f" [SESSION_END_IMAGES]images={json.dumps(image_paths)} ", file=sys.stdout, flush=True)
             print("🟡 SDXL Result --------------------------------------------------\n")
             print(image_paths)
 

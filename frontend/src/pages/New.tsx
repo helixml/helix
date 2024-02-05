@@ -1,4 +1,5 @@
 import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import { styled, useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -10,6 +11,9 @@ import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import SendIcon from '@mui/icons-material/Send'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import InputAdornment from '@mui/material/InputAdornment'
+import useThemeConfig from '../hooks/useThemeConfig'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -46,6 +50,9 @@ const New: FC = () => {
   const sessions = useSessions()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
+
+  const themeConfig = useThemeConfig()
+  const theme = useTheme()
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
@@ -286,15 +293,70 @@ const New: FC = () => {
 
   if(!initialized) return null
 
+  const CenteredMessage: FC = () => {
+    return (
+      <Box
+        sx={{
+          textAlign: 'left', // Center the text inside the box
+          zIndex: 2, // Ensure it's above other elements
+          border: '1px solid #333', // Add a border
+          borderRadius: 3, // Rounded corners
+          padding: 4,
+          mt: 10,
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
+        }}
+      >
+        <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
+          What do you want to create?
+        </Typography>
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>
+          Use this button to change model type
+        </Typography>
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+            color: 'black',
+            mr: 2,
+            borderRadius: 1,
+            textTransform: 'none',
+            fontSize: "medium",
+            fontWeight: 800,
+            pt: '1px',
+            pb: '1px',
+            m: 1,
+          }}
+          endIcon={<SwapHorizIcon />}
+          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+        >
+          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+        </Button>
+        <Typography variant="subtitle1">
+          Type a prompt into the box below
+        </Typography>
+        <Typography variant="subtitle1">
+          Press enter to begin
+        </Typography>
+      </Box>
+    )
+  }
+
   return (
     <Box
+      className="helix-new"
       sx={{
         width: '100%',
-        height: '100%',
+        height: 'calc(100% - 100px)',
+        mt: 12,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+        backgroundSize: '80%',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       <Box
@@ -303,57 +365,20 @@ const New: FC = () => {
           flexGrow: 1,
           overflowY: 'auto',
           p: 2,
+          backgroundFilter: 'opacity(0.5)',
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={3} direction="row" justifyContent="flex-start" style={{maxWidth:"560px", marginLeft: "auto", marginRight: "auto"}}>
-            <Grid item>
-              <Button variant={selectedMode === SESSION_MODE_INFERENCE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_INFERENCE, selectedType as ISessionType)}>
-                Create
-                <FormControl sx={{ minWidth: 120, marginLeft: 2 }}>
-                  <Select variant="standard"
-                    labelId="create-type-select-label"
-                    id="create-type-select"
-                    value={selectedType}
-                    onMouseDown={ e => {
-                      setModel(SESSION_MODE_INFERENCE, type as ISessionType)
-                      e.stopPropagation()
-                    }}
-                    onClick={ e => {
-                      e.stopPropagation()
-                    }}
-                    onChange={(event) => setModel(SESSION_MODE_INFERENCE, event.target.value as ISessionType)}
-                  >
-                    <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
-                    <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
-                  </Select>
-                </FormControl>
-              </Button>
-            </Grid>
-            <Grid item>
-              <Button variant={selectedMode === SESSION_MODE_FINETUNE ? "contained" : "outlined"} color="primary" sx={{ borderRadius: 35, mr: 2 }} onClick={() => setModel(SESSION_MODE_FINETUNE, selectedType as ISessionType)}>
-                Finetune
-                <FormControl sx={{minWidth: 120, marginLeft: 2}}>
-                  <Select variant="standard"
-                    labelId="fine-tune-type-select-label"
-                    id="fine-tune-type-select"
-                    value={selectedType}
-                    onMouseDown={ e => {
-                      setModel(SESSION_MODE_FINETUNE, type as ISessionType)
-                      e.stopPropagation()
-                    }}
-                    onClick={ e => {
-                      e.stopPropagation()
-                    }}
-                    onChange={(event) => setModel(SESSION_MODE_FINETUNE, event.target.value as ISessionType)}
-                  >
-                    <MenuItem value={ SESSION_TYPE_TEXT }>Text</MenuItem>
-                    <MenuItem value={ SESSION_TYPE_IMAGE }>Images</MenuItem>
-                  </Select>
-                </FormControl>
-              </Button>
-            </Grid>
-          </Grid>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {selectedMode !== SESSION_MODE_FINETUNE && <CenteredMessage />}
+          </Box>
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
               <FineTuneImageInputs
@@ -448,13 +473,46 @@ const New: FC = () => {
               name="ai_submit"
               multiline={true}
               onKeyDown={handleKeyDown}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Button
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+                        color: 'black',
+                        mr: 2,
+                        borderRadius: 1,
+                        textTransform: 'none',
+                        fontSize: "medium",
+                        fontWeight: 800,
+                        pt: '1px',
+                        pb: '1px',
+
+                      }}
+                      endIcon={<SwapHorizIcon />}
+                      onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+                    >
+                      {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+                    </Button>
+                  </InputAdornment>
+                ),
+              }}
             />
             <Button
               id="sendButton"
               variant='contained'
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
-              sx={{ ml: 2 }}
+              sx={{
+                color: themeConfig.darkText,
+                backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
+                ml: 2,
+                '&:hover': {
+                  backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                }
+              }}
               endIcon={<SendIcon />}
             >
               Send
@@ -463,6 +521,13 @@ const New: FC = () => {
           <Box
             sx={{
               mt: 2,
+              mb: {
+                xs: 8,
+                sm: 8,
+                md: 8,
+                lg: 4,
+                xl: 4,
+              }
             }}
           >
             <Disclaimer />

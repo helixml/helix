@@ -34,7 +34,7 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
-                { children }
+                {children}
               </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>

@@ -73,25 +73,9 @@ const Account: FC = () => {
   if(!account.user) return null
 
   return (
-    <Box
-      sx={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 1,
-          overflowY: 'auto',
-          p: 2,
-        }}
-      >
-        <Container maxWidth="lg">
+    <Container maxWidth="lg" sx={{ mt: 12, height: 'calc(100% - 100px)' }}>
+      <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
           <Grid container spacing={2}>
             <Grid item xs={12} md={colSize}>
               <Paper sx={{ p: 2 }}>
@@ -101,27 +85,12 @@ const Account: FC = () => {
                     <ListItem key={apiKey.key}>
                       <ListItemText primary={apiKey.name} secondary={apiKey.key} />
                       <ListItemSecondaryAction>
-                        <CopyToClipboard
-                          text={ apiKey.key }
-                          onCopy={ () => {
-                            snackbar.success('Copied to clipboard')
-                          }}
-                        >
-                          <IconButton
-                            edge="end"
-                            aria-label="delete"
-                            sx={{
-                              mr: 2,
-                            }}
-                          >
+                        <CopyToClipboard text={apiKey.key} onCopy={() => snackbar.success('Copied to clipboard')}>
+                          <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
                             <CopyIcon />
                           </IconButton>
                         </CopyToClipboard>
-                        <IconButton
-                          edge="end"
-                          aria-label="delete"
-                          onClick={() => handleDeleteApiKey(apiKey.key)}
-                        >
+                        <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteApiKey(apiKey.key)}>
                           <DeleteIcon />
                         </IconButton>
                       </ListItemSecondaryAction>
@@ -130,53 +99,37 @@ const Account: FC = () => {
                 </List>
               </Paper>
             </Grid>
-            {
-              paymentsActive && (
-                <Grid item xs={12} md={colSize}>
-                  <Paper sx={{ p: 2 }}>
-                    {
-                      account.userConfig.stripe_subscription_active ? (
-                        <Box alignItems="center" justifyContent="center">
-                          <Typography variant="h6" gutterBottom>Subscription Active</Typography>
-                          <Typography variant="subtitle1" gutterBottom>Helix Premium : $20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            sx={{
-                              mt: 2,
-                            }}
-                            onClick={ handleManage }
-                          >
-                            Manage Subscription
-                          </Button>
-                        </Box>
-                      ) : (
-                        <Box alignItems="center" justifyContent="center">
-                          <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                          <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud</Typography>
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            sx={{
-                              mt: 2,
-                            }}
-                            onClick={ handleSubscribe }
-                          >
-                            Start Subscription
-                          </Button>
-                        </Box>
-                      )
-                    }
-                  </Paper>
-                </Grid>
-              )
-            }
+            {paymentsActive && (
+              <Grid item xs={12} md={colSize}>
+                <Paper sx={{ p: 2 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    {account.userConfig.stripe_subscription_active ? (
+                      <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography variant="h6" gutterBottom>Subscription Active</Typography>
+                        <Typography variant="subtitle1" gutterBottom>Helix Premium : $20.00 / month</Typography>
+                        <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
+                        <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleManage}>
+                          Manage Subscription
+                        </Button>
+                      </Box>
+                    ) : (
+                      <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography variant="h6" gutterBottom>Helix Premium</Typography>
+                        <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
+                        <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud</Typography>
+                        <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleSubscribe}>
+                          Start Subscription
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              </Grid>
+            )}
           </Grid>
-        </Container>
+        </Box>
       </Box>
-    </Box>
+    </Container>
   )
 }
 

@@ -2,6 +2,10 @@ import React, { FC } from 'react'
 import InteractionContainer from './InteractionContainer'
 import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
+import Box from '@mui/material/Box'
+
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   SESSION_TYPE_TEXT,
@@ -25,6 +29,7 @@ export const Interaction: FC<{
   interaction: IInteraction,
   session: ISession,
   showFinetuning?: boolean,
+  highlightAllFiles?: boolean,
   headerButtons?: React.ReactNode,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
@@ -35,6 +40,7 @@ export const Interaction: FC<{
   serverConfig,
   interaction,
   session,
+  highlightAllFiles = false,
   showFinetuning = true,
   headerButtons,
   retryFinetuneErrors,
@@ -76,41 +82,54 @@ export const Interaction: FC<{
 
   const useSystemName = session.name || 'System'
   const useName = interaction?.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction?.creator
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
-    <InteractionContainer
-      name={ useName }
-      buttons={ headerButtons }
+    <Box
+      sx={{
+        backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? (theme.palette.mode === 'dark' ? themeConfig.darkPanel : themeConfig.lightPanel) : 'none',
+        p: 2,
+        borderRadius: '0.5rem',
+      }}
     >
-      {
-        showFinetuning && (
-          <InteractionFinetune
-            serverConfig={ serverConfig }
-            interaction={ interaction }
-            session={ session }
-            retryFinetuneErrors={ retryFinetuneErrors }
-            onReloadSession={ onReloadSession }
-            onClone={ onClone }
-            onAddDocuments={ onAddDocuments }
-          />
-        )
-      }
-      
-      <InteractionInference
-        serverConfig={ serverConfig }
-        imageURLs={ imageURLs }
-        message={ displayMessage }
-        error={ interaction?.error }
-        isShared={ session.config.shared }
-        onRestart={ onRestart }
-      />
+      <InteractionContainer
+        name={ useName }
+        buttons={ headerButtons }
+      >
+          {
+            showFinetuning && (
+              <InteractionFinetune
+                serverConfig={ serverConfig }
+                interaction={ interaction }
+                session={ session }
+                highlightAllFiles={ highlightAllFiles }
+                retryFinetuneErrors={ retryFinetuneErrors }
+                onReloadSession={ onReloadSession }
+                onClone={ onClone }
+                onAddDocuments={ onAddDocuments }
+              />
+            )
+          }
 
-      {
-        children
-      }
-    </InteractionContainer>  
+          <InteractionInference
+            serverConfig={ serverConfig }
+            session={ session }
+            imageURLs={ imageURLs }
+            message={ displayMessage }
+            error={ interaction?.error }
+            isShared={ session.config.shared }
+            onRestart={ onRestart }
+            isFromSystem={interaction?.creator == SESSION_CREATOR_SYSTEM}
+          />
+          
+          {
+            children
+          }
+      </InteractionContainer>
+    </Box>
   )   
 }
 

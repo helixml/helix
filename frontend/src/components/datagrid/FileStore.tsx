@@ -10,6 +10,9 @@ import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
 
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
+
 import {
   IFileStoreItem,
   IFileStoreConfig,
@@ -92,6 +95,10 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
               onClick={ () => {
                 onView(data)
               }}
+              sx={{
+                textDecoration: 'none',
+                color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+              }}
             >
               { icon }
             </ClickLink>
@@ -106,7 +113,7 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
       defaultFlex: 1,
       render: ({ data }) => {
         return (
-          <a href="#" onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+          <a style={{ textDecoration: 'none', color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary, }} href="#" onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
             e.preventDefault()
             e.stopPropagation()
             onView(data)
@@ -204,6 +211,9 @@ const FileStoreDataGrid: FC<React.PropsWithChildren<FileStoreDataGridProps>> = (
     onDelete,
     account.token,
   ])
+
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
   return (
     <DataGrid2

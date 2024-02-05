@@ -8,6 +8,8 @@ import Grid from '@mui/material/Grid'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
+import useThemeConfig from '../../hooks/useThemeConfig'
+import useTheme from '@mui/material/styles/useTheme'
 
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
@@ -55,6 +57,8 @@ export const FineTuneTextInputs: FC<{
   const [manualURL, setManualURL] = useState('')
   const [manuallyReviewQuestions, setManuallyReviewQuestions] = useState(false)
   const [files, setFiles] = useState<File[]>(initialFiles || [])
+  const themeConfig = useThemeConfig()
+  const theme = useTheme()
 
   const onAddURL = useCallback(() => {
     if(!manualURL.match(/^https?:\/\//i)) {
@@ -113,6 +117,7 @@ export const FineTuneTextInputs: FC<{
     <Box
       sx={{
         mt: 2,
+        width: '100%',
       }}
     >
       {
@@ -135,15 +140,24 @@ export const FineTuneTextInputs: FC<{
       }
       <Row
         sx={{
+          width: '100%',
+          display: 'flex',
           mb: 2,
           alignItems: 'flex-start',
+          justifyContent: 'flex-start',
+          flexDirection: {
+            xs: 'column',
+            sm: 'column',
+            md: 'row'
+          }
         }}
       >
         <Cell
           sx={{
+            width: '100%',
             flexGrow: 1,
             pr: 2,
-            
+            pb: 1,
           }}
         >
           <TextField
@@ -152,6 +166,10 @@ export const FineTuneTextInputs: FC<{
             value={ manualURL }
             onChange={ (e) => {
               setManualURL(e.target.value)
+            }}
+            sx={{
+              pb: 1,
+              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
             }}
           />
         </Cell>
@@ -165,7 +183,7 @@ export const FineTuneTextInputs: FC<{
             sx={{
               width: '100%',
             }}
-            variant="outlined"
+            variant="contained"
             color={ buttonStates.addUrlColor }
             endIcon={<AddCircleIcon />}
             onClick={ onAddURL }
@@ -173,16 +191,22 @@ export const FineTuneTextInputs: FC<{
             { buttonStates.addUrlLabel }
           </Button>
         </Cell>
-        
       </Row>
       <Row
         sx={{
           mb: 2,
           alignItems: 'flex-start',
+          flexDirection: {
+            xs: 'column',
+            sm: 'column',
+            md: 'row'
+          }
         }}
       >
         <Cell
           sx={{
+            width: '100%',
+            pb: 1,
             flexGrow: 1,
             pr: 2,
             alignItems: 'flex-start',
@@ -191,7 +215,9 @@ export const FineTuneTextInputs: FC<{
           <TextField
             sx={{
               height: '100px',
-              maxHeight: '100px'
+              maxHeight: '100px',
+              pb: 1,
+              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
             }}
             fullWidth
             label="or paste some text here"
@@ -214,7 +240,7 @@ export const FineTuneTextInputs: FC<{
             sx={{
               width: '100%',
             }}
-            variant="outlined"
+            variant="contained"
             color={ buttonStates.addTextColor }
             endIcon={<AddCircleIcon />}
             onClick={ onAddTextFile }
@@ -236,17 +262,24 @@ export const FineTuneTextInputs: FC<{
         <Row
           sx={{
             alignItems: 'flex-start',
+            flexDirection: {
+              xs: 'column',
+              sm: 'column',
+              md: 'row'
+            }
           }}
         >
           <Cell
             sx={{
+              width: '100%',
               flexGrow: 1,
               pr: 2,
+              pb: 1,
             }}
           >
             <Box
               sx={{
-                border: '1px solid #797F88',
+                border: '1px solid #333333',
                 borderRadius: '4px',
                 p: 2,
                 display: 'flex',
@@ -256,6 +289,7 @@ export const FineTuneTextInputs: FC<{
                 height: '120px',
                 minHeight: '120px',
                 cursor: 'pointer',
+                backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
               }}
             >
               
@@ -281,7 +315,7 @@ export const FineTuneTextInputs: FC<{
               sx={{
                 width: '100%',
               }}
-              variant="outlined"
+              variant="contained"
               color={ buttonStates.uploadFilesColor }
               endIcon={<CloudUploadIcon />}
             >
