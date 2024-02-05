@@ -125,11 +125,9 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		if session.Mode == types.SessionModeFinetune {
 			if systemInteraction.DataPrepStage == types.TextDataPrepStageExtractText || systemInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
 				// in this case we are restarting the data prep
-				systemInteraction.Message = ""
 				systemInteraction.Status = ""
 			} else if systemInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
 				// in this case we are restarting the fine tuning itself
-				systemInteraction.Message = "restarted: fine tuning on data..."
 				systemInteraction.Status = "restarted: fine tuning on data..."
 			}
 		}
