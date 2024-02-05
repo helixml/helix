@@ -138,6 +138,7 @@ const Window: FC<WindowProps> = ({
                       }}
                       type="button"
                       color="secondary"
+                      variant="outlined"
                       onClick={ closeWindow }
                     >
                       { cancelTitle }
