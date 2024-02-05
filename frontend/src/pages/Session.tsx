@@ -73,6 +73,7 @@ const Session: FC = () => {
 
   const divRef = useRef<HTMLDivElement>()
 
+  const [highlightAllFiles, setHighlightAllFiles] = useState(false)
   const [showCloneWindow, setShowCloneWindow] = useState(false)
   const [showCloneAllWindow, setShowCloneAllWindow] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
@@ -439,6 +440,22 @@ const Session: FC = () => {
     }
   })
 
+  // this is a horrible hack so we can have a global JS function
+  // that will set the state on this page - this is because we are
+  // rendering links in the interaction inference and we are rendering
+  // those links with dangerouslySetInnerHTML so it's not easy
+  // to add callback handlers to those links
+  // so we just call a global function that is setup here
+  useEffect(() => {
+    const w = window as any
+    w._helixHighlightAllFiles = () => {
+      setHighlightAllFiles(true)
+      setTimeout(() => {
+        setHighlightAllFiles(false)
+      }, 2000)
+    }
+  }, [])
+
   if(!session.data) return null
 
   return (    
@@ -518,6 +535,7 @@ const Session: FC = () => {
                         serverConfig={ account.serverConfig }
                         interaction={ interaction }
                         session={ session.data }
+                        highlightAllFiles={ highlightAllFiles }
                         retryFinetuneErrors={ retryFinetuneErrors }
                         headerButtons={ isLastInteraction ? (
                           <Tooltip title="Restart Session">
@@ -543,6 +561,8 @@ const Session: FC = () => {
                             <InteractionLiveStream
                               session_id={ session.data.id }
                               interaction={ interaction }
+                              session={ session.data }
+                              serverConfig={ account.serverConfig }
                               hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
                               onMessageChange={ scrollToBottom }
                             />
