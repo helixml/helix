@@ -54,6 +54,7 @@ export const InteractionFinetune: FC<{
   serverConfig: IServerConfig,
   interaction: IInteraction,
   session: ISession,
+  highlightAllFiles?: boolean,
   retryFinetuneErrors?: () => void,
   onReloadSession?: () => void,
   onClone?: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
@@ -62,6 +63,7 @@ export const InteractionFinetune: FC<{
   serverConfig,
   interaction,
   session,
+  highlightAllFiles = false,
   retryFinetuneErrors,
   onReloadSession,
   onClone,
@@ -131,7 +133,7 @@ export const InteractionFinetune: FC<{
           <Box
             sx={{
               maxHeight: '400px',
-              overflowY: 'auto'
+              overflowY: 'auto',
             }}
           >
             <Grid container spacing={2} direction="row" justifyContent="flex-start">
@@ -184,7 +186,10 @@ export const InteractionFinetune: FC<{
           <Box
             sx={{
               maxHeight: '400px',
-              overflowY: 'auto'
+              overflowY: 'auto',
+              padding: 2,
+              backgroundColor: highlightAllFiles ? 'rgba(255,255,255,0.5)' : 'transparent',
+              transition: 'all 0.3s ease',
             }}
           >
             <Grid container spacing={3} direction="row" justifyContent="flex-start">

@@ -6,23 +6,36 @@ import WaitingInQueue from './WaitingInQueue'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
 
+import useAccount from '../../hooks/useAccount'
+
 import {
   IInteraction,
+  ISession,
+  IServerConfig,
 } from '../../types'
+
+import {
+  replaceMessageText,
+} from '../../utils/session'
 
 export const InteractionLiveStream: FC<{
   session_id: string,
   interaction: IInteraction,
   hasSubscription?: boolean,
+  serverConfig?: IServerConfig,
+  session: ISession,
   onMessageChange?: {
     (message: string): void,
   },
 }> = ({
   session_id,
+  serverConfig,
+  session,
   interaction,
   hasSubscription = false,
   onMessageChange,
 }) => {
+  const account = useAccount()
   const {
     message,
     progress,
@@ -42,6 +55,13 @@ export const InteractionLiveStream: FC<{
   }, [
     message,
   ])
+
+  const getFileURL = (url: string) => {
+    if(!serverConfig) return ''
+    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}&redirect_urls=true`
+  }
+
+  if(!serverConfig || !serverConfig.filestore_prefix) return null
   
   return (
     <>
@@ -53,7 +73,7 @@ export const InteractionLiveStream: FC<{
       {
         message && (
           <div>
-            <Typography dangerouslySetInnerHTML={{__html: message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>') + `
+            <Typography dangerouslySetInnerHTML={{__html: replaceMessageText(message, session, getFileURL) + `
               <style>
                 .blinker-class {
                   animation: blink 1s linear infinite;

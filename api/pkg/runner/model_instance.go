@@ -413,6 +413,10 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 				log.Error().Msg("detected coredump, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/123")
 				os.Exit(1)
 			}
+			if strings.Contains(errstr, "CUDA is not available") {
+				log.Error().Msg("detected GPU error, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/123")
+				os.Exit(1)
+			}
 
 			return
 		}
