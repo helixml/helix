@@ -1,3 +1,4 @@
+// TODO: it sucks that there are constants defined in types
 export type ISessionCreator = 'system' | 'user'
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 export const SESSION_CREATOR_USER: ISessionCreator = 'user'
@@ -372,7 +373,7 @@ export interface IButtonStates {
   uploadFilesLabel: string,
 }
 
-export const buttonStates: IButtonStates = {
+export const BUTTON_STATES: IButtonStates = {
   addUrlColor: 'primary',
   addUrlLabel: 'Add URL',
   addTextColor: 'primary',

@@ -16,6 +16,7 @@ import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import SettingsIcon from '@mui/icons-material/Settings'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
 
@@ -25,6 +26,8 @@ import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
 import Window from '../components/widgets/Window'
 import Disclaimer from '../components/widgets/Disclaimer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
@@ -40,6 +43,7 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  BUTTON_STATES,
 } from '../types'
 
 const New: FC = () => {
@@ -60,6 +64,7 @@ const New: FC = () => {
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
+  const [showAdminSettings, setShowAdminSettings] = useState(false)
   
   const {
     mode = SESSION_MODE_INFERENCE,
@@ -351,115 +356,51 @@ const New: FC = () => {
                 />
                 {
                   account.admin && (
-                    <Grid container spacing={3} sx={{mt: 2}}>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <FormGroup>
-                          <FormControlLabel
-                            control={
-                              <Checkbox 
-                                checked={ inputs.finetuneEnabled }
-                                onChange={ (event) => {
-                                  inputs.setFinetuneEnabled(event.target.checked)
-                                }}
-                              />
-                            }
-                            label="Finetune Enabled?"
-                          />
-                          <FormControlLabel
-                            control={
-                              <Checkbox 
-                                checked={ inputs.ragEnabled }
-                                onChange={ (event) => {
-                                  inputs.setRagEnabled(event.target.checked)
-                                }}
-                              />
-                            }
-                            label="Rag Enabled?"
-                          />
-                        </FormGroup>
-                      </Grid>
-                      {
-                        inputs.ragEnabled && (
-                          <>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <FormControl fullWidth>
-                                <InputLabel>Rag Distance Function</InputLabel>
-                                <Select
-                                  value={inputs.ragDistanceFunction}
-                                  label="Rag Distance Function"
-                                  onChange={(e) => inputs.setRagDistanceFunction(e.target.value as any)}
-                                >
-                                  <MenuItem value="l2">l2</MenuItem>
-                                  <MenuItem value="inner_product">inner_product</MenuItem>
-                                  <MenuItem value="cosine">cosine</MenuItem>
-                                </Select>
-                              </FormControl>
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Threshold"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ inputs.ragThreshold }
-                                onChange={ (event) => {
-                                  inputs.setRagThreshold(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Results Count"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ inputs.ragResultsCount }
-                                onChange={ (event) => {
-                                  inputs.setRagResultsCount(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Chunk Size"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ inputs.ragChunkSize }
-                                onChange={ (event) => {
-                                  inputs.setRagChunkSize(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Chunk Overflow"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ inputs.ragChunkOverflow }
-                                onChange={ (event) => {
-                                  inputs.setRagChunkOverflow(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                          </>
-                        )
-                      }
-                      
-                    </Grid>
+                    <Row
+                      sx={{
+                        width: '100%',
+                        display: 'flex',
+                        mb: 2,
+                        alignItems: 'flex-start',
+                        justifyContent: 'flex-start',
+                        flexDirection: {
+                          xs: 'column',
+                          sm: 'column',
+                          md: 'row'
+                        }
+                      }}
+                    >
+                      <Cell
+                        sx={{
+                          width: '100%',
+                          flexGrow: 1,
+                          pr: 2,
+                          pb: 1,
+                        }}
+                      >
+                        
+                      </Cell>
+                      <Cell
+                        sx={{
+                          width: '240px',
+                          minWidth: '240px',
+                        }}
+                      >
+                        <Button
+                          sx={{
+                            width: '100%',
+                          }}
+                          variant="contained"
+                          color={ BUTTON_STATES.addUrlColor }
+                          endIcon={<SettingsIcon />}
+                          onClick={ () => {
+                            setShowAdminSettings(true)
+                          }}
+                        >
+                          Admin
+                        </Button>
+                      </Cell>
+                    </Row>
                   )
                 }
               </>
@@ -624,6 +565,136 @@ const New: FC = () => {
             <Typography>
               We will keep what you've done here for you, so you can continue where you left off.
             </Typography>
+          </Window>
+        )
+      }
+      {
+        showAdminSettings && (
+          <Window
+            open
+            size="md"
+            title="Admin Settings"
+            onCancel={ () => {
+              setShowAdminSettings(false)
+            }}
+            withCancel
+            cancelTitle="Close"
+          >
+            <Box
+              sx={{
+                p: 2,
+              }}
+            >
+              <Grid container spacing={3} sx={{mt: 2}}>
+                <Grid item xs={ 12 } md={ 4 }>
+                  <FormGroup>
+                    <FormControlLabel
+                      control={
+                        <Checkbox 
+                          checked={ inputs.finetuneEnabled }
+                          onChange={ (event) => {
+                            inputs.setFinetuneEnabled(event.target.checked)
+                          }}
+                        />
+                      }
+                      label="Finetune Enabled?"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox 
+                          checked={ inputs.ragEnabled }
+                          onChange={ (event) => {
+                            inputs.setRagEnabled(event.target.checked)
+                          }}
+                        />
+                      }
+                      label="Rag Enabled?"
+                    />
+                  </FormGroup>
+                </Grid>
+                {
+                  inputs.ragEnabled && (
+                    <>
+                      <Grid item xs={ 12 } md={ 4 }>
+                        <FormControl fullWidth>
+                          <InputLabel>Rag Distance Function</InputLabel>
+                          <Select
+                            value={inputs.ragDistanceFunction}
+                            label="Rag Distance Function"
+                            onChange={(e) => inputs.setRagDistanceFunction(e.target.value as any)}
+                          >
+                            <MenuItem value="l2">l2</MenuItem>
+                            <MenuItem value="inner_product">inner_product</MenuItem>
+                            <MenuItem value="cosine">cosine</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={ 12 } md={ 4 }>
+                        <TextField
+                          fullWidth
+                          label="Rag Threshold"
+                          type="number"
+                          InputLabelProps={{
+                            shrink: true,
+                          }}
+                          variant="standard"
+                          value={ inputs.ragThreshold }
+                          onChange={ (event) => {
+                            inputs.setRagThreshold(event.target.value as any)
+                          }}
+                        />
+                      </Grid>
+                      <Grid item xs={ 12 } md={ 4 }>
+                        <TextField
+                          fullWidth
+                          label="Rag Results Count"
+                          type="number"
+                          InputLabelProps={{
+                            shrink: true,
+                          }}
+                          variant="standard"
+                          value={ inputs.ragResultsCount }
+                          onChange={ (event) => {
+                            inputs.setRagResultsCount(event.target.value as any)
+                          }}
+                        />
+                      </Grid>
+                      <Grid item xs={ 12 } md={ 4 }>
+                        <TextField
+                          fullWidth
+                          label="Rag Chunk Size"
+                          type="number"
+                          InputLabelProps={{
+                            shrink: true,
+                          }}
+                          variant="standard"
+                          value={ inputs.ragChunkSize }
+                          onChange={ (event) => {
+                            inputs.setRagChunkSize(event.target.value as any)
+                          }}
+                        />
+                      </Grid>
+                      <Grid item xs={ 12 } md={ 4 }>
+                        <TextField
+                          fullWidth
+                          label="Rag Chunk Overflow"
+                          type="number"
+                          InputLabelProps={{
+                            shrink: true,
+                          }}
+                          variant="standard"
+                          value={ inputs.ragChunkOverflow }
+                          onChange={ (event) => {
+                            inputs.setRagChunkOverflow(event.target.value as any)
+                          }}
+                        />
+                      </Grid>
+                    </>
+                  )
+                }
+                
+              </Grid> 
+            </Box>
           </Window>
         )
       }

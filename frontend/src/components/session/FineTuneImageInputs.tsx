@@ -13,7 +13,7 @@ import FileUpload from '../widgets/FileUpload'
 import InteractionContainer from './InteractionContainer'
 
 import {
-  buttonStates,
+  BUTTON_STATES,
 } from '../../types'
 
 export const FineTuneImageInputs: FC<{
@@ -94,10 +94,10 @@ export const FineTuneImageInputs: FC<{
             width: '100%',
           }}
           variant="contained"
-          color={ buttonStates.uploadFilesColor }
+          color={ BUTTON_STATES.uploadFilesColor }
           endIcon={<CloudUploadIcon />}
         >
-          { buttonStates.uploadFilesLabel }
+          { BUTTON_STATES.uploadFilesLabel }
         </Button>
         <Box
           sx={{
