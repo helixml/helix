@@ -542,6 +542,7 @@ const Session: FC = () => {
                           isLive && (isOwner || account.admin) && (
                             <InteractionLiveStream
                               session_id={ session.data.id }
+                              session={ session.data }
                               interaction={ interaction }
                               hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
                               onMessageChange={ scrollToBottom }
