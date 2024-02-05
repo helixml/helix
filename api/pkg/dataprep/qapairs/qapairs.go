@@ -368,17 +368,20 @@ func chatWithModel(apiUrl, token, model, system, user, debug string, jsonSchema 
 	answer := resp.Choices[0].Message.Content
 
 	log.Printf("Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
-	if strings.Contains(answer, "```json") {
-		answer = strings.Split(answer, "```json")[1]
-	}
-	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-	parts := strings.Split(answer, "```")
-	answer = parts[0]
 
-	// LLMs are sometimes bad at correct JSON escaping, trying to escape
-	// characters like _ that don't need to be escaped. Just remove all
-	// backslashes for now...
-	answer = strings.Replace(answer, "\\", "", -1)
+	if jsonSchema == nil {
+		if strings.Contains(answer, "```json") {
+			answer = strings.Split(answer, "```json")[1]
+		}
+		// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+		parts := strings.Split(answer, "```")
+		answer = parts[0]
+
+		// LLMs are sometimes bad at correct JSON escaping, trying to escape
+		// characters like _ that don't need to be escaped. Just remove all
+		// backslashes for now... unless we're sure the model generated valid JSON
+		answer = strings.Replace(answer, "\\", "", -1)
+	}
 
 	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))
 }
