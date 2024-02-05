@@ -14,6 +14,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -53,10 +54,14 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		FullName: "Foo Bar",
 	})
 
+	cfg := &config.ServerConfig{}
+	cfg.Tools.Enabled = false
+
 	suite.server = &HelixAPIServer{
 		pubsub: suite.pubsub,
 		Controller: &controller.Controller{
 			Options: controller.ControllerOptions{
+				Config:  cfg,
 				Store:   suite.store,
 				Janitor: janitor.NewJanitor(janitor.JanitorOptions{}),
 			},
