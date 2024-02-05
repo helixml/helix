@@ -121,17 +121,26 @@ const Layout: FC = ({
             }}
           >
             <ListItemButton
-              sx={{
-                height: '68px',
-               }}
-            >
+  sx={{
+    height: '68px',
+    '&:hover': {
+      color: 'white', // Set text color to white on hover
+    },
+    '& .MuiListItemIcon-root': {
+      // Apply styles to the icon when ListItemButton is hovered
+      '&:hover': {
+        color: 'white', // Set icon color to white on hover
+      },
+    },
+  }}
+>
               <ListItemText
               sx={{
                 ml: 2,
                 p: 1,
                 fontWeight: 'heading',
                 '&:hover': {
-                  color: themeConfig.darkHighlight,
+                  color: 'white', // Ensure the text also turns white on hover
                 }
               }}
                 primary="New Session"
