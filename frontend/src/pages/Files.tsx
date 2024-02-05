@@ -196,7 +196,7 @@ const Files: FC = () => {
           </Box>
           <Box
             sx={{
-              height: 'calc(100vh - 124px)',
+              height: 'calc(100vh - 100px)',
               width: '100%',
               flexGrow: 1,
             }}
@@ -209,7 +209,6 @@ const Files: FC = () => {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    
                   }}
                 >
                   {

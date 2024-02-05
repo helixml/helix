@@ -4,6 +4,9 @@ import InteractionFinetune from './InteractionFinetune'
 import InteractionInference from './InteractionInference'
 import Box from '@mui/material/Box'
 
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
+
 import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -77,13 +80,15 @@ export const Interaction: FC<{
 
   const useSystemName = session.name || 'System'
   const useName = interaction?.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction?.creator
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
     <Box
       sx={{
-        backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? '#10101e' : '#none', // different color for system messages
+        backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? (theme.palette.mode === 'dark' ? themeConfig.darkPanel : themeConfig.lightPanel) : 'none',
         p: 2,
         borderRadius: '0.5rem',
       }}
