@@ -69,7 +69,7 @@ const Window: FC<WindowProps> = ({
       maxWidth={ size }
       sx={{
         '& .MuiDialog-paper': {
-          backgroundColor: "#303846",
+          backgroundColor: "#10101E",
           ...(fullHeight && {
             height: '100%',
           }),
@@ -137,6 +137,7 @@ const Window: FC<WindowProps> = ({
                         marginLeft: 2,
                       }}
                       type="button"
+                      color="secondary"
                       variant="outlined"
                       onClick={ closeWindow }
                     >
