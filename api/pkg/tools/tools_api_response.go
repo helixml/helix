@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 )
 
 func (c *ChainStrategy) interpretResponse(ctx context.Context, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {

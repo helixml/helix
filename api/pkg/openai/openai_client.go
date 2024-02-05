@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
-	openai "github.com/sashabaranov/go-openai"
+	openai "github.com/lukemarsden/go-openai2"
 )
 
 const (
