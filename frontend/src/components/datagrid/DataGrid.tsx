@@ -49,12 +49,7 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   rows,
   columns,
   sx={},
-  innerSx = {
-    '& .InovuaReactDataGrid__row': {
-      borderTop: '1px solid #000',
-      borderBottom: '1px solid #000',
-    },
-  },
+  innerSx = {},
   userSelect = false,
   minHeight = 400,
   editable = false,
@@ -97,6 +92,7 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         overflow: 'auto',
         backgroundColor: 'transparent',
         boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
+        border: borderStyle,
         '& .InovuaReactDataGrid__header': {
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',
@@ -119,7 +115,6 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
       <Box
         className='Grid'
         sx={{
-          border: borderStyle,
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
