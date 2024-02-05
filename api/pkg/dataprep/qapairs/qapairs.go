@@ -275,10 +275,10 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 	// try not enforcing json schema initially, only retry if we fail to parse
 	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
-		log.Printf("ChatCompletion error, trying again (%s): %v\n", debug, err)
+		log.Printf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
 		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
-			log.Printf("ChatCompletion error, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
+			log.Printf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()
 			log.Printf("Took: %.2f seconds. FAILED", float32(latency)/1000)
 			return []types.DataPrepTextQuestionRaw{}, nil
