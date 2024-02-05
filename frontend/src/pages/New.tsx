@@ -297,20 +297,20 @@ const New: FC = () => {
     return (
       <Box
         sx={{
-          textAlign: 'center', // Center the text inside the box
+          textAlign: 'left', // Center the text inside the box
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid #333', // Add a border
           borderRadius: 3, // Rounded corners
-          padding: 2,
+          padding: 4,
           mt: 10,
-          backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom>
+        <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
           What do you want to create?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type.
+          Use this button to change model type
         </Typography>
         <Button
           variant="contained"
@@ -333,10 +333,10 @@ const New: FC = () => {
           {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
         </Button>
         <Typography variant="subtitle1">
-          Type a prompt into the box below.
+          Type a prompt into the box below
         </Typography>
         <Typography variant="subtitle1">
-          Press enter to begin!
+          Press enter to begin
         </Typography>
       </Box>
     )
@@ -506,7 +506,8 @@ const New: FC = () => {
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
               sx={{
-                backgroundColor:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                color: themeConfig.darkText,
+                backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
                 ml: 2,
                 '&:hover': {
                   backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
