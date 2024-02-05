@@ -54,7 +54,16 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
 	}
 
-	// TODO: Add query params
+	if tool.Config.API.Query != nil {
+		q := req.URL.Query()
+		for k, v := range tool.Config.API.Query {
+			q.Add(k, v)
+		}
+
+		req.URL.RawQuery = q.Encode()
+	}
+
+	// TODO: model query params
 	// TODO: Add body
 
 	return req, nil
