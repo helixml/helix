@@ -26,6 +26,16 @@ prompts:
    user: |
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
+
 
  - name: summaries-one
    system: |
@@ -45,6 +55,15 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
 
  - name: metadata
    system: |
@@ -84,6 +103,15 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
 
 
  - name: title-questions
@@ -115,6 +143,18 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         title:
+           type: string
+         question:
+           type: string
+         answer:
+           type: string
+
 
  - name: summaries-three
    system: |
@@ -144,10 +184,20 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
+
 
  - name: summaries-sections
    system: |
-    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with an strict JSON. Follow the schema below precisely.
+    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with strict JSON. Follow the schema below precisely.
 
     For example:
     ```json
@@ -185,6 +235,30 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+    type: object
+    properties:
+      sections:
+        type: array
+        items:
+          type: string
+      questions:
+        type: array
+        items:
+          type: object
+          properties:
+            section:
+              type: string
+            questions:
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                  answer:
+                    type: string
+
 
 #    For the next set of questions, summarize each section of the document.
 #    For the final set of questions, summarize each paragraph of the document.
@@ -216,6 +290,7 @@ prompts:
  - name: you-are-generating-fine-tuning-data
    system: |
     You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model.
+    Respond with strict JSON. Follow the schema below precisely.
 
     For example:
     ```json
@@ -237,6 +312,16 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
+
 
 #  - name: entities-specific-to-broad
 #    system: |
@@ -299,7 +384,7 @@ prompts:
  
  - name: important-facts
    system: |
-    You are an intelligent professor. You create questions and answers from the given document for your students.
+    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with strict JSON. Follow the schema below precisely.
    user: |
     Consider each main important fact in the document. In the "facts" list you will list all of the main important facts in the document.
     
@@ -371,6 +456,29 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+    type: object
+    properties:
+      facts:
+        type: array
+        items:
+          type: string
+      questions:
+        type: array
+        items:
+          type: object
+          properties:
+            fact:
+              type: string
+            questions:
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                  answer:
+                    type: string
 
 #  # This seems a little imprecise, maybe we need to explicitly call out relationships between entities A and B.
 #  - name: entities-relationships
@@ -485,6 +593,15 @@ prompts:
 
     Here is the document:
     {{.DocumentChunk}}
+   json_schema:
+     type: array
+     items:
+       type: object
+       properties:
+         question:
+           type: string
+         answer:
+           type: string
 
 targets:
  - name: openai
