@@ -29,7 +29,7 @@ RUN cd /workspace/axolotl && \
     git remote rm origin && \
     git remote add lukefork https://github.com/lukemarsden/axolotl && \
     git fetch --all && \
-    git checkout fa90810bb633eb58749384026764cffb654dc2d3
+    git checkout 74b760e673715e775a27483086c618f283a14361
 
 # cog stuff
 COPY cog/cog-0.0.1.dev-py3-none-any.whl /tmp/cog-0.0.1.dev-py3-none-any.whl
