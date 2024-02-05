@@ -302,6 +302,55 @@ const New: FC = () => {
 
   if(!initialized) return null
 
+  const CenteredMessage: FC = () => {
+    return (
+      <Box
+        sx={{
+          textAlign: 'left', // Center the text inside the box
+          zIndex: 2, // Ensure it's above other elements
+          border: '1px solid #333', // Add a border
+          borderRadius: 3, // Rounded corners
+          padding: 4,
+          mt: 10,
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
+        }}
+      >
+        <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
+          What do you want to create?
+        </Typography>
+        <Typography variant="subtitle1" sx={{ mt: 2 }}>
+          Use this button to change model type
+        </Typography>
+        <Button
+          variant="contained"
+          size="small"
+          sx={{
+            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+            color: 'black',
+            mr: 2,
+            borderRadius: 1,
+            textTransform: 'none',
+            fontSize: "medium",
+            fontWeight: 800,
+            pt: '1px',
+            pb: '1px',
+            m: 1,
+          }}
+          endIcon={<SwapHorizIcon />}
+          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+        >
+          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+        </Button>
+        <Typography variant="subtitle1">
+          Type a prompt into the box below
+        </Typography>
+        <Typography variant="subtitle1">
+          Press enter to begin
+        </Typography>
+      </Box>
+    )
+  }
+
   return (
     <Box
       className="helix-new"
@@ -329,6 +378,16 @@ const New: FC = () => {
         }}
       >
         <Container maxWidth="lg">
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {selectedMode !== SESSION_MODE_FINETUNE && <CenteredMessage />}
+          </Box>
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
               <FineTuneImageInputs
@@ -508,7 +567,8 @@ const New: FC = () => {
               disabled={selectedMode == SESSION_MODE_FINETUNE}
               onClick={ onInference }
               sx={{
-                backgroundColor:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                color: themeConfig.darkText,
+                backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
                 ml: 2,
                 '&:hover': {
                   backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
