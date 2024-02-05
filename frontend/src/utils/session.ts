@@ -199,6 +199,11 @@ export const getTextDataPrepStats = (interaction: IInteraction): IDataPrepStats 
   })
 }
 
+// gives us a chance to replace the raw HTML that is rendered as a "message"
+// the key thing this does right now is render links to files that the AI has been
+// told to reference in it's answer - because the session metadata keeps a map
+// of document_ids to filenames, we can replace the document_id with a link to the
+// document in the filestore
 export const replaceMessageText = (
   message: string,
   session: ISession,
