@@ -163,7 +163,7 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 		}
 		cmd = exec.CommandContext(
 			ctx,
-			"python",
+			"python3",
 			args...,
 		)
 	} else {
@@ -172,7 +172,7 @@ func (l *Mistral7bInstruct01) getMockCommand(ctx context.Context, sessionFilter 
 		}
 		cmd = exec.CommandContext(
 			ctx,
-			"python",
+			"python3",
 			args...,
 		)
 	}
