@@ -238,7 +238,7 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
+        session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndexDisplay(interaction.data_prep_stage) > 0 && (
           <Box
             sx={{
               mt: 1.5,
