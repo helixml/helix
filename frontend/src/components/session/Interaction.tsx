@@ -55,6 +55,12 @@ export const Interaction: FC<{
 
   let isLoading = interaction?.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
 
+  let useMessageText = ''
+
+  if(interaction) {
+    useMessageText = interaction.display_message || interaction.message || ''
+  }
+
   if(isLoading) {
     // we don't display the message here - we render a LiveInteraction which handles the websockets
     // without reloading the entire app
@@ -63,14 +69,14 @@ export const Interaction: FC<{
       if(!interaction?.lora_dir) {
         // If single message is shown, display it
         if (interaction?.message) {
-          displayMessage = interaction.message
+          displayMessage = useMessageText
         } else {
           displayMessage = ''
         }        
       }
     } else if(session.type == SESSION_TYPE_IMAGE) {
       if(interaction?.creator == SESSION_CREATOR_USER) {
-        displayMessage = interaction.message || ''
+        displayMessage = useMessageText || ''
       }
       else {
         if(session.mode == SESSION_MODE_INFERENCE && interaction?.files && interaction?.files.length > 0) {

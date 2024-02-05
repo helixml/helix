@@ -29,15 +29,16 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner   string            `json:"runner"`   // e.g. 0
-	Message  string            `json:"message"`  // e.g. Prove pythagoras
-	Progress int               `json:"progress"` // e.g. 0-100
-	Files    []string          `json:"files"`    // list of filepath paths
-	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State    InteractionState  `json:"state"`
-	Status   string            `json:"status"`
-	Error    string            `json:"error"`
+	Runner         string            `json:"runner"`          // e.g. 0
+	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
+	Progress       int               `json:"progress"`        // e.g. 0-100
+	Files          []string          `json:"files"`           // list of filepath paths
+	Finished       bool              `json:"finished"`        // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	Metadata       map[string]string `json:"metadata"`        // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State          InteractionState  `json:"state"`
+	Status         string            `json:"status"`
+	Error          string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
 	LoraDir        string                     `json:"lora_dir"`
 	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
@@ -79,7 +80,6 @@ type SessionRagIndexChunk struct {
 type SessionRagQuery struct {
 	Prompt            string  `json:"prompt"`
 	SessionID         string  `json:"session_id"`
-	InteractionID     string  `json:"interaction_id"`
 	DistanceThreshold float64 `json:"distance_threshold"`
 	DistanceFunction  string  `json:"distance_function"`
 	MaxResults        int     `json:"max_results"`

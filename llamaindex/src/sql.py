@@ -148,7 +148,7 @@ def getRow(row_id):
     return convertRow(row)
 
 # given a already calculated prompt embedding and a session ID - find matching rows
-def queryPrompt(session_id, interaction_id, query_embedding, distance_function, distance_threshold, max_results):
+def queryPrompt(session_id, query_embedding, distance_function, distance_threshold, max_results):
   distance_functions = {
     "l2": "<->",
     "inner_product": "<#>",
@@ -169,8 +169,6 @@ from
   {TABLE_NAME}
 where
   session_id = '{session_id}'
-  and
-  interaction_id = '{interaction_id}'
   and
   {embedding_str} < {distance_threshold}
 order by
