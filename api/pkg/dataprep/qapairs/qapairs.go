@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"text/template"
 	"time"
 
@@ -271,7 +272,8 @@ func Query(target Target, prompt Prompt, text Text, documentID, documentGroupID 
 
 	startTime := time.Now()
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
-	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
+	// try not enforcing json schema initially, only retry if we fail to parse
+	resp, err := chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
 		log.Printf("ChatCompletion error, trying again (%s): %v\n", debug, err)
 		resp, err = chatWithModel(target.ApiUrl, os.Getenv(target.TokenFromEnv), target.Model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
@@ -336,32 +338,48 @@ func chatWithModel(apiUrl, token, model, system, user, debug string, jsonSchema 
 	cfg.BaseURL = apiUrl
 	client := openai.NewClientWithConfig(cfg)
 
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: model,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: system,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: user,
-				},
+	req := openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: system,
 			},
-			ResponseFormat: &openai.ChatCompletionResponseFormat{
-				Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
-				Schema: jsonSchema,
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: user,
 			},
 		},
-	)
+	}
+
+	if jsonSchema != nil {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
+			Schema: jsonSchema,
+		}
+	}
+
+	resp, err := client.CreateChatCompletion(context.Background(), req)
 	if err != nil {
 		fmt.Printf("ChatCompletion error (%s): %v\n", debug, err)
 		return nil, err
 	}
 
 	answer := resp.Choices[0].Message.Content
+
+	log.Printf("Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
+	if strings.Contains(answer, "```json") {
+		answer = strings.Split(answer, "```json")[1]
+	}
+	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+	parts := strings.Split(answer, "```")
+	answer = parts[0]
+
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	answer = strings.Replace(answer, "\\", "", -1)
+
 	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))
 }
 
