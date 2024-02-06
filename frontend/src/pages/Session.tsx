@@ -728,13 +728,6 @@ const Session: FC = () => {
           <Box
             sx={{
               mt: 2,
-              mb: {
-                xs: 8,
-                sm: 8,
-                md: 8,
-                lg: 4,
-                xl: 4,
-              }
             }}
           >
             <Disclaimer />
