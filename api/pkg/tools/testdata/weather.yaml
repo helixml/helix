@@ -1,0 +1,267 @@
+openapi: "3.0.1"
+
+info:
+  title: "OpenWeatherMap API"
+  description: "Sample OpenWeather API."
+  version: "2.5"
+  termsOfService: "https://openweathermap.org/terms"
+  contact:
+    name: "Open Weather API"
+    url: "https://openweathermap.org/api"
+    email: "foo@bar.com"
+  license:
+    name: "Sample Liscense"
+    url: "https://openweathermap.org"
+    
+tags:
+  - name: Current Weather Data
+    description: "Get current weather details"
+
+externalDocs:
+  description: API Documentation
+  url: https://openweathermap.org/api
+
+servers:
+- url: "https://api.openweathermap.org/data/2.5/"
+
+security:
+- app_id: []
+
+# Path Defination for API
+
+paths:
+  /weather:
+    get:
+      tags:
+      - Current Weather Data
+      summary: "Call current weather data for one location"
+      description: "Get the current weather info"
+      operationId: CurrentWeatherData
+      parameters:
+        - $ref: '#/components/parameters/q'
+
+      responses:
+        200:
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/200'
+        404:
+          description: Not found response
+          content:
+            text/plain:
+              schema:
+                title: Weather not found
+                type: string
+                example: Not found
+
+
+# Component Description
+components:
+
+  parameters:
+    q:
+      name: q
+      in: query
+      description: "For the query value, type the city name and optionally the country code divided by comma; use ISO 3166 country codes."
+      schema:
+        type: string
+
+  schemas:
+    200:
+      title: Successful response
+      type: object
+      properties:
+        coord:
+          $ref: '#/components/schemas/Coord'
+        weather:
+          type: array
+          items:
+            $ref: '#/components/schemas/Weather'
+          description: (more info Weather condition codes)
+        base:
+          type: string
+          description: Internal parameter
+          example: cmc stations
+        main:
+          $ref: '#/components/schemas/Main'
+        visibility:
+          type: integer
+          description: Visibility, meter
+          example: 16093
+        wind:
+          $ref: '#/components/schemas/Wind'
+        clouds:
+          $ref: '#/components/schemas/Clouds'
+        rain:
+          $ref: '#/components/schemas/Rain'
+        snow:
+          $ref: '#/components/schemas/Snow'
+        dt:
+          type: integer
+          description: Time of data calculation, unix, UTC
+          format: int32
+          example: 1435658272
+        sys:
+          $ref: '#/components/schemas/Sys'
+        id:
+          type: integer
+          description: City ID
+          format: int32
+          example: 2172797
+        name:
+          type: string
+          example: Cairns
+        cod:
+          type: integer
+          description: Internal parameter
+          format: int32
+          example: 200
+          
+  # SubObject Definations 
+    Coord:
+      title: Coord
+      type: object
+      properties:
+        lon:
+          type: number
+          description: City geo location, longitude
+          example: 72.85
+        lat:
+          type: number
+          description: City geo location, latitude
+          example: 19.01
+    Weather:
+      title: Weather
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Weather condition id
+          format: int32
+          example: 803
+        main:
+          type: string
+          description: Group of weather parameters (Rain, Snow, Extreme etc.)
+          example: Clouds
+        description:
+          type: string
+          description: Weather condition within the group
+          example: broken clouds
+        icon:
+          type: string
+          description: Weather icon id
+          example: 50d
+    Main:
+      title: Main
+      type: object
+      properties:
+        temp:
+          type: number
+          description: 'Temperature. Unit Default: Kelvin, Metric: Celsius, Imperial: Fahrenheit.'
+          example: 293.25
+        pressure:
+          type: integer
+          description: Atmospheric pressure (on the sea level, if there is no sea_level or grnd_level data), hPa
+          format: int32
+          example: 1019
+        humidity:
+          type: integer
+          description: Humidity, %
+          format: int32
+          example: 83
+        temp_min:
+          type: number
+          description: 'Minimum temperature at the moment. This is deviation from current temp that is possible for large cities and megalopolises geographically expanded (use these parameter optionally). Unit Default: Kelvin, Metric: Celsius, Imperial: Fahrenheit.'
+          example: 289.81999999999999
+        temp_max:
+          type: number
+          description: 'Maximum temperature at the moment. This is deviation from current temp that is possible for large cities and megalopolises geographically expanded (use these parameter optionally). Unit Default: Kelvin, Metric: Celsius, Imperial: Fahrenheit.'
+          example: 295.37
+        sea_level:
+          type: number
+          description: Atmospheric pressure on the sea level, hPa
+          example: 984
+        grnd_level:
+          type: number
+          description: Atmospheric pressure on the ground level, hPa
+          example: 990
+    Wind:
+      title: Wind
+      type: object
+      properties:
+        speed:
+          type: number
+          description: 'Wind speed. Unit Default: meter/sec, Metric: meter/sec, Imperial: miles/hour.'
+          example: 5.0999999999999996
+        deg:
+          type: integer
+          description: Wind direction, degrees (meteorological)
+          format: int32
+          example: 150
+    Clouds:
+      title: Clouds
+      type: object
+      properties:
+        all:
+          type: integer
+          description: Cloudiness, %
+          format: int32
+          example: 75
+    Rain:
+      title: Rain
+      type: object
+      properties:
+        3h:
+          type: integer
+          description: Rain volume for the last 3 hours
+          format: int32
+          example: 3
+    Snow:
+      title: Snow
+      type: object
+      properties:
+        3h:
+          type: number
+          description: Snow volume for the last 3 hours
+          example: 6
+    Sys:
+      title: Sys
+      type: object
+      properties:
+        type:
+          type: integer
+          description: Internal parameter
+          format: int32
+          example: 1
+        id:
+          type: integer
+          description: Internal parameter
+          format: int32
+          example: 8166
+        message:
+          type: number
+          description: Internal parameter
+          example: 0.0166
+        country:
+          type: string
+          description: Country code (GB, JP etc.)
+          example: AU
+        sunrise:
+          type: integer
+          description: Sunrise time, unix, UTC
+          format: int32
+          example: 1435610796
+        sunset:
+          type: integer
+          description: Sunset time, unix, UTC
+          format: int32
+          example: 1435650870
+
+  securitySchemes:
+    app_id:
+      type: apiKey
+      description: API key to authorize requests. If you don't have an OpenWeatherMap API key, use `0e42a4c3dff34f7e42dbfcd804a5c917`
+      name: appid
+      in: query

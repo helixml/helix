@@ -59,13 +59,13 @@ def do_inference():
         instruction: str = task["prompt"]
         session_id = task["session_id"]
         dir_path = os.getcwd() + "/runner/fixtures"
-        print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout)
+        print(f" [SESSION_START]session_id={session_id} ", file=sys.stdout, flush=True)
         print("steps:\n")
         for i in range(1, 101):
           print(f"{i}%|\n")
           time.sleep(0.1)
         
-        print(f" [SESSION_END_LORA_DIR]lora_dir={dir_path} ", file=sys.stdout)
+        print(f" [SESSION_END_LORA_DIR]lora_dir={dir_path} ", file=sys.stdout, flush=True)
 
 if __name__ == "__main__":
     do_inference()

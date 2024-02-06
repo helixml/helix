@@ -11,39 +11,74 @@ import (
 	"strings"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/notification"
-	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/jinzhu/copier"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
-	session, err := data.CreateSession(req)
-	if err != nil {
-		return nil, err
+	systemInteraction := &types.Interaction{
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Creator:        types.CreatorTypeSystem,
+		Mode:           req.SessionMode,
+		Message:        "",
+		Files:          []string{},
+		State:          types.InteractionStateWaiting,
+		Finished:       false,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
+	}
+
+	newSession := types.Session{
+		ID:            req.SessionID,
+		Name:          system.GenerateAmusingName(),
+		ModelName:     req.ModelName,
+		Type:          req.SessionType,
+		Mode:          req.SessionMode,
+		ParentSession: req.ParentSession,
+		Owner:         req.Owner,
+		OwnerType:     req.OwnerType,
+		Created:       time.Now(),
+		Updated:       time.Now(),
+		Interactions:  append(req.UserInteractions, systemInteraction),
+		Metadata: types.SessionMetadata{
+			OriginalMode: req.SessionMode,
+			Origin: types.SessionOrigin{
+				Type: types.SessionOriginTypeUserCreated,
+			},
+			Priority:                req.Priority,
+			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
+			HelixVersion:            data.GetHelixVersion(),
+		},
 	}
 
 	// create session in database
-	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, session)
+	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, newSession)
 	if err != nil {
 		return nil, err
 	}
 
 	go c.SessionRunner(sessionData)
+
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, ctx, sessionData)
 	if err != nil {
 		return nil, err
 	}
 
-	if session.Mode == types.SessionModeFinetune {
+	if newSession.Mode == types.SessionModeFinetune {
 		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
 			Event:   notification.EventFinetuningStarted,
-			Session: &session,
+			Session: &newSession,
 		})
 		if err != nil {
 			log.Error().Msgf("error notifying finetuning started: %s", err.Error())
@@ -54,6 +89,11 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
+	session, err := c.Options.Store.GetSession(ctx.Ctx, req.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session %s: %w", req.SessionID, err)
+	}
+
 	systemInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
@@ -66,15 +106,11 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 		Finished: false,
 		Metadata: map[string]string{},
 	}
-	session, err := c.Options.Store.GetSession(ctx.Ctx, req.SessionID)
-	if err != nil {
-		return nil, err
-	}
+
 	session.Updated = time.Now()
 	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
 
-	log.Debug().
-		Msgf("🟢 update session: %+v", session)
+	log.Debug().Msgf("🟢 update session: %+v", session)
 
 	sessionData, err := c.Options.Store.UpdateSession(ctx.Ctx, *session)
 	if err != nil {
@@ -82,6 +118,7 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 	}
 
 	go c.SessionRunner(sessionData)
+
 	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, ctx, sessionData)
 	if err != nil {
 		return nil, err
@@ -111,6 +148,8 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Error = ""
 		systemInteraction.Finished = false
+		// empty out the previous message so model doesn't think it's already finished
+		systemInteraction.Message = ""
 
 		systemInteraction.State = types.InteractionStateWaiting
 
@@ -222,8 +261,7 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 // the idempotent function to "run" the session
 // it should work out what this means - i.e. have we prepared the data yet?
 func (c *Controller) SessionRunner(sessionData *types.Session) {
-	// first we prepare the seession - which could mean whatever the model implementation wants
-	// so we have to wait for that to complete before adding to the queue
+	// Wait for that to complete before adding to the queue
 	// the model can be adding subsequent child sessions to the queue
 	// e.g. in the case of text fine tuning data prep - we need an LLM to convert
 	// text into q&a pairs and we want to use our own mistral inference
@@ -233,6 +271,19 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		c.ErrorSession(sessionData, err)
 		return
 	}
+
+	// If last interaction is "action" then we should run the action
+	// and not the model
+	lastInteraction, err := data.GetLastSystemInteraction(sessionData.Interactions)
+	if err == nil && lastInteraction.Mode == types.SessionModeAction {
+		_, err := c.runActionInteraction(context.Background(), sessionData, lastInteraction)
+		if err != nil {
+			log.Error().Msgf("error running action interaction: %s", err.Error())
+			c.ErrorSession(sessionData, err)
+		}
+		return
+	}
+
 	// it's ok if we did not get a session back here
 	// it means there will be a later action that will add the session to the queue
 	// in the case the user needs to edit some data before it can be run for example
@@ -260,6 +311,15 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+		var err error
+		// Check if this is actionable
+		session, err = c.checkForActions(session)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// load the model
 	// call it's
 	// here we need to turn all of the uploaded files into text files
@@ -299,6 +359,66 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 		c.BeginFineTune(session)
 		return nil, nil
 	}
+
+	return session, nil
+}
+
+func (c *Controller) checkForActions(session *types.Session) (*types.Session, error) {
+	if !c.Options.Config.Tools.Enabled {
+		// Tools not enabled for the server
+		return session, nil
+	}
+
+	ctx := context.Background()
+
+	tools, err := c.Options.Store.ListTools(ctx, &store.ListToolsQuery{
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tools) == 0 {
+		// No tools available, nothing to check
+		return session, nil
+	}
+
+	userInteraction, err := data.GetLastUserInteraction(session.Interactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
+	}
+
+	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, []*types.Interaction{}, userInteraction.Message)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
+		return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+	}
+
+	log.Info().
+		Str("api", isActionable.Api).
+		Str("actionable", isActionable.NeedsApi).
+		Str("justification", isActionable.Justification).
+		Str("message", userInteraction.Message).
+		Msg("checked for actionable")
+
+	if !isActionable.Actionable() {
+		return session, nil
+	}
+
+	// Actionable, converting interaction mode to "action"
+	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
+	}
+
+	lastInteraction.Mode = types.SessionModeAction
+
+	lastInteraction.Mode = types.SessionModeAction
+	lastInteraction.Metadata["tool_action"] = isActionable.Api
+	lastInteraction.Metadata["tool_action_justification"] = isActionable.Justification
+	lastInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
+
 	return session, nil
 }
 
@@ -556,12 +676,6 @@ type CloneUntilInteractionRequest struct {
 	Mode          types.CloneInteractionMode
 	CopyAllFiles  bool
 }
-
-// func (c *Controller) cloneInteractionFiles(
-
-// } error {
-
-// }
 
 // the user interaction is the thing we are cloning
 func (c *Controller) CloneUntilInteraction(

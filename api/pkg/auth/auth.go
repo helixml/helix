@@ -5,6 +5,7 @@ import (
 
 	"github.com/Nerzal/gocloak/v13"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -12,21 +13,12 @@ type Authenticator interface {
 	GetUserByID(ctx context.Context, userID string) (*types.UserDetails, error)
 }
 
-type KeycloakConfig struct {
-	URL        string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	ClientID   string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	AdminRealm string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
-	Realm      string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username   string `envconfig:"KEYCLOAK_USER"`
-	Password   string `envconfig:"KEYCLOAK_PASSWORD"`
-}
-
 type KeycloakAuthenticator struct {
-	cfg     *KeycloakConfig
+	cfg     *config.Keycloak
 	gocloak *gocloak.GoCloak
 }
 
-func NewKeycloakAuthenticator(cfg *KeycloakConfig) (*KeycloakAuthenticator, error) {
+func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
 	gck := gocloak.NewClient(cfg.URL)
 
 	token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
