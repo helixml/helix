@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
@@ -154,6 +155,72 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 	currentMessage := "What's the weather like in London?"
 
 	resp, err := suite.strategy.RunAction(suite.ctx, getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
+	suite.NoError(err)
+
+	spew.Dump(resp)
+
+	suite.True(called, "expected to call the API")
+
+	fmt.Println("U:", currentMessage)
+	fmt.Println("A:", resp.Message)
+}
+
+func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
+	called := false
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suite.Equal("/weather", r.URL.Path)
+
+		suite.Equal("secret-key", r.URL.Query().Get("appid"))
+		suite.Contains(strings.ToLower(r.URL.Query().Get("q")), "london")
+		suite.Equal("GET", r.Method)
+
+		fmt.Fprint(w, weatherResp)
+
+		called = true
+	}))
+	defer ts.Close()
+
+	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
+	suite.NoError(err)
+
+	getWeatherAPI := &types.Tool{
+		Name:        "getWeather",
+		Description: "Weather API service that can be used to retrieve weather information for the given location",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:    ts.URL,
+				Schema: string(weatherSpec),
+				Query: map[string]string{
+					"appid": "secret-key",
+				},
+				Actions: []*types.ToolApiAction{
+					{
+						Name:        "CurrentWeatherData",
+						Description: "Call current weather data for one location",
+						Method:      "GET",
+						Path:        "/weather",
+					},
+				},
+			},
+		},
+	}
+
+	history := []*types.Interaction{
+		{
+			Creator: types.CreatorTypeUser,
+			Message: "what is the capital of united kingdom?",
+		},
+		{
+			Creator: types.CreatorTypeAssistant,
+			Message: "The capital of the United Kingdom is London.",
+		},
+	}
+
+	currentMessage := "What's the weather like there?"
+
+	resp, err := suite.strategy.RunAction(suite.ctx, getWeatherAPI, history, currentMessage, "CurrentWeatherData")
 	suite.NoError(err)
 
 	spew.Dump(resp)

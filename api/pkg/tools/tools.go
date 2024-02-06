@@ -38,10 +38,6 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
 		}
 
-		// TODO: validate tool model
-
-		// goopenai.GPT3Dot5Turbo
-
 		apiClient = openai.New(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
