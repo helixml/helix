@@ -29,16 +29,12 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
 	}
 
-	fmt.Printf("XX running action '%s', message: '%s' \n", action, userInteraction.Message)
-
 	var updated *types.Session
 
 	resp, err := c.Options.Planner.RunAction(ctx, tool, []*types.Interaction{}, userInteraction.Message, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
-
-	defer fmt.Printf("XX action '%s' done, message: '%s' \n", action, resp.RawMessage)
 
 	updated, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
 		systemInteraction.Finished = true
