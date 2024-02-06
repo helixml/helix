@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mail"
 	"github.com/nikoksr/notify/service/mailgun"
@@ -13,11 +14,11 @@ import (
 )
 
 type Email struct {
-	cfg     *Config
+	cfg     *config.Notifications
 	enabled bool
 }
 
-func NewEmail(cfg *Config) (*Email, error) {
+func NewEmail(cfg *config.Notifications) (*Email, error) {
 	e := &Email{
 		cfg: cfg,
 	}

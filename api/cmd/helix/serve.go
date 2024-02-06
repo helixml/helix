@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -18,9 +19,9 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -34,26 +35,21 @@ type ServeOptions struct {
 	ServerOptions       server.ServerOptions
 	StripeOptions       stripe.StripeOptions
 
+	Cfg *config.ServerConfig
+
 	// NotifierCfg is used to configure the notifier which sends emails
 	// to users on finetuning progress
-	NotifierCfg *notification.Config
+	NotifierCfg *config.Notifications
 
 	// KeycloakCfg is used to configure the keycloak authenticator, which
 	// is used to get user information from the keycloak server
-	KeycloakCfg *auth.KeycloakConfig
+	KeycloakCfg *config.Keycloak
 }
 
 func NewServeOptions() (*ServeOptions, error) {
-	var keycloakCfg auth.KeycloakConfig
-	err := envconfig.Process("", &keycloakCfg)
+	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
-	}
-
-	var notificationCfg notification.Config
-	err = envconfig.Process("", &notificationCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse keycloak config: %v", err)
+		return nil, fmt.Errorf("failed to load server config: %v", err)
 	}
 
 	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
@@ -68,6 +64,7 @@ func NewServeOptions() (*ServeOptions, error) {
 			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
 		},
 		ControllerOptions: controller.ControllerOptions{
+			Config:                       &serverConfig,
 			FilestorePresignSecret:       filestoreSignSecret,
 			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
 			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
@@ -103,19 +100,20 @@ func NewServeOptions() (*ServeOptions, error) {
 			EvalUserID:  getDefaultServeOptionString("EVAL_USER_ID", ""),
 		},
 		JanitorOptions: janitor.JanitorOptions{
-			SentryDSNApi:            getDefaultServeOptionString("SENTRY_DSN_API", ""),
-			SentryDSNFrontend:       getDefaultServeOptionString("SENTRY_DSN_FRONTEND", ""),
-			GoogleAnalyticsFrontend: getDefaultServeOptionString("GOOGLE_ANALYTICS_FRONTEND", ""),
-			SlackWebhookURL:         getDefaultServeOptionString("JANITOR_SLACK_WEBHOOK_URL", ""),
-			IgnoreUsers:             getDefaultServeOptionStringArray("JANITOR_SLACK_IGNORE_USERS", []string{}),
+			SentryDSNApi:            serverConfig.Janitor.SentryDsnAPI,
+			SentryDSNFrontend:       serverConfig.Janitor.SentryDsnFrontend,
+			GoogleAnalyticsFrontend: serverConfig.Janitor.GoogleAnalyticsFrontend,
+			SlackWebhookURL:         serverConfig.Janitor.SlackWebhookURL,
+			IgnoreUsers:             serverConfig.Janitor.SlackIgnoreUser,
 		},
 		StripeOptions: stripe.StripeOptions{
-			SecretKey:            getDefaultServeOptionString("STRIPE_SECRET_KEY", ""),
-			WebhookSigningSecret: getDefaultServeOptionString("STRIPE_WEBHOOK_SIGNING_SECRET", ""),
-			PriceLookupKey:       getDefaultServeOptionString("STRIPE_PRICE_LOOKUP_KEY", ""),
+			SecretKey:            serverConfig.Stripe.SecretKey,
+			WebhookSigningSecret: serverConfig.Stripe.WebhookSigningSecret,
+			PriceLookupKey:       serverConfig.Stripe.PriceLookupKey,
 		},
-		KeycloakCfg: &keycloakCfg,
-		NotifierCfg: &notificationCfg,
+		Cfg:         &serverConfig,
+		KeycloakCfg: &serverConfig.Keycloak,
+		NotifierCfg: &serverConfig.Notifications,
 	}, nil
 }
 
@@ -410,12 +408,18 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return err
 	}
 
+	planner, err := tools.NewChainStrategy(options.Cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create tools planner: %v", err)
+	}
+
 	var appController *controller.Controller
 
 	options.ControllerOptions.Store = store
 	options.ControllerOptions.Filestore = fs
 	options.ControllerOptions.Janitor = janitor
 	options.ControllerOptions.Notifier = notifier
+	options.ControllerOptions.Planner = planner
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
