@@ -8,6 +8,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+const actionContextHistorySize = 6
+
 func (c *Controller) runActionInteraction(ctx context.Context, session *types.Session, systemInteraction *types.Interaction) (*types.Session, error) {
 	action, ok := systemInteraction.Metadata["tool_action"]
 	if !ok {
@@ -31,7 +33,14 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 
 	var updated *types.Session
 
-	resp, err := c.Options.Planner.RunAction(ctx, tool, []*types.Interaction{}, userInteraction.Message, action)
+	history := data.GetLastInteractions(session, actionContextHistorySize)
+
+	// If history has more than 2 interactions, remove the last 2 as it's the current user and system interaction
+	if len(history) > 2 {
+		history = history[:len(history)-2]
+	}
+
+	resp, err := c.Options.Planner.RunAction(ctx, tool, history, userInteraction.Message, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
