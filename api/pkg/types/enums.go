@@ -141,8 +141,9 @@ const (
 type CreatorType string
 
 const (
-	CreatorTypeSystem CreatorType = "system"
-	CreatorTypeUser   CreatorType = "user"
+	CreatorTypeSystem    CreatorType = "system"
+	CreatorTypeAssistant CreatorType = "assistant"
+	CreatorTypeUser      CreatorType = "user"
 )
 
 type WebsocketEventType string
