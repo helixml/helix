@@ -389,7 +389,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
 	}
 
-	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, []*types.Interaction{}, userInteraction.Message)
+	history := data.GetLastInteractions(session, actionContextHistorySize)
+
+	// If history has more than 2 interactions, remove the last 2 as it's the current user and system interaction
+	if len(history) > 2 {
+		history = history[:len(history)-2]
+	}
+
+	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, history, userInteraction.Message)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
 		return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
