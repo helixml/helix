@@ -89,6 +89,9 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.URL.RawQuery = q.Encode()
 	}
 
+	req.Header.Set("X-Helix-Tool-Id", tool.ID)
+	req.Header.Set("X-Helix-Action-Id", action)
+
 	// TODO: Add body
 
 	return req, nil

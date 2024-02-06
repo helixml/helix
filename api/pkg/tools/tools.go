@@ -5,6 +5,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
@@ -51,9 +54,39 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			cfg.Providers.TogetherAI.BaseURL)
 	}
 
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 3
+	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
+		switch {
+		case req.Method == "POST":
+			log.Trace().
+				Str(req.Method, req.URL.String()).
+				Int("attempt", attempt).
+				Msgf("failed")
+		default:
+			// GET, PUT, DELETE, etc.
+			log.Trace().
+				Str(req.Method, req.URL.String()).
+				Int("attempt", attempt).
+				Msgf("")
+		}
+	}
+
+	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
+		if resp == nil {
+			return true, err
+		}
+		log.Trace().
+			Str(resp.Request.Method, resp.Request.URL.String()).
+			Int("code", resp.StatusCode).
+			Msgf("")
+		// don't retry for auth and bad request errors
+		return resp.StatusCode >= 500, nil
+	}
+
 	return &ChainStrategy{
 		cfg:        cfg,
 		apiClient:  apiClient,
-		httpClient: http.DefaultClient,
+		httpClient: retryClient.StandardClient(),
 	}, nil
 }
