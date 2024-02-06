@@ -25,9 +25,6 @@ import (
 const DEBUG = true
 
 func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
-	fmt.Println("========= CreateSession =========")
-	defer fmt.Println("========= CreateSession DONE =========")
-
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
@@ -41,41 +38,6 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}
-
-	// If tools enabled, using the planner to decide whether we should use a tool
-	// or use the model directly for general knowledge questions
-	// if c.Options.Config.Tools.Enabled {
-	// 	tools, err := c.Options.Store.ListTools(ctx.Ctx, &store.ListToolsQuery{
-	// 		Owner:     req.Owner,
-	// 		OwnerType: req.OwnerType,
-	// 	})
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	if len(tools) > 0 {
-	// 		// If it's a new session, we should check if the message is actionable
-	// 		isActionable, err := c.Options.Planner.IsActionable(ctx.Ctx, tools, []*types.Interaction{}, req.UserInteractions[0].Message)
-	// 		if err != nil {
-	// 			log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-	// 			return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
-	// 		}
-
-	// 		log.Info().
-	// 			Str("api", isActionable.Api).
-	// 			Str("actionable", isActionable.NeedsApi).
-	// 			Str("justification", isActionable.Justification).
-	// 			Str("message", req.UserInteractions[0].Message).
-	// 			Msg("checked for actionable")
-
-	// 		if isActionable.Actionable() {
-	// 			systemInteraction.Mode = types.SessionModeAction
-	// 			systemInteraction.Metadata["tool_action"] = isActionable.Api
-	// 			systemInteraction.Metadata["tool_action_justification"] = isActionable.Justification
-	// 			systemInteraction.Metadata["tool_id"] = getToolFromAction(tools, isActionable.Api).ID
-	// 		}
-	// 	}
-	// }
 
 	newSession := types.Session{
 		ID:            req.SessionID,
