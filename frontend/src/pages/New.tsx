@@ -7,9 +7,6 @@ import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
-import MenuItem from '@mui/material/MenuItem'
-import Select from '@mui/material/Select'
-import FormControl from '@mui/material/FormControl'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import InputAdornment from '@mui/material/InputAdornment'
@@ -98,28 +95,38 @@ const New: FC = () => {
     const prompts = selectedType == SESSION_TYPE_TEXT ? examplePrompts.text : examplePrompts.image;
 
     return (
-      <Grid container spacing={2} sx={{mb: 2}}>
-        {prompts.map((prompt, index) => (
-          <Grid item xs={12} sm={4} key={index}>
-            <Box
-              sx={{
-                width: '100%',
-                height: '100%',
-                cursor: 'pointer',
-                border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
-                borderRadius: 1,
-                padding: 1,
-                fontSize: 'small',
-              }}
-              onClick={() => handleClick(prompt)}
-            >
-              {prompt}
-            </Box>
-          </Grid>
-        ))}
-      </Grid>
-    );
-  };
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <Typography variant="body2" sx={{mb: 1}}>
+          Try an example
+        </Typography>
+        <Grid container spacing={2} sx={{mb: 2}}>
+          {prompts.map((prompt, index) => (
+            <Grid item xs={12} sm={4} key={index}>
+              <Box
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  cursor: 'pointer',
+                  border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+                  borderRadius: 1,
+                  padding: 1,
+                  fontSize: 'small',
+                }}
+                onClick={() => handleClick(prompt)}
+              >
+                {prompt}
+              </Box>
+            </Grid>
+          ))}
+        </Grid>
+      </Box>
+    )
+  }
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     inputs.setInputValue(event.target.value)
@@ -259,8 +266,8 @@ const New: FC = () => {
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
           padding: 5,
-          mt: 10,
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
+          mt: 14,
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
         }}
       >
         <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
