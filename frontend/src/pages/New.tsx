@@ -265,12 +265,29 @@ const New: FC = () => {
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
-          padding: 5,
-          mt: 14,
+          padding: {
+            xs: 2,
+            md: 5,
+          },
+          mt: {
+            xs: 0,
+            md: 14,
+          },
           backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
+        <Typography
+          variant="h4"
+          component="h1"gutterBottom
+          sx={{
+            fontWeight: 800,
+            lineHeight: 0.9,
+            scale: {
+              xs: 0.7,
+              md: 1,
+            },
+          }}
+        >
           What do you want to create?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
@@ -289,17 +306,27 @@ const New: FC = () => {
             fontWeight: 800,
             pt: '1px',
             pb: '1px',
-            m: 1,
+            m: 0.5,
           }}
           endIcon={<SwapHorizIcon />}
           onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
         >
           {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
         </Button>
-        <Typography variant="subtitle1">
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
           Type a prompt into the box below
         </Typography>
-        <Typography variant="subtitle1">
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
           Press enter to begin
         </Typography>
       </Box>

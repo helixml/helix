@@ -172,7 +172,11 @@ export const SessionHeader: FC<{
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    maxWidth: '22ch',
+                    maxWidth: {
+                      xs: '22ch',
+                      sm: '34ch',
+                      md: '46ch',
+                    },
                   }}
                 >
                   {session.name}
