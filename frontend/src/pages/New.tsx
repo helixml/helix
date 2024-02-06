@@ -72,94 +72,50 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
+  const examplePrompts = {
+    text: [
+      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
+    ],
+    image: [
+      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
+      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
+      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
+    ]
+  };
+
   const SampleContent = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
     };
-    var s1 = "";
-    var s2 = "";
-    var s3 = "";
-    var s4 = "";
-    if (selectedMode == "inference" && selectedType == "text") {
-      s1 = "Structure a weekly [newsletter topic] newsletter for my [company type]"
-      s2 = "I need to prepare a presentation for a potential investor on <presentation topic>. What to include?"
-      s3 = "Give me some guidance on an email to a client regarding a change in the project timeline"
-      s4 = "Create a personalized email greeting for a VIP customer of my [company type]"
-    }
-
-    if (selectedMode == "inference" && selectedType == "image") {
-      s1 = "A modern and sleek logo for a tech company specializing in virtual reality technology. The logo should incorporate a futuristic vibe and feature a 3D geometric shape with a gradient color scheme."
-      s2 = "A fashion logo featuring a high-end, elegant font with a gradient color scheme and a minimalistic, abstract graphic."
-      s3 = "Macro close-up shot of the eyes of a caterpillar"
-      s4 = "A painting of a woman with a butterfly on a yellow wall, graffiti art, inspired by Brad Kunkle, tutu, russ mills, hip skirt wings, andrey gordeev"
-    }
 
     if (selectedMode == "finetune") {
       return null;
     }
 
+    const prompts = selectedType == SESSION_TYPE_TEXT ? examplePrompts.text : examplePrompts.image;
+
     return (
       <Grid container spacing={2} sx={{mb: 2}}>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightblue',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s1)}
-          >
-            {s1}
-          </Box>
-        </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightgreen',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s2)}
-          >
-            {s2}
-          </Box>
-        </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightpink',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s3)}
-          >
-            {s3}
-          </Box>
-        </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightyellow',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s4)}
-          >
-            {s4}
-          </Box>
-        </Grid>
+        {prompts.map((prompt, index) => (
+          <Grid item xs={12} sm={4} key={index}>
+            <Box
+              sx={{
+                width: '100%',
+                height: '100%',
+                cursor: 'pointer',
+                border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+                borderRadius: 1,
+                padding: 1,
+                fontSize: 'small',
+              }}
+              onClick={() => handleClick(prompt)}
+            >
+              {prompt}
+            </Box>
+          </Grid>
+        ))}
       </Grid>
     );
   };
@@ -299,9 +255,9 @@ const New: FC = () => {
         sx={{
           textAlign: 'left', // Center the text inside the box
           zIndex: 2, // Ensure it's above other elements
-          border: '1px solid #333', // Add a border
+          border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
-          padding: 4,
+          padding: 5,
           mt: 10,
           backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
         }}
@@ -432,7 +388,7 @@ const New: FC = () => {
           justifyContent: 'center',
         }}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth="xl">
           <Box
             sx={{
               width: '100%',

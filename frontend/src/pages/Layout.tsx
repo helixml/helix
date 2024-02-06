@@ -93,6 +93,10 @@ const Layout: FC = ({
     toggleMode()
   }
 
+  const openCrispChat = () => {
+    (window as any)['$crisp'].push(['do', 'chat:open'])
+  }
+
   const drawer = (
     <Box
       sx={{
@@ -193,7 +197,18 @@ const Layout: FC = ({
             pt: 2,
           }}
         >
+          <Box>
+          {/* <Typography
+            variant="caption"
+            sx={{ flexGrow: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', cursor: 'pointer' }}
+            onClick={openCrispChat}
+          >
+            Help & Support
+          </Typography> */}
+        </Box>
+        <Box>
           { themeConfig.logo() }
+        </Box>
           {
             account.user ? (
               <>
