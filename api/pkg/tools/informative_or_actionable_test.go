@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/stretchr/testify/suite"
@@ -22,7 +23,7 @@ type ActionTestSuite struct {
 func (suite *ActionTestSuite) SetupTest() {
 	suite.ctx = context.Background()
 
-	var cfg Config
+	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 

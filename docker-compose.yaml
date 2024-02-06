@@ -19,6 +19,7 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
       - RUNNER_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - SERVER_URL=${SERVER_URL:-http://localhost}
       - KEYCLOAK_URL=http://keycloak:8080/auth

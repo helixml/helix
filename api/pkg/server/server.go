@@ -57,12 +57,14 @@ type HelixAPIServer struct {
 	keycloak           *keycloak
 	keyCloakMiddleware *keyCloakMiddleware
 	pubsub             pubsub.PubSub
-	router             *mux.Router
+	// planner            tools.Planner
+	router *mux.Router
 }
 
 func NewServer(
 	options ServerOptions,
 	store store.Store,
+	// planner tools.Planner,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,

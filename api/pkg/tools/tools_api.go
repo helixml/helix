@@ -14,7 +14,7 @@ import (
 	openai "github.com/lukemarsden/go-openai2"
 )
 
-func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, pathParams map[string]string) (*http.Request, error) {
+func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, action string, params map[string]string) (*http.Request, error) {
 	loader := openapi3.NewLoader()
 
 	schema, err := loader.LoadFromData([]byte(tool.Config.API.Schema))
@@ -25,11 +25,27 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	// Based on the operationId get the path and method
 	var path, method string
 
+	queryParams := make(map[string]bool)
+	pathParams := make(map[string]bool)
+
 	for p, pathItem := range schema.Paths.Map() {
 		for m, operation := range pathItem.Operations() {
 			if operation.OperationID == action {
 				path = p
 				method = m
+
+				// spew.Dump(operation.Parameters)
+
+				for _, param := range operation.Parameters {
+
+					switch param.Value.In {
+					case "query":
+						queryParams[param.Value.Name] = true
+					case "path":
+						pathParams[param.Value.Name] = true
+					}
+				}
+
 				break
 			}
 		}
@@ -49,12 +65,33 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 		req.Header.Set(k, v)
 	}
 
+	q := req.URL.Query()
+
 	// Add path params
-	for k, v := range pathParams {
-		req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+	for k, v := range params {
+		if pathParams[k] {
+			req.URL.Path = strings.Replace(req.URL.Path, "{"+k+"}", v, -1)
+		}
+
+		if queryParams[k] {
+			q.Add(k, v)
+		}
 	}
 
-	// TODO: Add query params
+	req.URL.RawQuery = q.Encode()
+
+	if tool.Config.API.Query != nil {
+		q := req.URL.Query()
+		for k, v := range tool.Config.API.Query {
+			q.Add(k, v)
+		}
+
+		req.URL.RawQuery = q.Encode()
+	}
+
+	req.Header.Set("X-Helix-Tool-Id", tool.ID)
+	req.Header.Set("X-Helix-Action-Id", action)
+
 	// TODO: Add body
 
 	return req, nil
@@ -81,7 +118,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)
@@ -90,9 +127,9 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	}
 
 	var params map[string]string
-	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &params)
+	err = unmarshalJSON(resp.Choices[0].Message.Content, &params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, resp.Choices[0].Message.Content)
 	}
 
 	return params, nil
@@ -139,13 +176,41 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 
 const apiSystemPrompt = `You are an intelligent machine learning model that can produce REST API's params / query params in json format, given the json schema, user input, data from previous api calls, and current application state.`
 
-const apiUserPrompt = `API JSON schema: {{.Schema}}
+const apiUserPrompt = `
+Your output must be a valid json, without any commentary or additional formatting.
+
+Examples:
+
+**User Input:** Get project prj_1234 details
+**OpenAPI schema path:** /projects/{projectId}
+**Verdict:** response should be {"projectId": "prj_1234"}
+
+**User Input:** List all users with status "active"
+**OpenAPI schema path:** /users/findByStatus 
+**OpenAPI schema parameters:** [
+	{
+		"name": "status",
+		"in": "query",
+		"description": "Status values that need to be considered for filter",
+		"required": true,
+		"type": "array",
+		"items": {
+			"type": "string",
+			"enum": ["active", "pending", "sold"],
+			"default": "available"
+		}		
+	}
+]
+**Verdict:** response should be {"status": "active"}
+
+**Response Format:** Always respond with JSON without any commentary, for example: {"parameterName": "parameterValue", "parameterName2": "parameterValue2"}  
+
+===END EXAMPLES===
+OpenAPI schema: {{.Schema}}
 
 User's input: {{ .Message }}
 
 Based on the information provided, construct a valid golang JSON map (map[string]string) object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
-
-Your output must be a valid json, without any commentary
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
