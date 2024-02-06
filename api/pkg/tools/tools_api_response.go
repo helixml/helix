@@ -103,7 +103,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, tool *types.Too
 
 const successResponsePrompt = `Present the key information in a concise manner.
 Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability.
-Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronounce (say it as if you performed the action)`
+Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
 When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
