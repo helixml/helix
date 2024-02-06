@@ -235,47 +235,6 @@ func GetHelixVersion() string {
 	return helixVersion
 }
 
-func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
-	systemInteraction := &types.Interaction{
-		ID:             system.GenerateUUID(),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		Creator:        types.CreatorTypeSystem,
-		Mode:           req.SessionMode,
-		Message:        "",
-		Files:          []string{},
-		State:          types.InteractionStateWaiting,
-		Finished:       false,
-		Metadata:       map[string]string{},
-		DataPrepChunks: map[string][]types.DataPrepChunk{},
-	}
-
-	session := types.Session{
-		ID:            req.SessionID,
-		Name:          system.GenerateAmusingName(),
-		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
-		ParentSession: req.ParentSession,
-		Owner:         req.Owner,
-		OwnerType:     req.OwnerType,
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Interactions:  append(req.UserInteractions, systemInteraction),
-		Metadata: types.SessionMetadata{
-			OriginalMode: req.SessionMode,
-			Origin: types.SessionOrigin{
-				Type: types.SessionOriginTypeUserCreated,
-			},
-			Priority:                req.Priority,
-			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
-			HelixVersion:            GetHelixVersion(),
-		},
-	}
-
-	return session, nil
-}
-
 func CloneSession(
 	oldSession types.Session,
 	interactionID string,

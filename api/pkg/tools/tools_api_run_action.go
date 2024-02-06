@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 type RunActionResponse struct {
@@ -43,22 +45,48 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, tool *types.Tool, hist
 		return nil, fmt.Errorf("action %s is not found in the tool %s", action, tool.Name)
 	}
 
+	started := time.Now()
+
 	// Get API request parameters
 	params, err := c.getAPIRequestParameters(ctx, tool, history, currentMessage, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api request parameters: %w", err)
 	}
 
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Dur("time_taken", time.Since(started)).
+		Msg("API request parameters prepared")
+
+	started = time.Now()
+
 	req, err := c.prepareRequest(ctx, tool, action, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
+
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Dur("time_taken", time.Since(started)).
+		Msg("API request prepared")
+
+	started = time.Now()
 
 	// Make API call
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make api call: %w", err)
 	}
+
+	log.Info().
+		Str("tool", tool.Name).
+		Str("action", action).
+		Str("url", req.URL.String()).
+		Dur("time_taken", time.Since(started)).
+		Msg("API call done")
+
 	defer resp.Body.Close()
 
 	return c.interpretResponse(ctx, tool, currentMessage, resp)

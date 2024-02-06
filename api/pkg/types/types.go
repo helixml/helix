@@ -568,10 +568,12 @@ func (ToolConfig) GormDataType() string {
 }
 
 type ToolApiConfig struct {
-	URL     string            `json:"url"` // Server override
-	Schema  string            `json:"schema"`
+	URL     string           `json:"url"` // Server override
+	Schema  string           `json:"schema"`
+	Actions []*ToolApiAction `json:"actions"` // Read-only, parsed from schema on creation
+
 	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
-	Actions []*ToolApiAction  `json:"actions"` // Read-only, parsed from schema on creation
+	Query   map[string]string `json:"query"`   // Query parameters that will be always set
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec

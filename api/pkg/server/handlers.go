@@ -168,6 +168,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Priority:                status.Config.StripeSubscriptionActive,
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to start session")
+		return nil, err
+	}
 
 	return sessionData, nil
 }

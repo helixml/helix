@@ -79,6 +79,8 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 
 	id := getID(r)
 
+	tool.ID = id
+
 	err = s.validateTool(&tool)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
