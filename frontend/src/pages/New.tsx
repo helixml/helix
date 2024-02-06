@@ -14,6 +14,7 @@ import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
+import IconButton from '@mui/material/IconButton'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -445,7 +446,6 @@ const New: FC = () => {
                         fontWeight: 800,
                         pt: '1px',
                         pb: '1px',
-
                       }}
                       endIcon={<SwapHorizIcon />}
                       onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
@@ -454,25 +454,22 @@ const New: FC = () => {
                     </Button>
                   </InputAdornment>
                 ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="send"
+                      disabled={selectedMode == SESSION_MODE_FINETUNE}
+                      onClick={onInference}
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      }}
+                    >
+                      <SendIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
             />
-            <Button
-              id="sendButton"
-              variant='contained'
-              disabled={selectedMode == SESSION_MODE_FINETUNE}
-              onClick={ onInference }
-              sx={{
-                color: themeConfig.darkText,
-                backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
-                ml: 2,
-                '&:hover': {
-                  backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                }
-              }}
-              endIcon={<SendIcon />}
-            >
-              Send
-            </Button>
           </Box>
           <Box
             sx={{
