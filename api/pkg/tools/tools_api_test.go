@@ -168,14 +168,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	suite.Equal(resp["petId"], "55443")
 }
 
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_SingleParam() {
-	// TODO
-}
-
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
-	// TODO
-}
-
 func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
@@ -295,6 +287,10 @@ func (suite *ActionTestSuite) Test_prepareRequest_Query() {
 	suite.Equal("https://api.openweathermap.org/data/2.5/weather?q=London", req.URL.String())
 	suite.Equal("GET", req.Method)
 	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
+	// TODO
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
