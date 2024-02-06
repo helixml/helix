@@ -7,8 +7,11 @@ import Session from './pages/Session'
 import Account from './pages/Account'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
+import CreationCollection from './pages/CreateCollection'
+import Collection from './pages/Collection'
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
+import CollectionTitle from './components/collection/CollectionTitle'
 import SessionTitle from './components/session/SessionTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -40,6 +43,31 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <New />
+  ),
+}, {
+  name: 'create-collection',
+  path: '/create-collection',
+  meta: {
+    title: 'Create Collection',
+    sidebar: true,
+  },
+  render: () => (
+      <New />
+  ),
+}, {
+  name: 'collection',
+  path: '/collection',
+  meta: {
+    title: 'Collection',
+    sidebar: true,
+  },
+  getTitle: () => {
+    return (
+      <CollectionTitle />
+    )
+  },
+  render: () => (
+      <Collection />
   ),
 }, {
   name: 'files',
