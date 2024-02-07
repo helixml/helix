@@ -87,6 +87,36 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
+type StartSessionRequest struct {
+	SessionID string      `json:"session_id"` // If empty, we will start a new session
+	Stream    bool        `json:"stream"`     // If true, we will stream the response
+	Mode      SessionMode `json:"mode"`       // e.g. inference, finetune
+	Type      SessionType `json:"type"`       // e.g. text, image
+	LoraDir   string      `json:"lora_dir"`
+	Messages  []*Message  `json:"messages"` // Initial messages
+	Tools     []string    `json:"tools"`    // Available tools to use in the session
+	// TODO: model
+}
+
+type SessionResponse struct {
+	SessionID string  `json:"session_id"`
+	Message   Message `json:"message"`
+	// TODO: model, tokens, tool usage, etc.
+}
+
+type Message struct {
+	ID        string           `json:"id"` // Interaction ID
+	Author    MessageAuthor    `json:"author"`
+	Content   MessageContent   `json:"content"`
+	CreatedAt time.Time        `json:"created_at,omitempty"`
+	UpdatedAt time.Time        `json:"updated_at,omitempty"`
+	State     InteractionState `json:"state"`
+}
+
+type MessageAuthor struct {
+	Role CreatorType `json:"role"` // system, user, assistant
+}
+
 type MessageContentType string
 
 const (
@@ -110,36 +140,6 @@ type MessageContent struct {
 	// 		"what is in the image?"
 	// ]
 	Parts []any `json:"parts"`
-}
-
-type Message struct {
-	ID        string           `json:"id"` // Interaction ID
-	Author    MessageAuthor    `json:"author"`
-	Content   MessageContent   `json:"content"`
-	CreatedAt time.Time        `json:"created_at,omitempty"`
-	UpdatedAt time.Time        `json:"updated_at,omitempty"`
-	State     InteractionState `json:"state"`
-}
-
-type MessageAuthor struct {
-	Role CreatorType `json:"role"` // system, user, assistant
-}
-
-type StartSessionRequest struct {
-	SessionID string      `json:"session_id"` // If empty, we will start a new session
-	Stream    bool        `json:"stream"`     // If true, we will stream the response
-	Mode      SessionMode `json:"mode"`       // e.g. inference, finetune
-	Type      SessionType `json:"type"`       // e.g. text, image
-	LoraDir   string      `json:"lora_dir"`
-	Messages  []*Message  `json:"messages"` // Initial messages
-	Tools     []string    `json:"tools"`    // Available tools to use in the session
-	// TODO: model
-}
-
-type SessionResponse struct {
-	SessionID string  `json:"session_id"`
-	Message   Message `json:"message"`
-	// TODO: model, tokens, tool usage, etc.
 }
 
 type Session struct {
