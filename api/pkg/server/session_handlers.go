@@ -75,58 +75,10 @@ func (s *HelixAPIServer) newSessionHandler(rw http.ResponseWriter, req *http.Req
 	sessionMode := types.SessionModeInference
 
 	// TODO: load messages from the request
-	var interactions []*types.Interaction
-
-	for _, m := range newSession.Messages {
-		// Validating roles
-		switch m.Author.Role {
-		case "user", "system", "assistant":
-			// OK
-		default:
-			http.Error(rw, "invalid role, available roles: 'user', 'system', 'assistant'", http.StatusBadRequest)
-			return
-		}
-
-		if len(m.Content.Parts) != 1 {
-			http.Error(rw, "invalid message content, should only contain 1 entry and it should be a string", http.StatusBadRequest)
-			return
-		}
-
-		switch m.Content.Parts[0].(type) {
-		case string:
-			// OK
-		default:
-			http.Error(rw, "invalid message content", http.StatusBadRequest)
-			return
-		}
-
-		var creator types.CreatorType
-		switch m.Author.Role {
-		case "user":
-			creator = types.CreatorTypeUser
-		case "system":
-			creator = types.CreatorTypeSystem
-		case "assistant":
-			creator = types.CreatorTypeAssistant
-		}
-
-		interaction := &types.Interaction{
-			ID:             system.GenerateUUID(),
-			Created:        time.Now(),
-			Updated:        time.Now(),
-			Scheduled:      time.Now(),
-			Completed:      time.Now(),
-			Creator:        creator,
-			Mode:           sessionMode,
-			Message:        m.Content.Parts[0].(string),
-			Files:          []string{},
-			State:          types.InteractionStateComplete,
-			Finished:       true,
-			Metadata:       map[string]string{},
-			DataPrepChunks: map[string][]types.DataPrepChunk{},
-		}
-
-		interactions = append(interactions, interaction)
+	interactions, err := messagesToInteractions(newSession.Messages)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	newSessionRequest := types.CreateSessionRequest{
@@ -172,6 +124,10 @@ func (s *HelixAPIServer) newSessionHandler(rw http.ResponseWriter, req *http.Req
 	}
 }
 
+func (s *HelixAPIServer) existingSessionHandler(rw http.ResponseWriter, req *http.Request, session *types.StartSessionRequest) {
+
+}
+
 func (s *HelixAPIServer) sessionInferenceUpdates(rw http.ResponseWriter, payload []byte, doneCh chan struct{}) error {
 	var event types.WebsocketEvent
 	err := json.Unmarshal(payload, &event)
@@ -214,6 +170,60 @@ func (s *HelixAPIServer) sessionInferenceUpdates(rw http.ResponseWriter, payload
 	return nil
 }
 
-func (s *HelixAPIServer) existingSessionHandler(rw http.ResponseWriter, req *http.Request, session *types.StartSessionRequest) {
+func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {
+	var interactions []*types.Interaction
 
+	for _, m := range messages {
+		// Validating roles
+		switch m.Author.Role {
+		case "user", "system", "assistant":
+			// OK
+		default:
+			return nil, fmt.Errorf("invalid role, available roles: 'user', 'system', 'assistant'")
+
+		}
+
+		if len(m.Content.Parts) != 1 {
+			return nil, fmt.Errorf("invalid message content, should only contain 1 entry and it should be a string")
+
+		}
+
+		switch m.Content.Parts[0].(type) {
+		case string:
+			// OK
+		default:
+			return nil, fmt.Errorf("invalid message content %v", m.Content.Parts[0])
+
+		}
+
+		var creator types.CreatorType
+		switch m.Author.Role {
+		case "user":
+			creator = types.CreatorTypeUser
+		case "system":
+			creator = types.CreatorTypeSystem
+		case "assistant":
+			creator = types.CreatorTypeAssistant
+		}
+
+		interaction := &types.Interaction{
+			ID:             system.GenerateUUID(),
+			Created:        time.Now(),
+			Updated:        time.Now(),
+			Scheduled:      time.Now(),
+			Completed:      time.Now(),
+			Creator:        creator,
+			Mode:           types.SessionModeInference,
+			Message:        m.Content.Parts[0].(string),
+			Files:          []string{},
+			State:          types.InteractionStateComplete,
+			Finished:       true,
+			Metadata:       map[string]string{},
+			DataPrepChunks: map[string][]types.DataPrepChunk{},
+		}
+
+		interactions = append(interactions, interaction)
+	}
+
+	return interactions, nil
 }
