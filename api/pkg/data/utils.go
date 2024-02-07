@@ -45,6 +45,17 @@ func GetInteraction(session *types.Session, id string) (*types.Interaction, erro
 	return nil, fmt.Errorf("interaction not found: %s", id)
 }
 
+func GetLastInteractions(session *types.Session, limit int) []*types.Interaction {
+	interactions := session.Interactions
+	if len(interactions) == 0 {
+		return interactions
+	}
+	if len(interactions) < limit {
+		limit = len(interactions)
+	}
+	return interactions[len(interactions)-limit:]
+}
+
 func GetLastUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
@@ -233,50 +244,6 @@ func GetHelixVersion() string {
 		}
 	}
 	return helixVersion
-}
-
-func CreateSession(req types.CreateSessionRequest) (types.Session, error) {
-	systemInteraction := &types.Interaction{
-		ID:             system.GenerateUUID(),
-		Created:        time.Now(),
-		Updated:        time.Now(),
-		Creator:        types.CreatorTypeSystem,
-		Mode:           req.SessionMode,
-		Message:        "",
-		Files:          []string{},
-		State:          types.InteractionStateWaiting,
-		Finished:       false,
-		Metadata:       map[string]string{},
-		DataPrepChunks: map[string][]types.DataPrepChunk{},
-	}
-
-	session := types.Session{
-		ID:            req.SessionID,
-		Name:          system.GenerateAmusingName(),
-		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
-		ParentSession: req.ParentSession,
-		Owner:         req.Owner,
-		OwnerType:     req.OwnerType,
-		Created:       time.Now(),
-		Updated:       time.Now(),
-		Interactions:  append(req.UserInteractions, systemInteraction),
-		Metadata: types.SessionMetadata{
-			OriginalMode: req.SessionMode,
-			Origin: types.SessionOrigin{
-				Type: types.SessionOriginTypeUserCreated,
-			},
-			Priority:                req.Priority,
-			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
-			HelixVersion:            GetHelixVersion(),
-			RagEnabled:              req.RagEnabled,
-			TextFinetuneEnabled:     req.TextFinetuneEnabled,
-			RagSettings:             req.RagSettings,
-		},
-	}
-
-	return session, nil
 }
 
 func CloneSession(

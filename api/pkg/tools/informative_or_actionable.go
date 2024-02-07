@@ -2,10 +2,10 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -19,6 +19,10 @@ type IsActionableResponse struct {
 	Justification string `json:"justification"`
 }
 
+func (i *IsActionableResponse) Actionable() bool {
+	return i.NeedsApi == "yes"
+}
+
 func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
@@ -26,6 +30,8 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 			Justification: "No tools available to check if the user input is actionable or not",
 		}, nil
 	}
+
+	started := time.Now()
 
 	systemPrompt, err := c.getActionableSystemPrompt(tools)
 	if err != nil {
@@ -68,7 +74,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		openai.ChatCompletionRequest{
 			Stream:    false,
 			MaxTokens: 100,
-			Model:     c.cfg.ToolsModel,
+			Model:     c.cfg.Tools.Model,
 			Messages:  messages,
 		},
 	)
@@ -77,15 +83,16 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	}
 
 	var actionableResponse IsActionableResponse
-	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &actionableResponse)
+	err = unmarshalJSON(resp.Choices[0].Message.Content, &actionableResponse)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse response from inference API: %w", err)
+		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, resp.Choices[0].Message.Content)
 	}
 
 	log.Info().
 		Str("user_input", currentMessage).
 		Str("justification", actionableResponse.Justification).
 		Str("needs_api", actionableResponse.NeedsApi).
+		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
 	return &actionableResponse, nil
@@ -95,7 +102,8 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 	// Render template
 	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
 	if err != nil {
-		return openai.ChatCompletionMessage{}, err
+		log.Warn().Err(err).Msg("failed to parse 'isInformativeOrActionablePrompt' template")
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to parse 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
 	var modelTools []*modelTool
@@ -129,7 +137,7 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 	})
 
 	if err != nil {
-		return openai.ChatCompletionMessage{}, err
+		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to render 'isInformativeOrActionablePrompt' template: %w", err)
 	}
 
 	return openai.ChatCompletionMessage{

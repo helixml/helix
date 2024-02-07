@@ -7,20 +7,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
 )
 
 type ControllerOptions struct {
-	Store store.Store
-
+	Config                 *config.ServerConfig
+	Store                  store.Store
+	Planner                tools.Planner
 	Filestore              filestore.FileStore
 	FilestorePresignSecret string
 	Janitor                *janitor.Janitor

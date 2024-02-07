@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
@@ -167,14 +168,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	suite.Equal(resp["petId"], "55443")
 }
 
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_SingleParam() {
-	// TODO
-}
-
-func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
-	// TODO
-}
-
 func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem() {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		suite.Equal("/pets/55443", r.URL.Path)
@@ -232,6 +225,72 @@ func (suite *ActionTestSuite) Test_prepareRequest_Path() {
 	suite.Equal("https://example.com/pets/99944", req.URL.String())
 	suite.Equal("GET", req.Method)
 	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Path_ProvidedQuery() {
+	tool := &types.Tool{
+		Name:        "getPetDetail",
+		Description: "pet store API that is used to get details for the specified pet's ID",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:    "https://example.com",
+				Schema: petStoreApiSpec,
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+				Query: map[string]string{
+					"appid": "app123",
+				},
+			},
+		},
+	}
+
+	params := map[string]string{
+		"petId": "99944",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "showPetById", params)
+	suite.NoError(err)
+
+	suite.Equal("https://example.com/pets/99944?appid=app123", req.URL.String())
+	suite.Equal("GET", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+func (suite *ActionTestSuite) Test_prepareRequest_Query() {
+	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
+	suite.NoError(err)
+
+	tool := &types.Tool{
+		Name:        "getWeather",
+		Description: "What's the weather in London?",
+		ToolType:    types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:    "https://api.openweathermap.org/data/2.5",
+				Schema: string(weatherSpec),
+				Headers: map[string]string{
+					"X-Api-Key": "1234567890",
+				},
+			},
+		},
+	}
+
+	params := map[string]string{
+		"q": "London",
+	}
+
+	req, err := suite.strategy.prepareRequest(suite.ctx, tool, "CurrentWeatherData", params)
+	suite.NoError(err)
+
+	suite.Equal("https://api.openweathermap.org/data/2.5/weather?q=London", req.URL.String())
+	suite.Equal("GET", req.Method)
+	suite.Equal("1234567890", req.Header.Get("X-Api-Key"))
+}
+
+func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
+	// TODO
 }
 
 func Test_getActionsFromSchema(t *testing.T) {

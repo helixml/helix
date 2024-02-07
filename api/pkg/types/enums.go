@@ -45,6 +45,7 @@ const (
 	SessionModeNone      SessionMode = ""
 	SessionModeInference SessionMode = "inference"
 	SessionModeFinetune  SessionMode = "finetune"
+	SessionModeAction    SessionMode = "action" // Running tool actions (e.g. API, function calls)
 )
 
 func ValidateSessionMode(sessionMode string, acceptEmpty bool) (SessionMode, error) {
@@ -53,6 +54,8 @@ func ValidateSessionMode(sessionMode string, acceptEmpty bool) (SessionMode, err
 		return SessionModeInference, nil
 	case string(SessionModeFinetune):
 		return SessionModeFinetune, nil
+	case string(SessionModeAction):
+		return SessionModeAction, nil
 	default:
 		if acceptEmpty && sessionMode == string(SessionModeNone) {
 			return SessionModeNone, nil
@@ -138,8 +141,9 @@ const (
 type CreatorType string
 
 const (
-	CreatorTypeSystem CreatorType = "system"
-	CreatorTypeUser   CreatorType = "user"
+	CreatorTypeSystem    CreatorType = "system"
+	CreatorTypeAssistant CreatorType = "assistant"
+	CreatorTypeUser      CreatorType = "user"
 )
 
 type WebsocketEventType string

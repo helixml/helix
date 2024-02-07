@@ -95,6 +95,20 @@ func (mr *MockStoreMockRecorder) CreateSession(ctx, session interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSession", reflect.TypeOf((*MockStore)(nil).CreateSession), ctx, session)
 }
 
+// CreateSessionToolBinding mocks base method.
+func (m *MockStore) CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateSessionToolBinding", ctx, sessionID, toolID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateSessionToolBinding indicates an expected call of CreateSessionToolBinding.
+func (mr *MockStoreMockRecorder) CreateSessionToolBinding(ctx, sessionID, toolID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateSessionToolBinding", reflect.TypeOf((*MockStore)(nil).CreateSessionToolBinding), ctx, sessionID, toolID)
+}
+
 // CreateTool mocks base method.
 func (m *MockStore) CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error) {
 	m.ctrl.T.Helper()
@@ -167,6 +181,20 @@ func (m *MockStore) DeleteSession(ctx context.Context, id string) (*types.Sessio
 func (mr *MockStoreMockRecorder) DeleteSession(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSession", reflect.TypeOf((*MockStore)(nil).DeleteSession), ctx, id)
+}
+
+// DeleteSessionToolBinding mocks base method.
+func (m *MockStore) DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteSessionToolBinding", ctx, sessionID, toolID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteSessionToolBinding indicates an expected call of DeleteSessionToolBinding.
+func (mr *MockStoreMockRecorder) DeleteSessionToolBinding(ctx, sessionID, toolID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSessionToolBinding", reflect.TypeOf((*MockStore)(nil).DeleteSessionToolBinding), ctx, sessionID, toolID)
 }
 
 // DeleteTool mocks base method.
@@ -316,6 +344,21 @@ func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta
 func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMeta", reflect.TypeOf((*MockStore)(nil).GetUserMeta), ctx, id)
+}
+
+// ListSessionTools mocks base method.
+func (m *MockStore) ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSessionTools", ctx, sessionID)
+	ret0, _ := ret[0].([]*types.Tool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSessionTools indicates an expected call of ListSessionTools.
+func (mr *MockStoreMockRecorder) ListSessionTools(ctx, sessionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionTools", reflect.TypeOf((*MockStore)(nil).ListSessionTools), ctx, sessionID)
 }
 
 // ListTools mocks base method.
