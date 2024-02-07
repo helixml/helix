@@ -95,13 +95,14 @@ type StartSessionRequest struct {
 	LoraDir   string      `json:"lora_dir"`
 	Messages  []*Message  `json:"messages"` // Initial messages
 	Tools     []string    `json:"tools"`    // Available tools to use in the session
-	// TODO: model
+	Model     string      `json:"model"`    // The model to use
 }
 
 type SessionResponse struct {
 	SessionID string  `json:"session_id"`
+	Model     string  `json:"model"`
 	Message   Message `json:"message"`
-	// TODO: model, tokens, tool usage, etc.
+	// TODO: tokens, tool usage, etc.
 }
 
 type Message struct {
