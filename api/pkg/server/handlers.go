@@ -235,6 +235,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to start session")
+		return nil, err
+	}
 
 	return sessionData, nil
 }

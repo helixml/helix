@@ -5,33 +5,10 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
-
-type Config struct {
-	AppURL string `envconfig:"APP_URL" default:"https://app.tryhelix.ai"`
-	Email  EmailConfig
-	// TODO: Slack, Discord, etc.
-}
-
-type EmailConfig struct {
-	SenderAddress string `envconfig:"EMAIL_SENDER_ADDRESS" default:"chris@helix.ml"`
-
-	SMTP struct {
-		Host     string `envconfig:"EMAIL_SMTP_HOST"`
-		Port     string `envconfig:"EMAIL_SMTP_PORT"`
-		Identity string `envconfig:"EMAIL_SMTP_IDENTITY"`
-		Username string `envconfig:"EMAIL_SMTP_USERNAME"`
-		Password string `envconfig:"EMAIL_SMTP_PASSWORD"`
-	}
-
-	Mailgun struct {
-		Domain string `envconfig:"EMAIL_MAILGUN_DOMAIN"`
-		APIKey string `envconfig:"EMAIL_MAILGUN_API_KEY"`
-		Europe bool   `envconfig:"EMAIL_MAILGUN_EUROPE" default:"false"` // use EU region
-	}
-}
 
 type Provider string
 
@@ -76,7 +53,7 @@ type NotificationsProvider struct {
 	email *Email
 }
 
-func New(cfg *Config, authenticator auth.Authenticator) (Notifier, error) {
+func New(cfg *config.Notifications, authenticator auth.Authenticator) (Notifier, error) {
 	email, err := NewEmail(cfg)
 	if err != nil {
 		return nil, err
