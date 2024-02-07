@@ -216,7 +216,7 @@ func createChatCompletionChunk(sessionID, modelName, message string) *types.Open
 		Choices: []types.Choice{
 			{
 				// Text: message,
-				Delta: &types.Message{
+				Delta: &types.OpenAIMessage{
 					Content: message,
 				},
 				Index: 0,
@@ -309,7 +309,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 	interaction := updatedSession.Interactions[len(updatedSession.Interactions)-1]
 
 	result = append(result, types.Choice{
-		Message: &types.Message{
+		Message: &types.OpenAIMessage{
 			Role:    "assistant",
 			Content: interaction.Message,
 		},
