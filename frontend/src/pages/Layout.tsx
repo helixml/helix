@@ -25,6 +25,7 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ConstructionIcon from '@mui/icons-material/Construction'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -245,6 +246,16 @@ const Layout: FC = ({
                       <CloudUploadIcon fontSize="small" />
                     </ListItemIcon> 
                     Files
+                  </MenuItem>
+
+                  <MenuItem onClick={ () => {
+                    handleCloseAccountMenu()
+                    navigate('tools')
+                  }}>
+                    <ListItemIcon>
+                      <ConstructionIcon fontSize="small" />
+                    </ListItemIcon> 
+                    Tools
                   </MenuItem>
 
                   <MenuItem onClick={ () => {
