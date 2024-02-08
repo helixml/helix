@@ -5,6 +5,8 @@ import Box from '@mui/material/Box'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
+import Tools from './pages/Tools'
+import Tool from './pages/Tool'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 
@@ -52,6 +54,26 @@ const routes: IApplicationRoute[] = [{
     <FilestoreContextProvider>
       <Files />
     </FilestoreContextProvider>
+  ),
+}, {
+  name: 'tools',
+  path: '/tools',
+  meta: {
+    title: 'Tools',
+    sidebar: true,
+  },
+  render: () => (
+    <Tools />
+  ),
+}, {
+  name: 'tool',
+  path: '/tool/:tool_id',
+  meta: {
+    title: 'Tools : Edit',
+    sidebar: true,
+  },
+  render: () => (
+    <Tool />
   ),
 }, {
   name: 'session',
