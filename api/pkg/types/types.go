@@ -87,7 +87,7 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
-type StartSessionRequest struct {
+type SessionChatRequest struct {
 	SessionID string      `json:"session_id"` // If empty, we will start a new session
 	Stream    bool        `json:"stream"`     // If true, we will stream the response
 	Mode      SessionMode `json:"mode"`       // e.g. inference, finetune
@@ -98,24 +98,13 @@ type StartSessionRequest struct {
 	Model     string      `json:"model"`    // The model to use
 }
 
-type SessionResponse struct {
-	SessionID string  `json:"session_id"`
-	Model     string  `json:"model"`
-	Message   Message `json:"message"`
-	// TODO: tokens, tool usage, etc.
-}
-
 type Message struct {
 	ID        string           `json:"id"` // Interaction ID
-	Author    MessageAuthor    `json:"author"`
+	Role      CreatorType      `json:"role"`
 	Content   MessageContent   `json:"content"`
 	CreatedAt time.Time        `json:"created_at,omitempty"`
 	UpdatedAt time.Time        `json:"updated_at,omitempty"`
 	State     InteractionState `json:"state"`
-}
-
-type MessageAuthor struct {
-	Role CreatorType `json:"role"` // system, user, assistant
 }
 
 type MessageContentType string
