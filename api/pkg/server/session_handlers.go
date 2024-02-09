@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -15,53 +14,23 @@ import (
 // startSessionHandler can be used to start or continue a session with the Helix API.
 func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.Request) {
 
-	var startSessionRequest types.StartSessionRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startSessionRequest)
+	var startReq types.SessionChatRequest
+	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
 	if err != nil {
 		http.Error(rw, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if len(startSessionRequest.Messages) == 0 {
+	if len(startReq.Messages) == 0 {
 		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
 		return
 	}
 
 	// If more than 1, also not allowed just yet for simplification
-	if len(startSessionRequest.Messages) > 1 {
+	if len(startReq.Messages) > 1 {
 		http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
 		return
 	}
-
-	// userContext := apiServer.getRequestContext(req)
-
-	// status, err := apiServer.Controller.GetStatus(userContext)
-	// if err != nil {
-	// 	http.Error(res, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// var (
-	// 	session *types.Session
-	// )
-
-	if startSessionRequest.Model == "" {
-		startSessionRequest.Model = string(types.Model_Mistral7b)
-	}
-
-	if startSessionRequest.SessionID == "" {
-		s.newSessionHandler(rw, req, &startSessionRequest)
-		return
-	}
-
-	s.existingSessionHandler(rw, req, &startSessionRequest)
-}
-
-func (s *HelixAPIServer) newSessionHandler(rw http.ResponseWriter, req *http.Request, newSession *types.StartSessionRequest) {
-	rw.Header().Set("Cache-Control", "no-cache")
-	rw.Header().Set("Connection", "keep-alive")
-	rw.Header().Set("Transfer-Encoding", "chunked")
-	rw.Header().Set("Content-Type", "application/x-ndjson")
 
 	userContext := s.getRequestContext(req)
 
@@ -71,103 +40,88 @@ func (s *HelixAPIServer) newSessionHandler(rw http.ResponseWriter, req *http.Req
 		return
 	}
 
-	sessionID := system.GenerateSessionID()
-	sessionMode := types.SessionModeInference
-
-	// TODO: load messages from the request
-	interactions, err := messagesToInteractions(newSession.Messages)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusBadRequest)
-		return
+	if startReq.Model == "" {
+		startReq.Model = string(types.Model_Mistral7b)
 	}
 
-	newSessionRequest := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      types.SessionTypeText,
-		ModelName:        types.ModelName(newSession.Model),
-		Owner:            userContext.Owner,
-		OwnerType:        userContext.OwnerType,
-		UserInteractions: interactions,
-		Priority:         status.Config.StripeSubscriptionActive,
+	// Default to text
+	if startReq.Type == "" {
+		startReq.Type = types.SessionTypeText
 	}
 
-	doneCh := make(chan struct{})
+	var cfg *startSessionConfig
 
-	sub, err := s.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(newSessionRequest.Owner, newSessionRequest.SessionID), func(payload []byte) error {
-		err := s.sessionInferenceUpdates(rw, payload, doneCh)
+	if startReq.SessionID == "" {
+		interactions, err := messagesToInteractions(startReq.Messages)
 		if err != nil {
-			return fmt.Errorf("error handling session updates: %w", err)
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
 		}
-		return nil
-	})
-	if err != nil {
-		system.NewHTTPError500("failed to subscribe to session updates: %s", err)
-		return
-	}
-	// After subscription, start the session, otherwise
-	// we can have race-conditions on very fast responses
-	// from the runner
-	_, err = s.Controller.CreateSession(userContext, newSessionRequest)
-	if err != nil {
-		system.NewHTTPError500("failed to start session: %s", err)
-		return
-	}
 
-	select {
-	case <-doneCh:
-		_ = sub.Unsubscribe()
-		return
-	case <-req.Context().Done():
-		_ = sub.Unsubscribe()
-		return
-	}
-}
+		sessionID := system.GenerateSessionID()
+		newSession := types.CreateSessionRequest{
+			SessionID:        sessionID,
+			SessionMode:      types.SessionModeInference,
+			SessionType:      startReq.Type,
+			ModelName:        types.ModelName(startReq.Model),
+			Owner:            userContext.Owner,
+			OwnerType:        userContext.OwnerType,
+			UserInteractions: interactions,
+			Priority:         status.Config.StripeSubscriptionActive,
+		}
 
-func (s *HelixAPIServer) existingSessionHandler(rw http.ResponseWriter, req *http.Request, session *types.StartSessionRequest) {
-
-}
-
-func (s *HelixAPIServer) sessionInferenceUpdates(rw http.ResponseWriter, payload []byte, doneCh chan struct{}) error {
-	var event types.WebsocketEvent
-	err := json.Unmarshal(payload, &event)
-	if err != nil {
-		return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
-	}
-
-	// Nothing to do
-	if event.WorkerTaskResponse == nil {
-		return nil
-	}
-
-	if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
-		close(doneCh)
-		return nil
-	}
-
-	bts, err := json.Marshal(&types.SessionResponse{
-		SessionID: event.Session.ID,
-		Model:     string(event.Session.ModelName),
-		Message: types.Message{
-			Author: types.MessageAuthor{
-				Role: "assistant",
+		cfg = &startSessionConfig{
+			sessionID: sessionID,
+			modelName: startReq.Model,
+			start: func() error {
+				_, err := s.Controller.CreateSession(userContext, newSession)
+				return err
 			},
-			Content: types.MessageContent{
-				Parts: []interface{}{event.WorkerTaskResponse.Message},
+		}
+	} else {
+		// Existing session
+		interactions, err := messagesToInteractions(startReq.Messages)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if len(interactions) != 1 {
+			http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
+			return
+		}
+
+		// Only user interactions are allowed for existing sessions
+		if interactions[0].Creator != types.CreatorTypeUser {
+			http.Error(rw, "only user interactions are allowed for existing sessions", http.StatusBadRequest)
+			return
+		}
+
+		cfg = &startSessionConfig{
+			sessionID: startReq.SessionID,
+			modelName: startReq.Model,
+			start: func() error {
+
+				_, err := s.Controller.UpdateSession(s.getRequestContext(req), types.UpdateSessionRequest{
+					SessionID:       startReq.SessionID,
+					UserInteraction: interactions[0],
+					SessionMode:     types.SessionModeInference,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to update session: %s", err)
+				}
+
+				return nil
 			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("error marshalling session response: %w", err)
+		}
 	}
 
-	_, err = fmt.Fprintf(rw, "%s\n", string(bts))
-
-	if err != nil {
-		return fmt.Errorf("error writing chunk '%s': %w", string(bts), err)
+	if startReq.Stream {
+		s.handleStreamingResponse(rw, req, userContext, cfg)
+		return
 	}
 
-	return nil
+	s.handleBlockingResponse(rw, req, userContext, cfg)
 }
 
 func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {
@@ -175,11 +129,11 @@ func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, er
 
 	for _, m := range messages {
 		// Validating roles
-		switch m.Author.Role {
-		case "user", "system", "assistant":
+		switch m.Role {
+		case types.CreatorTypeUser, types.CreatorTypeAssistant, types.CreatorTypeSystem:
 			// OK
 		default:
-			return nil, fmt.Errorf("invalid role, available roles: 'user', 'system', 'assistant'")
+			return nil, fmt.Errorf("invalid role '%s', available roles: 'user', 'system', 'assistant'", m.Role)
 
 		}
 
@@ -197,7 +151,7 @@ func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, er
 		}
 
 		var creator types.CreatorType
-		switch m.Author.Role {
+		switch m.Role {
 		case "user":
 			creator = types.CreatorTypeUser
 		case "system":
