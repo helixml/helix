@@ -195,6 +195,18 @@ func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPat
 	fullFromPath := filepath.Join(s.basePath, fromPath)
 	fullToPath := filepath.Join(s.basePath, toPath)
 
+	srcFile, err := os.Open(fullFromPath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Create the destination directory if it doesn't exist
+	destDir := filepath.Dir(fullToPath)
+	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
 	if err := os.Link(fullFromPath, fullToPath); err != nil {
 		return fmt.Errorf("failed to create hard link: %w", err)
 	}
