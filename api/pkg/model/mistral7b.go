@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -66,7 +67,11 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 			interactions = append(interactions, first)
 			interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
 		}
+	} else {
+		interactions = session.Interactions
 	}
+
+	spew.Dump(interactions)
 
 	for _, interaction := range interactions {
 
@@ -80,6 +85,34 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	task.Prompt = strings.Join(messages, "\n") + "\n"
 	return task, nil
+}
+
+func formatPrompt(session *types.Session) string {
+	var messages []string
+	if session.Metadata.SystemPrompt != "" {
+		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
+	}
+
+	var interactions []*types.Interaction
+	if len(session.Interactions) > mistral7bInstruct01ContextMessageLength {
+		first, err := data.GetFirstUserInteraction(session.Interactions)
+		if err != nil {
+			log.Err(err).Msg("error getting first user interaction")
+		} else {
+			interactions = append(interactions, first)
+			interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
+		}
+	}
+
+	for _, interaction := range interactions {
+		if interaction.Creator == "user" {
+			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
+		} else {
+			messages = append(messages, interaction.Message)
+		}
+	}
+
+	return strings.Join(messages, "\n") + "\n"
 }
 
 func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
