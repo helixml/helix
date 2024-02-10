@@ -102,6 +102,19 @@ paths:
             $ref: '#/definitions/types.Tool'
       security:
       - BearerAuth: []
+  /api/v1/tools/{id}:
+    delete:
+      parameters:
+      - description: Tool ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
 schemes:
 - https
 swagger: "2.0"

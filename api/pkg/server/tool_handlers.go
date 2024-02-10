@@ -15,7 +15,7 @@ import (
 // listTools godoc
 // @Summary List tools
 // @Description List tools for the user. Tools are use by the LLMs to interact with external systems.
-// @Tags    text_generation
+// @Tags    tools
 
 // @Success 200 {object} types.Tool
 // @Router /api/v1/tools [get]
@@ -159,6 +159,15 @@ func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 	return nil
 }
 
+// deleteTool godoc
+// @Summary Delete tool
+// @Description Delete tool. This removes the entry from the database, your models will not be able to use this tool anymore.
+// @Tags    tools
+
+// @Success 200
+// @Param id path string true "Tool ID"
+// @Router /api/v1/tools/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
