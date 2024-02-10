@@ -1,0 +1,491 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "description": "This is API specification of daMetis, which has the product catalogue.",
+    "version": "v1",
+    "title": "daMetis API"
+  },
+  "host": "dametis.klickrent.de",
+  "basePath": "/api/v1",
+  "tags": [
+    {
+      "name": "product types",
+      "description": "Product type resource"
+    },
+    {
+      "name": "accessories",
+      "description": "Product types that are marked as accessory or equipment."
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "paths": {
+    "/product-types": {
+      "get": {
+        "tags": [
+          "product types"
+        ],
+        "summary": "Search for product types by given page, size and term parameters.",
+        "description": "",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number of the search results. Default value is 1.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Result size that is returned by the endpoint. Maximum allowed result size value is 200.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "term",
+            "in": "query",
+            "description": "The search term that describes the machinery name. Minimum 2 characters long term should be provided.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "$ref": "#/definitions/ProductTypesApiResponse"
+            }
+          },
+          "422": {
+            "description": "unprocessable entity because term has less than 2 characters."
+          }
+        }
+      }
+    },
+    "/product-types/sellable": {
+      "get": {
+        "tags": [
+          "product types"
+        ],
+        "summary": "List all sellable product types.",
+        "description": "",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "$ref": "#/definitions/ProductTypesSellableApiResponse"
+            }
+          }
+        }
+      }
+    },
+    "/accessories": {
+      "get": {
+        "tags": [
+          "accessories"
+        ],
+        "summary": "List all accessories of given reference product type with size, term, include, exclude parameters.",
+        "description": "",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number of the search results. Default value is 1.",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "referenceProductTypeId",
+            "in": "query",
+            "description": "Reference product type id to search accessories for.",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Result size that is returned by the endpoint. The result value should be between 1 and 200.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "term",
+            "in": "query",
+            "description": "The search term that describes the machinery name. Minimum 2 characters long term should be provided.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "description": "Include specific product types. Allowed values are included or standard.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "exclude",
+            "in": "query",
+            "description": "Exclude specific product types. Allowed values are included or standard.",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "$ref": "#/definitions/AccessoriesApiResponse"
+            }
+          },
+          "422": {
+            "description": "unprocessable entity because there is no specified referenceProductTypeId."
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ProductTypesApiResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProductTypesApiResponse"
+          }
+        },
+        "pagination": {
+          "type": "object",
+          "properties": {
+            "currentPage": {
+              "type": "integer"
+            },
+            "totalPages": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "ProductTypesResponse": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "salesforce_id": {
+          "type": "string"
+        },
+        "product_family_id": {
+          "type": "integer"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "invoice_basis": {
+          "type": "string"
+        },
+        "release_notice": {
+          "type": "integer"
+        },
+        "processing_time": {
+          "type": "integer"
+        },
+        "sml": {
+          "type": "integer"
+        },
+        "productTypes": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "salesforce_id": {
+              "type": "string"
+            },
+            "product_group_id": {
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "product_hierarchy_type": {
+              "type": "string"
+            },
+            "selectable_on_main_search": {
+              "type": "boolean"
+            },
+            "position": {
+              "type": "integer"
+            },
+            "automated_offer": {
+              "type": "boolean"
+            },
+            "sellable": {
+              "type": "boolean"
+            },
+            "selling_price": {
+              "type": "integer"
+            },
+            "rental_price": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "ProductTypesSellableApiResponse": {
+      "type": "array",
+      "items": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "salesforce_id": {
+            "type": "string"
+          },
+          "product_family_id": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "product_hierarchy_type": {
+            "type": "string"
+          },
+          "reference_product_type_id": {
+            "type": "string"
+          },
+          "selectable_on_main_search": {
+            "type": "boolean"
+          },
+          "included": {
+            "type": "boolean"
+          },
+          "standard": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer"
+          },
+          "automated_offer": {
+            "type": "boolean"
+          },
+          "sellable": {
+            "type": "boolean"
+          },
+          "selling_price": {
+            "type": "integer"
+          },
+          "rental_price": {
+            "type": "integer"
+          },
+          "countable": {
+            "type": "boolean"
+          },
+          "container_length": {
+            "type": "integer"
+          },
+          "selectable_on_accessory_search": {
+            "type": "boolean"
+          },
+          "rentable": {
+            "type": "boolean"
+          },
+          "rental_price_basis": {
+            "type": "string"
+          },
+          "bill_at_start": {
+            "type": "boolean"
+          },
+          "bill_at_end": {
+            "type": "boolean"
+          },
+          "invisible": {
+            "type": "boolean"
+          },
+          "accessories": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "salesforce_id": {
+                "type": "string"
+              },
+              "product_family_id": {
+                "type": "integer"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "product_hierarchy_type": {
+                "type": "string"
+              },
+              "reference_product_type_id": {
+                "type": "string"
+              },
+              "selectable_on_main_search": {
+                "type": "boolean"
+              },
+              "included": {
+                "type": "boolean"
+              },
+              "standard": {
+                "type": "boolean"
+              },
+              "position": {
+                "type": "integer"
+              },
+              "automated_offer": {
+                "type": "boolean"
+              },
+              "sellable": {
+                "type": "boolean"
+              },
+              "selling_price": {
+                "type": "integer"
+              },
+              "rental_price": {
+                "type": "integer"
+              },
+              "countable": {
+                "type": "boolean"
+              },
+              "container_length": {
+                "type": "integer"
+              },
+              "selectable_on_accessory_search": {
+                "type": "boolean"
+              },
+              "rentable": {
+                "type": "boolean"
+              },
+              "rental_price_basis": {
+                "type": "string"
+              },
+              "bill_at_start": {
+                "type": "boolean"
+              },
+              "bill_at_end": {
+                "type": "boolean"
+              },
+              "invisible": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AccessoriesApiResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AccessoriesResponse"
+          }
+        },
+        "pagination": {
+          "type": "object",
+          "properties": {
+            "currentPage": {
+              "type": "integer"
+            },
+            "totalPages": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "AccessoriesResponse": {
+      "type": "array",
+      "items": {
+        "properties": {
+          "product_family_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "salesforce_id": {
+            "type": "string"
+          },
+          "included": {
+            "type": "boolean"
+          },
+          "standard": {
+            "type": "boolean"
+          },
+          "automated_offer": {
+            "type": "boolean"
+          },
+          "invisible": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "externalDocs": {
+    "description": "Find out more about Swagger",
+    "url": "http://swagger.io"
+  }
+}
