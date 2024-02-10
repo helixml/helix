@@ -43,46 +43,6 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	task.DatasetDir = fileManager.GetFolder()
 
-	// var messages []string
-
-	// XXX Should there be spaces after the [INST]?
-	// XXX Should we be including a </s>?
-	// https://docs.mistral.ai/models/
-
-	// if session.Metadata.SystemPrompt != "" {
-	// 	messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
-	// }
-
-	// var interactions []*types.Interaction
-
-	// If we have more messages than our context length, we should take the first message
-	// and the last 6 interactions
-	// if len(session.Interactions) > mistral7bInstruct01ContextMessageLength {
-	// 	// Only use the latest interactions to prevent the prompt from being too long
-	// 	first, err := data.GetFirstUserInteraction(session.Interactions)
-	// 	if err != nil {
-	// 		log.Err(err).Msg("error getting first user interaction")
-	// 	} else {
-	// 		interactions = append(interactions, first)
-	// 		interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
-	// 	}
-	// } else {
-	// 	interactions = session.Interactions
-	// }
-
-	// spew.Dump(interactions)
-
-	// for _, interaction := range interactions {
-
-	// 	// Regular session mode
-	// 	if interaction.Creator == "user" {
-	// 		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
-	// 	} else {
-	// 		messages = append(messages, interaction.Message)
-	// 	}
-	// }
-
-	// task.Prompt = strings.Join(messages, "\n") + "\n"
 	task.Prompt = formatPrompt(session)
 	return task, nil
 }
