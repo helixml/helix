@@ -102,6 +102,8 @@ func formatPrompt(session *types.Session) string {
 			interactions = append(interactions, first)
 			interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
 		}
+	} else {
+		interactions = session.Interactions
 	}
 
 	for _, interaction := range interactions {
