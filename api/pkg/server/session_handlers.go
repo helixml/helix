@@ -11,7 +11,15 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-// startSessionHandler can be used to start or continue a session with the Helix API.
+// startSessionHandler godoc
+// @Summary Start new text completion session
+// @Description Start new text completion session. Can be used to start or continue a session with the Helix API.
+// @Tags    chat
+
+// @Success 200 {object} types.OpenAIResponse
+// @Param request    body types.SessionChatRequest true "Request body with the message and model to start chat completion.")
+// @Router /api/v1/sessions/chat [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.Request) {
 
 	var startReq types.SessionChatRequest
