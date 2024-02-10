@@ -16,6 +16,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	mistral7bInstruct01ContextMessageLength = 8
+)
+
 type Mistral7bInstruct01 struct {
 }
 
@@ -39,30 +43,30 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 
 	task.DatasetDir = fileManager.GetFolder()
 
+	task.Prompt = formatPrompt(session)
+	return task, nil
+}
+
+func formatPrompt(session *types.Session) string {
 	var messages []string
-
-	// XXX Should there be spaces after the [INST]?
-	// XXX Should we be including a </s>?
-	// https://docs.mistral.ai/models/
-
 	if session.Metadata.SystemPrompt != "" {
 		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
 	}
 
-	for _, interaction := range session.Interactions {
-		// Chat API mode
-		// if len(interaction.Messages) > 0 {
-		// 	for _, m := range interaction.Messages {
-		// 		if m.Role == "user" {
-		// 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", m.Content))
-		// 		} else {
-		// 			messages = append(messages, m.Content)
-		// 		}
-		// 	}
-		// 	continue
-		// }
+	var interactions []*types.Interaction
+	if len(session.Interactions) > mistral7bInstruct01ContextMessageLength {
+		first, err := data.GetFirstUserInteraction(session.Interactions)
+		if err != nil {
+			log.Err(err).Msg("error getting first user interaction")
+		} else {
+			interactions = append(interactions, first)
+			interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
+		}
+	} else {
+		interactions = session.Interactions
+	}
 
-		// Regular session mode
+	for _, interaction := range interactions {
 		if interaction.Creator == "user" {
 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
 		} else {
@@ -70,8 +74,7 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 		}
 	}
 
-	task.Prompt = strings.Join(messages, "\n") + "\n"
-	return task, nil
+	return strings.Join(messages, "\n") + "\n"
 }
 
 func (l *Mistral7bInstruct01) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
