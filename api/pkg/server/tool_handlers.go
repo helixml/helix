@@ -34,6 +34,15 @@ func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*
 	return tools, nil
 }
 
+// createTool godoc
+// @Summary Create new tool
+// @Description Send a request to generate text. This request will be forwarded to the model and results will be available once the gen is complete.
+// @Tags    tools
+
+// @Success 200 {object} types.Tool
+// @Param request    body types.Tool true "Request body with tool configuration. For API schemas, it can be base64 encoded.")
+// @Router /api/v1/tools [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	var tool types.Tool
 	err := json.NewDecoder(r.Body).Decode(&tool)

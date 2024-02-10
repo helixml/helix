@@ -102,6 +102,22 @@ paths:
             $ref: '#/definitions/types.Tool'
       security:
       - BearerAuth: []
+    post:
+      parameters:
+      - description: Request body with tool configuration. For API schemas, it can
+          be base64 encoded.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.Tool'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Tool'
+      security:
+      - BearerAuth: []
   /api/v1/tools/{id}:
     delete:
       parameters:
