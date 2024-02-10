@@ -1,0 +1,107 @@
+definitions:
+  types.OwnerType:
+    enum:
+    - user
+    type: string
+    x-enum-varnames:
+    - OwnerTypeUser
+  types.Tool:
+    properties:
+      config:
+        allOf:
+        - $ref: '#/definitions/types.ToolConfig'
+        description: |-
+          TODO: tool configuration
+          such as OpenAPI spec, function code, etc.
+      created:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      owner:
+        description: uuid of owner entity
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      tool_type:
+        $ref: '#/definitions/types.ToolType'
+      updated:
+        type: string
+    type: object
+  types.ToolApiAction:
+    properties:
+      description:
+        type: string
+      method:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+    type: object
+  types.ToolApiConfig:
+    properties:
+      actions:
+        description: Read-only, parsed from schema on creation
+        items:
+          $ref: '#/definitions/types.ToolApiAction'
+        type: array
+      headers:
+        additionalProperties:
+          type: string
+        description: Headers (authentication, etc)
+        type: object
+      query:
+        additionalProperties:
+          type: string
+        description: Query parameters that will be always set
+        type: object
+      schema:
+        type: string
+      url:
+        description: Server override
+        type: string
+    type: object
+  types.ToolConfig:
+    properties:
+      api:
+        $ref: '#/definitions/types.ToolApiConfig'
+    type: object
+  types.ToolType:
+    enum:
+    - api
+    - function
+    type: string
+    x-enum-varnames:
+    - ToolTypeAPI
+    - ToolTypeFunction
+host: app.tryhelix.ai
+info:
+  contact:
+    email: info@helix.ml
+    name: Helix support
+    url: https://app.tryhelix.ai/
+  description: This is a HelixML AI API.
+  title: HelixML API reference
+  version: "0.1"
+  x-logo:
+    altText: Helix logo
+    url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
+paths:
+  /api/v1/tools:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Tool'
+      security:
+      - BearerAuth: []
+schemes:
+- https
+swagger: "2.0"
