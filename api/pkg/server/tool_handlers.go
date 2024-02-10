@@ -36,7 +36,7 @@ func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*
 
 // createTool godoc
 // @Summary Create new tool
-// @Description Send a request to generate text. This request will be forwarded to the model and results will be available once the gen is complete.
+// @Description Create new tool. Tools are used by the LLMs to interact with external systems.
 // @Tags    tools
 
 // @Success 200 {object} types.Tool
@@ -85,6 +85,16 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	return created, nil
 }
 
+// updateTool godoc
+// @Summary Update an existing tool
+// @Description Update existing tool
+// @Tags    tools
+
+// @Success 200 {object} types.Tool
+// @Param request    body types.Tool true "Request body with tool configuration. For API schemas, it can be base64 encoded.")
+// @Param id path string true "Tool ID"
+// @Router /api/v1/tools/{id} [put]
+// @Security BearerAuth
 func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 

@@ -67,6 +67,39 @@ const docTemplate = `{
             }
         },
         "/api/v1/tools/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with tool configuration. For API schemas, it can be base64 encoded.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.Tool"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Tool"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
