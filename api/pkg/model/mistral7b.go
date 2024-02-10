@@ -16,6 +16,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	mistral7bInstruct01ContextMessageLength = 10
+)
+
 type Mistral7bInstruct01 struct {
 }
 
@@ -49,18 +53,10 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
 	}
 
-	for _, interaction := range session.Interactions {
-		// Chat API mode
-		// if len(interaction.Messages) > 0 {
-		// 	for _, m := range interaction.Messages {
-		// 		if m.Role == "user" {
-		// 			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", m.Content))
-		// 		} else {
-		// 			messages = append(messages, m.Content)
-		// 		}
-		// 	}
-		// 	continue
-		// }
+	// Only use the latest interactions to prevent the prompt from being too long
+	interactions := data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)
+
+	for _, interaction := range interactions {
 
 		// Regular session mode
 		if interaction.Creator == "user" {
