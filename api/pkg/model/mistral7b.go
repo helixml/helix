@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	mistral7bInstruct01ContextMessageLength = 6
+	mistral7bInstruct01ContextMessageLength = 8
 )
 
 type Mistral7bInstruct01 struct {
