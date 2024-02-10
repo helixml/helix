@@ -183,6 +183,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	})).Methods("GET")
 
 	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
+	subrouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
