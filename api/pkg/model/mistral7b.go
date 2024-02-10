@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	mistral7bInstruct01ContextMessageLength = 10
+	mistral7bInstruct01ContextMessageLength = 6
 )
 
 type Mistral7bInstruct01 struct {
@@ -53,8 +53,20 @@ func (l *Mistral7bInstruct01) GetTask(session *types.Session, fileManager ModelS
 		messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", session.Metadata.SystemPrompt))
 	}
 
-	// Only use the latest interactions to prevent the prompt from being too long
-	interactions := data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)
+	var interactions []*types.Interaction
+
+	// If we have more messages than our context length, we should take the first message
+	// and the last 6 interactions
+	if len(session.Interactions) > mistral7bInstruct01ContextMessageLength {
+		// Only use the latest interactions to prevent the prompt from being too long
+		first, err := data.GetFirstUserInteraction(session.Interactions)
+		if err != nil {
+			log.Err(err).Msg("error getting first user interaction")
+		} else {
+			interactions = append(interactions, first)
+			interactions = append(interactions, data.GetLastInteractions(session, mistral7bInstruct01ContextMessageLength)...)
+		}
+	}
 
 	for _, interaction := range interactions {
 
