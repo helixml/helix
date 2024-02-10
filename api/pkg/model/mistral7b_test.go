@@ -27,7 +27,7 @@ func Test_formatPrompt(t *testing.T) {
 					},
 				},
 			},
-			want: "hello",
+			want: "[INST]hello[/INST]\n",
 		},
 	}
 	for _, tt := range tests {
