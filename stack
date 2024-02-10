@@ -108,4 +108,11 @@ function psql_pipe() {
   db pipe "$@"
 }
 
+function update_openapi() {
+	go install github.com/swaggo/swag/cmd/swag@latest && \
+	swag init -g api/pkg/server/swagger.go \
+	--parseDependency --parseInternal --parseDepth 3 \
+	-o api/pkg/server
+}
+
 eval "$@"
