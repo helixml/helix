@@ -12,6 +12,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// listTools godoc
+// @Summary List tools
+// @Description List tools for the user. Tools are use by the LLMs to interact with external systems.
+// @Tags    tools
+
+// @Success 200 {object} types.Tool
+// @Router /api/v1/tools [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
@@ -26,6 +34,15 @@ func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*
 	return tools, nil
 }
 
+// createTool godoc
+// @Summary Create new tool
+// @Description Create new tool. Tools are used by the LLMs to interact with external systems.
+// @Tags    tools
+
+// @Success 200 {object} types.Tool
+// @Param request    body types.Tool true "Request body with tool configuration. For API schemas, it can be base64 encoded.")
+// @Router /api/v1/tools [post]
+// @Security BearerAuth
 func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	var tool types.Tool
 	err := json.NewDecoder(r.Body).Decode(&tool)
@@ -68,6 +85,16 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	return created, nil
 }
 
+// updateTool godoc
+// @Summary Update an existing tool
+// @Description Update existing tool
+// @Tags    tools
+
+// @Success 200 {object} types.Tool
+// @Param request    body types.Tool true "Request body with tool configuration. For API schemas, it can be base64 encoded.")
+// @Param id path string true "Tool ID"
+// @Router /api/v1/tools/{id} [put]
+// @Security BearerAuth
 func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
@@ -151,6 +178,15 @@ func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 	return nil
 }
 
+// deleteTool godoc
+// @Summary Delete tool
+// @Description Delete tool. This removes the entry from the database, your models will not be able to use this tool anymore.
+// @Tags    tools
+
+// @Success 200
+// @Param id path string true "Tool ID"
+// @Router /api/v1/tools/{id} [delete]
+// @Security BearerAuth
 func (s *HelixAPIServer) deleteTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
