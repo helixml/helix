@@ -75,6 +75,8 @@ func Test_formatPrompt(t *testing.T) {
 				},
 			},
 			want: `[INST]be nice[/INST]
+[INST]q5[/INST]
+a5
 [INST]q6[/INST]
 a6
 [INST]q7[/INST]
