@@ -12,6 +12,14 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// listTools godoc
+// @Summary List tools
+// @Description List tools for the user. Tools are use by the LLMs to interact with external systems.
+// @Tags    text_generation
+
+// @Success 200 {object} types.Tool
+// @Router /api/v1/tools [get]
+// @Security BearerAuth
 func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
