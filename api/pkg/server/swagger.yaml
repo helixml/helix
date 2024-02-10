@@ -1,10 +1,196 @@
 definitions:
+  types.Choice:
+    properties:
+      delta:
+        $ref: '#/definitions/types.OpenAIMessage'
+      finish_reason:
+        type: string
+      index:
+        type: integer
+      message:
+        $ref: '#/definitions/types.OpenAIMessage'
+      text:
+        type: string
+    type: object
+  types.CreatorType:
+    enum:
+    - system
+    - assistant
+    - user
+    type: string
+    x-enum-varnames:
+    - CreatorTypeSystem
+    - CreatorTypeAssistant
+    - CreatorTypeUser
+  types.InteractionState:
+    enum:
+    - ""
+    - waiting
+    - editing
+    - complete
+    - error
+    type: string
+    x-enum-varnames:
+    - InteractionStateNone
+    - InteractionStateWaiting
+    - InteractionStateEditing
+    - InteractionStateComplete
+    - InteractionStateError
+  types.Item:
+    properties:
+      b64_json:
+        type: string
+      embedding:
+        items:
+          type: number
+        type: array
+      index:
+        type: integer
+      object:
+        type: string
+      url:
+        description: Images
+        type: string
+    type: object
+  types.Message:
+    properties:
+      content:
+        $ref: '#/definitions/types.MessageContent'
+      created_at:
+        type: string
+      id:
+        description: Interaction ID
+        type: string
+      role:
+        $ref: '#/definitions/types.CreatorType'
+      state:
+        $ref: '#/definitions/types.InteractionState'
+      updated_at:
+        type: string
+    type: object
+  types.MessageContent:
+    properties:
+      content_type:
+        allOf:
+        - $ref: '#/definitions/types.MessageContentType'
+        description: text, image, multimodal_text
+      parts:
+        description: "Parts is a list of strings or objects. For example for text,
+          it's a list of strings, for\nmulti-modal it can be an object:\n\"parts\":
+          [\n\t\t{\n\t\t\t\t\"content_type\": \"image_asset_pointer\",\n\t\t\t\t\"asset_pointer\":
+          \"file-service://file-28uHss2LgJ8HUEEVAnXa70Tg\",\n\t\t\t\t\"size_bytes\":
+          185427,\n\t\t\t\t\"width\": 2048,\n\t\t\t\t\"height\": 1020,\n\t\t\t\t\"fovea\":
+          null,\n\t\t\t\t\"metadata\": null\n\t\t},\n\t\t\"what is in the image?\"\n]"
+        items: {}
+        type: array
+    type: object
+  types.MessageContentType:
+    enum:
+    - text
+    type: string
+    x-enum-varnames:
+    - MessageContentTypeText
+  types.OpenAIMessage:
+    properties:
+      content:
+        description: The message content
+        type: string
+      role:
+        description: The message role
+        type: string
+    type: object
+  types.OpenAIResponse:
+    properties:
+      choices:
+        items:
+          $ref: '#/definitions/types.Choice'
+        type: array
+      created:
+        type: integer
+      data:
+        items:
+          $ref: '#/definitions/types.Item'
+        type: array
+      id:
+        type: string
+      model:
+        type: string
+      object:
+        type: string
+      usage:
+        $ref: '#/definitions/types.OpenAIUsage'
+    type: object
+  types.OpenAIUsage:
+    properties:
+      completion_tokens:
+        type: integer
+      prompt_tokens:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
   types.OwnerType:
     enum:
     - user
     type: string
     x-enum-varnames:
     - OwnerTypeUser
+  types.SessionChatRequest:
+    properties:
+      lora_dir:
+        type: string
+      messages:
+        description: Initial messages
+        items:
+          $ref: '#/definitions/types.Message'
+        type: array
+      mode:
+        allOf:
+        - $ref: '#/definitions/types.SessionMode'
+        description: e.g. inference, finetune
+      model:
+        description: The model to use
+        type: string
+      session_id:
+        description: If empty, we will start a new session
+        type: string
+      stream:
+        description: If true, we will stream the response
+        type: boolean
+      tools:
+        description: Available tools to use in the session
+        items:
+          type: string
+        type: array
+      type:
+        allOf:
+        - $ref: '#/definitions/types.SessionType'
+        description: e.g. text, image
+    type: object
+  types.SessionMode:
+    enum:
+    - ""
+    - inference
+    - finetune
+    - action
+    type: string
+    x-enum-comments:
+      SessionModeAction: Running tool actions (e.g. API, function calls)
+    x-enum-varnames:
+    - SessionModeNone
+    - SessionModeInference
+    - SessionModeFinetune
+    - SessionModeAction
+  types.SessionType:
+    enum:
+    - ""
+    - text
+    - image
+    type: string
+    x-enum-varnames:
+    - SessionTypeNone
+    - SessionTypeText
+    - SessionTypeImage
   types.Tool:
     properties:
       config:
@@ -93,6 +279,22 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/sessions/chat:
+    post:
+      parameters:
+      - description: Request body with the message and model to start chat completion.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SessionChatRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.OpenAIResponse'
+      security:
+      - BearerAuth: []
   /api/v1/tools:
     get:
       responses:

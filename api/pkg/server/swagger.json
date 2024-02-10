@@ -19,6 +19,34 @@
     },
     "host": "app.tryhelix.ai",
     "paths": {
+        "/api/v1/sessions/chat": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with the message and model to start chat completion.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.OpenAIResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tools": {
             "get": {
                 "security": [
@@ -120,6 +148,190 @@
         }
     },
     "definitions": {
+        "types.Choice": {
+            "type": "object",
+            "properties": {
+                "delta": {
+                    "$ref": "#/definitions/types.OpenAIMessage"
+                },
+                "finish_reason": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "message": {
+                    "$ref": "#/definitions/types.OpenAIMessage"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.CreatorType": {
+            "type": "string",
+            "enum": [
+                "system",
+                "assistant",
+                "user"
+            ],
+            "x-enum-varnames": [
+                "CreatorTypeSystem",
+                "CreatorTypeAssistant",
+                "CreatorTypeUser"
+            ]
+        },
+        "types.InteractionState": {
+            "type": "string",
+            "enum": [
+                "",
+                "waiting",
+                "editing",
+                "complete",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "InteractionStateNone",
+                "InteractionStateWaiting",
+                "InteractionStateEditing",
+                "InteractionStateComplete",
+                "InteractionStateError"
+            ]
+        },
+        "types.Item": {
+            "type": "object",
+            "properties": {
+                "b64_json": {
+                    "type": "string"
+                },
+                "embedding": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Images",
+                    "type": "string"
+                }
+            }
+        },
+        "types.Message": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/types.MessageContent"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Interaction ID",
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/types.CreatorType"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.InteractionState"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.MessageContent": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "description": "text, image, multimodal_text",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.MessageContentType"
+                        }
+                    ]
+                },
+                "parts": {
+                    "description": "Parts is a list of strings or objects. For example for text, it's a list of strings, for\nmulti-modal it can be an object:\n\"parts\": [\n\t\t{\n\t\t\t\t\"content_type\": \"image_asset_pointer\",\n\t\t\t\t\"asset_pointer\": \"file-service://file-28uHss2LgJ8HUEEVAnXa70Tg\",\n\t\t\t\t\"size_bytes\": 185427,\n\t\t\t\t\"width\": 2048,\n\t\t\t\t\"height\": 1020,\n\t\t\t\t\"fovea\": null,\n\t\t\t\t\"metadata\": null\n\t\t},\n\t\t\"what is in the image?\"\n]",
+                    "type": "array",
+                    "items": {}
+                }
+            }
+        },
+        "types.MessageContentType": {
+            "type": "string",
+            "enum": [
+                "text"
+            ],
+            "x-enum-varnames": [
+                "MessageContentTypeText"
+            ]
+        },
+        "types.OpenAIMessage": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "The message content",
+                    "type": "string"
+                },
+                "role": {
+                    "description": "The message role",
+                    "type": "string"
+                }
+            }
+        },
+        "types.OpenAIResponse": {
+            "type": "object",
+            "properties": {
+                "choices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Choice"
+                    }
+                },
+                "created": {
+                    "type": "integer"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Item"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "object": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/types.OpenAIUsage"
+                }
+            }
+        },
+        "types.OpenAIUsage": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
         "types.OwnerType": {
             "type": "string",
             "enum": [
@@ -127,6 +339,87 @@
             ],
             "x-enum-varnames": [
                 "OwnerTypeUser"
+            ]
+        },
+        "types.SessionChatRequest": {
+            "type": "object",
+            "properties": {
+                "lora_dir": {
+                    "type": "string"
+                },
+                "messages": {
+                    "description": "Initial messages",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Message"
+                    }
+                },
+                "mode": {
+                    "description": "e.g. inference, finetune",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionMode"
+                        }
+                    ]
+                },
+                "model": {
+                    "description": "The model to use",
+                    "type": "string"
+                },
+                "session_id": {
+                    "description": "If empty, we will start a new session",
+                    "type": "string"
+                },
+                "stream": {
+                    "description": "If true, we will stream the response",
+                    "type": "boolean"
+                },
+                "tools": {
+                    "description": "Available tools to use in the session",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type": {
+                    "description": "e.g. text, image",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionType"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.SessionMode": {
+            "type": "string",
+            "enum": [
+                "",
+                "inference",
+                "finetune",
+                "action"
+            ],
+            "x-enum-comments": {
+                "SessionModeAction": "Running tool actions (e.g. API, function calls)"
+            },
+            "x-enum-varnames": [
+                "SessionModeNone",
+                "SessionModeInference",
+                "SessionModeFinetune",
+                "SessionModeAction"
+            ]
+        },
+        "types.SessionType": {
+            "type": "string",
+            "enum": [
+                "",
+                "text",
+                "image"
+            ],
+            "x-enum-varnames": [
+                "SessionTypeNone",
+                "SessionTypeText",
+                "SessionTypeImage"
             ]
         },
         "types.Tool": {
