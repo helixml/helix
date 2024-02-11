@@ -203,7 +203,8 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 		return l.getMockCommand(ctx, sessionFilter, config)
 	}
 	var cmd *exec.Cmd
-	if sessionFilter.Mode == types.SessionModeInference {
+	switch sessionFilter.Mode {
+	case types.SessionModeInference:
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
@@ -211,7 +212,7 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			"axolotl.cli.inference",
 			"helix-mistral-instruct-v1.yml",
 		)
-	} else {
+	case types.SessionModeFinetune:
 		cmd = exec.CommandContext(
 			ctx,
 			"bash", "runner/venv_command.sh",
