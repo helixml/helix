@@ -207,16 +207,8 @@ func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPat
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	// Create the destination file
-	destFile, err := os.Create(fullToPath)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer destFile.Close()
-
-	// Copy the contents from source to destination
-	if _, err := io.Copy(destFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy file contents: %w", err)
+	if err := os.Link(fullFromPath, fullToPath); err != nil {
+		return fmt.Errorf("failed to create hard link: %w", err)
 	}
 
 	return nil
