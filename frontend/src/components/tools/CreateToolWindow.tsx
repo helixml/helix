@@ -57,8 +57,8 @@ export const CreateToolWindow: FC<{
           onChange={(e) => setSchema(e.target.value)}
           fullWidth
           multiline
-          rows={5}
-          label="Enter openAI schema"
+          rows={10}
+          label="Enter openAI schema (base64 encoded or escaped JSON/yaml)"
           helperText={ showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml" }
         />
       </Box>
