@@ -1,5 +1,7 @@
 import React, { FC, useMemo } from 'react'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
+import Typography from '@mui/material/Typography'
+import Box from '@mui/material/Box'
 
 import {
   IToolApiAction,
@@ -15,7 +17,7 @@ const ToolActionsDataGrid: FC<React.PropsWithChildren<{
       {
         name: 'name',
         header: 'Name',
-        defaultFlex: 1,
+        defaultFlex: 0,
         render: ({ data }) => {
           return data.name
         }
@@ -23,7 +25,7 @@ const ToolActionsDataGrid: FC<React.PropsWithChildren<{
       {
         name: 'method',
         header: 'Method',
-        defaultFlex: 1,
+        defaultFlex: 0,
         render: ({ data }) => {
           return data.method
         }
@@ -31,7 +33,7 @@ const ToolActionsDataGrid: FC<React.PropsWithChildren<{
       {
         name: 'path',
         header: 'Path',
-        defaultFlex: 1,
+        defaultFlex: 0,
         render: ({ data }) => {
           return data.path
         }
@@ -41,7 +43,11 @@ const ToolActionsDataGrid: FC<React.PropsWithChildren<{
         header: 'Description',
         defaultFlex: 1,
         render: ({ data }) => {
-          return data.description
+          return (
+            <Typography sx={{ fontSize: '0.7rem', whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word' }}>
+              {data.description}
+            </Typography>
+          )
         }
       },
     ]

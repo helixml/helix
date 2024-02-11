@@ -1,30 +1,55 @@
-import React, { FC, useCallback, useEffect, useState, useMemo } from 'react'
+import React, { FC, useCallback, useEffect, useState, useMemo, useRef } from 'react'
+import { useTheme } from '@mui/material/styles'
+import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
+import SendIcon from '@mui/icons-material/Send'
 
 import Window from '../components/widgets/Window'
 import StringMapEditor from '../components/widgets/StringMapEditor'
 import ClickLink from '../components/widgets/ClickLink'
 import ToolActionsGrid from '../components/datagrid/ToolActions'
+import InteractionLiveStream from '../components/session/InteractionLiveStream'
+import Interaction from '../components/session/Interaction'
 
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
+import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
+import useApi from '../hooks/useApi'
+import useSessions from '../hooks/useSessions'
+import useThemeConfig from '../hooks/useThemeConfig'
+import useWebsocket from '../hooks/useWebsocket'
+
+import {
+  ISession,
+  SESSION_MODE_INFERENCE,
+  SESSION_TYPE_TEXT,
+  WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+} from '../types'
 
 const Tool: FC = () => {
   const account = useAccount()
+  const sessions = useSessions()
   const tools = useTools()
+  const api = useApi()
+  const session = useSession()
   const snackbar = useSnackbar()
   const {
     params,
   } = useRouter()
 
+  const themeConfig = useThemeConfig()
+  const theme = useTheme()
+
+  const textFieldRef = useRef<HTMLTextAreaElement>()
   const [ name, setName ] = useState('')
+  const [ inputValue, setInputValue ] = useState('')
   const [ description, setDescription ] = useState('')
   const [ url, setURL ] = useState('')
   const [ headers, setHeaders ] = useState<Record<string, string>>({})
@@ -39,6 +64,54 @@ const Tool: FC = () => {
     tools.data,
     params,
   ])
+
+  const sessionID = useMemo(() => {
+    return session.data?.id || ''
+  }, [
+    session.data,
+  ])
+
+  // this is for inference in both modes
+  const onInference = async () => {
+    const formData = new FormData()
+    
+    formData.set('input', inputValue)
+    formData.set('mode', SESSION_MODE_INFERENCE)
+    formData.set('type', SESSION_TYPE_TEXT)
+
+    const session = await api.post('/api/v1/sessions', formData)
+    if(!session) return
+    sessions.addSesssion(session)
+    await bluebird.delay(300)
+    session.loadSession(session.id)
+  }
+
+  const onSend = useCallback(async (prompt: string) => {
+    if(!session.data) return
+    
+    const formData = new FormData()
+    formData.set('input', prompt)
+
+    const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    if(!newSession) return
+    session.reload()
+
+    setInputValue("")
+  }, [
+    session.data,
+    session.reload,
+  ])
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      if (event.shiftKey) {
+        setInputValue(current => current + "\n")
+      } else {
+        onInference()
+      }
+      event.preventDefault()
+    }
+  }
 
   useEffect(() => {
     if(!account.user) return
@@ -59,11 +132,15 @@ const Tool: FC = () => {
     tool,
   ])
 
+  useWebsocket(sessionID, (parsedData) => {
+    if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
+      const newSession: ISession = parsedData.session
+      session.setData(newSession)
+    }
+  })
+
   if(!account.user) return null
   if(!tool) return null
-
-  console.log('--------------------------------------------')
-  console.dir(tool)
 
   return (
     <>
@@ -84,6 +161,34 @@ const Tool: FC = () => {
         >
           <Grid container spacing={2}>
             <Grid item xs={ 12 } md={ 6 }>
+              <Box
+                sx={{
+                  textAlign: 'right',
+                }}
+              >
+                <Button
+                  sx={{
+                    mr: 2,
+                  }}
+                  type="button"
+                  color="primary"
+                  variant="outlined"
+                  onClick={ () => {} }
+                >
+                  Cancel
+                </Button>
+                <Button
+                  sx={{
+                    mr: 2,
+                  }}
+                  type="button"
+                  color="secondary"
+                  variant="contained"
+                  onClick={ () => {} }
+                >
+                  Save
+                </Button>
+              </Box>
               <Typography variant="h6" sx={{mb: 1.5}}>
                 Settings
               </Typography>
@@ -131,8 +236,8 @@ const Tool: FC = () => {
                 onChange={(e) => setSchema(e.target.value)}
                 fullWidth
                 multiline
-                rows={3}
-                label="Enter openAI schema"
+                rows={10}
+                label="Enter openAI schema (base64 encoded or escaped JSON/yaml)"
                 helperText={ showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml" }
               />
               <Box
@@ -178,40 +283,107 @@ const Tool: FC = () => {
               </Box>
               <Box
                 sx={{
-                  textAlign: 'right',
+                  mb: 3,
                 }}
               >
-                <Button
-                  sx={{
-                    mr: 2,
-                  }}
-                  type="button"
-                  color="primary"
-                  variant="outlined"
-                  onClick={ () => {} }
-                >
-                  Cancel
-                </Button>
-                <Button
-                  sx={{
-                    mr: 2,
-                  }}
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={ () => {} }
-                >
-                  Save
-                </Button>
+                <Typography variant="h6" sx={{mb: 1}}>
+                  Actions
+                </Typography>
+                <ToolActionsGrid
+                  data={ tool.config.api.actions }
+                />  
               </Box>
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
-              <Typography variant="h6" sx={{mb: 1}}>
-                Actions
-              </Typography>
-              <ToolActionsGrid
-                data={ tool.config.api.actions }
-              />
+              <Box
+                sx={{
+                  mb: 3,
+                  mt: 5,
+                }}
+              >
+                <Typography variant="h6" sx={{mb: 1}}>
+                  Test
+                </Typography>
+                <Box
+                  sx={{
+                    width: '100%',
+                    flexGrow: 0,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <TextField
+                    id="textEntry"
+                    fullWidth
+                    inputRef={textFieldRef}
+                    autoFocus
+                    label="Test your tool"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    multiline={true}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <Button
+                    id="sendButton"
+                    variant='contained'
+                    onClick={ onInference }
+                    sx={{
+                      color: themeConfig.darkText,
+                      backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
+                      ml: 2,
+                      '&:hover': {
+                        backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
+                      }
+                    }}
+                    endIcon={<SendIcon />}
+                  >
+                    Send
+                  </Button>
+                </Box>
+              </Box>
+              <Box
+                sx={{
+                  mb: 3,
+                  mt: 3,
+                }}
+              >
+                {
+                  session.data && (
+                    <>
+                      {
+                        session.data?.interactions.map((interaction: any, i: number) => {
+                          const interactionsLength = session.data?.interactions.length || 0
+                          const isLastInteraction = i == interactionsLength - 1
+                          const isLive = isLastInteraction && !interaction.finished
+
+                          if(!session.data) return null
+                          return (
+                            <Interaction
+                              key={ i }
+                              serverConfig={ account.serverConfig }
+                              interaction={ interaction }
+                              session={ session.data }
+                            >
+                              {
+                                isLive && (
+                                  <InteractionLiveStream
+                                    session_id={ session.data.id }
+                                    interaction={ interaction }
+                                    session={ session.data }
+                                    serverConfig={ account.serverConfig }
+                                  />
+                                )
+                              }
+                            </Interaction>
+                          )   
+                        })
+                      }
+                    </>
+                  )
+                }
+              </Box>
             </Grid>
           </Grid>
         </Box>
