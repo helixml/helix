@@ -165,7 +165,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                                 Login / Register
                             </Button>
-                            ) : null
+                          )
                         }
                     </Box>
                 </>
@@ -204,7 +204,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                             Login
                             </Button>
-                        ) : null
+                        )
                         }
                     </Box>
                 </>

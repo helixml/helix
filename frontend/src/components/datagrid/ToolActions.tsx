@@ -2,6 +2,7 @@ import React, { FC, useMemo } from 'react'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
+import Chip from '@mui/material/Chip'
 
 import {
   IToolApiAction,
@@ -27,7 +28,7 @@ const ToolActionsDataGrid: FC<React.PropsWithChildren<{
         header: 'Method',
         defaultFlex: 0,
         render: ({ data }) => {
-          return data.method
+          return <Chip color="secondary" size="small" label={data.method.toUpperCase()} />
         }
       },
       {
