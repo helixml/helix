@@ -22,7 +22,7 @@ import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import useApi from '../hooks/useApi'
-import useSessions from '../hooks/useSessions'
+import useLayout from '../hooks/useLayout'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 
@@ -35,8 +35,8 @@ import {
 
 const Tool: FC = () => {
   const account = useAccount()
-  const sessions = useSessions()
   const tools = useTools()
+  const layout = useLayout()
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
@@ -97,14 +97,14 @@ const Tool: FC = () => {
     return true
   }
 
-  const onUpdate = async () => {
+  const onUpdate = useCallback(async () => {
     if(!tool) return
     if(!validate()) {
       setShowErrors(true)
       return
     }
     setShowErrors(false)
-
+    
     const newConfig = Object.assign({}, tool.config.api, {
       url,
       schema,
@@ -124,7 +124,16 @@ const Tool: FC = () => {
 
     snackbar.success('Tool updated')
     navigate('tools')
-  }
+  }, [
+    tool,
+    name,
+    description,
+    url,
+    schema,
+    headers,
+    query,
+
+  ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -164,6 +173,45 @@ const Tool: FC = () => {
     }
   })
 
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <Box
+          sx={{
+            textAlign: 'right',
+          }}
+        >
+          <Button
+            sx={{
+              mr: 2,
+            }}
+            type="button"
+            color="primary"
+            variant="outlined"
+            onClick={ () => navigate('tools') }
+          >
+            Cancel
+          </Button>
+          <Button
+            sx={{
+              mr: 2,
+            }}
+            type="button"
+            color="secondary"
+            variant="contained"
+            onClick={ () => onUpdate() }
+          >
+            Save
+          </Button>
+        </Box>
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [
+    onUpdate,
+  ])
+
   if(!account.user) return null
   if(!tool) return null
   if(!hasLoaded) return null
@@ -187,34 +235,6 @@ const Tool: FC = () => {
         >
           <Grid container spacing={2}>
             <Grid item xs={ 12 } md={ 6 }>
-              <Box
-                sx={{
-                  textAlign: 'right',
-                }}
-              >
-                <Button
-                  sx={{
-                    mr: 2,
-                  }}
-                  type="button"
-                  color="primary"
-                  variant="outlined"
-                  onClick={ () => navigate('tools') }
-                >
-                  Cancel
-                </Button>
-                <Button
-                  sx={{
-                    mr: 2,
-                  }}
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={ () => onUpdate() }
-                >
-                  Save
-                </Button>
-              </Box>
               <Typography variant="h6" sx={{mb: 1.5}}>
                 Settings
               </Typography>
@@ -326,7 +346,6 @@ const Tool: FC = () => {
               <Box
                 sx={{
                   mb: 3,
-                  mt: 5,
                 }}
               >
                 <Typography variant="h6" sx={{mb: 1}}>

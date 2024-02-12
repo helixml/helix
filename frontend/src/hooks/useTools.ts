@@ -56,11 +56,22 @@ export const useTools = () => {
     loadData,
   ])
 
+  const deleteTool = useCallback(async (id: string): Promise<boolean | undefined> => {
+    await api.delete(`/api/v1/tools/${id}`, {}, {
+      snackbar: true,
+    })
+    loadData()
+    return true
+  }, [
+    loadData,
+  ])
+
   return {
     data,
     loadData,
     createTool,
     updateTool,
+    deleteTool,
   }
 }
 
