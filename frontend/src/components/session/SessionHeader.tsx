@@ -172,7 +172,11 @@ export const SessionHeader: FC<{
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    maxWidth: '22ch',
+                    maxWidth: {
+                      xs: '22ch',
+                      sm: '34ch',
+                      md: '46ch',
+                    },
                   }}
                 >
                   {session.name}
@@ -283,15 +287,6 @@ export const SessionHeader: FC<{
                 <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
               </MenuItem>
             )}
-            <MenuItem onClick={() => {
-              window.open("https://docs.helix.ml/docs/overview", "_blank")
-              setAnchorEl(null)
-            }}>
-              <ListItemIcon>
-                <AutoStoriesIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Helix Docs" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
-            </MenuItem>
           </Menu>
           <Box sx={{ display: { xs: 'none', sm: 'flex' }, gap: 0 }}>
           <Cell>
@@ -415,25 +410,6 @@ export const SessionHeader: FC<{
               </Cell>
             )
           }
-          <Cell>
-            <Tooltip title="Helix Docs">
-              <Link
-                href="https://docs.helix.ml/docs/overview"
-                target="_blank"
-              >
-                <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                  <AutoStoriesIcon
-                    sx={{
-                      color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon, mr: 2,
-                      '&:hover': {
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                      }
-                    }}
-                  />
-                </Box>
-              </Link>
-            </Tooltip>
-          </Cell>
           </Box>
         </Box>
       </Cell>

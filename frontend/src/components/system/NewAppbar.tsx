@@ -188,30 +188,19 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         )}
                         
                         {
-                        account.user ? (
-                            <Link
-                            href="https://docs.helix.ml/docs/overview"
-                            target="_blank"
-                            >
-                            <Tooltip title="Helix Docs">
-                                <Box component="span">
-                                <AutoStoriesIcon sx={{ ml: 3 }} />
-                                </Box>
-                            </Tooltip>
-                            </Link>
-                        ) : (
+                        !account.user ? (
                             <Button
-                            variant="contained"
-                            color="primary"
-                            endIcon={<LoginIcon />}
-                            onClick={account.onLogin}
-                            sx={{
-                                ml: 2,
-                            }}
+                                variant="contained"
+                                color="primary"
+                                endIcon={<LoginIcon />}
+                                onClick={account.onLogin}
+                                sx={{
+                                    ml: 2,
+                                }}
                             >
-                            Login / Register
+                                Login / Register
                             </Button>
-                        )
+                            ) : null
                         }
                     </Box>
                 </>
@@ -258,18 +247,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         </Typography>
                     
                         {
-                        account.user ? (
-                            <Link
-                            href="https://docs.helix.ml/docs/overview"
-                            target="_blank"
-                            >
-                            <Tooltip title="Helix Docs">
-                                <Box component="span">
-                                <AutoStoriesIcon sx={{ ml: 2 }} />
-                                </Box>
-                            </Tooltip>
-                            </Link>
-                        ) : (
+                        !account.user ? (
                             <Button
                             variant="contained"
                             color="primary"
@@ -280,7 +258,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                             Login
                             </Button>
-                        )
+                        ) : null
                         }
                     </Box>
                 </>
