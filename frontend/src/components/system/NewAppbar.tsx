@@ -142,7 +142,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             getToolbarElement && account.user ? getToolbarElement(true) : null
                         }
                         {
-                        account.user ? (
+                          account.user ? (
                             <Link
                             href="https://docs.helix.ml/docs/overview"
                             target="_blank"
@@ -155,17 +155,17 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             </Link>
                         ) : (
                             <Button
-                            variant="contained"
-                            color="primary"
-                            endIcon={<LoginIcon />}
-                            onClick={account.onLogin}
-                            sx={{
-                                ml: 2,
-                            }}
+                                variant="contained"
+                                color="primary"
+                                endIcon={<LoginIcon />}
+                                onClick={account.onLogin}
+                                sx={{
+                                    ml: 2,
+                                }}
                             >
-                            Login / Register
+                                Login / Register
                             </Button>
-                        )
+                            ) : null
                         }
                     </Box>
                 </>
@@ -204,7 +204,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                             Login
                             </Button>
-                        )
+                        ) : null
                         }
                     </Box>
                 </>

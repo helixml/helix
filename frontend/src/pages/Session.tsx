@@ -39,7 +39,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import RefreshIcon from '@mui/icons-material/Refresh'
-
+import InputAdornment from '@mui/material/InputAdornment'
 
 import {
   ICloneInteractionMode,
@@ -685,57 +685,49 @@ const Session: FC = () => {
         }}
       >
         <Container
-          maxWidth="lg"
+          maxWidth="xl"
         >
           <Row>
             <Cell flexGrow={1}>
-              <TextField
-                id="textEntry"
-                fullWidth
-                inputRef={textFieldRef}
-                label={(
-                  (
-                    session.data?.type == SESSION_TYPE_TEXT ?
-                      'Chat with Helix...' :
-                      'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
-                  ) + " (shift+enter to add a newline)"
-                )}
-                value={inputValue}
-                disabled={session.data?.mode == SESSION_MODE_FINETUNE}
-                onChange={handleInputChange}
-                name="ai_submit"
-                multiline={true}
-                onKeyDown={handleKeyDown}
-              />
-            </Cell>
-            <Cell>
-              <Button
-                variant='contained'
-                disabled={loading}
-                onClick={ () => onSend(inputValue) }
-                sx={{
-                  ml: 2,
-                  backgroundColor:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                  '&:hover': {
-                    backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                  }
-                }}
-                endIcon={<SendIcon />}
-              >
-                Send
-              </Button>
+            <TextField
+              id="textEntry"
+              fullWidth
+              inputRef={textFieldRef}
+              label={(
+                (
+                  session.data?.type == SESSION_TYPE_TEXT ?
+                    'Chat with Helix...' :
+                    'Describe what you want to see in an image, use "a photo of <s0><s1>" to refer to fine tuned concepts, people or styles...'
+                ) + " (shift+enter to add a newline)"
+              )}
+              value={inputValue}
+              disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+              onChange={handleInputChange}
+              name="ai_submit"
+              multiline={true}
+              onKeyDown={handleKeyDown}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="send"
+                      disabled={session.data?.mode == SESSION_MODE_FINETUNE}
+                      onClick={() => onSend(inputValue)}
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      }}
+                    >
+                      <SendIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
             </Cell>
           </Row>
           <Box
             sx={{
               mt: 2,
-              mb: {
-                xs: 8,
-                sm: 8,
-                md: 8,
-                lg: 4,
-                xl: 4,
-              }
             }}
           >
             <Disclaimer />
