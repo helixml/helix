@@ -7,20 +7,24 @@ import DeleteIcon from '@mui/icons-material/Delete'
 
 const StringMapEditor: FC<React.PropsWithChildren<{
   data: Record<string, string>,
+  entityTitle?: string,
   onChange: (data: Record<string, string>) => void,
 }>> = ({
   data,
+  entityTitle = 'key',
   onChange,
 }) => {
   const [record, setRecord] = useState<Record<string, string>>(data)
   const [newKey, setNewKey] = useState('')
+  const [newValue, setNewValue] = useState('')
 
   const handleAddEntry = () => {
     if (newKey && !record[newKey]) { // Prevent adding if key exists
-      const updatedRecord = { ...record, [newKey]: '' }
+      const updatedRecord = { ...record, [newKey]: newValue }
       setRecord(updatedRecord)
       onChange(updatedRecord)
       setNewKey('')
+      setNewValue('')
     }
   }
 
@@ -61,10 +65,19 @@ const StringMapEditor: FC<React.PropsWithChildren<{
       <Box display="flex" alignItems="center" gap={2} marginBottom={2}>
         <TextField
           size="small"
-          label="New Key"
+          label={`new ${entityTitle}`}
           variant="outlined"
           value={newKey}
           onChange={(e: ChangeEvent<HTMLInputElement>) => setNewKey(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleAddEntry()}
+        />
+        =
+        <TextField
+          size="small"
+          label="new value"
+          variant="outlined"
+          value={newValue}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setNewValue(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleAddEntry()}
         />
         <IconButton onClick={handleAddEntry} disabled={!newKey}>

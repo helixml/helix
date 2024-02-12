@@ -80,6 +80,14 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
       }
     },
     {
+      name: 'url',
+      header: 'URL',
+      defaultFlex: 1,
+      render: ({ data }) => {
+        return data.config.api.url
+      }
+    },
+    {
       name: 'actions',
       header: '',
       minWidth: 120,

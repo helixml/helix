@@ -45,10 +45,22 @@ export const useTools = () => {
     loadData,
   ])
 
+  const updateTool = useCallback(async (id: string, data: Partial<ITool>): Promise<ITool | undefined> => {
+    const result = await api.put<Partial<ITool>, ITool>(`/api/v1/tools/${id}`, data, {}, {
+      snackbar: true,
+    })
+    if(!result) return
+    loadData()
+    return result
+  }, [
+    loadData,
+  ])
+
   return {
     data,
     loadData,
     createTool,
+    updateTool,
   }
 }
 
