@@ -26,9 +26,11 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ConstructionIcon from '@mui/icons-material/Construction'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useLayout from '../hooks/useLayout'
 import Snackbar from '../components/system/Snackbar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import GlobalLoading from '../components/system/GlobalLoading'
@@ -72,8 +74,9 @@ const Layout: FC = ({
 }) => {
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const layout = useLayout()
   const { mode, toggleMode } = useContext(ThemeContext)
-  const { setParams, params, meta, navigate, getToolbarElement, getTitle, name } = useRouter()
+  const { setParams, params, meta, navigate, getTitle, name } = useRouter()
   const account = useAccount()
   const bigScreen = useMediaQuery(theme.breakpoints.up('md'))
   const [accountMenuAnchorEl, setAccountMenuAnchorEl] = React.useState<null | HTMLElement>(null)
@@ -316,19 +319,29 @@ const Layout: FC = ({
                             </ListItemIcon> 
                             Dashboard
                           </MenuItem>
-
-                          <MenuItem onClick={ () => {
-                            handleCloseAccountMenu()
-                            navigate('account')
-                          }}>
-                            <ListItemIcon>
-                              <AccountBoxIcon fontSize="small" />
-                            </ListItemIcon> 
-                            My account
-                          </MenuItem>
-                          </>
+                        </>
                       )
                     }
+
+                    <MenuItem onClick={ () => {
+                      handleCloseAccountMenu()
+                      navigate('tools')
+                    }}>
+                      <ListItemIcon>
+                        <ConstructionIcon fontSize="small" />
+                      </ListItemIcon> 
+                      Tools
+                    </MenuItem>
+
+                    <MenuItem onClick={ () => {
+                      handleCloseAccountMenu()
+                      navigate('account')
+                    }}>
+                      <ListItemIcon>
+                        <AccountBoxIcon fontSize="small" />
+                      </ListItemIcon> 
+                      My account
+                    </MenuItem>
 
                     <MenuItem onClick={ () => {
                       handleCloseAccountMenu()
@@ -397,52 +410,60 @@ const Layout: FC = ({
         window.location.pathname.includes("/session") ? null :
         <NewAppBar
           getTitle={ getTitle }
-          getToolbarElement={ getToolbarElement }
+          getToolbarElement={ layout.toolbarRenderer }
           meta={ meta }
           handleDrawerToggle={ handleDrawerToggle }
           bigScreen={ bigScreen }
-          drawerWidth={drawerWidth}
+          drawerWidth={meta.sidebar?drawerWidth:0}
         />
       }
       {/* This drawer is what shows when the screen is small */}
-      <MuiDrawer
-        container={ container }
-        variant="temporary"
-        open={account.mobileMenuOpen}
-        onClose={ handleDrawerToggle }
-        ModalProps={{
-          keepMounted: true, // Better open performance on mobile.
-        }}
-        sx={{
-          height: '100vh',
-          display: { sm: 'block', md: 'none' },
-          '& .MuiDrawer-paper': {
-            boxSizing: 'border-box',
-            width: drawerWidth,
-            height: '100%',
-            overflowY: 'auto',
-          },
-        }}
-      >
-        {meta.sidebar?drawer:null}
-      </MuiDrawer>
+      {
+        meta.sidebar?(
+          <MuiDrawer
+            container={ container }
+            variant="temporary"
+            open={account.mobileMenuOpen}
+            onClose={ handleDrawerToggle }
+            ModalProps={{
+              keepMounted: true, // Better open performance on mobile.
+            }}
+            sx={{
+              height: '100vh',
+              display: { sm: 'block', md: 'none' },
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: drawerWidth,
+                height: '100%',
+                overflowY: 'auto',
+              },
+            }}
+          >
+            {drawer}
+          </MuiDrawer>
+        ) : null
+      }
       {/* This drawer is what shows when the screen is big */}
-      <Drawer
-        variant="permanent"
-        sx={{
-          height: '100vh',
-          display: { xs: 'none', md: 'block' },
-          '& .MuiDrawer-paper': {
-            boxSizing: 'border-box',
-            width: drawerWidth,
-            height: '100%',
-            overflowY: 'auto',
-          },
-        }}
-        open
-      >
-        {meta.sidebar?drawer:null}
-      </Drawer>
+      {
+        meta.sidebar?(
+          <Drawer
+            variant="permanent"
+            sx={{
+              height: '100vh',
+              display: { xs: 'none', md: 'block' },
+              '& .MuiDrawer-paper': {
+                boxSizing: 'border-box',
+                width: drawerWidth,
+                height: '100%',
+                overflowY: 'auto',
+              },
+            }}
+            open
+          >
+            {drawer}
+          </Drawer>
+        ) : null
+      }
       <Box
         component="main"
         sx={{
