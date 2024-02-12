@@ -21,7 +21,7 @@ import { SESSION_MODE_INFERENCE, SESSION_MODE_FINETUNE } from '../../types'
 
 interface NewAppBarProps {
   getTitle?: () => React.ReactNode;
-  getToolbarElement?: () => React.ReactNode;
+  getToolbarElement?: (bigScreen: boolean) => React.ReactNode;
   meta: { title?: string };
   handleDrawerToggle: () => void;
   bigScreen: boolean;
@@ -39,11 +39,6 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
   const theme = useTheme()
   const account = useAccount()
   const themeConfig = useThemeConfig()
-
-  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
-    setParams({ ...params, mode: newMode })
-  }
 
   const { setParams, params } = useRouter()
 
@@ -144,51 +139,21 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         }}
                     >
                         {
-                            getToolbarElement && account.user ? getToolbarElement() : null
+                            getToolbarElement && account.user ? getToolbarElement(true) : null
                         }
                         {
-                        !location.pathname.startsWith('/dashboard') && !location.pathname.startsWith('/files') && (
-                            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                                <Typography
-                                    sx={{
-                                    color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-                                    fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                                    mr: 2,
-                                    ml: 3,
-                                    textAlign: 'right',
-                                    }}
-                                >
-                                    Create
-                                </Typography>
-                                <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                                    <Switch
-                                        checked={params.mode === SESSION_MODE_FINETUNE}
-                                        onChange={handleModeChange}
-                                        name="modeSwitch"
-                                        size="medium"
-                                        sx={{
-                                            transform: 'scale(1.6)',
-                                            '& .MuiSwitch-thumb': {
-                                                scale: 0.4,
-                                            },
-                                        }}
-                                    />
+                          account.user ? (
+                            <Link
+                            href="https://docs.helix.ml/docs/overview"
+                            target="_blank"
+                            >
+                            <Tooltip title="Helix Docs">
+                                <Box component="span">
+                                <AutoStoriesIcon sx={{ ml: 3 }} />
                                 </Box>
-                                <Typography
-                                    sx={{
-                                        color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                                        fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                                        marginLeft: 2,
-                                        textAlign: 'left',
-                                    }}
-                                >
-                                    Fine&nbsp;tune
-                                </Typography>
-                            </Box>
-                        )}
-                        
-                        {
-                        !account.user ? (
+                            </Tooltip>
+                            </Link>
+                        ) : (
                             <Button
                                 variant="contained"
                                 color="primary"
@@ -200,7 +165,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                                 Login / Register
                             </Button>
-                            ) : null
+                          )
                         }
                     </Box>
                 </>
@@ -213,41 +178,22 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             justifyContent: 'flex-end'
                         }}
                     >
-                        <Typography
-                            sx={{
-                            color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-                            fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                            marginRight: '12px',
-                            }}
-                        >
-                            Create
-                        </Typography>
-                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Switch
-                                checked={params.mode === SESSION_MODE_FINETUNE}
-                                onChange={handleModeChange}
-                                name="modeSwitch"
-                                size="medium"
-                                sx={{
-                                    transform: 'scale(1)',
-                                    '& .MuiSwitch-thumb': {
-                                        scale: 0.4,
-                                    },
-                                }}
-                            />
-                        </Box>
-                        <Typography
-                            sx={{
-                            color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                            fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                            marginLeft: '12px',
-                            }}
-                        >
-                            Fine-tune
-                        </Typography>
-                    
-                        {
-                        !account.user ? (
+                      {
+                          getToolbarElement && account.user ? getToolbarElement(false) : null
+                      }
+                      {
+                        account.user ? (
+                            <Link
+                            href="https://docs.helix.ml/docs/overview"
+                            target="_blank"
+                            >
+                            <Tooltip title="Helix Docs">
+                                <Box component="span">
+                                <AutoStoriesIcon sx={{ ml: 2 }} />
+                                </Box>
+                            </Tooltip>
+                            </Link>
+                        ) : (
                             <Button
                             variant="contained"
                             color="primary"
@@ -258,7 +204,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             >
                             Login
                             </Button>
-                        ) : null
+                        )
                         }
                     </Box>
                 </>

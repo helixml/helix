@@ -5,6 +5,8 @@ import Box from '@mui/material/Box'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
+import Tools from './pages/Tools'
+import Tool from './pages/Tool'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import CreationCollection from './pages/CreateCollection'
@@ -21,7 +23,6 @@ import Files from './pages/Files'
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
   getTitle?: () => JSX.Element,
-  getToolbarElement?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
@@ -82,6 +83,26 @@ const routes: IApplicationRoute[] = [{
     </FilestoreContextProvider>
   ),
 }, {
+  name: 'tools',
+  path: '/tools',
+  meta: {
+    title: 'Tools',
+    sidebar: true,
+  },
+  render: () => (
+    <Tools />
+  ),
+}, {
+  name: 'tool',
+  path: '/tool/:tool_id',
+  meta: {
+    title: 'Tools : Edit',
+    sidebar: false,
+  },
+  render: () => (
+    <Tool />
+  ),
+}, {
   name: 'session',
   path: '/session/:session_id',
   meta: {
@@ -106,20 +127,6 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <Dashboard />
-  ),
-  getToolbarElement: () => (
-    <Box
-      sx={{
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-      }}
-    >
-      <SessionBadgeKey />
-    </Box>
-    
   ),
 }, {
   name: 'account',

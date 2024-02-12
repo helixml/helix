@@ -93,6 +93,20 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
         backgroundColor: 'transparent',
         boxShadow: '0 2px 4px 0px rgba(0,0,0,0.2)',
         border: borderStyle,
+        // TODO: for the love of god please can we sort this out
+        // all we want is some border please
+        '& .InovuaReactDataGrid--theme-default-light': {
+          border: '0.1rem solid #303047',
+        },
+        '& .InovuaReactDataGrid--theme-default-light .InovuaReactDataGrid__column-header--show-border-left, .InovuaReactDataGrid--theme-default-light .InovuaReactDataGrid__column-header__resize-wrapper--show-border-left, .InovuaReactDataGrid--theme-default-light .InovuaReactDataGrid__header-group__title--show-border-left': {
+          borderLeft: '0.1rem solid #303047 !important',
+        },
+        '& .InovuaReactDataGrid--theme-default-light .InovuaReactDataGrid__header': {
+          borderBottom: '0.1rem solid #303047 !important',
+        },
+        '& .InovuaReactDataGrid--theme-default-light .InovuaReactDataGrid__cell--show-border-bottom': {
+          borderBottom: '0.1rem solid #303047 !important',
+        },
         '& .InovuaReactDataGrid__header': {
           color: theme.palette.mode === 'dark' ? theme.palette.grey[300] : theme.palette.grey[900],
           fontWeight: 'lighter',

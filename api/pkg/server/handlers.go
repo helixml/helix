@@ -167,6 +167,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		UserInteractions:        []*types.Interaction{userInteraction},
 		Priority:                status.Config.StripeSubscriptionActive,
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
+		ParentSession:           req.FormValue("parent_session"),
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start session")

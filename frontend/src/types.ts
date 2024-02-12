@@ -386,3 +386,36 @@ export interface IShareSessionInstructions {
   inferencePrompt?: string,
   addDocumentsMode?: boolean,
 }
+
+export type IToolType = 'api' | 'function'
+
+export interface IToolApiAction {
+  name: string,
+  description: string,
+  method: string,
+  path: string,
+}
+
+export interface IToolApiConfig {
+  url: string,
+  schema: string,
+  actions: IToolApiAction[],
+  headers: Record<string, string>,
+  query: Record<string, string>,
+}
+
+export interface IToolConfig {
+  api: IToolApiConfig,
+}
+
+export interface ITool {
+  id: string,
+  created: string,
+  updated: string,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  tool_type: IToolType,
+  config: IToolConfig,
+}
