@@ -31,6 +31,13 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		}, nil
 	}
 
+	if c.apiClient == nil {
+		return &IsActionableResponse{
+			NeedsApi:      "no",
+			Justification: "No tools api client has been configured",
+		}, nil
+	}
+
 	started := time.Now()
 
 	systemPrompt, err := c.getActionableSystemPrompt(tools)
