@@ -38,18 +38,19 @@ const Tool: FC = () => {
   const sessions = useSessions()
   const tools = useTools()
   const api = useApi()
-  const session = useSession()
   const snackbar = useSnackbar()
+  const session = useSession()
   const {
     params,
+    navigate,
   } = useRouter()
 
   const themeConfig = useThemeConfig()
   const theme = useTheme()
 
   const textFieldRef = useRef<HTMLTextAreaElement>()
-  const [ name, setName ] = useState('')
   const [ inputValue, setInputValue ] = useState('')
+  const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
   const [ url, setURL ] = useState('')
   const [ headers, setHeaders ] = useState<Record<string, string>>({})
@@ -57,6 +58,7 @@ const Tool: FC = () => {
   const [ schema, setSchema ] = useState('')
   const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
+  const [ hasLoaded, setHasLoaded ] = useState(false)
 
   const tool = useMemo(() => {
     return tools.data.find((tool) => tool.id === params.tool_id)
@@ -89,6 +91,42 @@ const Tool: FC = () => {
     session.loadSession(newSessionData.id)
   }
 
+  const validate = () => {
+    if(!name) return false
+    if(!url) return false
+    if(!schema) return false
+    return true
+  }
+
+  const onUpdate = async () => {
+    if(!tool) return
+    if(!validate()) {
+      setShowErrors(true)
+      return
+    }
+    setShowErrors(false)
+
+    const newConfig = Object.assign({}, tool.config.api, {
+      url,
+      schema,
+      headers,
+      query,
+    })
+
+    const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
+      name,
+      description,
+      config: {
+        api: newConfig,
+      },
+    }))
+
+    if(!result) return
+
+    snackbar.success('Tool updated')
+    navigate('tools')
+  }
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
       if (event.shiftKey) {
@@ -115,6 +153,7 @@ const Tool: FC = () => {
     setSchema(tool.config.api.schema)
     setHeaders(tool.config.api.headers)
     setQuery(tool.config.api.query)
+    setHasLoaded(true)
   }, [
     tool,
   ])
@@ -128,8 +167,7 @@ const Tool: FC = () => {
 
   if(!account.user) return null
   if(!tool) return null
-
-  console.dir(session.data)
+  if(!hasLoaded) return null
 
   return (
     <>
@@ -162,7 +200,7 @@ const Tool: FC = () => {
                   type="button"
                   color="primary"
                   variant="outlined"
-                  onClick={ () => {} }
+                  onClick={ () => navigate('tools') }
                 >
                   Cancel
                 </Button>
@@ -173,7 +211,7 @@ const Tool: FC = () => {
                   type="button"
                   color="secondary"
                   variant="contained"
-                  onClick={ () => {} }
+                  onClick={ () => onUpdate() }
                 >
                   Save
                 </Button>
@@ -238,7 +276,7 @@ const Tool: FC = () => {
                 <ClickLink
                   onClick={ () => setShowBigSchema(true) }
                 >
-                  expand
+                  expand schema
                 </ClickLink>
               </Box>
               <Typography variant="h6" sx={{mb: 1}}>
@@ -253,6 +291,7 @@ const Tool: FC = () => {
                   Headers
                 </Typography>
                 <StringMapEditor
+                  entityTitle="header"
                   data={ headers }
                   onChange={ setHeaders }
                 />
@@ -266,6 +305,7 @@ const Tool: FC = () => {
                   Query Params
                 </Typography>
                 <StringMapEditor
+                  entityTitle="query param"
                   data={ query }
                   onChange={ setQuery }
                 />
