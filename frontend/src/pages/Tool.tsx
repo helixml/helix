@@ -73,34 +73,21 @@ const Tool: FC = () => {
 
   // this is for inference in both modes
   const onInference = async () => {
+    session.setData(undefined)
     const formData = new FormData()
     
     formData.set('input', inputValue)
     formData.set('mode', SESSION_MODE_INFERENCE)
     formData.set('type', SESSION_TYPE_TEXT)
+    formData.set('parent_session', params.tool_id)
 
-    const session = await api.post('/api/v1/sessions', formData)
-    if(!session) return
-    sessions.addSesssion(session)
+    const newSessionData = await api.post('/api/v1/sessions', formData)
+    if(!newSessionData) return
+    sessions.addSesssion(newSessionData)
     await bluebird.delay(300)
-    session.loadSession(session.id)
+    setInputValue('')
+    session.loadSession(newSessionData.id)
   }
-
-  const onSend = useCallback(async (prompt: string) => {
-    if(!session.data) return
-    
-    const formData = new FormData()
-    formData.set('input', prompt)
-
-    const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
-    if(!newSession) return
-    session.reload()
-
-    setInputValue("")
-  }, [
-    session.data,
-    session.reload,
-  ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -141,6 +128,8 @@ const Tool: FC = () => {
 
   if(!account.user) return null
   if(!tool) return null
+
+  console.dir(session.data)
 
   return (
     <>
@@ -302,7 +291,7 @@ const Tool: FC = () => {
                 }}
               >
                 <Typography variant="h6" sx={{mb: 1}}>
-                  Test
+                  Test Area
                 </Typography>
                 <Box
                   sx={{
@@ -319,7 +308,8 @@ const Tool: FC = () => {
                     fullWidth
                     inputRef={textFieldRef}
                     autoFocus
-                    label="Test your tool"
+                    label="Test your tool by asking questions here"
+                    helperText="Run prompts that will be answered by your tools here..."
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
@@ -333,13 +323,14 @@ const Tool: FC = () => {
                       color: themeConfig.darkText,
                       backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
                       ml: 2,
+                      mb: 3,
                       '&:hover': {
                         backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
                       }
                     }}
                     endIcon={<SendIcon />}
                   >
-                    Send
+                    Test
                   </Button>
                 </Box>
               </Box>
