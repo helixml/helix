@@ -4,6 +4,7 @@ import Grid from '@mui/material/Grid'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useLayout from '../hooks/useLayout'
 import useApi from '../hooks/useApi'
 import Divider from '@mui/material/Divider'
 import Typography from '@mui/material/Typography'
@@ -19,6 +20,7 @@ import SessionSummary from '../components/session/SessionSummary'
 import SessionHeader from '../components/session/SessionHeader'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
+import SessionBadgeKey from '../components/session/SessionBadgeKey'
 
 import {
   IDashboardData,
@@ -32,6 +34,7 @@ const Dashboard: FC = () => {
   const account = useAccount()
   const router = useRouter()
   const api = useApi()
+  const layout = useLayout()
 
   const activeRef = useRef(START_ACTIVE)
 
@@ -86,6 +89,26 @@ const Dashboard: FC = () => {
   }, [
     account.user,
   ])
+
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <Box
+          sx={{
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <SessionBadgeKey />
+        </Box>
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [])
 
   if(!account.user) return null
   if(!data) return null

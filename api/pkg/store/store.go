@@ -19,10 +19,11 @@ type OwnerQuery struct {
 }
 
 type GetSessionsQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
-	Offset    int             `json:"offset"`
-	Limit     int             `json:"limit"`
+	Owner         string          `json:"owner"`
+	OwnerType     types.OwnerType `json:"owner_type"`
+	ParentSession string          `json:"parent_session"`
+	Offset        int             `json:"offset"`
+	Limit         int             `json:"limit"`
 }
 
 type GetBotsQuery struct {

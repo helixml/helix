@@ -1,4 +1,23 @@
+<div align="center">
+
+<img alt="logo" src="https://tryhelix.ai/assets/img/home/helix_hero.png" width="250px">
+
+<br/>
+<br/>
+
+</div>
+
+<p align="center">
+  <a href="https://app.tryhelix.ai/">SaaS</a> •
+  <a href="https://docs.helix.ml/docs/controlplane">Private Deployment</a> •
+  <a href="https://docs.helix.ml/docs/overview">Docs</a> •  
+  <a href="https://discord.gg/VJftd844GE">Discord</a>
+</p>
+
+
 # HelixML
+
+[![Discord](https://dcbadge.vercel.app/api/server/VJftd844GE?style=flat&compact=true)](https://discord.gg/VJftd844GE)
 
 Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
@@ -6,13 +25,28 @@ Including support for fine-tuning models that's as easy as drag'n'drop.
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
-See more:
-* [Home & SaaS →](https://tryhelix.ai)
-* [Developers & Enterprise →](https://docs.helix.ml)
-* [Docs & Demo →](https://docs.helix.ml/docs/)
+## Docker
 
+```
+git clone https://github.com/helixml/helix.git
+cd helix
+```
 
-# License
+Create an `.env` file with settings based on the example values and edit it:
+
+```
+cp .env.example-prod .env
+```
+
+To start the services:
+
+```
+docker-compose up -d
+```
+
+The dashboard will be available on `http://localhost`.
+
+## License
 
 Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under a similar license to Docker Desktop. You can run the source code (in this repo) for free for:
 

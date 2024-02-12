@@ -11,12 +11,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// parent session and parent tool are part of this query because then we can say
+// "all top level sessions" or
+// "all sessions belonging to this top level session"
+func getSessionsQuery(query GetSessionsQuery) (*types.Session, []interface{}) {
+	fields := []interface{}{
+		"Owner", "OwnerType", "ParentSession",
+	}
+	session := &types.Session{
+		Owner:         query.Owner,
+		OwnerType:     query.OwnerType,
+		ParentSession: query.ParentSession,
+	}
+	return session, fields
+}
+
 func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery) ([]*types.Session, error) {
 
-	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(&types.Session{
-		Owner:     query.Owner,
-		OwnerType: query.OwnerType,
-	})
+	whereQuery, fields := getSessionsQuery(query)
+
+	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
 
 	q = q.Order("created DESC")
 
@@ -35,6 +49,22 @@ func (s *PostgresStore) GetSessions(ctx context.Context, query GetSessionsQuery)
 	}
 
 	return sessions, nil
+}
+
+func (s *PostgresStore) GetSessionsCounter(ctx context.Context, query GetSessionsQuery) (*types.Counter, error) {
+	whereQuery, fields := getSessionsQuery(query)
+
+	q := s.gdb.WithContext(ctx).Model(&types.Session{}).Where(whereQuery, fields...)
+
+	var counter int64
+	err := q.Count(&counter).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.Counter{
+		Count: counter,
+	}, nil
 }
 
 func (s *PostgresStore) CreateSession(ctx context.Context, session types.Session) (*types.Session, error) {
@@ -97,20 +127,4 @@ func (s *PostgresStore) DeleteSession(ctx context.Context, sessionID string) (*t
 	}
 
 	return existing, nil
-}
-
-func (d *PostgresStore) GetSessionsCounter(
-	ctx context.Context,
-	query GetSessionsQuery,
-) (*types.Counter, error) {
-	count, err := d.db.
-		From("session").
-		Where(d.getSessionsWhere(query)).
-		Count()
-	if err != nil {
-		return nil, err
-	}
-	return &types.Counter{
-		Count: count,
-	}, nil
 }

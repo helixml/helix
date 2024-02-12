@@ -66,6 +66,15 @@ func GetLastUserInteraction(interactions []*types.Interaction) (*types.Interacti
 	return nil, fmt.Errorf("no user interaction found")
 }
 
+func GetFirstUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+	for _, interaction := range interactions {
+		if interaction.Creator == types.CreatorTypeUser {
+			return interaction, nil
+		}
+	}
+	return nil, fmt.Errorf("no user interaction found")
+}
+
 // get the most recent user interaction
 func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
 	return GetLastUserInteraction(session.Interactions)
