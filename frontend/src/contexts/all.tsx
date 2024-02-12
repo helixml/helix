@@ -20,6 +20,10 @@ import {
   AccountContextProvider,
 } from './account'
 
+import {
+  LayoutContextProvider,
+} from './layout'
+
 // all of these contexts MUST be below the account context
 // because they rely on it
 import {
@@ -34,7 +38,9 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
-                {children}
+                <LayoutContextProvider>
+                  {children}
+                </LayoutContextProvider>
               </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>

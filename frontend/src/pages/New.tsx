@@ -7,9 +7,7 @@ import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
-import MenuItem from '@mui/material/MenuItem'
-import Select from '@mui/material/Select'
-import FormControl from '@mui/material/FormControl'
+import Switch from '@mui/material/Switch'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import InputAdornment from '@mui/material/InputAdornment'
@@ -26,6 +24,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
@@ -48,6 +47,7 @@ const New: FC = () => {
   } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
+  const layout = useLayout()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
 
@@ -276,6 +276,11 @@ const New: FC = () => {
     }
   }
 
+  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
+    setParams({ ...params, mode: newMode })
+  }
+
   useEffect(() => {
     if(mode != SESSION_MODE_INFERENCE) return
     textFieldRef.current?.focus()
@@ -290,6 +295,54 @@ const New: FC = () => {
     }
     loader()  
   }, [])
+
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography
+            sx={{
+              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              mr: 2,
+              ml: 3,
+              textAlign: 'right',
+            }}
+          >
+              Create
+          </Typography>
+          <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+            <Switch
+              checked={params.mode === SESSION_MODE_FINETUNE}
+              onChange={handleModeChange}
+              name="modeSwitch"
+              size="medium"
+              sx={{
+                transform: 'scale(1.6)',
+                '& .MuiSwitch-thumb': {
+                    scale: 0.4,
+                },
+              }}
+            />
+          </Box>
+          <Typography
+              sx={{
+                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                marginLeft: 2,
+                textAlign: 'left',
+              }}
+          >
+              Fine&nbsp;tune
+          </Typography>
+        </Box>
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [
+    params,
+  ])
 
   if(!initialized) return null
 
