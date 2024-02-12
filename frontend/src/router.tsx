@@ -20,7 +20,6 @@ import Files from './pages/Files'
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
   getTitle?: () => JSX.Element,
-  getToolbarElement?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
@@ -70,7 +69,7 @@ const routes: IApplicationRoute[] = [{
   path: '/tool/:tool_id',
   meta: {
     title: 'Tools : Edit',
-    sidebar: true,
+    sidebar: false,
   },
   render: () => (
     <Tool />
@@ -100,20 +99,6 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <Dashboard />
-  ),
-  getToolbarElement: () => (
-    <Box
-      sx={{
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-      }}
-    >
-      <SessionBadgeKey />
-    </Box>
-    
   ),
 }, {
   name: 'account',

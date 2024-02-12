@@ -85,7 +85,6 @@ const Tool: FC = () => {
 
     const newSessionData = await api.post('/api/v1/sessions', formData)
     if(!newSessionData) return
-    sessions.addSesssion(newSessionData)
     await bluebird.delay(300)
     setInputValue('')
     session.loadSession(newSessionData.id)
