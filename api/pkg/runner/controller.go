@@ -28,6 +28,10 @@ type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
 
+	// WarmupModels specifies the models that should go through the
+	// warmup on start
+	WarmupModels []string
+
 	// this means a CLI will be posting jobs to us locally and we will
 	// not be polling a remote api
 	LocalMode bool

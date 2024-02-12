@@ -45,9 +45,29 @@ func GetInteraction(session *types.Session, id string) (*types.Interaction, erro
 	return nil, fmt.Errorf("interaction not found: %s", id)
 }
 
+func GetLastInteractions(session *types.Session, limit int) []*types.Interaction {
+	interactions := session.Interactions
+	if len(interactions) == 0 {
+		return interactions
+	}
+	if len(interactions) < limit {
+		limit = len(interactions)
+	}
+	return interactions[len(interactions)-limit:]
+}
+
 func GetLastUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
+		if interaction.Creator == types.CreatorTypeUser {
+			return interaction, nil
+		}
+	}
+	return nil, fmt.Errorf("no user interaction found")
+}
+
+func GetFirstUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+	for _, interaction := range interactions {
 		if interaction.Creator == types.CreatorTypeUser {
 			return interaction, nil
 		}
