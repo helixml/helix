@@ -14,11 +14,13 @@ import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
+import Switch from '@mui/material/Switch'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import SettingsIcon from '@mui/icons-material/Settings'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
+import IconButton from '@mui/material/IconButton'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -33,6 +35,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 
@@ -56,6 +59,7 @@ const New: FC = () => {
   } = useRouter()
   const account = useAccount()
   const sessions = useSessions()
+  const layout = useLayout()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
 
@@ -81,97 +85,63 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
+  const examplePrompts = {
+    text: [
+      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
+    ],
+    image: [
+      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
+      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
+      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
+    ]
+  };
+
   const SampleContent = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
     };
-    var s1 = "";
-    var s2 = "";
-    var s3 = "";
-    var s4 = "";
-    if (selectedMode == "inference" && selectedType == "text") {
-      s1 = "Structure a weekly [newsletter topic] newsletter for my [company type]"
-      s2 = "I need to prepare a presentation for a potential investor on <presentation topic>. What to include?"
-      s3 = "Give me some guidance on an email to a client regarding a change in the project timeline"
-      s4 = "Create a personalized email greeting for a VIP customer of my [company type]"
-    }
-
-    if (selectedMode == "inference" && selectedType == "image") {
-      s1 = "A modern and sleek logo for a tech company specializing in virtual reality technology. The logo should incorporate a futuristic vibe and feature a 3D geometric shape with a gradient color scheme."
-      s2 = "A fashion logo featuring a high-end, elegant font with a gradient color scheme and a minimalistic, abstract graphic."
-      s3 = "Macro close-up shot of the eyes of a caterpillar"
-      s4 = "A painting of a woman with a butterfly on a yellow wall, graffiti art, inspired by Brad Kunkle, tutu, russ mills, hip skirt wings, andrey gordeev"
-    }
 
     if (selectedMode == "finetune") {
       return null;
     }
 
+    const prompts = selectedType == SESSION_TYPE_TEXT ? examplePrompts.text : examplePrompts.image;
+
     return (
-      <Grid container spacing={2} sx={{mb: 2}}>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightblue',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s1)}
-          >
-            {s1}
-          </Box>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <Typography variant="body2" sx={{mb: 1}}>
+          Try an example
+        </Typography>
+        <Grid container spacing={2} sx={{mb: 2}}>
+          {prompts.map((prompt, index) => (
+            <Grid item xs={12} sm={4} key={index}>
+              <Box
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  cursor: 'pointer',
+                  border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
+                  borderRadius: 1,
+                  padding: 1,
+                  fontSize: 'small',
+                }}
+                onClick={() => handleClick(prompt)}
+              >
+                {prompt}
+              </Box>
+            </Grid>
+          ))}
         </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightgreen',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s2)}
-          >
-            {s2}
-          </Box>
-        </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightpink',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s3)}
-          >
-            {s3}
-          </Box>
-        </Grid>
-        <Grid item xs={6}>
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              // backgroundColor: 'lightyellow',
-              cursor: 'pointer',
-              border: '1px solid #333',
-              padding: 1,
-            }}
-            onClick={() => handleClick(s4)}
-          >
-            {s4}
-          </Box>
-        </Grid>
-      </Grid>
-    );
-  };
+      </Box>
+    )
+  }
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     inputs.setInputValue(event.target.value)
@@ -285,6 +255,11 @@ const New: FC = () => {
     }
   }
 
+  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
+    setParams({ ...params, mode: newMode })
+  }
+
   useEffect(() => {
     if(mode != SESSION_MODE_INFERENCE) return
     textFieldRef.current?.focus()
@@ -300,6 +275,54 @@ const New: FC = () => {
     loader()  
   }, [])
 
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography
+            sx={{
+              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              mr: 2,
+              ml: 3,
+              textAlign: 'right',
+            }}
+          >
+              Create
+          </Typography>
+          <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+            <Switch
+              checked={params.mode === SESSION_MODE_FINETUNE}
+              onChange={handleModeChange}
+              name="modeSwitch"
+              size="medium"
+              sx={{
+                transform: 'scale(1.6)',
+                '& .MuiSwitch-thumb': {
+                    scale: 0.4,
+                },
+              }}
+            />
+          </Box>
+          <Typography
+              sx={{
+                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                marginLeft: 2,
+                textAlign: 'left',
+              }}
+          >
+              Fine&nbsp;tune
+          </Typography>
+        </Box>
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [
+    params,
+  ])
+
   if(!initialized) return null
 
   const CenteredMessage: FC = () => {
@@ -308,14 +331,31 @@ const New: FC = () => {
         sx={{
           textAlign: 'left', // Center the text inside the box
           zIndex: 2, // Ensure it's above other elements
-          border: '1px solid #333', // Add a border
+          border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
-          padding: 4,
-          mt: 10,
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E620' : '#00008020'}`
+          padding: {
+            xs: 2,
+            md: 5,
+          },
+          mt: {
+            xs: 0,
+            md: 14,
+          },
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom sx={{fontWeight: 800,}}>
+        <Typography
+          variant="h4"
+          component="h1"gutterBottom
+          sx={{
+            fontWeight: 800,
+            lineHeight: 0.9,
+            scale: {
+              xs: 0.7,
+              md: 1,
+            },
+          }}
+        >
           What do you want to create?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
@@ -334,17 +374,27 @@ const New: FC = () => {
             fontWeight: 800,
             pt: '1px',
             pb: '1px',
-            m: 1,
+            m: 0.5,
           }}
           endIcon={<SwapHorizIcon />}
           onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
         >
           {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
         </Button>
-        <Typography variant="subtitle1">
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
           Type a prompt into the box below
         </Typography>
-        <Typography variant="subtitle1">
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
           Press enter to begin
         </Typography>
       </Box>
@@ -493,7 +543,7 @@ const New: FC = () => {
           justifyContent: 'center',
         }}
       >
-        <Container maxWidth="lg">
+        <Container maxWidth="xl">
           <Box
             sx={{
               width: '100%',
@@ -550,7 +600,6 @@ const New: FC = () => {
                         fontWeight: 800,
                         pt: '1px',
                         pb: '1px',
-
                       }}
                       endIcon={<SwapHorizIcon />}
                       onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
@@ -559,36 +608,26 @@ const New: FC = () => {
                     </Button>
                   </InputAdornment>
                 ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="send"
+                      disabled={selectedMode == SESSION_MODE_FINETUNE}
+                      onClick={onInference}
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      }}
+                    >
+                      <SendIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
             />
-            <Button
-              id="sendButton"
-              variant='contained'
-              disabled={selectedMode == SESSION_MODE_FINETUNE}
-              onClick={ onInference }
-              sx={{
-                color: themeConfig.darkText,
-                backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
-                ml: 2,
-                '&:hover': {
-                  backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                }
-              }}
-              endIcon={<SendIcon />}
-            >
-              Send
-            </Button>
           </Box>
           <Box
             sx={{
               mt: 2,
-              mb: {
-                xs: 8,
-                sm: 8,
-                md: 8,
-                lg: 4,
-                xl: 4,
-              }
             }}
           >
             <Disclaimer />

@@ -183,6 +183,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	})).Methods("GET")
 
 	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
+	subrouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
@@ -258,6 +259,10 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
+
+	// api/v1beta/sessions is the new route for creating sessions
+	authRouter.HandleFunc("/sessions/chat", apiServer.startSessionHandler).Methods("POST")
+
 	maybeAuthRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
 	maybeAuthRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")

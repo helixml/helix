@@ -226,6 +226,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		OwnerType:        reqContext.OwnerType,
 		UserInteractions: []*types.Interaction{userInteraction},
 		Priority:         status.Config.StripeSubscriptionActive,
+		ParentSession:    req.FormValue("parent_session"),
 		// the default is no unless we specifically say yes
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 		// the default is yes unless we specifically say no
