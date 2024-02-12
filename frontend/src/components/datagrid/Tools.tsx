@@ -1,11 +1,10 @@
 import React, { FC, useMemo } from 'react'
-import VisibilityIcon from '@mui/icons-material/Visibility'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import FolderIcon from '@mui/icons-material/Folder'
 import Box from '@mui/material/Box'
-import Avatar from '@mui/material/Avatar'
-import { prettyBytes } from '../../utils/format'
+import Typography from '@mui/material/Typography'
+import Stack from '@mui/material/Stack'
+import Chip from '@mui/material/Chip'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
@@ -35,7 +34,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
     {
       name: 'name',
       header: 'Name',
-      defaultFlex: 1,
+      defaultFlex: 0,
       render: ({ data }) => {
         return (
           <a
@@ -58,7 +57,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
     {
       name: 'updated',
       header: 'Updated',
-      defaultWidth: 140,
+      defaultFlex: 0,
       render: ({ data }) => {
         return (
           <Box
@@ -72,23 +71,51 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
       }
     },
     {
-      name: 'type',
-      header: 'Type',
-      defaultWidth: 120,
-      render: ({ data }) => {
-        return data.tool_type
-      }
-    },
-    {
       name: 'url',
       header: 'URL',
-      defaultFlex: 1,
+      minWidth: 240,
+      defaultWidth: 240,
       render: ({ data }) => {
         return data.config.api.url
       }
     },
     {
       name: 'actions',
+      header: 'Actions',
+      defaultFlex: 1,
+      render: ({ data }) => {
+        return (
+          <>
+          {
+            data.config.api.actions.map((action, index) => {
+              return (
+                <Box key={index}>
+                  <Stack direction="row" spacing={1}>
+                    <Box sx={{minWidth: '300px'}}>
+                      <Typography sx={{minWidth: '300px'}}>
+                        {action.name}
+                      </Typography>
+                      <Typography variant="caption" sx={{color: '#999'}}>
+                        {action.description}
+                      </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} sx={{pt:1}}>
+                      <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
+                      <Typography>
+                        {action.path}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                </Box>
+              )
+            })
+          }
+          </>
+        )
+      }
+    },
+    {
+      name: 'actionbuttons',
       header: '',
       minWidth: 120,
       defaultWidth: 120,

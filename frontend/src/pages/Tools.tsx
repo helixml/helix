@@ -7,7 +7,9 @@ import Container from '@mui/material/Container'
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
+import useLayout from '../hooks/useLayout'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
@@ -20,12 +22,14 @@ import {
 const Tools: FC = () => {
   const account = useAccount()
   const tools = useTools()
+  const layout = useLayout()
   const snackbar = useSnackbar()
   const {
     navigate,
   } = useRouter()
 
   const [ addingTool, setAddingTool ] = useState(false)
+  const [ deletingTool, setDeletingTool ] = useState<ITool>()
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
     const newTool = await tools.createTool(url, schema)
@@ -45,9 +49,15 @@ const Tools: FC = () => {
     })
   }, [])
 
-  const onDeleteTool = useCallback((tool: ITool) => {
-
-  }, [])
+  const onDeleteTool = useCallback(async () => {
+    if(!deletingTool) return
+    const result = await tools.deleteTool(deletingTool.id)
+    if(!result) return
+    setDeletingTool(undefined)
+    snackbar.success('Tool deleted')
+  }, [
+    deletingTool,
+  ])
 
   useEffect(() => {
     if(!account.user) return
@@ -55,6 +65,25 @@ const Tools: FC = () => {
   }, [
     account.user,
   ])
+
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <Button
+          variant="contained"
+          color="secondary"
+          endIcon={<AddIcon />}
+          onClick={ () => {
+            setAddingTool(true)
+          }}
+        >
+          Create Tool
+        </Button>
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [])
 
   if(!account.user) return null
 
@@ -67,53 +96,26 @@ const Tools: FC = () => {
           height: 'calc(100% - 100px)',
         }}
       >
-        <Box
-          sx={{
-            height: 'calc(100vh - 100px)',
-            width: '100%',
-            flexGrow: 1,
-          }}
-        >
-          <DataGridWithFilters
-            filters={
-              <Box
-                sx={{
-                  width: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                }}
-              >
-                <Button
-                  sx={{
-                    width: '100%',
-                  }}
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<AddIcon />}
-                  onClick={ () => {
-                    setAddingTool(true)
-                  }}
-                >
-                  Create Tool
-                </Button>
-              </Box>
-            }
-            datagrid={
-              <ToolsGrid
-                data={ tools.data }
-                onEdit={ onEditTool }
-                onDelete={ onDeleteTool }
-              />
-            }
-          />
-        </Box>
+        <ToolsGrid
+          data={ tools.data }
+          onEdit={ onEditTool }
+          onDelete={ setDeletingTool }
+        />
       </Container>
       {
         addingTool && (
           <CreateToolWindow
             onCreate={ onCreateTool }
             onCancel={ () => setAddingTool(false) }
+          />
+        )
+      }
+      {
+        deletingTool && (
+          <DeleteConfirmWindow
+            title="this tool"
+            onCancel={ () => setDeletingTool(undefined) }
+            onSubmit={ onDeleteTool }
           />
         )
       }
