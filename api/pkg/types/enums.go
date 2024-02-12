@@ -6,6 +6,10 @@ import (
 
 type ModelName string
 
+func (m ModelName) String() string {
+	return string(m)
+}
+
 const (
 	Model_None      ModelName = ""
 	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
@@ -141,8 +145,9 @@ const (
 type CreatorType string
 
 const (
-	CreatorTypeSystem CreatorType = "system"
-	CreatorTypeUser   CreatorType = "user"
+	CreatorTypeSystem    CreatorType = "system"
+	CreatorTypeAssistant CreatorType = "assistant"
+	CreatorTypeUser      CreatorType = "user"
 )
 
 type WebsocketEventType string

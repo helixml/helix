@@ -43,6 +43,10 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
+			WarmupModels: getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
+				types.Model_Mistral7b.String(),
+				types.Model_SDXL.String(),
+			}),
 		},
 		Janitor: janitor.JanitorOptions{
 			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
@@ -193,7 +197,7 @@ var ITX_B = &types.Interaction{
 	Finished: false,
 }
 
-var WARMUP_SESSIONS = []types.Session{{
+var WarmupSession_Model_Mistral7b = types.Session{
 	ID:           "warmup-text",
 	Name:         "warmup-text",
 	Created:      time.Now(),
@@ -205,7 +209,9 @@ var WARMUP_SESSIONS = []types.Session{{
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
-}, {
+}
+
+var WarmupSession_Model_SDXL = types.Session{
 	ID:           "warmup-image",
 	Name:         "warmup-image",
 	Created:      time.Now(),
@@ -217,7 +223,7 @@ var WARMUP_SESSIONS = []types.Session{{
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
 	OwnerType:    "user",
-}}
+}
 
 func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	system.SetupLogging()
@@ -264,7 +270,14 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	useWarmupSessions := []types.Session{}
 	if !options.Runner.MockRunner {
-		useWarmupSessions = WARMUP_SESSIONS
+		for _, modelName := range options.Runner.WarmupModels {
+			switch {
+			case modelName == types.Model_Mistral7b.String():
+				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
+			case modelName == types.Model_SDXL.String():
+				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
+			}
+		}
 	}
 
 	runnerController, err := runner.NewRunner(ctx, options.Runner, useWarmupSessions)

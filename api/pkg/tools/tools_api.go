@@ -157,11 +157,13 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 	// Render template
 	var sb strings.Builder
 	err = tmpl.Execute(&sb, struct {
-		Schema  string
-		Message string
+		Schema       string
+		Message      string
+		Interactions []*types.Interaction
 	}{
-		Schema:  jsonSpec,
-		Message: currentMessage,
+		Schema:       jsonSpec,
+		Message:      currentMessage,
+		Interactions: history,
 	})
 
 	if err != nil {
@@ -208,9 +210,14 @@ Examples:
 ===END EXAMPLES===
 OpenAPI schema: {{.Schema}}
 
-User's input: {{ .Message }}
+Conversation so far:
+{{ range $index, $interaction := .Interactions }}
+{{ $interaction.Creator }}: ({{ $interaction.Message }})
+{{ end }}
+user: ({{ .Message }})
 
-Based on the information provided, construct a valid golang JSON map (map[string]string) object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
+
+Based on the information provided, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
@@ -269,7 +276,6 @@ func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	}
 
 	jsonSpec, err := json.MarshalIndent(filtered, "", "  ")
-	// jsonSpec, err := filtered.MarshalJSON()
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal openapi spec: %w", err)
 	}
