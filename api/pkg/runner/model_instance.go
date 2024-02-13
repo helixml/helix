@@ -417,6 +417,11 @@ func (instance *ModelInstance) startProcess(session *types.Session) error {
 				log.Error().Msg("detected GPU error, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/123")
 				os.Exit(1)
 			}
+			if strings.Contains(errstr, "not supported on this GPU") {
+				// sometimes this happens when drivers get upgraded and then container needs restarting - we think
+				log.Error().Msg("detected GPU error 2, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/123")
+				os.Exit(1)
+			}
 
 			return
 		}
