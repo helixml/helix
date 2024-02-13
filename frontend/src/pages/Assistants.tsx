@@ -14,10 +14,24 @@ import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 
 import {
-  ITool,
+  IAssistant, IOwnerType, IToolType, IToolConfig,
 } from '../types'
 
-
+const MY_FIXTURE_ASSISTANTS: IAssistant[] = [
+    {
+      id: '1',
+      created: '2023-01-01T00:00:00Z',
+      updated: '2023-01-01T00:00:00Z',
+      owner: 'user123',
+      owner_type: 'user' as IOwnerType,
+      name: 'test1',
+      description: 'This is a test assistant',
+      tool_type: 'function' as IToolType,
+      config: {} as IToolConfig
+    }
+         
+    // ... more fixture data as needed
+  ]
 const Tools: FC = () => {
   const account = useAccount()
   const tools = useTools()
@@ -40,13 +54,13 @@ const Tools: FC = () => {
     tools.createTool,
   ])
 
-  const onEditTool = useCallback((tool: ITool) => {
+  const onEditTool = useCallback((tool: IAssistant) => {
     navigate('tool', {
       tool_id: tool.id,
     })
   }, [])
 
-  const onDeleteTool = useCallback((tool: ITool) => {
+  const onDeleteTool = useCallback((tool: IAssistant) => {
 
   }, [])
 
@@ -102,7 +116,7 @@ const Tools: FC = () => {
             }
             datagrid={
               <ToolsGrid
-                data={ tools.data }
+                data={MY_FIXTURE_ASSISTANTS}
                 onEdit={ onEditTool }
                 onDelete={ onDeleteTool }
               />
