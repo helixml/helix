@@ -262,7 +262,7 @@ const Tool: FC = () => {
                 helperText="Enter a description of this tool (optional)"
               />
               <Typography variant="h6" sx={{mb: 1}}>
-                API
+                API Specification
               </Typography>
               <TextField
                 sx={{
@@ -272,7 +272,7 @@ const Tool: FC = () => {
                 value={ url }
                 onChange={(e) => setURL(e.target.value)}
                 fullWidth
-                label="API URL"
+                label="Endpoint URL"
                 placeholder="Enter API URL"
                 helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
               />
