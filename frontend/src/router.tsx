@@ -96,7 +96,7 @@ const routes: IApplicationRoute[] = [{
   name: 'tool',
   path: '/tool/:tool_id',
   meta: {
-    title: 'Tools : Edit',
+    title: 'Edit Tool',
     sidebar: false,
   },
   render: () => (
