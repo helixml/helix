@@ -376,7 +376,7 @@ export const buttonStates: IButtonStates = {
   addTextColor: 'primary',
   addTextLabel: 'Add Text',
   uploadFilesColor: 'primary',
-  uploadFilesLabel: 'Or Choose Files',
+  uploadFilesLabel: 'Or Choose Documents',
 }
 
 // these are kept in local storage so we know what to do once we are logged in

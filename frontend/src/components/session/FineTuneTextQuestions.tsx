@@ -64,7 +64,7 @@ export const FineTuneTextQuestions: FC<{
         color="primary"
         size={ onlyShowEditMode ? "medium" : "small" }
         sx={{
-          width: '100%',
+          mr: 1,
         }}
         endIcon={<EditIcon />}
         onClick={ () => setEditMode(true) }

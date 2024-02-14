@@ -299,7 +299,7 @@ export const FineTuneTextInputs: FC<{
                   width: '100%',
                 }}
               >
-                drop files here to upload them ...
+                drop documents here to upload them ...
               </Typography>
               
             </Box>
