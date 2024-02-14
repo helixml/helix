@@ -367,7 +367,7 @@ const Tool: FC = () => {
                     inputRef={textFieldRef}
                     autoFocus
                     label="Message Helix"
-                    helperText="Prompt the AI with a message, tool decisions are made based on action description"
+                    helperText="Prompt the AI with a message, tool decisions are taken based on action description"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
