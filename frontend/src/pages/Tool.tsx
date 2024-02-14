@@ -262,7 +262,7 @@ const Tool: FC = () => {
                 helperText="Enter a description of this tool (optional)"
               />
               <Typography variant="h6" sx={{mb: 1}}>
-                API
+                API Specification
               </Typography>
               <TextField
                 sx={{
@@ -272,7 +272,7 @@ const Tool: FC = () => {
                 value={ url }
                 onChange={(e) => setURL(e.target.value)}
                 fullWidth
-                label="API URL"
+                label="Endpoint URL"
                 placeholder="Enter API URL"
                 helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
               />
@@ -283,8 +283,8 @@ const Tool: FC = () => {
                 fullWidth
                 multiline
                 rows={10}
-                label="Enter openAI schema (base64 encoded or escaped JSON/yaml)"
-                helperText={ showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml" }
+                label="OpenAPI (Swagger) schema"
+                helperText={ showErrors && !schema ? "Please enter a schema" : "" }
               />
               <Box
                 sx={{
@@ -349,7 +349,7 @@ const Tool: FC = () => {
                 }}
               >
                 <Typography variant="h6" sx={{mb: 1}}>
-                  Test Area
+                  Preview
                 </Typography>
                 <Box
                   sx={{
@@ -366,8 +366,8 @@ const Tool: FC = () => {
                     fullWidth
                     inputRef={textFieldRef}
                     autoFocus
-                    label="Test your tool by asking questions here"
-                    helperText="Run prompts that will be answered by your tools here..."
+                    label="Message Helix"
+                    helperText="Prompt the AI with a message, tool decisions are taken based on action description"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
@@ -388,7 +388,7 @@ const Tool: FC = () => {
                     }}
                     endIcon={<SendIcon />}
                   >
-                    Test
+                    Send
                   </Button>
                 </Box>
               </Box>
@@ -460,8 +460,8 @@ const Tool: FC = () => {
                 onChange={(e) => setSchema(e.target.value)}
                 fullWidth
                 multiline
-                label="Enter openAI schema"
-                helperText={showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml"}
+                label="OpenAPI (Swagger) schema"
+                helperText={showErrors && !schema ? "Please enter a schema" : ""}
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>

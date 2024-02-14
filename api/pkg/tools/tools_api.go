@@ -126,10 +126,27 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	var params map[string]string
-	err = unmarshalJSON(resp.Choices[0].Message.Content, &params)
+	// var params map[string]string
+	params, err := unmarshalParams(resp.Choices[0].Message.Content)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, resp.Choices[0].Message.Content)
+		return nil, err
+	}
+
+	return params, nil
+}
+
+func unmarshalParams(data string) (map[string]string, error) {
+	var initial map[string]interface{}
+	err := json.Unmarshal([]byte(data), &initial)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response from inference API: %w (%s)", err, data)
+	}
+
+	params := make(map[string]string)
+
+	for k, v := range initial {
+		// Convert any type of value to string
+		params[k] = fmt.Sprintf("%v", v)
 	}
 
 	return params, nil
