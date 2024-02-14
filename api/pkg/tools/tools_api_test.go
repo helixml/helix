@@ -545,6 +545,33 @@ func Test_unmarshalParams(t *testing.T) {
 				"id": "1000",
 			},
 		},
+		{
+			name: "float",
+			args: args{
+				data: `{"id": 1005.0}`,
+			},
+			want: map[string]string{
+				"id": "1005",
+			},
+		},
+		{
+			name: "float_2",
+			args: args{
+				data: `{"id": 1005.5}`,
+			},
+			want: map[string]string{
+				"id": "1005.5",
+			},
+		},
+		{
+			name: "bool",
+			args: args{
+				data: `{"yes": true}`,
+			},
+			want: map[string]string{
+				"yes": "true",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
