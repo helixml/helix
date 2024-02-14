@@ -58,8 +58,8 @@ export const CreateToolWindow: FC<{
           fullWidth
           multiline
           rows={10}
-          label="Enter openAI schema (base64 encoded or escaped JSON/yaml)"
-          helperText={ showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml" }
+          label="OpenAPI (Swagger) schema"
+          helperText={ showErrors && !schema ? "Please enter a schema" : "" }
         />
       </Box>
     </Window>
