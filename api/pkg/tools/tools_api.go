@@ -34,8 +34,6 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 				path = p
 				method = m
 
-				// spew.Dump(operation.Parameters)
-
 				for _, param := range operation.Parameters {
 
 					switch param.Value.In {
@@ -316,6 +314,10 @@ func GetActionsFromSchema(spec string) ([]*types.ToolApiAction, error) {
 			description := operation.Summary
 			if description == "" {
 				description = operation.Description
+			}
+
+			if operation.OperationID == "" {
+				return nil, fmt.Errorf("operationId is missing for all %s %s", method, path)
 			}
 
 			actions = append(actions, &types.ToolApiAction{
