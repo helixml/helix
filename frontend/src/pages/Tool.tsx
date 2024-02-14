@@ -283,8 +283,8 @@ const Tool: FC = () => {
                 fullWidth
                 multiline
                 rows={10}
-                label="Enter openAI schema (base64 encoded or escaped JSON/yaml)"
-                helperText={ showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml" }
+                label="OpenAPI (Swagger) schema"
+                helperText={ showErrors && !schema ? "Please enter a schema" : "" }
               />
               <Box
                 sx={{
@@ -349,7 +349,7 @@ const Tool: FC = () => {
                 }}
               >
                 <Typography variant="h6" sx={{mb: 1}}>
-                  Test Area
+                  Preview
                 </Typography>
                 <Box
                   sx={{
@@ -366,8 +366,8 @@ const Tool: FC = () => {
                     fullWidth
                     inputRef={textFieldRef}
                     autoFocus
-                    label="Test your tool by asking questions here"
-                    helperText="Run prompts that will be answered by your tools here..."
+                    label="Message Helix"
+                    helperText="Prompt the AI with a message, tool decisions are made based on action description"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
@@ -388,7 +388,7 @@ const Tool: FC = () => {
                     }}
                     endIcon={<SendIcon />}
                   >
-                    Test
+                    Send
                   </Button>
                 </Box>
               </Box>
@@ -460,8 +460,8 @@ const Tool: FC = () => {
                 onChange={(e) => setSchema(e.target.value)}
                 fullWidth
                 multiline
-                label="Enter openAI schema"
-                helperText={showErrors && !schema ? "Please enter a schema" : "base64 encoded or escaped JSON/yaml"}
+                label="OpenAPI (Swagger) schema"
+                helperText={showErrors && !schema ? "Please enter a schema" : ""}
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>
