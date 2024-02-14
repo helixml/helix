@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -170,6 +171,11 @@ func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 		}
 
 		tool.Config.API.Actions = actions
+
+		_, err = s.Controller.Options.Planner.ValidateAndDefault(context.Background(), tool)
+		if err != nil {
+			return system.NewHTTPError400("failed to validate and default tool, error: %s", err)
+		}
 
 	default:
 		return system.NewHTTPError400("invalid tool type %s, only API tools are supported at the moment", tool.ToolType)
