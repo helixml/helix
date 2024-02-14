@@ -1,6 +1,7 @@
 import React, { FC, useState } from 'react'
 import TextField from '@mui/material/TextField'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
 
 import Window from '../widgets/Window'
 
@@ -39,6 +40,15 @@ export const CreateToolWindow: FC<{
           p: 2,
         }}
       >
+        <Typography className="interactionMessage"
+          sx={{
+            mt: 2,
+            mb: 2,
+          }}
+        >
+          Let your assistant retrieve information or take actions outside of Helix.          
+        </Typography>
+        
         <TextField
           sx={{
             mb: 2,
@@ -47,7 +57,7 @@ export const CreateToolWindow: FC<{
           value={ url }
           onChange={(e) => setURL(e.target.value)}
           fullWidth
-          label="API URL"
+          label="Endpoint URL"
           placeholder="Enter API URL"
           helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
         />
