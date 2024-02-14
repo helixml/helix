@@ -366,6 +366,8 @@ export interface IButtonStates {
   addTextLabel: string,
   addUrlColor: IButtonStateColor,
   addUrlLabel: string,
+  addQAPairsColor: IButtonStateColor,
+  addQAPairsLabel: string,
   uploadFilesColor: IButtonStateColor,
   uploadFilesLabel: string,
 }
@@ -375,8 +377,10 @@ export const buttonStates: IButtonStates = {
   addUrlLabel: 'Add URL',
   addTextColor: 'primary',
   addTextLabel: 'Add Text',
+  addQAPairsColor: 'primary',
+  addQAPairsLabel: 'Add Q&A Pairs',
   uploadFilesColor: 'primary',
-  uploadFilesLabel: 'Or Choose Documents',
+  uploadFilesLabel: 'Choose Documents',
 }
 
 // these are kept in local storage so we know what to do once we are logged in

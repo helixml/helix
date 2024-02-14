@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import Grid from '@mui/material/Grid'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -19,6 +21,10 @@ import FileUpload from '../widgets/FileUpload'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import Caption from '../widgets/Caption'
+import Window from '../widgets/Window'
+
+import showdown from 'showdown'
+import showdownHighlight from 'showdown-highlight'
 
 import useSnackbar from '../../hooks/useSnackbar'
 import InteractionContainer from './InteractionContainer'
@@ -30,6 +36,209 @@ import {
 import {
   mapFileExtension,
 } from '../../utils/filestore'
+
+let converter = new showdown.Converter({
+  extensions: [showdownHighlight({
+    pre: true, 
+    auto_detection: true
+  })]
+})
+
+const MARKDOWN_HELP = `
+
+### alpaca
+
+instruction; input(optional)
+\`\`\`json
+{"instruction": "...", "input": "...", "output": "..."}
+\`\`\`
+
+### sharegpt
+
+conversations where \`from\` is \`human\`/\`gpt\`. (optional: \`system\` to override default system prompt)
+\`\`\`json
+{"conversations": [{"from": "...", "value": "..."}]}
+\`\`\`
+
+### llama-2
+
+the json is the same format as \`sharegpt\` above, with the following config
+\`\`\`yaml
+datasets:
+  - path: <your-path>
+    type: sharegpt
+    conversation: llama-2
+\`\`\`
+
+### completion
+
+raw corpus
+\`\`\`json
+{"text": "..."}
+\`\`\`
+
+
+### jeopardy
+
+question and answer
+\`\`\`json
+{"question": "...", "category": "...", "answer": "..."}
+\`\`\`
+
+### oasst
+
+instruction
+\`\`\`json
+{"INSTRUCTION": "...", "RESPONSE": "..."}
+\`\`\`
+
+### gpteacher
+
+instruction; input(optional)
+\`\`\`json
+{"instruction": "...", "input": "...", "response": "..."}
+\`\`\`
+
+### reflection
+
+instruction with reflect; input(optional)
+\`\`\`json
+{"instruction": "...", "input": "...", "output": "...", "reflection": "...", "corrected": "..."}
+\`\`\`
+
+### explainchoice
+
+question, choices, (solution OR explanation)
+\`\`\`json
+{"question": "...", "choices": ["..."], "solution": "...", "explanation": "..."}
+\`\`\`
+
+### concisechoice
+
+question, choices, (solution OR explanation)
+\`\`\`json
+{"question": "...", "choices": ["..."], "solution": "...", "explanation": "..."}
+\`\`\`
+
+### summarizetldr
+
+article and summary
+\`\`\`json
+{"article": "...", "summary": "..."}
+\`\`\`
+
+### alpaca_chat
+
+basic instruct for alpaca chat
+\`\`\`json
+{"instruction": "...", "input": "...", "response": "..."}
+\`\`\`
+
+### alpaca_chat.load_qa
+
+question and answer for alpaca chat
+\`\`\`json
+{"question": "...", "answer": "..."}
+\`\`\`
+
+### alpaca_chat.load_concise
+
+question and answer for alpaca chat, for concise answers
+\`\`\`json
+{"instruction": "...", "input": "...", "response": "..."}
+\`\`\`
+
+### alpaca_chat.load_camel_ai
+
+question and answer for alpaca chat, for load_camel_ai
+\`\`\`json
+{"message_1": "...", "message_2": "..."}
+\`\`\`
+
+### alpaca_w_system.load_open_orca
+
+support for open orca datasets with included system prompts, instruct
+\`\`\`json
+{"system_prompt": "...", "question": "...", "response": "..."}
+\`\`\`
+
+### context_qa
+
+in context question answering from an article
+\`\`\`json
+{"article": "...", "question": "...", "answer": "..."}
+\`\`\`
+
+### context_qa.load_v2
+
+in context question answering (alternate)
+\`\`\`json
+{"context": "...", "question": "...", "answer": "..."}
+\`\`\`
+
+### context_qa.load_404
+
+in context question answering from an article, with default response for no answer from context
+\`\`\`json
+{"article": "...", "unanswerable_question": "..."}
+\`\`\`
+
+### creative_acr.load_answer
+
+instruction and revision
+\`\`\`json
+{"instruction": "...", "revision": "..."}
+\`\`\`
+
+### creative_acr.load_critique
+
+critique
+\`\`\`json
+{"scores": "...", "critiques": "...", "instruction": "...", "answer": "..."}
+\`\`\`
+
+### creative_acr.load_revise
+
+critique and revise
+\`\`\`json
+{"scores": "...", "critiques": "...", "instruction": "...", "answer": "...", "revision": "..."}
+\`\`\`
+
+### pygmalion
+
+pygmalion
+\`\`\`json
+{"conversations": [{"role": "...", "value": "..."}]}
+\`\`\`
+
+### metharme
+
+instruction, adds additional eos tokens
+\`\`\`json
+{"prompt": "...", "generation": "..."}
+\`\`\`
+
+### sharegpt.load_role
+
+conversations where \`role\` is used instead of \`from\`
+\`\`\`json
+{"conversations": [{"role": "...", "value": "..."}]}
+\`\`\`
+
+### sharegpt.load_guanaco
+
+conversations where \`from\` is \`prompter\`/\`assistant\` instead of default sharegpt
+\`\`\`json
+{"conversations": [{"from": "...", "value": "..."}]}
+\`\`\`
+
+### sharegpt_jokes
+
+creates a chat where bot is asked to tell a joke, then explain why the joke is funny
+\`\`\`json
+{"conversations": [{"title": "...", "text": "...", "explanation": "..."}]}
+\`\`\`
+`
 
 export const FineTuneTextInputs: FC<{
   initialCounter?: number,
@@ -55,6 +264,8 @@ export const FineTuneTextInputs: FC<{
   const [manualTextFileCounter, setManualTextFileCounter] = useState(initialCounter || 0)
   const [manualTextFile, setManualTextFile] = useState('')
   const [manualURL, setManualURL] = useState('')
+  const [addingQAPair, setAddingQAPair] = useState(false)
+  const [qaPairType, setQAPairType] = useState('sharegpt')
   const [manuallyReviewQuestions, setManuallyReviewQuestions] = useState(false)
   const [files, setFiles] = useState<File[]>(initialFiles || [])
   const themeConfig = useThemeConfig()
@@ -75,6 +286,13 @@ export const FineTuneTextInputs: FC<{
     ], `${fileTitle}.url`)
     setFiles(files.concat(file))
     setManualURL('')
+  }, [
+    manualURL,
+    files,
+  ])
+
+  const onAddQAPairs = useCallback(() => {
+    
   }, [
     manualURL,
     files,
@@ -247,10 +465,8 @@ export const FineTuneTextInputs: FC<{
           >
             { buttonStates.addTextLabel }
           </Button>
-        </Cell>
-        
+        </Cell>        
       </Row>
-
 
       <FileUpload
         sx={{
@@ -322,11 +538,52 @@ export const FineTuneTextInputs: FC<{
               { buttonStates.uploadFilesLabel }
             </Button>
           </Cell>
-          
         </Row>
-
-        
       </FileUpload>
+
+      <Row
+        sx={{
+          width: '100%',
+          display: 'flex',
+          mb: 2,
+          alignItems: 'flex-start',
+          justifyContent: 'flex-start',
+          flexDirection: {
+            xs: 'column',
+            sm: 'column',
+            md: 'row'
+          }
+        }}
+      >
+        <Cell
+          sx={{
+            width: '100%',
+            flexGrow: 1,
+            pr: 2,
+            pb: 1,
+          }}
+        >
+          
+        </Cell>
+        <Cell
+          sx={{
+            width: '240px',
+            minWidth: '240px',
+          }}
+        >
+          <Button
+            sx={{
+              width: '100%',
+            }}
+            variant="contained"
+            color={ buttonStates.addQAPairsColor }
+            endIcon={<AddCircleIcon />}
+            onClick={ () => setAddingQAPair(true) }
+          >
+            { buttonStates.addQAPairsLabel }
+          </Button>
+        </Cell>
+      </Row>
 
       <Box
         sx={{
@@ -359,7 +616,6 @@ export const FineTuneTextInputs: FC<{
                 </Grid>
               )
             })
-              
           }
         </Grid>
       </Box>
@@ -392,6 +648,120 @@ export const FineTuneTextInputs: FC<{
               </Button>
             </Grid>
           </Grid>
+        )
+      }
+      {
+        addingQAPair && (
+          <Window
+            size="lg"
+            open
+            title="Add manual Q&A pairs"
+            onCancel={ () => setAddingQAPair(false) }
+            onSubmit={ () => {
+              setAddingQAPair(false)
+            }}
+          >
+            <Box
+              sx={{
+                p: 2,
+              }}
+            >
+              <Row>
+                <Cell>
+                  <Typography variant="body1">
+                    Choose the format your questions and answers file is in.
+                  </Typography>
+                </Cell>
+              </Row>
+              <Row
+                sx={{
+                  alignItems: 'flex-start',
+                  flexDirection: {
+                    xs: 'column',
+                    sm: 'column',
+                    md: 'row'
+                  }
+                }}
+              >
+                <Cell
+                  sx={{
+                    width: '100%',
+                    flexGrow: 1,
+                    pr: 2,
+                    pb: 1,
+                  }}
+                >
+                  <Select
+                    sx={{
+                      color: 'white',
+                    }}
+                    value={qaPairType}
+                    onChange={(e) => setQAPairType(e.target.value as string)}
+                    fullWidth
+                  >
+                    <MenuItem value="alpaca">alpaca</MenuItem>
+                    <MenuItem value="sharegpt">sharegpt</MenuItem>
+                    <MenuItem value="llama-2">llama-2</MenuItem>
+                    <MenuItem value="jeopardy">jeopardy</MenuItem>
+                    <MenuItem value="oasst">oasst</MenuItem>
+                    <MenuItem value="gpteacher">gpteacher</MenuItem>
+                    <MenuItem value="reflection">reflection</MenuItem>
+                    <MenuItem value="explainchoice">explainchoice</MenuItem>
+                    <MenuItem value="concisechoice">concisechoice</MenuItem>
+                    <MenuItem value="summarizetldr">summarizetldr</MenuItem>
+                    <MenuItem value="alpaca_chat">alpaca_chat</MenuItem>
+                    <MenuItem value="alpaca_chat.load_qa">alpaca_chat.load_qa</MenuItem>
+                    <MenuItem value="alpaca_chat.load_concise">alpaca_chat.load_concise</MenuItem>
+                    <MenuItem value="alpaca_chat.load_camel_ai">alpaca_chat.load_camel_ai</MenuItem>
+                    <MenuItem value="alpaca_w_system.load_open_orca">alpaca_w_system.load_open_orca</MenuItem>
+                    <MenuItem value="context_qa">context_qa</MenuItem>
+                    <MenuItem value="context_qa.load_v2">context_qa.load_v2</MenuItem>
+                    <MenuItem value="context_qa.load_404">context_qa.load_404</MenuItem>
+                    <MenuItem value="creative_acr.load_answer">creative_acr.load_answer</MenuItem>
+                    <MenuItem value="creative_acr.load_critique">creative_acr.load_critique</MenuItem>
+                    <MenuItem value="creative_acr.load_revise">creative_acr.load_revise</MenuItem>
+                    <MenuItem value="pygmalion">pygmalion</MenuItem>
+                    <MenuItem value="metharme">metharme</MenuItem>
+                    <MenuItem value="sharegpt.load_role">sharegpt.load_role</MenuItem>
+                    <MenuItem value="sharegpt.load_guanaco">sharegpt.load_guanaco</MenuItem>
+                    <MenuItem value="sharegpt_jokes">sharegpt_jokes</MenuItem>
+                  </Select>
+                </Cell>
+                <Cell
+                  sx={{
+                    flexGrow: 0,
+                    width: '240px',
+                    minWidth: '240px',
+                  }}
+                >
+                  <FileUpload
+                    sx={{
+                      width: '100%',
+                    }}
+                    onlyDocuments
+                    onUpload={ onDropFiles }
+                  >
+                    <Button
+                      sx={{
+                        width: '100%',
+                      }}
+                      variant="contained"
+                      color={ buttonStates.uploadFilesColor }
+                      endIcon={<CloudUploadIcon />}
+                    >
+                      Choose JSONL File
+                    </Button>
+                  </FileUpload>
+                </Cell>
+              </Row>
+
+              <Row>
+                <Cell>
+                  <div dangerouslySetInnerHTML={{__html: converter.makeHtml(MARKDOWN_HELP) }} />
+                </Cell>
+              </Row>
+            </Box>
+          </Window>
         )
       }
     </Box>
