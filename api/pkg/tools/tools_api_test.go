@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	golden "gotest.tools/v3/golden"
@@ -516,3 +516,46 @@ components:
         message:
           type: string
 `
+
+func Test_unmarshalParams(t *testing.T) {
+	type args struct {
+		data string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    map[string]string
+		wantErr bool
+	}{
+		{
+			name: "int",
+			args: args{
+				data: `{"id": 1000}`,
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
+		{
+			name: "string",
+			args: args{
+				data: `{"id": "1000"}`,
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := unmarshalParams(tt.args.data)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("unmarshalParams() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("unmarshalParams() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
