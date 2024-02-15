@@ -53,6 +53,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
 			OriginalMode: req.SessionMode,
+			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
 			},
