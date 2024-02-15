@@ -25,7 +25,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	var startReq types.SessionChatRequest
 	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
 	if err != nil {
-		http.Error(rw, "invalid request body", http.StatusBadRequest)
+		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -71,6 +71,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			SessionID:        sessionID,
 			SessionMode:      types.SessionModeInference,
 			SessionType:      startReq.Type,
+			SystemPrompt:     startReq.SystemPrompt,
 			ModelName:        types.ModelName(startReq.Model),
 			Owner:            userContext.Owner,
 			OwnerType:        userContext.OwnerType,
