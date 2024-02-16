@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
@@ -73,18 +73,28 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
-  const examplePrompts = {
-    text: [
-      "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
-      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
-      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
-    ],
-    image: [
-      "Generate a beautiful photograph of a pink rose garden, on a sunny day, white clouds, small birds flying, and a blue sky, high resolution",
-      "Create an image of an interior design for a luxurious master bedroom, gold and marble furniture, luxury, intricate, breathtaking, and modern",
-      "Vaporwave style, hypercar, cyberpunk city, intricately detailed, deep color, 8k resolution, photorealistic, masterpiece, cinematic lighting"
-    ]
-  };
+  const getTextPrompts = () => [
+    "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+    "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail",
+    "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
+    "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
+    "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
+  ]
+
+  const getImagePrompts = () => [
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color], [resolution] resolution",
+    "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
+    "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
+    "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
+    "Produce an infographic illustrating the growth of [topic] over the last decade, using [color palette] and engaging visuals",
+    "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
+  ]
+
+  const examplePrompts = useMemo(() => ({
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, 3),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, 3)
+  }), [])
 
   const SampleContent = () => {
     const handleClick = (content: string) => {
