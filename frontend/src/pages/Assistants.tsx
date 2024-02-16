@@ -14,24 +14,10 @@ import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 
 import {
-  IAssistant, IOwnerType, IToolType, IToolConfig,
+  IAssistant,
 } from '../types'
 
-const MY_FIXTURE_ASSISTANTS: IAssistant[] = [
-    {
-      id: '1',
-      created: '2023-01-01T00:00:00Z',
-      updated: '2023-01-01T00:00:00Z',
-      owner: 'user123',
-      owner_type: 'user' as IOwnerType,
-      name: 'test1',
-      description: 'This is a test assistant',
-      tool_type: 'function' as IToolType,
-      config: {} as IToolConfig
-    }
-         
-    // ... more fixture data as needed
-  ]
+
 const Tools: FC = () => {
   const account = useAccount()
   const tools = useTools()
@@ -116,7 +102,7 @@ const Tools: FC = () => {
             }
             datagrid={
               <ToolsGrid
-                data={MY_FIXTURE_ASSISTANTS}
+                data={ tools.data }
                 onEdit={ onEditTool }
                 onDelete={ onDeleteTool }
               />

@@ -431,6 +431,3 @@ export interface IAssistant {
   tool_type: IToolType,
   config: IToolConfig,
 }
-
-
-
