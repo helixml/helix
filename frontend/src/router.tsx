@@ -18,6 +18,7 @@ import SessionTitle from './components/session/SessionTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
+import Assistants from './pages/Assistants'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
@@ -35,7 +36,17 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <div>Page Not Found</div>,
 }
 
-const routes: IApplicationRoute[] = [{
+const routes: IApplicationRoute[] = [
+  {
+    name: 'assistants',
+    path: '/assistants',
+    meta: {
+      title: 'Assistants',
+      sidebar: true, // if you want it to appear in the sidebar
+    },
+    render: () => <Assistants />,
+  },
+  {
   name: 'new',
   path: '/',
   meta: {
