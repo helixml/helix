@@ -1,4 +1,5 @@
 import React, { FC, useState, useEffect, useCallback } from 'react'
+import { HTTPSnippet } from '@readme/httpsnippet'
 import {CopyToClipboard} from 'react-copy-to-clipboard'
 import Container from '@mui/material/Container'
 import Button from '@mui/material/Button'
@@ -72,6 +73,31 @@ const Account: FC = () => {
 
   if(!account.user) return null
 
+  const apiToken = account.apiKeys[0].key
+
+  let headers = [
+    {
+      name: 'Content-Type',
+      value: 'application/json'
+    },
+    {
+      name: 'Authorization',
+      value: `Bearer ${apiToken}`
+    }
+  ]
+
+  const snippet = new HTTPSnippet({
+    method: 'POST',
+    url: `${window.location.protocol}//${window.location.host}/api/images/generations`,
+    headers: headers,
+    postData: {
+      text: `{"prompt": "futuristic city, extra detailed"}`,
+      mimeType: "application/json"
+    }
+  })
+
+  const code = snippet.convert('shell', 'curl', { indent: '\t' })
+
   return (
     <Container maxWidth="lg" sx={{ mt: 12, height: 'calc(100% - 100px)' }}>
       <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -79,7 +105,9 @@ const Account: FC = () => {
           <Grid container spacing={2}>
             <Grid item xs={12} md={colSize}>
               <Paper sx={{ p: 2 }}>
-                <Typography variant="h6">API Keys</Typography>
+                <Typography variant="h6">API</Typography>
+
+                <Typography sx={{ mt: 8 }}>Keys:</Typography>
                 <List>
                   {account.apiKeys.map((apiKey) => (
                     <ListItem key={apiKey.key}>
@@ -96,7 +124,16 @@ const Account: FC = () => {
                       </ListItemSecondaryAction>
                     </ListItem>
                   ))}
-                </List>
+                </List>                              
+              </Paper>
+
+              <Paper sx={{ p: 2 }}>
+                <Typography variant="h6">Using API</Typography>
+                  
+                <Typography>Example:</Typography>
+                <pre>
+                  {code}
+                </pre>
               </Paper>
             </Grid>
             {paymentsActive && (

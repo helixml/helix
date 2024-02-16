@@ -20,6 +20,7 @@
     "@mui/icons-material": "^5.3.1",
     "@mui/material": "^5.3.1",
     "@mui/styles": "^5.12.0",
+    "@readme/httpsnippet": "^8.1.4",
     "@sentry/browser": "^7.88.0",
     "@sentry/react": "^7.88.0",
     "@types/bluebird": "^3.5.36",
