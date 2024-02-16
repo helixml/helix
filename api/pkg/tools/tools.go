@@ -18,6 +18,8 @@ type Planner interface {
 	IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
 	// TODO: RAG lookup
 	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
+	// Validation and defaulting
+	ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 }
 
 // Static check
@@ -38,6 +40,8 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
 		}
 
+		log.Info().Msg("using OpenAI provider for tools")
+
 		apiClient = openai.New(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
@@ -45,9 +49,14 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 		if cfg.Providers.TogetherAI.APIKey == "" {
 			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
+
+		log.Info().Msg("using TogetherAI provider for tools")
+
 		apiClient = openai.New(
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL)
+	default:
+		log.Warn().Msg("no tools provider configured")
 	}
 
 	retryClient := retryablehttp.NewClient()

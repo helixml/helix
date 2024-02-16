@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/suite"
 )
@@ -63,6 +64,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,
+				Planner: &tools.ChainStrategy{},
 			},
 		},
 		adminAuth: &adminAuth{},

@@ -22,7 +22,9 @@ func (s *PostgresStore) CreateTool(ctx context.Context, tool *types.Tool) (*type
 
 	tool.Created = time.Now()
 
-	err := s.gdb.WithContext(ctx).Create(&tool).Error
+	setDefaults(tool)
+
+	err := s.gdb.WithContext(ctx).Create(tool).Error
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +59,8 @@ func (s *PostgresStore) GetTool(ctx context.Context, id string) (*types.Tool, er
 		return nil, err
 	}
 
+	setDefaults(&tool)
+
 	return &tool, nil
 }
 
@@ -70,7 +74,25 @@ func (s *PostgresStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*ty
 		return nil, err
 	}
 
+	setDefaults(tools...)
+
 	return tools, nil
+}
+
+func setDefaults(tools ...*types.Tool) {
+	for idx := range tools {
+		tool := tools[idx]
+		switch tool.ToolType {
+		case types.ToolTypeAPI:
+			if tool.Config.API.Headers == nil {
+				tool.Config.API.Headers = map[string]string{}
+			}
+
+			if tool.Config.API.Query == nil {
+				tool.Config.API.Query = map[string]string{}
+			}
+		}
+	}
 }
 
 func (s *PostgresStore) DeleteTool(ctx context.Context, id string) error {
