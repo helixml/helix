@@ -75,7 +75,7 @@ const New: FC = () => {
 
   const examplePrompts = {
     text: [
-      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+      "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
       "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
       "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
     ],
@@ -333,7 +333,7 @@ const New: FC = () => {
         }}
       >
         <Typography
-          variant="h4"
+          variant="h5"
           component="h1"gutterBottom
           sx={{
             fontWeight: 800,

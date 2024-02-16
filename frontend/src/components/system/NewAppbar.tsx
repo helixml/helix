@@ -139,7 +139,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         }}
                     >
                         {
-                            getToolbarElement && account.user ? getToolbarElement(true) : null
+                            getToolbarElement && getToolbarElement(true)
                         }
                         {
                           account.user ? (
@@ -179,7 +179,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         }}
                     >
                       {
-                          getToolbarElement && account.user ? getToolbarElement(false) : null
+                          getToolbarElement && getToolbarElement(true)
                       }
                       {
                         account.user ? (
