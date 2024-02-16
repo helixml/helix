@@ -80,9 +80,9 @@ const New: FC = () => {
       "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
     ],
     image: [
-      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
-      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
-      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
+      "Generate a beautiful photograph of a pink rose garden, on a sunny day, white clouds, small birds flying, and a blue sky, high resolution",
+      "Create an image of an interior design for a luxurious master bedroom, gold and marble furniture, luxury, intricate, breathtaking, and modern",
+      "Vaporwave style, hypercar, cyberpunk city, intricately detailed, deep color, 8k resolution, photorealistic, masterpiece, cinematic lighting"
     ]
   };
 
