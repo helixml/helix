@@ -333,13 +333,20 @@ const New: FC = () => {
         }}
       >
         <Typography
-          variant="h5"
-          component="h1"gutterBottom
+          variant={"h5"}
+          component="h1"
+          gutterBottom
           sx={{
+            fontSize: {
+              xs: '1.1rem',
+              sm: '1.4rem',
+              md: '1.7rem',
+            },
             fontWeight: 800,
             lineHeight: 0.9,
             scale: {
               xs: 0.7,
+              sm: 0.85,
               md: 1,
             },
           }}
