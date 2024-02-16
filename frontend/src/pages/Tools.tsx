@@ -8,56 +8,66 @@ import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/Tools/CreateToolWindow'
 
-import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
+import { IAssistant, IOwnerType, IToolType, IToolConfig } from '../types'
 
-import {
-  ITool,
-} from '../types'
-
+const MY_FIXTURE_ASSISTANTS: IAssistant[] = [
+  {
+    id: '1',
+    created: '2023-01-01T00:00:00Z',
+    updated: '2023-01-01T00:00:00Z',
+    owner: 'user123',
+    owner_type: 'user' as IOwnerType,
+    name: 'test1',
+    description: 'This is a test assistant',
+    tool_type: 'function' as IToolType,
+    config: {
+      api: {
+          url: '', // Provide the actual URL
+          schema: '', // Provide the actual schema
+          actions: [], // Provide the actual actions array
+          headers: {}, // Provide the actual headers object
+          query: {}, // Provide the actual query object
+      } // Do not cast here, let TypeScript infer the type
+  },
+}
+]
 
 const Tools: FC = () => {
   const account = useAccount()
-  const tools = useTools()
   const snackbar = useSnackbar()
-  const {
-    navigate,
-  } = useRouter()
+  const { navigate } = useRouter()
 
-  const [ addingTool, setAddingTool ] = useState(false)
+  const [addingTool, setAddingTool] = useState(false)
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
-    const newTool = await tools.createTool(url, schema)
-    if(!newTool) return
+    // Simulate tool creation using fixture data
+    const newTool = MY_FIXTURE_ASSISTANTS[0] // Replace with logic to select/create a fixture tool
     setAddingTool(false)
     snackbar.success('Tool created')
     navigate('tool', {
       tool_id: newTool.id,
     })
-  }, [
-    tools.createTool,
-  ])
+  }, [navigate, snackbar])
 
-  const onEditTool = useCallback((tool: ITool) => {
+  const onEditTool = useCallback((tool: IAssistant) => {
     navigate('tool', {
       tool_id: tool.id,
     })
-  }, [])
+  }, [navigate])
 
-  const onDeleteTool = useCallback((tool: ITool) => {
-
+  const onDeleteTool = useCallback((tool: IAssistant) => {
+    // Handle deletion using fixture data
   }, [])
 
   useEffect(() => {
-    if(!account.user) return
-    tools.loadData()
-  }, [
-    account.user,
-  ])
+    if (!account.user) return
+    // Load fixture data instead of API call
+  }, [account.user])
 
-  if(!account.user) return null
+  if (!account.user) return null
 
   return (
     <>
@@ -92,7 +102,7 @@ const Tools: FC = () => {
                   variant="contained"
                   color="secondary"
                   endIcon={<AddIcon />}
-                  onClick={ () => {
+                  onClick={() => {
                     setAddingTool(true)
                   }}
                 >
@@ -102,9 +112,9 @@ const Tools: FC = () => {
             }
             datagrid={
               <ToolsGrid
-                data={ tools.data }
-                onEdit={ onEditTool }
-                onDelete={ onDeleteTool }
+                data={MY_FIXTURE_ASSISTANTS}
+                onEdit={onEditTool}
+                onDelete={onDeleteTool}
               />
             }
           />
@@ -113,8 +123,8 @@ const Tools: FC = () => {
       {
         addingTool && (
           <CreateToolWindow
-            onCreate={ onCreateTool }
-            onCancel={ () => setAddingTool(false) }
+            onCreate={onCreateTool}
+            onCancel={() => setAddingTool(false)}
           />
         )
       }
