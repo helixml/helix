@@ -360,9 +360,11 @@ const New: FC = () => {
           variant="contained"
           size="small"
           sx={{
-            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+            bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+            ":hover": {
+              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+            },
             color: 'black',
-            mr: 2,
             borderRadius: 1,
             textTransform: 'none',
             fontSize: "medium",
@@ -370,6 +372,7 @@ const New: FC = () => {
             pt: '1px',
             pb: '1px',
             m: 0.5,
+            mb: 1,
           }}
           endIcon={<SwapHorizIcon />}
           onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
@@ -534,7 +537,10 @@ const New: FC = () => {
                       variant="contained"
                       size="small"
                       sx={{
-                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+                        bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                        ":hover": {
+                          bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                        },
                         color: 'black',
                         mr: 2,
                         borderRadius: 1,
