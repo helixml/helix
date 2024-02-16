@@ -419,3 +419,15 @@ export interface ITool {
   tool_type: IToolType,
   config: IToolConfig,
 }
+
+export interface IAssistant {
+  id: string,
+  created: string,
+  updated: string,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  tool_type: IToolType,
+  config: IToolConfig,
+}
