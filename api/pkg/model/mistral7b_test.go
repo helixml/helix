@@ -32,6 +32,24 @@ func Test_formatPrompt(t *testing.T) {
 			want: "[INST]hello[/INST]\n",
 		},
 		{
+			name: "skip empty message",
+			args: args{
+				session: &types.Session{
+					Interactions: []*types.Interaction{
+						{
+							Creator: "user",
+							Message: "hello",
+						},
+						{
+							Creator: "user",
+							Message: "",
+						},
+					},
+				},
+			},
+			want: "[INST]hello[/INST]\n",
+		},
+		{
 			name: "one message, system prompt",
 			args: args{
 				session: &types.Session{
