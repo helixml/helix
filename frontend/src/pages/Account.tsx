@@ -151,7 +151,7 @@ const Account: FC = () => {
                 <List>
                 <ListItem >
                   <ListItemText 
-                    primary={'Helix session'} 
+                    primary={'Helix session chat'} 
                     secondary={'Provides an easy way to set system prompt, fine-tuning adapters. Supply session_id to continue existing session.'} />
                   
                   <ListItemSecondaryAction sx={{ pr: 4 }}>
@@ -178,7 +178,7 @@ const Account: FC = () => {
                 <List>
                   <ListItem >
                     <ListItemText                     
-                      primary={'OpenAI chat completions API'} 
+                      primary={'OpenAI chat'} 
                       secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context'} />
 
                     <ListItemSecondaryAction sx={{ pr: 4 }}>
