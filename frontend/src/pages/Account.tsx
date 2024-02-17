@@ -100,6 +100,19 @@ const Account: FC = () => {
   ]
 }'`
 
+  const openAICurlExample = `curl --request POST \\
+  --url ${window.location.protocol}//${window.location.host}/v1/chat/completions \\
+  --header 'Authorization: Bearer ${apiKey}' \\
+  --header 'Content-Type: application/json' \\
+  --data '{
+    "model": "mistralai/Mistral-7B-Instruct-v0.1",
+    "stream": false,
+    "messages": [
+      { "role": "system", "content": "You are a helpful assistant." },
+      { "role": "user", "content": "how big was the roman empire?" }
+    ]
+  }'`
+
   return (
     <Container maxWidth="lg" sx={{ mt: 12, height: 'calc(100% - 100px)' }}>
       <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -135,24 +148,60 @@ const Account: FC = () => {
 
               <Paper sx={{ p: 2 }}>
                 <Typography variant="h6">Text generation</Typography>
-                
+                <List>
                 <ListItem >
                   <ListItemText 
                     primary={'Helix session'} 
                     secondary={'Provides an easy way to set system prompt, fine-tuning adapters. Supply session_id to continue existing session.'} />
+                  
+                  <ListItemSecondaryAction sx={{ pr: 4 }}>
+                    <CopyToClipboard text={curlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
+                      <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                        <CopyIcon />
+                      </IconButton>
+                    </CopyToClipboard>
+                  </ListItemSecondaryAction>
 
                 </ListItem>
-                  <Typography component="pre" 
-                     sx={{
-                      wordBreak: 'break-all',
-                      wordWrap: 'break-all',
-                      whiteSpace: 'pre-wrap',
-                      fontSize: '0.8rem',                      
-                      ml: 2,
-                     }}
-                  >
-                    {curlExample}                  
-                  </Typography>                                  
+                </List>
+                <Typography component="pre" 
+                    sx={{
+                    wordBreak: 'break-all',
+                    wordWrap: 'break-all',
+                    whiteSpace: 'pre-wrap',
+                    fontSize: '0.8rem',                      
+                    ml: 2,
+                    }}
+                >
+                  {curlExample}
+                </Typography>
+                <List>
+                  <ListItem >
+                    <ListItemText                     
+                      primary={'OpenAI chat completions API'} 
+                      secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context'} />
+
+                    <ListItemSecondaryAction sx={{ pr: 4 }}>
+                      <CopyToClipboard text={openAICurlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
+                        <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                          <CopyIcon />
+                        </IconButton>
+                      </CopyToClipboard>
+                    </ListItemSecondaryAction>
+                  </ListItem>
+                </List>
+
+                <Typography component="pre" 
+                    sx={{
+                    wordBreak: 'break-all',
+                    wordWrap: 'break-all',
+                    whiteSpace: 'pre-wrap',
+                    fontSize: '0.8rem',                      
+                    ml: 2,
+                    }}
+                >
+                  {openAICurlExample}                  
+                </Typography>
                 
               </Paper>
             </Grid>
