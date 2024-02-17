@@ -68,7 +68,9 @@ func formatPrompt(session *types.Session) string {
 
 	for _, interaction := range interactions {
 		if interaction.Creator == "user" {
-			messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
+			if strings.TrimSpace(interaction.Message) != "" {
+				messages = append(messages, fmt.Sprintf("[INST]%s[/INST]", interaction.Message))
+			}
 		} else {
 			messages = append(messages, interaction.Message)
 		}
