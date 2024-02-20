@@ -1,4 +1,7 @@
 #syntax=docker/dockerfile:1.4
+
+FROM ollama/ollama:0.1.25 as ollama
+
 # FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af62f627429a8a83eabbb84e18096490b1661d3c
 
@@ -8,6 +11,7 @@ WORKDIR /workspace
 
 # TODO: not sure if this is necessary
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # ====================================
 # TODO: cache all the weights early on
@@ -46,6 +50,9 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
     curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.3/pget" && chmod +x /usr/local/bin/pget && \
     wget http://thegiflibrary.tumblr.com/post/11565547760 -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 # what you sayin', cat?
+
+# TODO: install specific ollama version
+COPY --from=ollama /bin/ollama /bin/ollama
 
 # so we don't have to fork upstream cog-sdxl repo
 COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
