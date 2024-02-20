@@ -28,6 +28,8 @@ type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
 
+	InferenceRuntime InferenceRuntime
+
 	// WarmupModels specifies the models that should go through the
 	// warmup on start
 	WarmupModels []string
@@ -94,6 +96,14 @@ type RunnerOptions struct {
 	// never run more than this number of model instances
 	MaxModelInstances int
 }
+
+type InferenceRuntime string
+
+const (
+	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
+	InferenceRuntimeOllama  InferenceRuntime = "ollama"
+	// TODO: vllm
+)
 
 type Runner struct {
 	Ctx     context.Context
