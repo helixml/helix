@@ -57,7 +57,7 @@ const New: FC = () => {
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  
+
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -161,7 +161,7 @@ const New: FC = () => {
       return
     }
     const formData = new FormData()
-    
+
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
@@ -270,23 +270,24 @@ const New: FC = () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loader()  
+    loader()
   }, [])
 
+  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography
             sx={{
-              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
               mr: 2,
               ml: 3,
               textAlign: 'right',
             }}
           >
-              Create
+              Inference
           </Typography>
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
             <Switch
@@ -310,7 +311,7 @@ const New: FC = () => {
                 textAlign: 'left',
               }}
           >
-              Fine&nbsp;tune
+              Fine-tuning
           </Typography>
         </Box>
       )
@@ -327,7 +328,7 @@ const New: FC = () => {
     return (
       <Box
         sx={{
-          textAlign: 'left', // Center the text inside the box
+          textAlign: 'left',
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
@@ -339,13 +340,12 @@ const New: FC = () => {
             xs: 0,
             md: 14,
           },
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#000020A0'}`
         }}
       >
         <Typography
-          variant={"h5"}
-          component="h1"
-          gutterBottom
+          variant="h4"
+          component="h1" gutterBottom
           sx={{
             fontSize: {
               xs: '1.1rem',
@@ -361,41 +361,34 @@ const New: FC = () => {
             },
           }}
         >
-          What do you want to create?
+          What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type
-        </Typography>
-        <Button
-          variant="contained"
-          size="small"
-          sx={{
-            bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
-            ":hover": {
-              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
-            },
-            color: 'black',
-            borderRadius: 1,
-            textTransform: 'none',
-            fontSize: "medium",
-            fontWeight: 800,
-            pt: '1px',
-            pb: '1px',
-            m: 0.5,
-            mb: 1,
-          }}
-          endIcon={<SwapHorizIcon />}
-          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-        >
-          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-        </Button>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            lineHeight: 1.2,
-          }}
-        >
-          Type a prompt into the box below
+          You are in <strong>Inference</strong> mode:
+          <ul><li>Generate new content based on your prompt</li><li>Click
+          <Button
+            variant="contained"
+            size="small"
+            sx={{
+              bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+              color: 'black',
+              mr: 2,
+              borderRadius: 1,
+              textTransform: 'none',
+              fontSize: "medium",
+              fontWeight: 800,
+              pt: '1px',
+              pb: '1px',
+              m: 0.5,
+              display: "inline",
+            }}
+            endIcon={<SwapHorizIcon />}
+            onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+          >
+            {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+          </Button>
+        to change type</li>
+          <li>Type a prompt into the box below and press enter to begin</li></ul>
         </Typography>
         <Typography
           variant="subtitle1"
@@ -403,7 +396,14 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          Press enter to begin
+        </Typography>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
+          <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
         </Typography>
       </Box>
     )
