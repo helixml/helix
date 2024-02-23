@@ -57,7 +57,7 @@ const New: FC = () => {
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  
+
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -151,7 +151,7 @@ const New: FC = () => {
       return
     }
     const formData = new FormData()
-    
+
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
@@ -260,17 +260,18 @@ const New: FC = () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loader()  
+    loader()
   }, [])
 
+  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography
             sx={{
-              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
               mr: 2,
               ml: 3,
               textAlign: 'right',
@@ -347,7 +348,7 @@ const New: FC = () => {
           What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          You are in <strong>inference mode</strong>:
+          You are in <strong>Inference</strong> mode:
           <ul><li>Generate new content based on your prompt</li><li>Click
           <Button
             variant="contained"
@@ -386,7 +387,7 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          <br/>You can use the toggle at the top to switch to <strong>fine tuning mode</strong>:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
+          <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
         </Typography>
       </Box>
     )
