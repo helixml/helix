@@ -57,7 +57,7 @@ const New: FC = () => {
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  
+
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -348,7 +348,7 @@ const New: FC = () => {
           What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          You are in <strong>inference mode</strong>:
+          You are in <strong>Inference</strong> mode:
           <ul><li>Generate new content based on your prompt</li><li>Click
           <Button
             variant="contained"
@@ -387,7 +387,7 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          <br/>You can use the toggle at the top to switch to <strong>fine tuning mode</strong>:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
+          <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
         </Typography>
       </Box>
     )
