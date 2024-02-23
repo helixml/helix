@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
@@ -73,18 +73,28 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
-  const examplePrompts = {
-    text: [
-      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
-      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
-      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
-    ],
-    image: [
-      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
-      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
-      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
-    ]
-  };
+  const getTextPrompts = () => [
+    "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+    "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail",
+    "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
+    "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
+    "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
+  ]
+
+  const getImagePrompts = () => [
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color], [resolution] resolution",
+    "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
+    "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
+    "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
+    "Produce an infographic illustrating the growth of [topic] over the last decade, using [color palette] and engaging visuals",
+    "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
+  ]
+
+  const examplePrompts = useMemo(() => ({
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, 3),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, 3)
+  }), [])
 
   const SampleContent = () => {
     const handleClick = (content: string) => {
@@ -337,10 +347,16 @@ const New: FC = () => {
           variant="h4"
           component="h1" gutterBottom
           sx={{
+            fontSize: {
+              xs: '1.1rem',
+              sm: '1.4rem',
+              md: '1.7rem',
+            },
             fontWeight: 800,
             lineHeight: 0.9,
             scale: {
               xs: 0.7,
+              sm: 0.85,
               md: 1,
             },
           }}
@@ -354,7 +370,10 @@ const New: FC = () => {
             variant="contained"
             size="small"
             sx={{
-              bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+              ":hover": {
+                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+              },
               color: 'black',
               mr: 2,
               borderRadius: 1,
@@ -531,7 +550,10 @@ const New: FC = () => {
                       variant="contained"
                       size="small"
                       sx={{
-                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+                        bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                        ":hover": {
+                          bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                        },
                         color: 'black',
                         mr: 2,
                         borderRadius: 1,

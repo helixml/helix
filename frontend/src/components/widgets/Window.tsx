@@ -6,6 +6,8 @@ import DialogTitle from '@mui/material/DialogTitle'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 export interface WindowProps {
   leftButtons?: ReactNode,
@@ -61,6 +63,9 @@ const Window: FC<WindowProps> = ({
     onCancel,
   ])
 
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
+
   return (
     <Dialog
       open={ open }
@@ -69,7 +74,7 @@ const Window: FC<WindowProps> = ({
       maxWidth={ size }
       sx={{
         '& .MuiDialog-paper': {
-          backgroundColor: "#10101E",
+          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
           ...(fullHeight && {
             height: '100%',
           }),
