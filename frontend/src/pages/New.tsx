@@ -151,7 +151,7 @@ const New: FC = () => {
       return
     }
     const formData = new FormData()
-    
+
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
@@ -260,17 +260,18 @@ const New: FC = () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loader()  
+    loader()
   }, [])
 
+  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography
             sx={{
-              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
               mr: 2,
               ml: 3,
               textAlign: 'right',
