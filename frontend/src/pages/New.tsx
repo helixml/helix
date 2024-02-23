@@ -276,7 +276,7 @@ const New: FC = () => {
               textAlign: 'right',
             }}
           >
-              Create
+              Inference
           </Typography>
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
             <Switch
@@ -300,7 +300,7 @@ const New: FC = () => {
                 textAlign: 'left',
               }}
           >
-              Fine&nbsp;tune
+              Fine-tuning
           </Typography>
         </Box>
       )
@@ -317,7 +317,7 @@ const New: FC = () => {
     return (
       <Box
         sx={{
-          textAlign: 'left', // Center the text inside the box
+          textAlign: 'left',
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
@@ -329,12 +329,12 @@ const New: FC = () => {
             xs: 0,
             md: 14,
           },
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#000020A0'}`
         }}
       >
         <Typography
           variant="h4"
-          component="h1"gutterBottom
+          component="h1" gutterBottom
           sx={{
             fontWeight: 800,
             lineHeight: 0.9,
@@ -344,38 +344,34 @@ const New: FC = () => {
             },
           }}
         >
-          What do you want to create?
+          What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type
-        </Typography>
-        <Button
-          variant="contained"
-          size="small"
-          sx={{
-            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
-            color: 'black',
-            mr: 2,
-            borderRadius: 1,
-            textTransform: 'none',
-            fontSize: "medium",
-            fontWeight: 800,
-            pt: '1px',
-            pb: '1px',
-            m: 0.5,
-          }}
-          endIcon={<SwapHorizIcon />}
-          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-        >
-          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-        </Button>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            lineHeight: 1.2,
-          }}
-        >
-          Type a prompt into the box below
+          You are in <strong>inference mode</strong>:
+          <ul><li>Generate new content based on your prompt</li><li>Click
+          <Button
+            variant="contained"
+            size="small"
+            sx={{
+              bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+              color: 'black',
+              mr: 2,
+              borderRadius: 1,
+              textTransform: 'none',
+              fontSize: "medium",
+              fontWeight: 800,
+              pt: '1px',
+              pb: '1px',
+              m: 0.5,
+              display: "inline",
+            }}
+            endIcon={<SwapHorizIcon />}
+            onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+          >
+            {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+          </Button>
+        to change type</li>
+          <li>Type a prompt into the box below and press enter to begin</li></ul>
         </Typography>
         <Typography
           variant="subtitle1"
@@ -383,7 +379,14 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          Press enter to begin
+        </Typography>
+        <Typography
+          variant="subtitle1"
+          sx={{
+            lineHeight: 1.2,
+          }}
+        >
+          <br/>You can use the toggle at the top to switch to <strong>fine tuning mode</strong>:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
         </Typography>
       </Box>
     )
