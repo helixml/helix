@@ -370,7 +370,10 @@ const New: FC = () => {
             variant="contained"
             size="small"
             sx={{
-              bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+              ":hover": {
+                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+              },
               color: 'black',
               mr: 2,
               borderRadius: 1,
