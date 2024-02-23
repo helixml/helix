@@ -276,7 +276,7 @@ const New: FC = () => {
               textAlign: 'right',
             }}
           >
-              Create
+              Inference
           </Typography>
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
             <Switch
@@ -300,7 +300,7 @@ const New: FC = () => {
                 textAlign: 'left',
               }}
           >
-              Fine&nbsp;tune
+              Fine-tuning
           </Typography>
         </Box>
       )
@@ -344,10 +344,10 @@ const New: FC = () => {
             },
           }}
         >
-          What do you want to create?
+          What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type
+          You are in inference mode. That means generating new text or image content based on a text prompt that you write. Use this button to change type.
         </Typography>
         <Button
           variant="contained"
@@ -375,7 +375,7 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          Type a prompt into the box below
+          Type a prompt into the box below and press enter to begin.
         </Typography>
         <Typography
           variant="subtitle1"
@@ -383,7 +383,7 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          Press enter to begin
+          You can switch to fine tuning mode with the toggle at the top of the screen. This allows you to customize your own AI by training it more on your own data or images.
         </Typography>
       </Box>
     )
