@@ -8,6 +8,8 @@ services:
     ports:
       - ${API_PORT:-80}:80
     restart: always
+    env_file:
+      - .env
     environment:
       - LOG_LEVEL=debug
       - APP_URL=${SERVER_URL:-http://localhost}
@@ -22,8 +24,6 @@ services:
       - JANITOR_SLACK_IGNORE_USERS=${JANITOR_SLACK_IGNORE_USERS:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
-      - TOOLS_MODEL=${TOOLS_MODEL:-}
-      - TOOLS_PROVIDER=${TOOLS_PROVIDER:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
       - STRIPE_WEBHOOK_SIGNING_SECRET=${STRIPE_WEBHOOK_SIGNING_SECRET:-}
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
