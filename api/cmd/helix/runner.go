@@ -44,8 +44,9 @@ func NewRunnerOptions() *RunnerOptions {
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 			WarmupModels: getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
-				types.Model_Mistral7b.String(),
-				types.Model_SDXL.String(),
+				// types.Model_Mistral7b.String(),
+				// types.Model_SDXL.String(),
+				"mistral:7b-instruct",
 			}),
 			InferenceRuntime: types.InferenceRuntime(getDefaultServeOptionString("INFERENCE_RUNTIME",
 				types.InferenceRuntimeOllama.String()),
@@ -209,6 +210,20 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	OwnerType:    "user",
 }
 
+var WarmupSession_Model_Ollama_Mistral7b = types.Session{
+	ID:           "warmup-text",
+	Name:         "warmup-text",
+	Created:      time.Now(),
+	Updated:      time.Now(),
+	Mode:         "inference",
+	Type:         types.SessionTypeText,
+	ModelName:    "mistral:7b-instruct",
+	LoraDir:      "",
+	Interactions: []*types.Interaction{ITX_A, ITX_B},
+	Owner:        "warmup-user",
+	OwnerType:    "user",
+}
+
 var WarmupSession_Model_SDXL = types.Session{
 	ID:           "warmup-image",
 	Name:         "warmup-image",
@@ -269,10 +284,12 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	useWarmupSessions := []types.Session{}
 	if !options.Runner.MockRunner {
 		for _, modelName := range options.Runner.WarmupModels {
-			switch {
-			case modelName == types.Model_Mistral7b.String():
+			switch modelName {
+			case types.Model_Mistral7b.String():
 				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
-			case modelName == types.Model_SDXL.String():
+			case "mistral:7b-instruct":
+				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Mistral7b)
+			case types.Model_SDXL.String():
 				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
 			}
 		}

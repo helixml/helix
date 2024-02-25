@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
@@ -184,6 +185,8 @@ func (r *Runner) Initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("Connecting to controlplane", system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
 
 	queryParams := url.Values{}
 	queryParams.Add("runnerid", r.Options.ID)
@@ -408,13 +411,6 @@ func (r *Runner) getNextWarmupSession() (*types.Session, error) {
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
 func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	if r.httpClientOptions.Host == "" {
-		// we are in local only mode... the next session will be injected into
-		// us rather than queried from the control server
-		// TODO: it would be nice to still support memory limits and other
-		// smarts for local tasks
-		return nil, nil
-	}
 	freeMemory := r.getHypotheticalFreeMemory()
 
 	// only run one for dev mode
@@ -508,6 +504,9 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
+	fmt.Println("createModelInstance")
+	spew.Dump(initialSession)
+
 	switch {
 	case r.Options.InferenceRuntime == types.InferenceRuntimeOllama &&
 		initialSession.Type == types.SessionTypeText && // Only text supported
@@ -525,27 +524,29 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		if err != nil {
 			return err
 		}
-	case r.Options.InferenceRuntime == types.InferenceRuntimeAxolotl:
-		modelInstance, err = NewAxolotlModelInstance(
-			r.Ctx,
-			&ModelInstanceConfig{
-				InitialSession:    initialSession,
-				InitialSessionURL: r.Options.InitialSessionURL,
-				NextTaskURL:       r.Options.TaskURL,
-				// this function will convert any files it sees locally into an upload
-				// to the api server filestore - all files will be written to the filestore
-				// under a session sub path - you can include tar files and they will untarred at the other end
-				// into the filestore
-				// TODO: support the tar feature above
-				ResponseHandler: func(res *types.RunnerTaskResponse) error {
-					return r.handleWorkerResponse(res)
-				},
-				RunnerOptions: r.Options,
-			},
-		)
-		if err != nil {
-			return err
-		}
+		fmt.Println("XX ollama model instance created")
+	default:
+		fmt.Println("XX using axolotl")
+		// modelInstance, err = NewAxolotlModelInstance(
+		// 	r.Ctx,
+		// 	&ModelInstanceConfig{
+		// 		InitialSession:    initialSession,
+		// 		InitialSessionURL: r.Options.InitialSessionURL,
+		// 		NextTaskURL:       r.Options.TaskURL,
+		// 		// this function will convert any files it sees locally into an upload
+		// 		// to the api server filestore - all files will be written to the filestore
+		// 		// under a session sub path - you can include tar files and they will untarred at the other end
+		// 		// into the filestore
+		// 		// TODO: support the tar feature above
+		// 		ResponseHandler: func(res *types.RunnerTaskResponse) error {
+		// 			return r.handleWorkerResponse(res)
+		// 		},
+		// 		RunnerOptions: r.Options,
+		// 	},
+		// )
+		// if err != nil {
+		// 	return err
+		// }
 
 	}
 
@@ -813,7 +814,7 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 		return true
 	})
 	if len(modelInstances) != r.activeModelInstances.Size() {
-		return nil, fmt.Errorf("error getting state")
+		return nil, fmt.Errorf("error getting state, incorrect model instance count")
 	}
 	return &types.RunnerState{
 		ID:                  r.Options.ID,
