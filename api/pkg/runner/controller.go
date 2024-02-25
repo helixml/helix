@@ -508,8 +508,24 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	switch r.Options.InferenceRuntime {
-	case types.InferenceRuntimeAxolotl:
+	switch {
+	case r.Options.InferenceRuntime == types.InferenceRuntimeOllama &&
+		initialSession.Type == types.SessionTypeText && // Only text supported
+		initialSession.Mode == types.SessionModeInference && // Only inference supported
+		(initialSession.LoraDir == "" || initialSession.LoraDir == types.LORA_DIR_NONE): // Lora not implemented
+
+		modelInstance, err = NewOllamaModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:  initialSession,
+				ResponseHandler: r.handleWorkerResponse,
+				RunnerOptions:   r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	case r.Options.InferenceRuntime == types.InferenceRuntimeAxolotl:
 		modelInstance, err = NewAxolotlModelInstance(
 			r.Ctx,
 			&ModelInstanceConfig{
@@ -530,18 +546,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		if err != nil {
 			return err
 		}
-	case types.InferenceRuntimeOllama:
-		modelInstance, err = NewOllamaModelInstance(
-			r.Ctx,
-			&ModelInstanceConfig{
-				InitialSession:  initialSession,
-				ResponseHandler: r.handleWorkerResponse,
-				RunnerOptions:   r.Options,
-			},
-		)
-		if err != nil {
-			return err
-		}
+
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
