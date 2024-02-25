@@ -603,7 +603,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	// the files have downloaded
 	go modelInstance.QueueSession(initialSession, true)
 
-	err = modelInstance.startProcess(initialSession)
+	err = modelInstance.Start(initialSession)
 	if err != nil {
 		return err
 	}

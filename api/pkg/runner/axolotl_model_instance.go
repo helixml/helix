@@ -25,6 +25,8 @@ type ModelInstance interface {
 	Model() model.Model
 	GetState() (*types.ModelInstanceState, error)
 
+	Start(session *types.Session) error
+
 	NextSession() *types.Session
 	SetNextSession(session *types.Session)
 
@@ -345,7 +347,7 @@ func (instance *AxolotlModelInstance) taskResponseHandler(taskResponse *types.Ru
 
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
-func (instance *AxolotlModelInstance) startProcess(session *types.Session) error {
+func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter, types.RunnerProcessConfig{
 		InstanceID:        instance.id,
 		NextTaskURL:       instance.nextTaskURL,
