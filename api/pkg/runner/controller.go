@@ -503,29 +503,49 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
 func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
-	modelInstance, err := NewAxolotlModelInstance(
-		r.Ctx,
-		&ModelInstanceConfig{
-			InitialSession:    initialSession,
-			InitialSessionURL: r.Options.InitialSessionURL,
-			NextTaskURL:       r.Options.TaskURL,
-			// this function will convert any files it sees locally into an upload
-			// to the api server filestore - all files will be written to the filestore
-			// under a session sub path - you can include tar files and they will untarred at the other end
-			// into the filestore
-			// TODO: support the tar feature above
-			ResponseHandler: func(res *types.RunnerTaskResponse) error {
-				return r.handleWorkerResponse(res)
-			},
-			RunnerOptions: r.Options,
-		},
+	var (
+		modelInstance ModelInstance
+		err           error
 	)
-	if err != nil {
-		return err
+
+	switch r.Options.InferenceRuntime {
+	case types.InferenceRuntimeAxolotl:
+		modelInstance, err = NewAxolotlModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:    initialSession,
+				InitialSessionURL: r.Options.InitialSessionURL,
+				NextTaskURL:       r.Options.TaskURL,
+				// this function will convert any files it sees locally into an upload
+				// to the api server filestore - all files will be written to the filestore
+				// under a session sub path - you can include tar files and they will untarred at the other end
+				// into the filestore
+				// TODO: support the tar feature above
+				ResponseHandler: func(res *types.RunnerTaskResponse) error {
+					return r.handleWorkerResponse(res)
+				},
+				RunnerOptions: r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	case types.InferenceRuntimeOllama:
+		modelInstance, err = NewOllamaModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:  initialSession,
+				ResponseHandler: r.handleWorkerResponse,
+				RunnerOptions:   r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
+	modelMem := float32(modelInstance.Model().GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
 	if modelMem > freeMem && initialSession.Owner != "warmup-user" {
 		// refuse to start or record the model instance, it will just get GC'd at this point
@@ -533,9 +553,9 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	}
 	log.Debug().Msgf("🔵 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	log.Debug().
-		Msgf("🔵 runner started model instance: %s", modelInstance.id)
+		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
-	r.activeModelInstances.Store(modelInstance.id, modelInstance)
+	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
 
 	// THERE IS NOT A RACE HERE (so Kai please stop thinking there is)
 	// the files are dowloading at the same time as the python process is booting
@@ -550,10 +570,10 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	}
 
 	go func() {
-		<-modelInstance.finishChan
+		<-modelInstance.Done()
 		log.Debug().
-			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
-		r.activeModelInstances.Delete(modelInstance.id)
+			Msgf("🔵 runner stop model instance: %s", modelInstance.ID())
+		r.activeModelInstances.Delete(modelInstance.ID())
 	}()
 	return nil
 }

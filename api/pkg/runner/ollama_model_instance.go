@@ -33,6 +33,7 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 	}
 
 	i := &OllamaModelInstance{
+		ctx:             ctx,
 		id:              system.GenerateUUID(),
 		finishCh:        make(chan bool),
 		responseHandler: cfg.ResponseHandler,
@@ -115,7 +116,7 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 
 	i.client = openai.NewClientWithConfig(config)
 
-	cmd := exec.Command(ollamaPath)
+	cmd := exec.CommandContext(i.ctx, ollamaPath)
 	cmd.Env = []string{
 		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
