@@ -325,7 +325,7 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	})
 
 	// calculate mem required by new session
-	modelInstance, err := NewModelInstance(
+	modelInstance, err := NewAxolotlModelInstance(
 		r.Ctx,
 		&ModelInstanceConfig{
 			InitialSession:    newSession,
@@ -501,7 +501,7 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
 func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
-	modelInstance, err := NewModelInstance(
+	modelInstance, err := NewAxolotlModelInstance(
 		r.Ctx,
 		&ModelInstanceConfig{
 			InitialSession:    initialSession,
