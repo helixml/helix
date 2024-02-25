@@ -2,7 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
@@ -109,7 +111,7 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 	}
 
 	config := openai.DefaultConfig("ollama")
-	config.BaseURL = fmt.Sprintf("http://localhost:%d", port)
+	config.BaseURL = fmt.Sprintf("http://localhost:%d/v1", port)
 
 	i.client = openai.NewClientWithConfig(config)
 
@@ -122,7 +124,26 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 	}
 
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// this buffer is so we can keep the last 10kb of stderr so if
+	// there is an error we can send it to the api
+	stderrBuf := system.NewLimitedBuffer(1024 * 10)
+
+	stderrWriters := []io.Writer{os.Stderr, stderrBuf}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	// stream stderr to os.Stderr (so we can see it in the logs)
+	// and also the error buffer we will use to post the error to the api
+	go func() {
+		_, err := io.Copy(io.MultiWriter(stderrWriters...), stderrPipe)
+		if err != nil {
+			log.Error().Msgf("Error copying stderr: %v", err)
+		}
+	}()
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("error starting Ollama model instance: %s", err.Error())
@@ -134,6 +155,12 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 		defer close(i.finishCh)
 		if err := cmd.Wait(); err != nil {
 			log.Error().Msgf("Ollama model instance exited with error: %s", err.Error())
+
+			errMsg := string(stderrBuf.Bytes())
+			if i.currentSession != nil {
+				i.errorSession(i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errMsg))
+			}
+
 			return
 		}
 
@@ -223,7 +250,8 @@ func (i *OllamaModelInstance) NextSession() *types.Session {
 }
 
 func (i *OllamaModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
-	return nil, nil
+	// Noop for ollama model instance, this is only needed for the axolotl model instance
+	return &types.RunnerTask{}, nil
 }
 
 func (i *OllamaModelInstance) SetNextSession(session *types.Session) {
@@ -231,7 +259,132 @@ func (i *OllamaModelInstance) SetNextSession(session *types.Session) {
 }
 
 func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
+	err := i.addJobToHistory(session)
+	if err != nil {
+		log.Error().Err(err).Msg("error adding job to history")
+	}
 
+	// TODO: for finetuned model serving, this is where
+	// the queued session would be set while we download
+	// the adapter and load it into the server
+
+	i.queuedSession = nil
+	i.nextSession = session
+	i.currentSession = session
+	i.lastActivityTimestamp = time.Now().Unix()
+
+	err = i.processInteraction(session)
+	if err != nil {
+		log.Error().
+			Str("session_id", session.ID).
+			Err(err).
+			Msg("error processing interaction")
+	}
+
+	i.currentSession = nil
+}
+
+func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
+	var messages []openai.ChatCompletionMessage
+
+	// Adjust length
+	var interactions []*types.Interaction
+	if len(session.Interactions) > 10 {
+		first, err := data.GetFirstUserInteraction(session.Interactions)
+		if err != nil {
+			log.Err(err).Msg("error getting first user interaction")
+		} else {
+			interactions = append(interactions, first)
+			interactions = append(interactions, data.GetLastInteractions(session, 10)...)
+		}
+	} else {
+		interactions = session.Interactions
+	}
+
+	if session.Metadata.SystemPrompt != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: session.Metadata.SystemPrompt,
+		})
+	}
+
+	for _, interaction := range interactions {
+		switch interaction.Creator {
+		case types.CreatorTypeUser:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: interaction.Message,
+			})
+		case types.CreatorTypeSystem:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		}
+	}
+
+	// Adding current message
+	stream, err := i.client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
+		Model:    string(session.ModelName),
+		Stream:   true,
+		Messages: messages,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get response from inference API: %w", err)
+	}
+
+	defer stream.Close()
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			log.Info().Msg("stream finished")
+			i.responseProcessor(response.Choices[0].Delta.Content, true)
+			return nil
+		}
+
+		if err != nil {
+			log.Error().Err(err).Msg("stream error")
+			i.errorSession(session, err)
+			return err
+		}
+
+		i.responseProcessor(response.Choices[0].Delta.Content, false)
+	}
+}
+
+func (i *OllamaModelInstance) responseProcessor(content string, done bool) {
+	if i.currentSession == nil {
+		log.Error().Msgf("no current session")
+		return
+	}
+
+	var err error
+
+	systemInteraction, err := data.GetSystemInteraction(i.currentSession)
+	if err != nil {
+		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		return
+	}
+
+	resp := &types.RunnerTaskResponse{
+		SessionID:     i.currentSession.ID,
+		InteractionID: systemInteraction.ID,
+		Owner:         i.currentSession.Owner,
+		Done:          done,
+	}
+
+	if done {
+		resp.Type = types.WorkerTaskResponseTypeResult
+	} else {
+		resp.Type = types.WorkerTaskResponseTypeStream
+	}
+
+	err = i.responseHandler(resp)
+	if err != nil {
+		log.Error().Msgf("error writing event: %s", err.Error())
+		return
+	}
 }
 
 func (i *OllamaModelInstance) GetQueuedSession() *types.Session {
@@ -255,4 +408,16 @@ func (i *OllamaModelInstance) addJobToHistory(session *types.Session) error {
 	}
 
 	return nil
+}
+
+func (i *OllamaModelInstance) errorSession(session *types.Session, err error) {
+	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeResult,
+		SessionID: session.ID,
+		Error:     err.Error(),
+	})
+
+	if apiUpdateErr != nil {
+		log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
+	}
 }
