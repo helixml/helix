@@ -121,12 +121,38 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 		"OLLAMA_MODELS=" + i.runnerOptions.CacheDir,
 	}
 
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("error starting Ollama model instance: %s", err.Error())
 	}
 
 	i.currentCommand = cmd
 
+	go func() {
+		defer close(i.finishCh)
+		if err := cmd.Wait(); err != nil {
+			log.Error().Msgf("Ollama model instance exited with error: %s", err.Error())
+			return
+		}
+
+		log.Info().Msgf("🟢 Ollama model instance stopped, exit code=%d", cmd.ProcessState.ExitCode())
+	}()
+
+	return nil
+}
+
+func (i *OllamaModelInstance) Stop() error {
+	if i.currentCommand == nil {
+		return fmt.Errorf("no Ollama process to stop")
+	}
+	log.Info().Msgf("🟢 stop Ollama model instance")
+	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+		log.Error().Msgf("error stopping Ollama model instance: %s", err.Error())
+		return err
+	}
+	log.Info().Msgf("🟢 stopped Ollama instance")
 	return nil
 }
 
@@ -212,19 +238,21 @@ func (i *OllamaModelInstance) GetQueuedSession() *types.Session {
 	return nil
 }
 
-func (i *OllamaModelInstance) Stop() error {
-	if i.currentCommand == nil {
-		return fmt.Errorf("no Ollama process to stop")
-	}
-	log.Info().Msgf("🟢 stop Ollama model instance")
-	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
-		log.Error().Msgf("error stopping Ollama model instance: %s", err.Error())
-		return err
-	}
-	log.Info().Msgf("🟢 stopped Ollama instance")
-	return nil
-}
-
 func (i *OllamaModelInstance) Done() <-chan bool {
 	return i.finishCh
+}
+
+func (i *OllamaModelInstance) addJobToHistory(session *types.Session) error {
+	summary, err := data.GetSessionSummary(session)
+	if err != nil {
+		return err
+	}
+
+	// put the job at the start of the array
+	i.jobHistory = append([]*types.SessionSummary{summary}, i.jobHistory...)
+	if len(i.jobHistory) > i.runnerOptions.JobHistoryBufferSize {
+		i.jobHistory = i.jobHistory[:len(i.jobHistory)-1]
+	}
+
+	return nil
 }
