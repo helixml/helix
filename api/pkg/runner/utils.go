@@ -17,7 +17,7 @@ func getLastInteractionID(session *types.Session) (string, error) {
 	return interaction.ID, nil
 }
 
-func modelInstanceMatchesSession(modelInstance *ModelInstance, session *types.Session) bool {
+func modelInstanceMatchesSession(modelInstance *AxolotlModelInstance, session *types.Session) bool {
 	return modelInstance.filter.Mode == session.Mode &&
 		modelInstance.filter.Type == session.Type &&
 		(modelInstance.filter.LoraDir == session.LoraDir ||
