@@ -96,6 +96,40 @@ type OllamaModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
+func (i *OllamaModelInstance) Start(session *types.Session) error {
+	ollamaPath, err := exec.LookPath("ollama")
+	if err != nil {
+		return fmt.Errorf("ollama not found in PATH")
+	}
+
+	// Get random free port
+	port, err := freeport.GetFreePort()
+	if err != nil {
+		return fmt.Errorf("error getting free port: %s", err.Error())
+	}
+
+	config := openai.DefaultConfig("ollama")
+	config.BaseURL = fmt.Sprintf("http://localhost:%d", port)
+
+	i.client = openai.NewClientWithConfig(config)
+
+	cmd := exec.Command(ollamaPath)
+	cmd.Env = []string{
+		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
+		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
+		"OLLAMA_HOST=" + fmt.Sprintf("0.0.0.0:%d", port),
+		"OLLAMA_MODELS=" + i.runnerOptions.CacheDir,
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("error starting Ollama model instance: %s", err.Error())
+	}
+
+	i.currentCommand = cmd
+
+	return nil
+}
+
 func (i *OllamaModelInstance) ID() string {
 	return i.id
 }
@@ -175,40 +209,6 @@ func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSess
 }
 
 func (i *OllamaModelInstance) GetQueuedSession() *types.Session {
-	return nil
-}
-
-func (i *OllamaModelInstance) Start(session *types.Session) error {
-	ollamaPath, err := exec.LookPath("ollama")
-	if err != nil {
-		return fmt.Errorf("ollama not found in PATH")
-	}
-
-	// Get random free port
-	port, err := freeport.GetFreePort()
-	if err != nil {
-		return fmt.Errorf("error getting free port: %s", err.Error())
-	}
-
-	config := openai.DefaultConfig("ollama")
-	config.BaseURL = fmt.Sprintf("http://localhost:%d", port)
-
-	i.client = openai.NewClientWithConfig(config)
-
-	cmd := exec.Command(ollamaPath)
-	cmd.Env = []string{
-		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
-		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
-		"OLLAMA_HOST=" + fmt.Sprintf("0.0.0.0:%d", port),
-		"OLLAMA_MODELS=" + i.runnerOptions.CacheDir,
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("error starting Ollama model instance: %s", err.Error())
-	}
-
-	i.currentCommand = cmd
-
 	return nil
 }
 
