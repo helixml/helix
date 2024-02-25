@@ -28,7 +28,7 @@ type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
 
-	InferenceRuntime InferenceRuntime
+	InferenceRuntime types.InferenceRuntime
 
 	// WarmupModels specifies the models that should go through the
 	// warmup on start
@@ -97,14 +97,6 @@ type RunnerOptions struct {
 	MaxModelInstances int
 }
 
-type InferenceRuntime string
-
-const (
-	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
-	InferenceRuntimeOllama  InferenceRuntime = "ollama"
-	// TODO: vllm
-)
-
 type Runner struct {
 	Ctx     context.Context
 	Options RunnerOptions
@@ -113,7 +105,7 @@ type Runner struct {
 
 	// the map of model instances that we have loaded
 	// and are currently running
-	activeModelInstances *xsync.MapOf[string, *ModelInstance]
+	activeModelInstances *xsync.MapOf[string, *AxolotlModelInstance]
 
 	// the lowest amount of memory that something can run with
 	// if we have less than this amount of memory then there is
@@ -182,7 +174,7 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances:  xsync.NewMapOf[string, *ModelInstance](),
+		activeModelInstances:  xsync.NewMapOf[string, *AxolotlModelInstance](),
 		localSessions:         xsync.NewMapOf[string, *types.Session](),
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
@@ -326,7 +318,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 
 	// loop over r.activeModelInstances, checking whether the filters on the
 	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+	r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
 		if modelInstanceMatchesSession(modelInstance, session) {
 			// no need to create another one, because there's already one which will match the session
 			log.Debug().Msgf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
@@ -360,9 +352,9 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
 
-	allModels := []ModelInstance{}
-	stales := []ModelInstance{}
-	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
+	allModels := []AxolotlModelInstance{}
+	stales := []AxolotlModelInstance{}
+	r.activeModelInstances.Range(func(key string, activeModelInstance *AxolotlModelInstance) bool {
 		allModels = append(allModels, *activeModelInstance)
 		stale := false
 		if activeModelInstance.lastActivityTimestamp == 0 {
@@ -501,7 +493,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	if !r.Options.AllowMultipleCopies {
 		// if we are not allowed to run multiple copies of the same model
 		// then we need to tell the api what we are currently running
-		r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+		r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
 			queryParams.Add("reject", fmt.Sprintf(
 				"%s:%s:%s",
 				modelInstance.filter.ModelName,
@@ -775,7 +767,7 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 
 func (r *Runner) getUsedMemory() uint64 {
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
+	r.activeModelInstances.Range(func(i string, modelInstance *AxolotlModelInstance) bool {
 		memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
 		return true
 	})
@@ -786,7 +778,7 @@ func (r *Runner) getUsedMemoryByNonStale() uint64 {
 	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
 
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
+	r.activeModelInstances.Range(func(i string, modelInstance *AxolotlModelInstance) bool {
 		// assume nonStale
 		nonStale := true
 		// this means we are booting so let's leave it alone to boot
@@ -860,7 +852,7 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 
 func (r *Runner) getState() (*types.RunnerState, error) {
 	modelInstances := []*types.ModelInstanceState{}
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+	r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
 		state, err := modelInstance.getState()
 		if err != nil {
 			return false
