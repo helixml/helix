@@ -32,7 +32,6 @@ func NewRunnerOptions() *RunnerOptions {
 			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
 			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
-			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
 			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
@@ -112,11 +111,6 @@ func newRunnerCmd() *cobra.Command {
 	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Runner.ReporStateDelaySeconds, "report-state-delay-seconds", allOptions.Runner.ReporStateDelaySeconds,
 		`How many seconds do we wait between reporting our state to the api`,
-	)
-
-	runnerCmd.PersistentFlags().BoolVar(
-		&allOptions.Runner.LocalMode, "local-mode", allOptions.Runner.LocalMode,
-		`Are we running in local mode?`,
 	)
 
 	runnerCmd.PersistentFlags().StringToStringVar(

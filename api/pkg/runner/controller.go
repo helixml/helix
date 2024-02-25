@@ -34,10 +34,6 @@ type RunnerOptions struct {
 	// warmup on start
 	WarmupModels []string
 
-	// this means a CLI will be posting jobs to us locally and we will
-	// not be polling a remote api
-	LocalMode bool
-
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
 	// we just pass http://localhost:8080/api/v1/worker/task
@@ -113,10 +109,6 @@ type Runner struct {
 	// we get this on boot by asking the model package
 	lowestMemoryRequirement uint64
 
-	// local sessions, which will be executed in no particular order
-	// TODO: maybe preserve insertion order
-	localSessions *xsync.MapOf[string, *types.Session]
-
 	// how we write web sockets messages to the api server
 	websocketEventChannel chan *types.WebsocketEvent
 
@@ -140,17 +132,17 @@ func NewRunner(
 	options RunnerOptions,
 	warmupSessions []types.Session,
 ) (*Runner, error) {
-	if !options.LocalMode {
-		if options.ID == "" {
-			return nil, fmt.Errorf("id is required")
-		}
-		if options.ApiHost == "" {
-			return nil, fmt.Errorf("api host required")
-		}
-		if options.ApiToken == "" {
-			return nil, fmt.Errorf("api token is required")
-		}
+
+	if options.ID == "" {
+		return nil, fmt.Errorf("id is required")
 	}
+	if options.ApiHost == "" {
+		return nil, fmt.Errorf("api host required")
+	}
+	if options.ApiToken == "" {
+		return nil, fmt.Errorf("api token is required")
+	}
+
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
 		if err != nil {
@@ -175,7 +167,6 @@ func NewRunner(
 			Token: options.ApiToken,
 		},
 		activeModelInstances:  xsync.NewMapOf[string, ModelInstance](),
-		localSessions:         xsync.NewMapOf[string, *types.Session](),
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		schedulingDecisions:   []string{},
@@ -185,10 +176,6 @@ func NewRunner(
 }
 
 func (r *Runner) Initialize(ctx context.Context) error {
-	if r.Options.LocalMode {
-		// don't push our state anywhere when we're in local-only mode
-		return nil
-	}
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
 	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
@@ -271,10 +258,6 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 }
 
 func (r *Runner) startReportStateLoop() {
-	if r.Options.LocalMode {
-		// don't push our state anywhere when we're in local-only mode
-		return
-	}
 	for {
 		select {
 		case <-r.Ctx.Done():
@@ -303,41 +286,6 @@ func (r *Runner) reportStateLoop(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return nil
-}
-
-func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
-	if !r.Options.LocalMode {
-		return fmt.Errorf("cannot add to local queue when not in local mode")
-	}
-	// iterate over model instances to see if one exists and if it doesn't, create it.
-	// then add session to localQueue
-
-	// Check if a model instance exists for the session's model ID
-	found := false
-
-	// loop over r.activeModelInstances, checking whether the filters on the
-	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
-		if modelInstanceMatchesSession(modelInstance, session) {
-			// no need to create another one, because there's already one which will match the session
-			log.Debug().Msgf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
-			found = true
-			return false
-		}
-		return true
-	})
-	if !found {
-		// Create a new model instance because it doesn't exist
-		log.Debug().Msgf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
-		err := r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Add the session to the local queue
-	r.localSessions.Store(session.ID, session)
 	return nil
 }
 
@@ -565,16 +513,8 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 			// into the filestore
 			// TODO: support the tar feature above
 			ResponseHandler: func(res *types.RunnerTaskResponse) error {
-				if r.Options.LocalMode {
-					err := r.addLocalResponse(ctx, res)
-					if err != nil {
-						return err
-					}
-					return nil
-				} else {
-					// if the response is for the initial session then inclide
-					return r.handleWorkerResponse(res)
-				}
+				// if the response is for the initial session then inclide
+				return r.handleWorkerResponse(res)
 			},
 			RunnerOptions: r.Options,
 		},
@@ -655,23 +595,6 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 
 	var session *types.Session
 	foundLocalQueuedSession := false
-
-	if r.Options.LocalMode {
-		r.localSessions.Range(func(i string, sess *types.Session) bool {
-			if modelInstanceMatchesSession(modelInstance, sess) {
-				foundLocalQueuedSession = true
-				// remove it from the local queue
-				r.localSessions.Delete(i)
-				session = sess
-				return false
-			}
-			return true
-		})
-	}
-
-	// as the first check, we need to ask if there's a session in localQueue
-	// that matches this model instance. if there is, we've got a local
-	// session and it takes precedence over remote work
 
 	// if there is, call modelInstance.queueSession on it
 
