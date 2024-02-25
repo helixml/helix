@@ -149,7 +149,7 @@ type ModelInstanceConfig struct {
 	RunnerOptions   RunnerOptions
 }
 
-func NewModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlModelInstance, error) {
+func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlModelInstance, error) {
 	aiModel, err := model.GetModel(cfg.InitialSession.ModelName)
 	if err != nil {
 		return nil, err
