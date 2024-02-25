@@ -47,6 +47,9 @@ func NewRunnerOptions() *RunnerOptions {
 				types.Model_Mistral7b.String(),
 				types.Model_SDXL.String(),
 			}),
+			InferenceRuntime: types.InferenceRuntime(getDefaultServeOptionString("INFERENCE_RUNTIME",
+				types.InferenceRuntimeOllama.String()),
+			),
 		},
 		Janitor: janitor.JanitorOptions{
 			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
