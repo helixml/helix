@@ -36,6 +36,8 @@ type ModelInstance interface {
 	AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error)
 
 	Stop() error
+
+	Done() <-chan bool
 }
 
 var (
@@ -132,6 +134,10 @@ func (i *AxolotlModelInstance) SetNextSession(session *types.Session) {
 
 func (i *AxolotlModelInstance) GetQueuedSession() *types.Session {
 	return i.queuedSession
+}
+
+func (i *AxolotlModelInstance) Done() <-chan bool {
+	return i.finishChan
 }
 
 type ModelInstanceConfig struct {
