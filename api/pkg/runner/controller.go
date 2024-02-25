@@ -513,7 +513,6 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 			// into the filestore
 			// TODO: support the tar feature above
 			ResponseHandler: func(res *types.RunnerTaskResponse) error {
-				// if the response is for the initial session then inclide
 				return r.handleWorkerResponse(res)
 			},
 			RunnerOptions: r.Options,
