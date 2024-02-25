@@ -106,32 +106,32 @@ type AxolotlModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func (a *AxolotlModelInstance) ID() string {
-	return a.id
+func (i *AxolotlModelInstance) ID() string {
+	return i.id
 }
 
-func (a *AxolotlModelInstance) Filter() types.SessionFilter {
-	return a.filter
+func (i *AxolotlModelInstance) Filter() types.SessionFilter {
+	return i.filter
 }
 
-func (a *AxolotlModelInstance) LastActivityTimestamp() int64 {
-	return a.lastActivityTimestamp
+func (i *AxolotlModelInstance) LastActivityTimestamp() int64 {
+	return i.lastActivityTimestamp
 }
 
-func (a *AxolotlModelInstance) Model() model.Model {
-	return a.model
+func (i *AxolotlModelInstance) Model() model.Model {
+	return i.model
 }
 
-func (a *AxolotlModelInstance) NextSession() *types.Session {
-	return a.nextSession
+func (i *AxolotlModelInstance) NextSession() *types.Session {
+	return i.nextSession
 }
 
-func (a *AxolotlModelInstance) SetNextSession(session *types.Session) {
-	a.nextSession = session
+func (i *AxolotlModelInstance) SetNextSession(session *types.Session) {
+	i.nextSession = session
 }
 
-func (a *AxolotlModelInstance) GetQueuedSession() *types.Session {
-	return a.queuedSession
+func (i *AxolotlModelInstance) GetQueuedSession() *types.Session {
+	return i.queuedSession
 }
 
 type ModelInstanceConfig struct {
@@ -206,27 +206,27 @@ func NewModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlMo
 
 */
 
-func (instance *AxolotlModelInstance) getSessionFileHander(session *types.Session) *SessionFileHandler {
+func (i *AxolotlModelInstance) getSessionFileHander(session *types.Session) *SessionFileHandler {
 	return &SessionFileHandler{
 		folder:    path.Join(os.TempDir(), "helix", "downloads", session.ID),
 		sessionID: session.ID,
 		downloadFile: func(sessionID string, remotePath string, localPath string) error {
-			return instance.fileHandler.downloadFile(sessionID, remotePath, localPath)
+			return i.fileHandler.downloadFile(sessionID, remotePath, localPath)
 		},
 		downloadFolder: func(sessionID string, remotePath string, localPath string) error {
-			return instance.fileHandler.downloadFolder(sessionID, remotePath, localPath)
+			return i.fileHandler.downloadFolder(sessionID, remotePath, localPath)
 		},
 	}
 }
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (instance *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+func (i *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
-	instance.lastActivityTimestamp = time.Now().Unix()
-	instance.currentSession = session
+	i.lastActivityTimestamp = time.Now().Unix()
+	i.currentSession = session
 
-	task, err := instance.model.GetTask(session, instance.getSessionFileHander(session))
+	task, err := i.model.GetTask(session, i.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error getting task: %s", err.Error())
 		return nil, err
@@ -236,37 +236,37 @@ func (instance *AxolotlModelInstance) AssignSessionTask(ctx context.Context, ses
 }
 
 // to queue a session means to put it into a buffer and wait for the Python process to boot up and then "pull" it
-func (instance *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
-	instance.queuedSession = session
-	instance.nextSession = nil
+func (i *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
+	i.queuedSession = session
+	i.nextSession = nil
 
 	log.Debug().
 		Msgf("🔵 runner prepare session: %s", session.ID)
 
-	preparedSession, err := instance.model.PrepareFiles(session, isInitialSession, instance.getSessionFileHander(session))
+	preparedSession, err := i.model.PrepareFiles(session, isInitialSession, i.getSessionFileHander(session))
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
-		instance.queuedSession = nil
-		instance.nextSession = nil
-		instance.errorSession(session, err)
+		i.queuedSession = nil
+		i.nextSession = nil
+		i.errorSession(session, err)
 		return
 	}
 
-	err = instance.addJobToHistory(session)
+	err = i.addJobToHistory(session)
 
 	if err != nil {
 		log.Error().Msgf("error preparing session: %s", err.Error())
-		instance.queuedSession = nil
-		instance.nextSession = nil
-		instance.errorSession(session, err)
+		i.queuedSession = nil
+		i.nextSession = nil
+		i.errorSession(session, err)
 		return
 	}
 
 	log.Debug().
 		Msgf("🔵 runner assign next session: %s", preparedSession.ID)
 
-	instance.queuedSession = nil
-	instance.nextSession = preparedSession
+	i.queuedSession = nil
+	i.nextSession = preparedSession
 }
 
 /*
@@ -279,8 +279,8 @@ func (instance *AxolotlModelInstance) QueueSession(session *types.Session, isIni
 
 */
 
-func (instance *AxolotlModelInstance) errorSession(session *types.Session, err error) {
-	apiUpdateErr := instance.responseHandler(&types.RunnerTaskResponse{
+func (i *AxolotlModelInstance) errorSession(session *types.Session, err error) {
+	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: session.ID,
 		Error:     err.Error(),
@@ -302,43 +302,43 @@ func (instance *AxolotlModelInstance) errorSession(session *types.Session, err e
 */
 
 // we call this function from the text processors
-func (instance *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
-	if instance.currentSession == nil {
+func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTaskResponse) {
+	if i.currentSession == nil {
 		log.Error().Msgf("no current session")
 		return
 	}
-	if instance.currentSession.ID != taskResponse.SessionID {
-		log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", instance.currentSession.ID, taskResponse.SessionID)
+	if i.currentSession.ID != taskResponse.SessionID {
+		log.Error().Msgf("current session ID mis-match: current=%s vs event=%s", i.currentSession.ID, taskResponse.SessionID)
 		return
 	}
 
 	var err error
 
-	systemInteraction, err := data.GetSystemInteraction(instance.currentSession)
+	systemInteraction, err := data.GetSystemInteraction(i.currentSession)
 	if err != nil {
 		log.Error().Msgf("error getting system interaction: %s", err.Error())
 		return
 	}
 
 	taskResponse.InteractionID = systemInteraction.ID
-	taskResponse.Owner = instance.currentSession.Owner
-	instance.lastActivityTimestamp = time.Now().Unix()
+	taskResponse.Owner = i.currentSession.Owner
+	i.lastActivityTimestamp = time.Now().Unix()
 
 	// if it's the final result then we need to upload the files first
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
-		taskResponse, err = instance.fileHandler.uploadWorkerResponse(taskResponse)
+		taskResponse, err = i.fileHandler.uploadWorkerResponse(taskResponse)
 		if err != nil {
 			log.Error().Msgf("error uploading task result files: %s", err.Error())
-			instance.currentSession = nil
+			i.currentSession = nil
 			return
 		}
 
-		instance.currentSession = nil
+		i.currentSession = nil
 	}
 
 	// this will emit to the controller handler
 	// i.e. the function defined in createModelInstance
-	err = instance.responseHandler(taskResponse)
+	err = i.responseHandler(taskResponse)
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
@@ -347,14 +347,14 @@ func (instance *AxolotlModelInstance) taskResponseHandler(taskResponse *types.Ru
 
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
-func (instance *AxolotlModelInstance) Start(session *types.Session) error {
-	cmd, err := instance.model.GetCommand(instance.ctx, instance.filter, types.RunnerProcessConfig{
-		InstanceID:        instance.id,
-		NextTaskURL:       instance.nextTaskURL,
-		InitialSessionURL: instance.initialSessionURL,
-		MockRunner:        instance.runnerOptions.MockRunner,
-		MockRunnerError:   instance.runnerOptions.MockRunnerError,
-		MockRunnerDelay:   instance.runnerOptions.MockRunnerDelay,
+func (i *AxolotlModelInstance) Start(session *types.Session) error {
+	cmd, err := i.model.GetCommand(i.ctx, i.filter, types.RunnerProcessConfig{
+		InstanceID:        i.id,
+		NextTaskURL:       i.nextTaskURL,
+		InitialSessionURL: i.initialSessionURL,
+		MockRunner:        i.runnerOptions.MockRunner,
+		MockRunnerError:   i.runnerOptions.MockRunnerError,
+		MockRunnerDelay:   i.runnerOptions.MockRunnerDelay,
 	})
 	if err != nil {
 		return err
@@ -377,7 +377,7 @@ func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 	log.Info().
 		Msgf("🟢 initial session: %s, %+v", session.ID, sessionCopy)
 
-	instance.currentCommand = cmd
+	i.currentCommand = cmd
 
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -407,7 +407,7 @@ func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 	// in all cases - each model get's to decide what formatting
 	// it's Python needs to use so that these text streams will
 	// parse correctly
-	stdout, stderr, err := instance.model.GetTextStreams(session.Mode, instance.taskResponseHandler)
+	stdout, stderr, err := i.model.GetTextStreams(session.Mode, i.taskResponseHandler)
 	if err != nil {
 		return err
 	}
@@ -447,7 +447,7 @@ func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 
 	go func(cmd *exec.Cmd) {
 		// Signal the runner to drop the model instance
-		defer close(instance.finishChan)
+		defer close(i.finishChan)
 
 		if err = cmd.Wait(); err != nil {
 			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
@@ -457,8 +457,8 @@ func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 			// that this interaction has it's Error field set
 
 			errstr := string(stderrBuf.Bytes())
-			if instance.currentSession != nil {
-				instance.errorSession(instance.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
+			if i.currentSession != nil {
+				i.errorSession(i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
 			}
 
 			if strings.Contains(errstr, "(core dumped)") {
@@ -483,12 +483,12 @@ func (instance *AxolotlModelInstance) Start(session *types.Session) error {
 	return nil
 }
 
-func (instance *AxolotlModelInstance) Stop() error {
-	if instance.currentCommand == nil {
+func (i *AxolotlModelInstance) Stop() error {
+	if i.currentCommand == nil {
 		return fmt.Errorf("no process to stop")
 	}
 	log.Info().Msgf("🟢 stop model process")
-	if err := syscall.Kill(-instance.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
 		log.Error().Msgf("error stopping model process: %s", err.Error())
 		return err
 	}
@@ -496,43 +496,43 @@ func (instance *AxolotlModelInstance) Stop() error {
 	return nil
 }
 
-func (instance *AxolotlModelInstance) isStale() bool {
+func (i *AxolotlModelInstance) isStale() bool {
 	stale := false
-	if instance.lastActivityTimestamp == 0 {
+	if i.lastActivityTimestamp == 0 {
 		stale = false
-	} else if instance.lastActivityTimestamp+int64(instance.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
+	} else if i.lastActivityTimestamp+int64(i.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
 		stale = true
 	}
 	return stale
 }
 
-func (instance *AxolotlModelInstance) addJobToHistory(session *types.Session) error {
+func (i *AxolotlModelInstance) addJobToHistory(session *types.Session) error {
 	summary, err := data.GetSessionSummary(session)
 	if err != nil {
 		return err
 	}
 
 	// put the job at the start of the array
-	instance.jobHistory = append([]*types.SessionSummary{summary}, instance.jobHistory...)
-	if len(instance.jobHistory) > instance.runnerOptions.JobHistoryBufferSize {
-		instance.jobHistory = instance.jobHistory[:len(instance.jobHistory)-1]
+	i.jobHistory = append([]*types.SessionSummary{summary}, i.jobHistory...)
+	if len(i.jobHistory) > i.runnerOptions.JobHistoryBufferSize {
+		i.jobHistory = i.jobHistory[:len(i.jobHistory)-1]
 	}
 
 	return nil
 }
 
-func (instance *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
-	if instance.initialSession == nil {
+func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
+	if i.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
 	}
-	currentSession := instance.currentSession
+	currentSession := i.currentSession
 	if currentSession == nil {
-		currentSession = instance.queuedSession
+		currentSession = i.queuedSession
 	}
 	// this can happen when the session has downloaded and is ready
 	// but the python is still booting up
 	if currentSession == nil {
-		currentSession = instance.nextSession
+		currentSession = i.nextSession
 	}
 
 	var sessionSummary *types.SessionSummary
@@ -546,16 +546,16 @@ func (instance *AxolotlModelInstance) GetState() (*types.ModelInstanceState, err
 	}
 
 	return &types.ModelInstanceState{
-		ID:               instance.id,
-		ModelName:        instance.initialSession.ModelName,
-		Mode:             instance.initialSession.Mode,
-		LoraDir:          instance.initialSession.LoraDir,
-		InitialSessionID: instance.initialSession.ID,
+		ID:               i.id,
+		ModelName:        i.initialSession.ModelName,
+		Mode:             i.initialSession.Mode,
+		LoraDir:          i.initialSession.LoraDir,
+		InitialSessionID: i.initialSession.ID,
 		CurrentSession:   sessionSummary,
-		JobHistory:       instance.jobHistory,
-		Timeout:          int(instance.runnerOptions.ModelInstanceTimeoutSeconds),
-		LastActivity:     int(instance.lastActivityTimestamp),
-		Stale:            instance.isStale(),
-		MemoryUsage:      instance.model.GetMemoryRequirements(instance.initialSession.Mode),
+		JobHistory:       i.jobHistory,
+		Timeout:          int(i.runnerOptions.ModelInstanceTimeoutSeconds),
+		LastActivity:     int(i.lastActivityTimestamp),
+		Stale:            i.isStale(),
+		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
 }
