@@ -7,13 +7,24 @@ import (
 )
 
 func GetModel(modelName types.ModelName) (Model, error) {
-	if modelName == types.Model_Mistral7b {
+	switch modelName {
+	case types.Model_Mistral7b:
 		return &Mistral7bInstruct01{}, nil
-	} else if modelName == types.Model_SDXL {
+	case types.Model_SDXL:
 		return &CogSDXL{}, nil
-	} else {
+	case types.Model_Ollama_Mistral7b:
+		return &OllamaMistral7bInstruct01{}, nil
+	default:
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
+
+	// if modelName == types.Model_Mistral7b {
+	// 	return &Mistral7bInstruct01{}, nil
+	// } else if modelName == types.Model_SDXL {
+	// 	return &CogSDXL{}, nil
+	// } else {
+	// 	return nil, fmt.Errorf("no model for model name %s", modelName)
+	// }
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
@@ -23,6 +34,9 @@ func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
 	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
 	models[types.Model_SDXL] = &CogSDXL{}
+
+	// Ollama
+	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
 	return models, nil
 }
 

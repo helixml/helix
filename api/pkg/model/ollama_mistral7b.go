@@ -11,9 +11,7 @@ import (
 type OllamaMistral7bInstruct01 struct{}
 
 func (i *OllamaMistral7bInstruct01) GetMemoryRequirements(mode types.SessionMode) uint64 {
-
 	return MB * 6440
-
 }
 
 func (i *OllamaMistral7bInstruct01) GetType() types.SessionType {
