@@ -18,11 +18,27 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ActivateModel interface {
-	Mode() types.SessionMode
-	Type() types.SessionType
-	LoraDir() string
+type ModelInstance interface {
+	ID() string
+	Filter() types.SessionFilter
+	LastActivityTimestamp() int64
+	Model() model.Model
+	GetState() (*types.ModelInstanceState, error)
+
+	NextSession() *types.Session
+	SetNextSession(session *types.Session)
+
+	QueueSession(session *types.Session, isInitialSession bool)
+	GetQueuedSession() *types.Session
+
+	AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error)
+
+	Stop() error
 }
+
+var (
+	_ ModelInstance = &AxolotlModelInstance{}
+)
 
 // a long running instance of a loaded into memory model
 // that can run multiple session tasks sequentially
@@ -86,6 +102,34 @@ type AxolotlModelInstance struct {
 
 	// a history of the session IDs
 	jobHistory []*types.SessionSummary
+}
+
+func (a *AxolotlModelInstance) ID() string {
+	return a.id
+}
+
+func (a *AxolotlModelInstance) Filter() types.SessionFilter {
+	return a.filter
+}
+
+func (a *AxolotlModelInstance) LastActivityTimestamp() int64 {
+	return a.lastActivityTimestamp
+}
+
+func (a *AxolotlModelInstance) Model() model.Model {
+	return a.model
+}
+
+func (a *AxolotlModelInstance) NextSession() *types.Session {
+	return a.nextSession
+}
+
+func (a *AxolotlModelInstance) SetNextSession(session *types.Session) {
+	a.nextSession = session
+}
+
+func (a *AxolotlModelInstance) GetQueuedSession() *types.Session {
+	return a.queuedSession
 }
 
 type ModelInstanceConfig struct {
@@ -175,7 +219,7 @@ func (instance *AxolotlModelInstance) getSessionFileHander(session *types.Sessio
 
 // this is the loading of a session onto a running model instance
 // it also returns the task that will be fed down into the python code to execute
-func (instance *AxolotlModelInstance) assignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+func (instance *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
 	instance.lastActivityTimestamp = time.Now().Unix()
 	instance.currentSession = session
@@ -190,7 +234,7 @@ func (instance *AxolotlModelInstance) assignSessionTask(ctx context.Context, ses
 }
 
 // to queue a session means to put it into a buffer and wait for the Python process to boot up and then "pull" it
-func (instance *AxolotlModelInstance) queueSession(session *types.Session, isInitialSession bool) {
+func (instance *AxolotlModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
 	instance.queuedSession = session
 	instance.nextSession = nil
 
@@ -437,7 +481,7 @@ func (instance *AxolotlModelInstance) startProcess(session *types.Session) error
 	return nil
 }
 
-func (instance *AxolotlModelInstance) stopProcess() error {
+func (instance *AxolotlModelInstance) Stop() error {
 	if instance.currentCommand == nil {
 		return fmt.Errorf("no process to stop")
 	}
@@ -475,7 +519,7 @@ func (instance *AxolotlModelInstance) addJobToHistory(session *types.Session) er
 	return nil
 }
 
-func (instance *AxolotlModelInstance) getState() (*types.ModelInstanceState, error) {
+func (instance *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 	if instance.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
 	}

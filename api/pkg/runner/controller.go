@@ -105,7 +105,7 @@ type Runner struct {
 
 	// the map of model instances that we have loaded
 	// and are currently running
-	activeModelInstances *xsync.MapOf[string, *AxolotlModelInstance]
+	activeModelInstances *xsync.MapOf[string, ModelInstance]
 
 	// the lowest amount of memory that something can run with
 	// if we have less than this amount of memory then there is
@@ -174,7 +174,7 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances:  xsync.NewMapOf[string, *AxolotlModelInstance](),
+		activeModelInstances:  xsync.NewMapOf[string, ModelInstance](),
 		localSessions:         xsync.NewMapOf[string, *types.Session](),
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
@@ -318,7 +318,7 @@ func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) er
 
 	// loop over r.activeModelInstances, checking whether the filters on the
 	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
+	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
 		if modelInstanceMatchesSession(modelInstance, session) {
 			// no need to create another one, because there's already one which will match the session
 			log.Debug().Msgf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
@@ -352,25 +352,28 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
 
-	allModels := []AxolotlModelInstance{}
-	stales := []AxolotlModelInstance{}
-	r.activeModelInstances.Range(func(key string, activeModelInstance *AxolotlModelInstance) bool {
-		allModels = append(allModels, *activeModelInstance)
+	var (
+		allModels []ModelInstance
+		stales    []ModelInstance
+	)
+
+	r.activeModelInstances.Range(func(key string, activeModelInstance ModelInstance) bool {
+		allModels = append(allModels, activeModelInstance)
 		stale := false
-		if activeModelInstance.lastActivityTimestamp == 0 {
+		if activeModelInstance.LastActivityTimestamp() == 0 {
 			stale = false
-		} else if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+		} else if activeModelInstance.LastActivityTimestamp()+int64(timeout.Seconds()) < time.Now().Unix() {
 			stale = true
 		}
 		if stale {
-			stales = append(stales, *activeModelInstance)
+			stales = append(stales, activeModelInstance)
 		}
 		return true
 	})
 
 	// sort by memory usage ascending
 	sort.Slice(stales, func(i, j int) bool {
-		return stales[i].model.GetMemoryRequirements(stales[i].filter.Mode) < stales[j].model.GetMemoryRequirements(stales[j].filter.Mode)
+		return stales[i].Model().GetMemoryRequirements(stales[i].Filter().Mode) < stales[j].Model().GetMemoryRequirements(stales[j].Filter().Mode)
 	})
 
 	// calculate mem required by new session
@@ -410,15 +413,15 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		if requiredMemoryFreed > 0 {
 			r.addSchedulingDecision(fmt.Sprintf(
 				"Killing stale model instance %s (%.2fGiB) to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
-				m.id, GiB(int64(m.model.GetMemoryRequirements(m.filter.Mode))), GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
+				m.ID(), GiB(int64(m.Model().GetMemoryRequirements(m.Filter().Mode))), GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
 			)
-			log.Info().Msgf("Killing stale model instance %s", m.id)
-			err := m.stopProcess()
+			log.Info().Msgf("Killing stale model instance %s", m.ID())
+			err := m.Stop()
 			if err != nil {
-				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
+				log.Error().Msgf("error stopping model instance %s: %s", m.ID(), err.Error())
 			}
-			r.activeModelInstances.Delete(m.id)
-			requiredMemoryFreed -= int64(m.model.GetMemoryRequirements(m.filter.Mode))
+			r.activeModelInstances.Delete(m.ID())
+			requiredMemoryFreed -= int64(m.Model().GetMemoryRequirements(m.Filter().Mode))
 		} else {
 			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
 			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
@@ -493,12 +496,12 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	if !r.Options.AllowMultipleCopies {
 		// if we are not allowed to run multiple copies of the same model
 		// then we need to tell the api what we are currently running
-		r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
+		r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
 			queryParams.Add("reject", fmt.Sprintf(
 				"%s:%s:%s",
-				modelInstance.filter.ModelName,
-				modelInstance.filter.Mode,
-				modelInstance.filter.LoraDir,
+				modelInstance.Filter().ModelName,
+				modelInstance.Filter().Mode,
+				modelInstance.Filter().LoraDir,
 			))
 			return true
 		})
@@ -536,10 +539,10 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
-	if modelInstance.nextSession == nil {
+	if modelInstance.NextSession() == nil {
 		return nil, fmt.Errorf("no session found")
 	}
-	return modelInstance.nextSession, nil
+	return modelInstance.NextSession(), nil
 }
 
 // we have popped the next session from the master API
@@ -598,7 +601,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	// whilst the files are downloading - there is no session to pull as "nextSession"
 	// so even if the python process starts up first - it has nothing to pull until
 	// the files have downloaded
-	go modelInstance.queueSession(initialSession, true)
+	go modelInstance.QueueSession(initialSession, true)
 
 	err = modelInstance.startProcess(initialSession)
 	if err != nil {
@@ -675,16 +678,16 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	if foundLocalQueuedSession {
 		// queue it, and fall thru below to assign
 		log.Debug().Msgf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
-		go modelInstance.queueSession(session, false)
-	} else if modelInstance.nextSession != nil {
+		go modelInstance.QueueSession(session, false)
+	} else if modelInstance.NextSession() != nil {
 		// if there is a session in the nextSession cache then we return it immediately
-		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
-		session = modelInstance.nextSession
-		modelInstance.nextSession = nil
-	} else if modelInstance.queuedSession != nil {
+		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.NextSession())
+		session = modelInstance.NextSession()
+		modelInstance.SetNextSession(nil)
+	} else if modelInstance.GetQueuedSession() != nil {
 		// if there is a session in the queuedSession cache then we are waiting for
 		// a task to complete before we want to actually run the session
-		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.queuedSession)
+		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.GetQueuedSession())
 	} else {
 		// ask the upstream api server if there is another task
 		// if there is - then assign it to the queuedSession
@@ -692,9 +695,9 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 		if r.httpClientOptions.Host != "" {
 			queryParams := url.Values{}
 
-			queryParams.Add("model_name", string(modelInstance.filter.ModelName))
-			queryParams.Add("mode", string(modelInstance.filter.Mode))
-			queryParams.Add("lora_dir", string(modelInstance.filter.LoraDir))
+			queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
+			queryParams.Add("mode", string(modelInstance.Filter().Mode))
+			queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
 
 			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
@@ -702,7 +705,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 			}
 
 			if apiSession != nil {
-				go modelInstance.queueSession(apiSession, false)
+				go modelInstance.QueueSession(apiSession, false)
 			}
 		}
 	}
@@ -713,7 +716,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 		return nil, fmt.Errorf("no session found")
 	}
 
-	task, err := modelInstance.assignSessionTask(ctx, session)
+	task, err := modelInstance.AssignSessionTask(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -767,8 +770,8 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 
 func (r *Runner) getUsedMemory() uint64 {
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *AxolotlModelInstance) bool {
-		memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
+		memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		return true
 	})
 	return memoryUsed
@@ -778,19 +781,19 @@ func (r *Runner) getUsedMemoryByNonStale() uint64 {
 	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
 
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *AxolotlModelInstance) bool {
+	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
 		// assume nonStale
 		nonStale := true
 		// this means we are booting so let's leave it alone to boot
-		if modelInstance.lastActivityTimestamp == 0 {
+		if modelInstance.LastActivityTimestamp() == 0 {
 			nonStale = false
 		}
 		// the model is not stale don't include it
-		if modelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
+		if modelInstance.LastActivityTimestamp()+int64(timeout.Seconds()) < time.Now().Unix() {
 			nonStale = false
 		}
 		if nonStale {
-			memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+			memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		}
 		return true
 	})
@@ -852,8 +855,8 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 
 func (r *Runner) getState() (*types.RunnerState, error) {
 	modelInstances := []*types.ModelInstanceState{}
-	r.activeModelInstances.Range(func(key string, modelInstance *AxolotlModelInstance) bool {
-		state, err := modelInstance.getState()
+	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
+		state, err := modelInstance.GetState()
 		if err != nil {
 			return false
 		}
