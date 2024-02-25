@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"syscall"
@@ -32,10 +33,17 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 		cfg.InitialSession.LoraDir = types.LORA_DIR_NONE
 	}
 
+	aiModel, err := model.GetModel(cfg.InitialSession.ModelName)
+	if err != nil {
+		return nil, err
+	}
+
 	i := &OllamaModelInstance{
 		ctx:             ctx,
 		id:              system.GenerateUUID(),
 		finishCh:        make(chan bool),
+		workCh:          make(chan *types.Session, 1),
+		model:           aiModel,
 		responseHandler: cfg.ResponseHandler,
 		filter: types.SessionFilter{
 			ModelName: cfg.InitialSession.ModelName,
@@ -44,6 +52,7 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 			Type:      cfg.InitialSession.Type,
 		},
 		runnerOptions: cfg.RunnerOptions,
+		jobHistory:    []*types.SessionSummary{},
 	}
 
 	return i, nil
@@ -58,6 +67,8 @@ type OllamaModelInstance struct {
 	runnerOptions RunnerOptions
 
 	finishCh chan bool
+
+	workCh chan *types.Session
 
 	// client is the model client
 	client *openai.Client
@@ -116,13 +127,18 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 
 	i.client = openai.NewClientWithConfig(config)
 
-	cmd := exec.CommandContext(i.ctx, ollamaPath)
-	cmd.Env = []string{
-		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
-		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
-		"OLLAMA_HOST=" + fmt.Sprintf("0.0.0.0:%d", port),
-		"OLLAMA_MODELS=" + i.runnerOptions.CacheDir,
-	}
+	cmd := exec.CommandContext(i.ctx, ollamaPath, "serve")
+	// Getting base env (HOME, etc)
+	cmd.Env = append(cmd.Env,
+		os.Environ()...,
+	)
+
+	cmd.Env = append(cmd.Env,
+		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
+		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
+		"OLLAMA_HOST="+fmt.Sprintf("0.0.0.0:%d", port),
+		"OLLAMA_MODELS="+i.runnerOptions.CacheDir,
+	)
 
 	cmd.Stdout = os.Stdout
 
@@ -166,6 +182,54 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 		}
 
 		log.Info().Msgf("🟢 Ollama model instance stopped, exit code=%d", cmd.ProcessState.ExitCode())
+	}()
+
+	// Wait for the server to start
+	startCtx, cancel := context.WithTimeout(i.ctx, 10*time.Second)
+	defer cancel()
+
+WAIT:
+	for {
+		select {
+		case <-startCtx.Done():
+			return fmt.Errorf("timeout waiting for Ollama model instance to start")
+		default:
+			resp, err := http.DefaultClient.Get(fmt.Sprintf("http://localhost:%d", port))
+			if err != nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			resp.Body.Close()
+
+			if resp.StatusCode == http.StatusOK {
+				break WAIT
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
+	}
+
+	go func() {
+		for {
+			select {
+			case <-i.ctx.Done():
+				log.Info().Msgf("🟢 stopping Ollama model instance")
+				return
+			case session := <-i.workCh:
+				i.currentSession = session
+				i.lastActivityTimestamp = time.Now().Unix()
+
+				err = i.processInteraction(session)
+				if err != nil {
+					log.Error().
+						Str("session_id", session.ID).
+						Err(err).
+						Msg("error processing interaction")
+				}
+
+				i.currentSession = nil
+			}
+		}
 	}()
 
 	return nil
@@ -271,18 +335,8 @@ func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSess
 
 	i.queuedSession = nil
 	i.nextSession = session
-	i.currentSession = session
-	i.lastActivityTimestamp = time.Now().Unix()
 
-	err = i.processInteraction(session)
-	if err != nil {
-		log.Error().
-			Str("session_id", session.ID).
-			Err(err).
-			Msg("error processing interaction")
-	}
-
-	i.currentSession = nil
+	i.workCh <- session
 }
 
 func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
