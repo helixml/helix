@@ -3,15 +3,18 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -52,6 +55,9 @@ type OllamaModelInstance struct {
 	runnerOptions RunnerOptions
 
 	finishCh chan bool
+
+	// client is the model client
+	client *openai.Client
 
 	// Streaming response handler
 	responseHandler func(res *types.RunnerTaskResponse) error
@@ -173,6 +179,36 @@ func (i *OllamaModelInstance) GetQueuedSession() *types.Session {
 }
 
 func (i *OllamaModelInstance) Start(session *types.Session) error {
+	ollamaPath, err := exec.LookPath("ollama")
+	if err != nil {
+		return fmt.Errorf("ollama not found in PATH")
+	}
+
+	// Get random free port
+	port, err := freeport.GetFreePort()
+	if err != nil {
+		return fmt.Errorf("error getting free port: %s", err.Error())
+	}
+
+	config := openai.DefaultConfig("ollama")
+	config.BaseURL = fmt.Sprintf("http://localhost:%d", port)
+
+	i.client = openai.NewClientWithConfig(config)
+
+	cmd := exec.Command(ollamaPath)
+	cmd.Env = []string{
+		"HTTP_PROXY=" + os.Getenv("HTTP_PROXY"),
+		"HTTPS_PROXY=" + os.Getenv("HTTPS_PROXY"),
+		"OLLAMA_HOST=" + fmt.Sprintf("0.0.0.0:%d", port),
+		"OLLAMA_MODELS=" + i.runnerOptions.CacheDir,
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("error starting Ollama model instance: %s", err.Error())
+	}
+
+	i.currentCommand = cmd
+
 	return nil
 }
 

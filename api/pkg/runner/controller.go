@@ -28,6 +28,8 @@ type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
 
+	CacheDir string
+
 	InferenceRuntime types.InferenceRuntime
 
 	// WarmupModels specifies the models that should go through the

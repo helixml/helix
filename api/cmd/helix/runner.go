@@ -42,6 +42,7 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
+			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 			WarmupModels: getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
 				types.Model_Mistral7b.String(),
 				types.Model_SDXL.String(),
