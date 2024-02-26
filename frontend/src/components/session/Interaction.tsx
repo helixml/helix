@@ -71,7 +71,7 @@ export const Interaction: FC<{
         if (interaction?.message) {
           displayMessage = useMessageText
         } else {
-          displayMessage = ''
+          displayMessage = interaction.status || ''
         }        
       }
     } else if(session.type == SESSION_TYPE_IMAGE) {
