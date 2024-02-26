@@ -1,13 +1,19 @@
 package runner
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +23,8 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/jmorganca/ollama/api"
+	"github.com/jmorganca/ollama/format"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
@@ -72,6 +80,8 @@ type OllamaModelInstance struct {
 
 	// client is the model client
 	client *openai.Client
+
+	ollamaClient *ollamaClient
 
 	// Streaming response handler
 	responseHandler func(res *types.RunnerTaskResponse) error
@@ -133,10 +143,12 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 		os.Environ()...,
 	)
 
+	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
+
 	cmd.Env = append(cmd.Env,
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
-		"OLLAMA_HOST="+fmt.Sprintf("0.0.0.0:%d", port),
+		"OLLAMA_HOST="+ollamaHost,
 		"OLLAMA_MODELS="+i.runnerOptions.CacheDir,
 	)
 
@@ -188,6 +200,13 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 	startCtx, cancel := context.WithTimeout(i.ctx, 10*time.Second)
 	defer cancel()
 
+	ollamaClient, err := newOllamaClient(ollamaHost)
+	if err != nil {
+		return fmt.Errorf("error creating Ollama client: %s", err.Error())
+	}
+
+	i.ollamaClient = ollamaClient
+
 WAIT:
 	for {
 		select {
@@ -206,7 +225,18 @@ WAIT:
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+	}
 
+	// TODO: make this dynamic
+	err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
+		Model: string(session.ModelName),
+	}, func(progress api.ProgressResponse) error {
+		log.Info().Msgf("🟢 Pulling model %s (%d/%d)", session.ModelName, progress.Completed, progress.Total)
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("error pulling model: %s", err.Error())
 	}
 
 	go func() {
@@ -475,4 +505,104 @@ func (i *OllamaModelInstance) errorSession(session *types.Session, err error) {
 	if apiUpdateErr != nil {
 		log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
 	}
+}
+
+type ollamaClient struct {
+	base *url.URL
+	http *http.Client
+}
+
+func newOllamaClient(hostport string) (*ollamaClient, error) {
+	defaultPort := "11434"
+
+	host, port, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host, port = "127.0.0.1", defaultPort
+		if ip := net.ParseIP(strings.Trim(hostport, "[]")); ip != nil {
+			host = ip.String()
+		} else if hostport != "" {
+			host = hostport
+		}
+	}
+
+	return &ollamaClient{
+		base: &url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort(host, port),
+		},
+		http: http.DefaultClient,
+	}, nil
+}
+
+func (c *ollamaClient) Pull(ctx context.Context, req *api.PullRequest, fn api.PullProgressFunc) error {
+	return c.stream(ctx, http.MethodPost, "/api/pull", req, func(bts []byte) error {
+		var resp api.ProgressResponse
+		if err := json.Unmarshal(bts, &resp); err != nil {
+			return err
+		}
+
+		return fn(resp)
+	})
+}
+
+const maxBufferSize = 512 * format.KiloByte
+
+func (c *ollamaClient) stream(ctx context.Context, method, path string, data any, fn func([]byte) error) error {
+	var buf *bytes.Buffer
+	if data != nil {
+		bts, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+
+		buf = bytes.NewBuffer(bts)
+	}
+
+	requestURL := c.base.JoinPath(path)
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), buf)
+	if err != nil {
+		return err
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/x-ndjson")
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	scanner := bufio.NewScanner(response.Body)
+	// increase the buffer size to avoid running out of space
+	scanBuf := make([]byte, 0, maxBufferSize)
+	scanner.Buffer(scanBuf, maxBufferSize)
+	for scanner.Scan() {
+		var errorResponse struct {
+			Error string `json:"error,omitempty"`
+		}
+
+		bts := scanner.Bytes()
+		if err := json.Unmarshal(bts, &errorResponse); err != nil {
+			return fmt.Errorf("unmarshal: %w", err)
+		}
+
+		if errorResponse.Error != "" {
+			return fmt.Errorf(errorResponse.Error)
+		}
+
+		if response.StatusCode >= http.StatusBadRequest {
+			return api.StatusError{
+				StatusCode:   response.StatusCode,
+				Status:       response.Status,
+				ErrorMessage: errorResponse.Error,
+			}
+		}
+
+		if err := fn(bts); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
