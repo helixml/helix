@@ -22,7 +22,9 @@ func (s *PostgresStore) CreateTool(ctx context.Context, tool *types.Tool) (*type
 
 	tool.Created = time.Now()
 
-	err := s.gdb.WithContext(ctx).Create(&tool).Error
+	setDefaults(tool)
+
+	err := s.gdb.WithContext(ctx).Create(tool).Error
 	if err != nil {
 		return nil, err
 	}
