@@ -29,6 +29,7 @@ require (
 	github.com/getsentry/sentry-go v0.25.0
 	github.com/golang/mock v1.6.0
 	github.com/jinzhu/copier v0.4.0
+	github.com/jmorganca/ollama v0.1.27
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lukemarsden/go-openai2 v0.0.0-20240202213643-0480a26e2aaf
 	github.com/nats-io/nats-server/v2 v2.10.9
