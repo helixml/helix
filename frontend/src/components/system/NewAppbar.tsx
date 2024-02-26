@@ -139,21 +139,10 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         }}
                     >
                         {
-                            getToolbarElement && account.user ? getToolbarElement(true) : null
+                            getToolbarElement && getToolbarElement(true)
                         }
                         {
-                          account.user ? (
-                            <Link
-                            href="https://docs.helix.ml/docs/overview"
-                            target="_blank"
-                            >
-                            <Tooltip title="Helix Docs">
-                                <Box component="span">
-                                <AutoStoriesIcon sx={{ ml: 3 }} />
-                                </Box>
-                            </Tooltip>
-                            </Link>
-                        ) : (
+                          !account.user && (
                             <Button
                                 variant="contained"
                                 color="primary"
@@ -179,21 +168,10 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         }}
                     >
                       {
-                          getToolbarElement && account.user ? getToolbarElement(false) : null
+                          getToolbarElement && getToolbarElement(true)
                       }
                       {
-                        account.user ? (
-                            <Link
-                            href="https://docs.helix.ml/docs/overview"
-                            target="_blank"
-                            >
-                            <Tooltip title="Helix Docs">
-                                <Box component="span">
-                                <AutoStoriesIcon sx={{ ml: 2 }} />
-                                </Box>
-                            </Tooltip>
-                            </Link>
-                        ) : (
+                        !account.user && (
                             <Button
                             variant="contained"
                             color="primary"

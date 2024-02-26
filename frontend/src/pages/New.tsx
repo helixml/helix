@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
@@ -85,18 +85,28 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
-  const examplePrompts = {
-    text: [
-      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
-      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
-      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
-    ],
-    image: [
-      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
-      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
-      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
-    ]
-  };
+  const getTextPrompts = () => [
+    "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
+    "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail",
+    "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
+    "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
+    "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
+  ]
+
+  const getImagePrompts = () => [
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color], [resolution] resolution",
+    "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
+    "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
+    "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
+    "Produce an infographic illustrating the growth of [topic] over the last decade, using [color palette] and engaging visuals",
+    "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
+  ]
+
+  const examplePrompts = useMemo(() => ({
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, 3),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, 3)
+  }), [])
 
   const SampleContent = () => {
     const handleClick = (content: string) => {
@@ -163,7 +173,7 @@ const New: FC = () => {
       return
     }
     const formData = new FormData()
-    
+
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
@@ -272,23 +282,24 @@ const New: FC = () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loader()  
+    loader()
   }, [])
 
+  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography
             sx={{
-              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
               mr: 2,
               ml: 3,
               textAlign: 'right',
             }}
           >
-              Create
+              Inference
           </Typography>
           <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
             <Switch
@@ -312,7 +323,7 @@ const New: FC = () => {
                 textAlign: 'left',
               }}
           >
-              Fine&nbsp;tune
+              Fine-tuning
           </Typography>
         </Box>
       )
@@ -329,7 +340,7 @@ const New: FC = () => {
     return (
       <Box
         sx={{
-          textAlign: 'left', // Center the text inside the box
+          textAlign: 'left',
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
@@ -341,53 +352,65 @@ const New: FC = () => {
             xs: 0,
             md: 14,
           },
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#000020A0'}`
         }}
       >
         <Typography
           variant="h4"
-          component="h1"gutterBottom
+          component="h1" gutterBottom
           sx={{
+            fontSize: {
+              xs: '1.1rem',
+              sm: '1.4rem',
+              md: '1.7rem',
+            },
             fontWeight: 800,
             lineHeight: 0.9,
             scale: {
               xs: 0.7,
+              sm: 0.85,
               md: 1,
             },
           }}
         >
-          What do you want to create?
+          What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type
+          You are in <strong>Inference</strong> mode:
+          <ul><li>Generate new content based on your prompt</li><li>Click
+          <Button
+            variant="contained"
+            size="small"
+            sx={{
+              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+              ":hover": {
+                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+              },
+              color: 'black',
+              mr: 2,
+              borderRadius: 1,
+              textTransform: 'none',
+              fontSize: "medium",
+              fontWeight: 800,
+              pt: '1px',
+              pb: '1px',
+              m: 0.5,
+              display: "inline",
+            }}
+            endIcon={<SwapHorizIcon />}
+            onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+          >
+            {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+          </Button>
+        to change type</li>
+          <li>Type a prompt into the box below and press enter to begin</li></ul>
         </Typography>
-        <Button
-          variant="contained"
-          size="small"
-          sx={{
-            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
-            color: 'black',
-            mr: 2,
-            borderRadius: 1,
-            textTransform: 'none',
-            fontSize: "medium",
-            fontWeight: 800,
-            pt: '1px',
-            pb: '1px',
-            m: 0.5,
-          }}
-          endIcon={<SwapHorizIcon />}
-          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-        >
-          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-        </Button>
         <Typography
           variant="subtitle1"
           sx={{
             lineHeight: 1.2,
           }}
         >
-          Type a prompt into the box below
         </Typography>
         <Typography
           variant="subtitle1"
@@ -395,7 +418,7 @@ const New: FC = () => {
             lineHeight: 1.2,
           }}
         >
-          Press enter to begin
+          <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
         </Typography>
       </Box>
     )
@@ -591,7 +614,10 @@ const New: FC = () => {
                       variant="contained"
                       size="small"
                       sx={{
-                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
+                        bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                        ":hover": {
+                          bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                        },
                         color: 'black',
                         mr: 2,
                         borderRadius: 1,

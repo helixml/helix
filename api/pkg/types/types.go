@@ -141,14 +141,15 @@ type SessionsList struct {
 }
 
 type SessionChatRequest struct {
-	SessionID string      `json:"session_id"` // If empty, we will start a new session
-	Stream    bool        `json:"stream"`     // If true, we will stream the response
-	Mode      SessionMode `json:"mode"`       // e.g. inference, finetune
-	Type      SessionType `json:"type"`       // e.g. text, image
-	LoraDir   string      `json:"lora_dir"`
-	Messages  []*Message  `json:"messages"` // Initial messages
-	Tools     []string    `json:"tools"`    // Available tools to use in the session
-	Model     string      `json:"model"`    // The model to use
+	SessionID    string      `json:"session_id"` // If empty, we will start a new session
+	Stream       bool        `json:"stream"`     // If true, we will stream the response
+	Mode         SessionMode `json:"mode"`       // e.g. inference, finetune
+	Type         SessionType `json:"type"`       // e.g. text, image
+	LoraDir      string      `json:"lora_dir"`
+	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
+	Messages     []*Message  `json:"messages"` // Initial messages
+	Tools        []string    `json:"tools"`    // Available tools to use in the session
+	Model        string      `json:"model"`    // The model to use
 }
 
 type Message struct {
@@ -501,6 +502,7 @@ type CreateSessionRequest struct {
 	SessionID               string
 	SessionMode             SessionMode
 	SessionType             SessionType
+	SystemPrompt            string // System message
 	ParentSession           string
 	ModelName               ModelName
 	Owner                   string
