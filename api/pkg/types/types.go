@@ -127,8 +127,8 @@ type SessionMetadata struct {
 	// we might choose to not use them (this will help our eval framework know what works the best)
 	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
 	// and what the threshold for a "good" answer is
-	RagEnabled          bool               `json:"rag_enabled"`           // this will default to true
-	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // this will default to true
+	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
+	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
 	RagSettings         SessionRagSettings `json:"rag_settings"`
 }
 

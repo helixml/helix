@@ -16,6 +16,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -346,6 +347,30 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			if err != nil {
 				return nil, err
 			}
+
+			// if we are NOT doing fine tuning then we need to mark this as finshed
+			if !session.Metadata.TextFinetuneEnabled {
+				session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+					systemInteraction.Finished = true
+					systemInteraction.Progress = 0
+					systemInteraction.Message = ""
+					systemInteraction.Status = "We have indexed all of your documents now you can ask questions..."
+					systemInteraction.State = types.InteractionStateComplete
+					systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
+					systemInteraction.Files = []string{}
+					return systemInteraction, nil
+				})
+
+				// we need to switch to inference mode now so the user can ask questions
+				session.Mode = types.SessionModeInference
+
+				if err != nil {
+					return nil, err
+				}
+
+				c.WriteSession(session)
+				c.BroadcastProgress(session, 0, "")
+			}
 		}
 
 		// we put this behind a feature flag because then we can have RAG only sessions
@@ -391,6 +416,11 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			}
 			session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 				userInteraction.DisplayMessage = userInteraction.Message
+				injectedUserPrompt, err := prompts.RAGInferencePrompt(userInteraction.Message, ragResults)
+				if err != nil {
+					return nil, err
+				}
+				userInteraction.Message = injectedUserPrompt
 				return userInteraction, nil
 			})
 			session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
