@@ -81,7 +81,7 @@ function up() {
 }
 
 function rebuild() {
-  docker-compose -f docker-compose.dev.yaml up -d --build api
+  docker-compose -f docker-compose.dev.yaml up -d --build $@
 }
 
 function db() {
