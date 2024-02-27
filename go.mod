@@ -5,39 +5,35 @@ go 1.20
 require (
 	cloud.google.com/go/storage v1.33.0
 	github.com/Nerzal/gocloak/v13 v13.8.0
+	github.com/avast/retry-go/v4 v4.5.1
+	github.com/davecgh/go-spew v1.1.1
+	github.com/doug-martin/goqu/v9 v9.19.0
+	github.com/dustin/go-humanize v1.0.1
+	github.com/getkin/kin-openapi v0.123.0
+	github.com/getsentry/sentry-go v0.25.0
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/golang-migrate/migrate/v4 v4.16.2
+	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.3.1
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.0
 	github.com/hashicorp/go-retryablehttp v0.7.4
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
-	github.com/joho/godotenv v1.5.1
-	github.com/lib/pq v1.10.9
-	github.com/rs/zerolog v1.31.0
-	github.com/spf13/cobra v1.7.0
-	google.golang.org/api v0.147.0
-)
-
-require github.com/dustin/go-humanize v1.0.1
-
-require (
-	github.com/avast/retry-go/v4 v4.5.1
-	github.com/davecgh/go-spew v1.1.1
-	github.com/doug-martin/goqu/v9 v9.19.0
-	github.com/getkin/kin-openapi v0.123.0
-	github.com/getsentry/sentry-go v0.25.0
-	github.com/golang/mock v1.6.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/jmorganca/ollama v0.1.27
+	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/lib/pq v1.10.9
 	github.com/lukemarsden/go-openai2 v0.0.0-20240202213643-0480a26e2aaf
 	github.com/nats-io/nats-server/v2 v2.10.9
 	github.com/nats-io/nats.go v1.32.0
 	github.com/oklog/ulid/v2 v2.1.0
+	github.com/rs/zerolog v1.31.0
+	github.com/spf13/cobra v1.7.0
 	github.com/stripe/stripe-go/v76 v76.8.0
 	github.com/swaggo/swag v1.16.3
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
+	google.golang.org/api v0.147.0
 	gorm.io/driver/postgres v1.5.4
 	gorm.io/gorm v1.25.6
 	gotest.tools/v3 v3.5.1
