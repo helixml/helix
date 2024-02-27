@@ -50,7 +50,7 @@ const routes: IApplicationRoute[] = [
   name: 'new',
   path: '/',
   meta: {
-    title: 'New Session',
+    title: 'The start of something beautiful',
     sidebar: true,
   },
   render: () => (

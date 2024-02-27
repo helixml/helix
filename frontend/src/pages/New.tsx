@@ -28,6 +28,7 @@ import useAccount from '../hooks/useAccount'
 import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
+import ButtonGroup from '@mui/material/ButtonGroup'
 
 import {
   ISessionMode,
@@ -57,7 +58,17 @@ const New: FC = () => {
 
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  
+  const [selectedTyped, setSelectedTyped] = useState<ISessionType>(SESSION_TYPE_TEXT);
+
+  const handleTextClick = () => {
+    setSelectedTyped(SESSION_TYPE_TEXT);
+    setModel(mode as ISessionMode, SESSION_TYPE_TEXT);
+  };
+
+  const handleImageClick = () => {
+    setSelectedTyped(SESSION_TYPE_IMAGE);
+    setModel(mode as ISessionMode, SESSION_TYPE_IMAGE);
+  };
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -402,10 +413,73 @@ const New: FC = () => {
         justifyContent: 'center',
         backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
         backgroundSize: '80%',
-        backgroundPosition: 'center',
+        backgroundPosition: 'center 130%',
         backgroundRepeat: 'no-repeat',
       }}
     >
+  <Box sx={{ display: 'flex', width: '93%',  }}>
+
+     {/* IMAGE Typography with line */}
+  <Box
+    sx={{
+      width: '49%',
+      textAlign: 'center',
+      cursor: 'pointer',
+      opacity: selectedType === SESSION_TYPE_TEXT ? 0.5 : 1,
+      '&:after': {
+        content: '""',
+        display: 'block',
+        height: '2px',
+        backgroundColor: '#FFFFFF', 
+        marginTop: '0.25rem',
+      }
+    }}
+    onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
+  >
+    <Typography
+      variant="subtitle1"
+      sx={{
+        fontSize: "medium",
+        fontWeight: 800,
+        color: '#FFFFFF', // Green text color
+        marginBottom: '10px',
+      }}
+    >
+      Images
+    </Typography>
+  </Box>
+  {/* TEXT Typography with line */}
+  <Box
+    sx={{
+      width: '50%',
+      textAlign: 'center',
+      cursor: 'pointer',
+      opacity: selectedType === SESSION_TYPE_IMAGE ? 0.5 : 1,
+      '&:after': {
+        content: '""',
+        display: 'block',
+        height: '2px',
+        backgroundColor: '#ffff00', // Yellow line color
+       
+      }
+    }}
+    onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
+  >
+    <Typography
+      variant="subtitle1"
+      sx={{
+        fontSize: "medium",
+        fontWeight: 800,
+        color: '#ffff00', // Yellow text color
+        marginBottom: '10px',
+      }}
+    >
+      Text
+    </Typography>
+  </Box>
+
+ 
+</Box>
       <Box
         sx={{
           width: '100%',
@@ -468,7 +542,7 @@ const New: FC = () => {
           }
         </Container>
       </Box>
-      <Box
+      {/* <Box
         sx={{
           width: '100%',
           flexGrow: 0,
@@ -502,75 +576,18 @@ const New: FC = () => {
               justifyContent: 'center',
             }}
           >
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              autoFocus
-              label={(
-                (
-                  type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
-                    'Describe what you want to see in an image...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputs.inputValue}
-              disabled={selectedMode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Button
-                      variant="contained"
-                      size="small"
-                      sx={{
-                        bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
-                        color: 'black',
-                        mr: 2,
-                        borderRadius: 1,
-                        textTransform: 'none',
-                        fontSize: "medium",
-                        fontWeight: 800,
-                        pt: '1px',
-                        pb: '1px',
-                      }}
-                      endIcon={<SwapHorizIcon />}
-                      onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-                    >
-                      {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-                    </Button>
-                  </InputAdornment>
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="send"
-                      disabled={selectedMode == SESSION_MODE_FINETUNE}
-                      onClick={onInference}
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      }}
-                    >
-                      <SendIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
+            
           </Box>
           <Box
             sx={{
               mt: 2,
             }}
           >
-            <Disclaimer />
+            { <Disclaimer /> }
           </Box>
         </Container>
         
-      </Box>
+      </Box> */}
 
       {
         inputs.uploadProgress && (

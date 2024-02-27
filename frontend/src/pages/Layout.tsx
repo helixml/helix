@@ -157,12 +157,12 @@ const Layout: FC = ({
               sx={{
                 ml: 2,
                 p: 1,
-                fontWeight: 'heading',
+                fontWeight: 'bold',
                 '&:hover': {
                   color: themeConfig.darkHighlight,
                 }
               }}
-                primary="New Session"
+                 primary="New Session"
               />
               <ListItemIcon>
                 <AddIcon color="primary" />

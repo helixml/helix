@@ -90,6 +90,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                                 flexGrow: 1,
                                 ml: 1,
                                 color: 'text.primary',
+                                fontWeight: 'bold', 
                             }}
                         >
                         {meta.title || ''}
