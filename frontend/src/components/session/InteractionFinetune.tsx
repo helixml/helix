@@ -21,6 +21,7 @@ import Cell from '../widgets/Cell'
 import useAccount from '../../hooks/useAccount'
 import useApi from '../../hooks/useApi'
 import useSnackbar from '../../hooks/useSnackbar'
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 
 import {
   ICloneInteractionMode,
@@ -220,7 +221,7 @@ export const InteractionFinetune: FC<{
                             window.open(useURL)
                           }}
                         >
-                          <span className={`fiv-viv fiv-size-md fiv-icon-${mapFileExtension(filename)}`}></span>
+                        <AttachFileIcon />
                           <Typography variant="caption" sx={{
                             textAlign: 'center',
                             color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
