@@ -37,8 +37,6 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 	if cfg.InitialSession.LoraDir != "" {
 		// TODO: prepare model adapter
 		log.Warn().Msg("LoraDir is not supported for OllamaModelInstance, need to implement adapter modelfile")
-	} else {
-		cfg.InitialSession.LoraDir = types.LORA_DIR_NONE
 	}
 
 	aiModel, err := model.GetModel(cfg.InitialSession.ModelName)
@@ -59,8 +57,9 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 			LoraDir:   cfg.InitialSession.LoraDir,
 			Type:      cfg.InitialSession.Type,
 		},
-		runnerOptions: cfg.RunnerOptions,
-		jobHistory:    []*types.SessionSummary{},
+		runnerOptions:         cfg.RunnerOptions,
+		jobHistory:            []*types.SessionSummary{},
+		lastActivityTimestamp: time.Now().Unix(),
 	}
 
 	return i, nil
@@ -121,6 +120,8 @@ type OllamaModelInstance struct {
 }
 
 func (i *OllamaModelInstance) Start(session *types.Session) error {
+	i.initialSession = session
+
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
@@ -420,11 +421,13 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 	defer stream.Close()
 
+	var buf string
+
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			log.Info().Msg("stream finished")
-			i.responseProcessor(response.Choices[0].Delta.Content, true)
+			i.responseProcessor(buf, true)
 			return nil
 		}
 
@@ -433,6 +436,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			i.errorSession(session, err)
 			return err
 		}
+
+		buf += response.Choices[0].Delta.Content
 
 		i.responseProcessor(response.Choices[0].Delta.Content, false)
 	}
@@ -457,6 +462,7 @@ func (i *OllamaModelInstance) responseProcessor(content string, done bool) {
 		InteractionID: systemInteraction.ID,
 		Owner:         i.currentSession.Owner,
 		Done:          done,
+		Message:       content,
 	}
 
 	if done {

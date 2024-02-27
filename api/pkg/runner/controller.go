@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
@@ -504,15 +503,12 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	fmt.Println("createModelInstance")
-	spew.Dump(initialSession)
-
 	switch {
 	case r.Options.InferenceRuntime == types.InferenceRuntimeOllama &&
 		initialSession.Type == types.SessionTypeText && // Only text supported
 		initialSession.Mode == types.SessionModeInference && // Only inference supported
 		(initialSession.LoraDir == "" || initialSession.LoraDir == types.LORA_DIR_NONE): // Lora not implemented
-
+		log.Info().Msg("using Ollama model instance")
 		modelInstance, err = NewOllamaModelInstance(
 			r.Ctx,
 			&ModelInstanceConfig{
@@ -524,29 +520,28 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		if err != nil {
 			return err
 		}
-		fmt.Println("XX ollama model instance created")
 	default:
-		fmt.Println("XX using axolotl")
-		// modelInstance, err = NewAxolotlModelInstance(
-		// 	r.Ctx,
-		// 	&ModelInstanceConfig{
-		// 		InitialSession:    initialSession,
-		// 		InitialSessionURL: r.Options.InitialSessionURL,
-		// 		NextTaskURL:       r.Options.TaskURL,
-		// 		// this function will convert any files it sees locally into an upload
-		// 		// to the api server filestore - all files will be written to the filestore
-		// 		// under a session sub path - you can include tar files and they will untarred at the other end
-		// 		// into the filestore
-		// 		// TODO: support the tar feature above
-		// 		ResponseHandler: func(res *types.RunnerTaskResponse) error {
-		// 			return r.handleWorkerResponse(res)
-		// 		},
-		// 		RunnerOptions: r.Options,
-		// 	},
-		// )
-		// if err != nil {
-		// 	return err
-		// }
+		log.Info().Msg("using Axolotl model instance")
+		modelInstance, err = NewAxolotlModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:    initialSession,
+				InitialSessionURL: r.Options.InitialSessionURL,
+				NextTaskURL:       r.Options.TaskURL,
+				// this function will convert any files it sees locally into an upload
+				// to the api server filestore - all files will be written to the filestore
+				// under a session sub path - you can include tar files and they will untarred at the other end
+				// into the filestore
+				// TODO: support the tar feature above
+				ResponseHandler: func(res *types.RunnerTaskResponse) error {
+					return r.handleWorkerResponse(res)
+				},
+				RunnerOptions: r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
 
 	}
 
@@ -762,7 +757,7 @@ func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
 	switch res.Type {
 	case types.WorkerTaskResponseTypeResult:
 		// if it's a full result then we just post it to the api
-		log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
+		log.Info().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 		return r.postWorkerResponseToApi(res)
 	case types.WorkerTaskResponseTypeProgress, types.WorkerTaskResponseTypeStream:
 		// streaming updates it's a websocket event
@@ -808,6 +803,7 @@ func (r *Runner) getState() (*types.RunnerState, error) {
 	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
 		state, err := modelInstance.GetState()
 		if err != nil {
+			log.Error().Msgf("error getting state for model instance %s (%s): %s", modelInstance.ID(), modelInstance.Filter().ModelName, err.Error())
 			return false
 		}
 		modelInstances = append(modelInstances, state)
