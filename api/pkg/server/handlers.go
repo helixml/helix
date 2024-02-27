@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -136,9 +135,12 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	modelName, err := model.GetModelNameForSession(sessionType)
-	if err != nil {
-		return nil, err
+	var modelName types.ModelName
+	switch sessionType {
+	case types.SessionTypeText:
+		modelName = types.Model_Axolotl_Mistral7b
+	case types.SessionTypeImage:
+		modelName = types.Model_Axolotl_SDXL
 	}
 
 	sessionID := system.GenerateUUID()

@@ -89,7 +89,7 @@ Do not number the questions or answers.
 		SessionID:     system.GenerateUUID(),
 		SessionMode:   types.SessionModeInference,
 		SessionType:   types.SessionTypeText,
-		ModelName:     types.Model_Mistral7b,
+		ModelName:     types.Model_Axolotl_Mistral7b,
 		Owner:         helixMistral.session.Owner,
 		OwnerType:     helixMistral.session.OwnerType,
 		ParentSession: helixMistral.session.ID,

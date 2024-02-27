@@ -29,7 +29,7 @@ func NewRunnerOptions() *RunnerOptions {
 			ApiToken:                     getDefaultServeOptionString("API_TOKEN", ""),
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
-			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
+			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 300),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
 			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
@@ -43,10 +43,10 @@ func NewRunnerOptions() *RunnerOptions {
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
-			WarmupModels: getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
+			WarmupModels:                 getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
 				// types.Model_Mistral7b.String(),
 				// types.Model_SDXL.String(),
-				"mistral:7b-instruct",
+				// "mistral:7b-instruct",
 			}),
 			InferenceRuntime: types.InferenceRuntime(getDefaultServeOptionString("INFERENCE_RUNTIME",
 				types.InferenceRuntimeOllama.String()),
@@ -203,7 +203,7 @@ var WarmupSession_Model_Mistral7b = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeText,
-	ModelName:    types.Model_Mistral7b,
+	ModelName:    types.Model_Axolotl_Mistral7b,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -231,7 +231,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    types.Model_SDXL,
+	ModelName:    types.Model_Axolotl_SDXL,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -285,11 +285,11 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 	if !options.Runner.MockRunner {
 		for _, modelName := range options.Runner.WarmupModels {
 			switch modelName {
-			case types.Model_Mistral7b.String():
+			case types.Model_Axolotl_Mistral7b.String():
 				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
 			case "mistral:7b-instruct":
 				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Mistral7b)
-			case types.Model_SDXL.String():
+			case types.Model_Axolotl_SDXL.String():
 				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
 			}
 		}
