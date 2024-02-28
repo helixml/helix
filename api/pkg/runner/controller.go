@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
@@ -30,11 +31,7 @@ type RunnerOptions struct {
 
 	CacheDir string
 
-	InferenceRuntime types.InferenceRuntime
-
-	// WarmupModels specifies the models that should go through the
-	// warmup on start
-	WarmupModels []string
+	Config *config.RunnerConfig
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
@@ -503,11 +500,8 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	switch {
-	case r.Options.InferenceRuntime == types.InferenceRuntimeOllama &&
-		initialSession.Type == types.SessionTypeText && // Only text supported
-		initialSession.Mode == types.SessionModeInference && // Only inference supported
-		(initialSession.LoraDir == "" || initialSession.LoraDir == types.LORA_DIR_NONE): // Lora not implemented
+	switch initialSession.ModelName.InferenceRuntime() {
+	case types.InferenceRuntimeOllama:
 		log.Info().Msg("using Ollama model instance")
 		modelInstance, err = NewOllamaModelInstance(
 			r.Ctx,
@@ -521,6 +515,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 			return err
 		}
 	default:
+		// Defaulting to axolotl
 		log.Info().Msg("using Axolotl model instance")
 		modelInstance, err = NewAxolotlModelInstance(
 			r.Ctx,
