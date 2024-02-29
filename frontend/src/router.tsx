@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
+import Widget from './pages/Widget'
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
 import CollectionTitle from './components/collection/CollectionTitle'
@@ -116,6 +117,21 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <Session />
+  ),
+}, {
+  name: 'widget',
+  path: '/widget',
+  meta: {
+    title: 'Widget',
+    sidebar: true,
+  },
+  getTitle: () => {
+    return (
+      <SessionTitle />
+    )
+  },
+  render: () => (
+      <Widget />
   ),
 }, {
   name: 'dashboard',
