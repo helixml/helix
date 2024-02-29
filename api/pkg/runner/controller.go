@@ -53,9 +53,6 @@ type RunnerOptions struct {
 	// do we want to allow multiple models of the same type to run on this GPU?
 	AllowMultipleCopies bool
 
-	// how long without running a job before we close a model instance
-	ModelInstanceTimeoutSeconds int
-
 	// how long to wait between loops for the controller
 	// this will affect how often we ask for a global session
 	GetTaskDelayMilliseconds int
@@ -242,7 +239,7 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 
 		// TODO: get the timeout to be configurable from the api and so dynamic
 		// based on load
-		err = r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds), session)
+		err = r.checkForStaleModelInstances(ctx, session)
 		if err != nil {
 			return err
 		}
@@ -296,7 +293,7 @@ func GiB(bytes int64) float32 {
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
+func (r *Runner) checkForStaleModelInstances(ctx context.Context, newSession *types.Session) error {
 	// calculate stale model instances
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
@@ -308,13 +305,8 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 
 	r.activeModelInstances.Range(func(key string, activeModelInstance ModelInstance) bool {
 		allModels = append(allModels, activeModelInstance)
-		stale := false
-		if activeModelInstance.LastActivityTimestamp() == 0 {
-			stale = false
-		} else if activeModelInstance.LastActivityTimestamp()+int64(timeout.Seconds()) < time.Now().Unix() {
-			stale = true
-		}
-		if stale {
+
+		if activeModelInstance.Stale() {
 			stales = append(stales, activeModelInstance)
 		}
 		return true
@@ -718,25 +710,15 @@ func (r *Runner) getUsedMemory() uint64 {
 }
 
 func (r *Runner) getUsedMemoryByNonStale() uint64 {
-	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
-
 	memoryUsed := uint64(0)
+
 	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
-		// assume nonStale
-		nonStale := true
-		// this means we are booting so let's leave it alone to boot
-		if modelInstance.LastActivityTimestamp() == 0 {
-			nonStale = false
-		}
-		// the model is not stale don't include it
-		if modelInstance.LastActivityTimestamp()+int64(timeout.Seconds()) < time.Now().Unix() {
-			nonStale = false
-		}
-		if nonStale {
+		if !modelInstance.Stale() {
 			memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		}
 		return true
 	})
+
 	return memoryUsed
 }
 

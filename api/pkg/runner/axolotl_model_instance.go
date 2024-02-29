@@ -21,7 +21,7 @@ import (
 type ModelInstance interface {
 	ID() string
 	Filter() types.SessionFilter
-	LastActivityTimestamp() int64
+	Stale() bool
 	Model() model.Model
 	GetState() (*types.ModelInstanceState, error)
 
@@ -99,7 +99,7 @@ type AxolotlModelInstance struct {
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
-	lastActivityTimestamp int64
+	lastActivity time.Time
 
 	// the file handler we use to download and upload session files
 	fileHandler *FileHandler
@@ -116,8 +116,8 @@ func (i *AxolotlModelInstance) Filter() types.SessionFilter {
 	return i.filter
 }
 
-func (i *AxolotlModelInstance) LastActivityTimestamp() int64 {
-	return i.lastActivityTimestamp
+func (i *AxolotlModelInstance) Stale() bool {
+	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Axolotl.InstanceTTL
 }
 
 func (i *AxolotlModelInstance) Model() model.Model {
@@ -229,7 +229,7 @@ func (i *AxolotlModelInstance) getSessionFileHander(session *types.Session) *Ses
 // it also returns the task that will be fed down into the python code to execute
 func (i *AxolotlModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
 	// mark the instance as active so it doesn't get cleaned up
-	i.lastActivityTimestamp = time.Now().Unix()
+	i.lastActivity = time.Now()
 	i.currentSession = session
 
 	task, err := i.model.GetTask(session, i.getSessionFileHander(session))
@@ -328,7 +328,7 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 	taskResponse.InteractionID = systemInteraction.ID
 	taskResponse.Owner = i.currentSession.Owner
-	i.lastActivityTimestamp = time.Now().Unix()
+	i.lastActivity = time.Now()
 
 	// if it's the final result then we need to upload the files first
 	if taskResponse.Type == types.WorkerTaskResponseTypeResult {
@@ -502,16 +502,6 @@ func (i *AxolotlModelInstance) Stop() error {
 	return nil
 }
 
-func (i *AxolotlModelInstance) isStale() bool {
-	stale := false
-	if i.lastActivityTimestamp == 0 {
-		stale = false
-	} else if i.lastActivityTimestamp+int64(i.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
-		stale = true
-	}
-	return stale
-}
-
 func (i *AxolotlModelInstance) addJobToHistory(session *types.Session) error {
 	summary, err := data.GetSessionSummary(session)
 	if err != nil {
@@ -559,9 +549,9 @@ func (i *AxolotlModelInstance) GetState() (*types.ModelInstanceState, error) {
 		InitialSessionID: i.initialSession.ID,
 		CurrentSession:   sessionSummary,
 		JobHistory:       i.jobHistory,
-		Timeout:          int(i.runnerOptions.ModelInstanceTimeoutSeconds),
-		LastActivity:     int(i.lastActivityTimestamp),
-		Stale:            i.isStale(),
+		Timeout:          int(i.runnerOptions.Config.Runtimes.Axolotl.InstanceTTL.Seconds()),
+		LastActivity:     int(i.lastActivity.Unix()),
+		Stale:            i.Stale(),
 		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
 }

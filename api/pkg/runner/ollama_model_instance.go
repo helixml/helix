@@ -57,9 +57,9 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 			LoraDir:   cfg.InitialSession.LoraDir,
 			Type:      cfg.InitialSession.Type,
 		},
-		runnerOptions:         cfg.RunnerOptions,
-		jobHistory:            []*types.SessionSummary{},
-		lastActivityTimestamp: time.Now().Unix(),
+		runnerOptions: cfg.RunnerOptions,
+		jobHistory:    []*types.SessionSummary{},
+		lastActivity:  time.Now(),
 	}
 
 	return i, nil
@@ -113,7 +113,7 @@ type OllamaModelInstance struct {
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
-	lastActivityTimestamp int64
+	lastActivity time.Time
 
 	// a history of the session IDs
 	jobHistory []*types.SessionSummary
@@ -248,7 +248,7 @@ WAIT:
 				return
 			case session := <-i.workCh:
 				i.currentSession = session
-				i.lastActivityTimestamp = time.Now().Unix()
+				i.lastActivity = time.Now()
 
 				err = i.processInteraction(session)
 				if err != nil {
@@ -287,8 +287,8 @@ func (i *OllamaModelInstance) Filter() types.SessionFilter {
 	return i.filter
 }
 
-func (i *OllamaModelInstance) LastActivityTimestamp() int64 {
-	return i.lastActivityTimestamp
+func (i *OllamaModelInstance) Stale() bool {
+	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL
 }
 
 func (i *OllamaModelInstance) Model() model.Model {
@@ -320,9 +320,9 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 	}
 
 	stale := false
-	if i.lastActivityTimestamp == 0 {
+	if i.lastActivity.IsZero() {
 		stale = false
-	} else if i.lastActivityTimestamp+int64(i.runnerOptions.ModelInstanceTimeoutSeconds) < time.Now().Unix() {
+	} else if time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL {
 		stale = true
 	}
 
@@ -334,8 +334,8 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 		InitialSessionID: i.initialSession.ID,
 		CurrentSession:   sessionSummary,
 		JobHistory:       i.jobHistory,
-		Timeout:          int(i.runnerOptions.ModelInstanceTimeoutSeconds),
-		LastActivity:     int(i.lastActivityTimestamp),
+		Timeout:          int(i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL.Seconds()),
+		LastActivity:     int(i.lastActivity.Unix()),
 		Stale:            stale,
 		MemoryUsage:      i.model.GetMemoryRequirements(i.initialSession.Mode),
 	}, nil
