@@ -523,6 +523,7 @@ const New: FC = () => {
                   inputs.setFiles(files)
                 }}
                 onDone={ onStartTextFinetune }
+                hideTextField={true} 
               />
             )
           }
@@ -542,7 +543,8 @@ const New: FC = () => {
           }
         </Container>
       </Box>
-      {/* <Box
+
+      <Box
         sx={{
           width: '100%',
           flexGrow: 0,
@@ -576,18 +578,52 @@ const New: FC = () => {
               justifyContent: 'center',
             }}
           >
-            
+            <TextField
+              id="textEntry"
+              fullWidth
+              inputRef={textFieldRef}
+              autoFocus
+              label={(
+                (
+                  type == SESSION_TYPE_TEXT ?
+                    'Chat with Helix...' :
+                    'Describe what you want to see in an image...'
+                ) + " (shift+enter to add a newline)"
+              )}
+              value={inputs.inputValue}
+              disabled={selectedMode == SESSION_MODE_FINETUNE}
+              onChange={handleInputChange}
+              name="ai_submit"
+              multiline={true}
+              onKeyDown={handleKeyDown}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="send"
+                      disabled={selectedMode == SESSION_MODE_FINETUNE}
+                      onClick={onInference}
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      }}
+                    >
+                      <SendIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
           </Box>
           <Box
             sx={{
               mt: 2,
             }}
           >
-            { <Disclaimer /> }
+            <Disclaimer />
           </Box>
         </Container>
         
-      </Box> */}
+      </Box>
 
       {
         inputs.uploadProgress && (
@@ -621,6 +657,7 @@ const New: FC = () => {
           </Window>
         )
       }
+      
     </Box>
   )
 
