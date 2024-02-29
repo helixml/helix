@@ -49,21 +49,21 @@ interface CustomFile {
   content?: string; // Optional property to store the text content
 }
 
-export const FineTuneTextInputs: FC<{
-  initialCounter?: number,
-  initialFiles?: File[],
-  showButton?: boolean,
-  showSystemInteraction?: boolean,
-  onChange?: {
-    (counter: number, files: File[]): void
-  },
-  onDone?: {
-    (manuallyReviewQuestions?: boolean): void
-  },
-}> = ({
+interface FineTuneTextInputsProps {
+  initialCounter?: number;
+  initialFiles?: File[];
+  showButton?: boolean;
+  hideTextField?: boolean; // Changed from 'false' to 'boolean' to allow both true and false
+  showSystemInteraction?: boolean;
+  onChange?: (counter: number, files: File[]) => void;
+  onDone?: (manuallyReviewQuestions?: boolean) => void;
+}
+
+export const FineTuneTextInputs: FC<FineTuneTextInputsProps> = ({
   initialCounter,
   initialFiles,
   showButton = false,
+  hideTextField = false,
   showSystemInteraction = true,
   onChange,
   onDone,
@@ -419,6 +419,7 @@ const [files, setFiles] = useState<CustomFile[]>(
   />
     </Cell>
   </Row>
+  
 </FileUpload>
 
 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
@@ -580,6 +581,12 @@ const [files, setFiles] = useState<CustomFile[]>(
 
   </Box>
 </Drawer>
+{!hideTextField && (
+        <TextField
+          // ... TextField props
+        />
+      )}
+      {/* ... other component JSX */}
 </Box>
   )
       }
