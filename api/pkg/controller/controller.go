@@ -130,7 +130,7 @@ func (c *Controller) Initialize() error {
 			case <-c.Ctx.Done():
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
-				log.Info().Msgf("Runner websocket event: %+v", *event)
+				log.Trace().Msgf("Runner websocket event: %+v", *event)
 
 				err := c.BroadcastWebsocketEvent(context.Background(), event)
 				if err != nil {
