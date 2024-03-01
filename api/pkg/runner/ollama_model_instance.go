@@ -275,6 +275,12 @@ WAIT:
 					continue
 				}
 
+				if session == nil {
+					log.Trace().Msg("no next session")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
 				log.Info().Str("session_id", session.ID).Msg("🟢 enqueuing session")
 
 				i.workCh <- session
@@ -504,6 +510,7 @@ func (i *OllamaModelInstance) emitStreamDone(session *types.Session) {
 	err := i.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeStream,
 		SessionID: session.ID,
+		Owner:     session.Owner,
 		Message:   "",
 		Done:      true,
 	})
@@ -540,6 +547,7 @@ func (i *OllamaModelInstance) errorSession(session *types.Session, err error) {
 	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: session.ID,
+		Owner:     session.Owner,
 		Error:     err.Error(),
 	})
 
