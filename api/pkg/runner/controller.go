@@ -21,7 +21,6 @@ import (
 	"github.com/inhies/go-bytesize"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v3"
 )
 
 type RunnerOptions struct {
@@ -500,7 +499,20 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 			&ModelInstanceConfig{
 				InitialSession:  initialSession,
 				ResponseHandler: r.handleWorkerResponse,
-				RunnerOptions:   r.Options,
+				GetNextSession: func() (*types.Session, error) {
+					queryParams := url.Values{}
+
+					queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
+					queryParams.Add("mode", string(modelInstance.Filter().Mode))
+					queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
+
+					nextSession, err := r.getNextApiSession(ctx, queryParams)
+					if err != nil {
+						return nil, err
+					}
+					return nextSession, nil
+				},
+				RunnerOptions: r.Options,
 			},
 		)
 		if err != nil {
@@ -566,26 +578,6 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	return nil
 }
 
-func (r *Runner) addLocalResponse(ctx context.Context, res *types.RunnerTaskResponse) error {
-	r.StateMtx.Lock()
-	defer r.StateMtx.Unlock()
-
-	// record in-memory for any local clients who want to query us
-	r.State[res.SessionID] = *res
-
-	stateYAML, err := yaml.Marshal(r.State)
-	if err != nil {
-		return err
-	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
-
-	return nil
-}
-
 // given a running model instance id
 // get the next session that it should run
 // this is either the nextSession property on the instance
@@ -603,15 +595,8 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	}
 
 	var session *types.Session
-	foundLocalQueuedSession := false
 
-	// if there is, call modelInstance.queueSession on it
-
-	if foundLocalQueuedSession {
-		// queue it, and fall thru below to assign
-		log.Debug().Msgf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
-		go modelInstance.QueueSession(session, false)
-	} else if modelInstance.NextSession() != nil {
+	if modelInstance.NextSession() != nil {
 		// if there is a session in the nextSession cache then we return it immediately
 		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.NextSession())
 		session = modelInstance.NextSession()
@@ -657,6 +642,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
+
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err

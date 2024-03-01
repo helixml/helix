@@ -51,6 +51,7 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 		workCh:          make(chan *types.Session, 1),
 		model:           aiModel,
 		responseHandler: cfg.ResponseHandler,
+		getNextSession:  cfg.GetNextSession,
 		filter: types.SessionFilter{
 			ModelName: cfg.InitialSession.ModelName,
 			Mode:      cfg.InitialSession.Mode,
@@ -84,6 +85,8 @@ type OllamaModelInstance struct {
 
 	// Streaming response handler
 	responseHandler func(res *types.RunnerTaskResponse) error
+
+	getNextSession func() (*types.Session, error)
 
 	// we create a cancel context for the running process
 	// which is derived from the main runner context
@@ -247,6 +250,8 @@ WAIT:
 				log.Info().Msgf("🟢 stopping Ollama model instance")
 				return
 			case session := <-i.workCh:
+				log.Info().Str("session_id", session.ID).Msg("🟢 processing interaction")
+
 				i.currentSession = session
 				i.lastActivity = time.Now()
 
@@ -256,9 +261,23 @@ WAIT:
 						Str("session_id", session.ID).
 						Err(err).
 						Msg("error processing interaction")
+				} else {
+					log.Info().Str("session_id", session.ID).Msg("🟢 interaction processed")
 				}
 
 				i.currentSession = nil
+			default:
+				// Get next session
+				session, err := i.getNextSession()
+				if err != nil {
+					log.Error().Err(err).Msg("error getting next session")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
+				log.Info().Str("session_id", session.ID).Msg("🟢 enqueuing session")
+
+				i.workCh <- session
 			}
 		}
 	}()
@@ -427,7 +446,10 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
 			log.Info().Msg("stream finished")
-			i.responseProcessor(buf, true)
+			// Signal the end of the stream
+			i.emitStreamDone(session)
+			// Send the last message containing full output
+			i.responseProcessor(session, buf, true)
 			return nil
 		}
 
@@ -439,28 +461,28 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 		buf += response.Choices[0].Delta.Content
 
-		i.responseProcessor(response.Choices[0].Delta.Content, false)
+		i.responseProcessor(session, response.Choices[0].Delta.Content, false)
 	}
 }
 
-func (i *OllamaModelInstance) responseProcessor(content string, done bool) {
-	if i.currentSession == nil {
+func (i *OllamaModelInstance) responseProcessor(session *types.Session, content string, done bool) {
+	if session == nil {
 		log.Error().Msgf("no current session")
 		return
 	}
 
 	var err error
 
-	systemInteraction, err := data.GetSystemInteraction(i.currentSession)
+	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		log.Error().Msgf("error getting system interaction: %s", err.Error())
 		return
 	}
 
 	resp := &types.RunnerTaskResponse{
-		SessionID:     i.currentSession.ID,
+		SessionID:     session.ID,
 		InteractionID: systemInteraction.ID,
-		Owner:         i.currentSession.Owner,
+		Owner:         session.Owner,
 		Done:          done,
 		Message:       content,
 	}
@@ -472,6 +494,19 @@ func (i *OllamaModelInstance) responseProcessor(content string, done bool) {
 	}
 
 	err = i.responseHandler(resp)
+	if err != nil {
+		log.Error().Msgf("error writing event: %s", err.Error())
+		return
+	}
+}
+
+func (i *OllamaModelInstance) emitStreamDone(session *types.Session) {
+	err := i.responseHandler(&types.RunnerTaskResponse{
+		Type:      types.WorkerTaskResponseTypeStream,
+		SessionID: session.ID,
+		Message:   "",
+		Done:      true,
+	})
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
