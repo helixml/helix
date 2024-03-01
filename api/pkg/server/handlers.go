@@ -799,11 +799,12 @@ func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	taskResponse, err = apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
+	resp, err := apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
+		log.Error().Err(err).Str("session_id", taskResponse.SessionID).Msg("failed to handle runner response")
 		return nil, err
 	}
-	return taskResponse, nil
+	return resp, nil
 }
 
 func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {

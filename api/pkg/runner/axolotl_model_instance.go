@@ -152,7 +152,10 @@ type ModelInstanceConfig struct {
 	InitialSessionURL string
 
 	ResponseHandler func(res *types.RunnerTaskResponse) error
-	RunnerOptions   RunnerOptions
+
+	GetNextSession func() (*types.Session, error)
+
+	RunnerOptions RunnerOptions
 }
 
 func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*AxolotlModelInstance, error) {
