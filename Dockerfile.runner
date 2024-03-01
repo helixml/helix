@@ -78,6 +78,9 @@ EXPOSE 5000
 
 RUN mkdir -p /workspace/helix
 
+# Copy runner directory from the repo
+COPY runner /workspace/helix/runner 
+
 COPY --from=go-build-env /helix /workspace/helix/helix
 
 ENTRYPOINT ["/workspace/helix/helix", "runner"]
