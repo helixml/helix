@@ -1,6 +1,8 @@
 module github.com/helixml/helix
 
-go 1.20
+go 1.21
+
+toolchain go1.22.0
 
 require (
 	cloud.google.com/go/storage v1.33.0

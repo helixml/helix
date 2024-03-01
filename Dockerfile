@@ -1,5 +1,5 @@
 # Backend build
-FROM golang:1.20 AS go-build-env
+FROM golang:1.22 AS go-build-env
 WORKDIR /app
 
 # <- COPY go.mod and go.sum files to the workspace
