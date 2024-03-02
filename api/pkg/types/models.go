@@ -8,7 +8,9 @@ const (
 	Model_None              ModelName = ""
 	Model_Axolotl_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Axolotl_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-	Model_Ollama_Mistral7b  ModelName = "mistral:7b-instruct"
+
+	Model_Ollama_Mistral7b ModelName = "mistral:7b-instruct"
+	Model_Ollama_Gemma7b   ModelName = "gemma:7b-instruct" // 7030MiB
 )
 
 func (m ModelName) String() string {
@@ -22,7 +24,8 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 		Model_Axolotl_SDXL:
 		return InferenceRuntimeAxolotl
 	case // Ollama
-		Model_Ollama_Mistral7b:
+		Model_Ollama_Mistral7b,
+		Model_Ollama_Gemma7b:
 		return InferenceRuntimeOllama
 	// TODO: vllm
 	default:
@@ -31,12 +34,14 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 }
 
 func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
-	switch modelName {
-	case string(Model_Axolotl_Mistral7b):
+	switch ModelName(modelName) {
+	case Model_Axolotl_Mistral7b:
 		return Model_Axolotl_Mistral7b, nil
-	case string(Model_Ollama_Mistral7b):
+	case Model_Ollama_Mistral7b:
 		return Model_Ollama_Mistral7b, nil
-	case string(Model_Axolotl_SDXL):
+	case Model_Ollama_Gemma7b:
+		return Model_Ollama_Gemma7b, nil
+	case Model_Axolotl_SDXL:
 		return Model_Axolotl_SDXL, nil
 	default:
 		if acceptEmpty && modelName == string(Model_None) {
