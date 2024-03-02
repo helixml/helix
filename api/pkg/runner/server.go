@@ -80,5 +80,5 @@ func (runnerServer *RunnerServer) readInitialWorkerSession(res http.ResponseWrit
 	if vars["instanceid"] == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	return runnerServer.Controller.readInitialWorkerSession(req.Context(), vars["instanceid"])
+	return runnerServer.Controller.readInitialWorkerSession(vars["instanceid"])
 }
