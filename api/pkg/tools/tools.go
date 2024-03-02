@@ -50,7 +50,9 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
 
-		log.Info().Msg("using TogetherAI provider for tools")
+		log.Info().
+			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
+			Msg("using TogetherAI provider for tools")
 
 		apiClient = openai.New(
 			cfg.Providers.TogetherAI.APIKey,

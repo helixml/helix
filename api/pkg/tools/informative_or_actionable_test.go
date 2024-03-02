@@ -70,7 +70,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 	currentMessage := "What is the weather like in San Francisco?"
 
 	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
-	suite.NoError(err)
+	suite.Require().NoError(err)
 
 	suite.Equal("yes", resp.NeedsApi)
 	suite.Equal("getWeather", resp.Api)
