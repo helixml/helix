@@ -399,8 +399,8 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, history, userInteraction.Message)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-		return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
+		return session, nil
 	}
 
 	log.Info().
