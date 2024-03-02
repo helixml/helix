@@ -4,33 +4,6 @@ import (
 	"fmt"
 )
 
-type ModelName string
-
-func (m ModelName) String() string {
-	return string(m)
-}
-
-const (
-	Model_None      ModelName = ""
-	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
-	Model_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-)
-
-func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
-	switch modelName {
-	case string(Model_Mistral7b):
-		return Model_Mistral7b, nil
-	case string(Model_SDXL):
-		return Model_SDXL, nil
-	default:
-		if acceptEmpty && modelName == string(Model_None) {
-			return Model_None, nil
-		} else {
-			return Model_None, fmt.Errorf("invalid model name: %s", modelName)
-		}
-	}
-}
-
 type SessionOriginType string
 
 const (
@@ -218,3 +191,20 @@ const API_KEY_PREIX = "hl-"
 // what will activate all users being admin users
 // this is a dev setting and should be applied to ADMIN_USER_IDS
 const ADMIN_ALL_USERS = "all"
+
+type InferenceRuntime string
+
+func (r InferenceRuntime) String() string {
+	return string(r)
+}
+
+const (
+	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
+	InferenceRuntimeOllama  InferenceRuntime = "ollama"
+	// TODO: vllm
+)
+
+var (
+	WarmupTextSessionID  = "warmup-text"
+	WarmupImageSessionID = "warmup-image"
+)

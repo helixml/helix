@@ -88,9 +88,9 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 
 	var modelName types.ModelName
 	if options.Type == "image" {
-		modelName = types.Model_SDXL
+		modelName = types.Model_Axolotl_SDXL
 	} else if options.Type == "text" {
-		modelName = types.Model_Mistral7b
+		modelName = types.Model_Axolotl_Mistral7b
 	}
 
 	id := system.GenerateUUID()

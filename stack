@@ -13,7 +13,6 @@ function mock-runner() {
     --api-token oh-hallo-insecure-token \
     --memory 24GB \
     --runner-id mock \
-    --timeout-seconds 20 \
     --label gpu=4090 "$@"
 }
 
