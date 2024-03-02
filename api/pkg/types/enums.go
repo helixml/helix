@@ -203,3 +203,8 @@ const (
 	InferenceRuntimeOllama  InferenceRuntime = "ollama"
 	// TODO: vllm
 )
+
+var (
+	WarmupTextSessionID  = "warmup-text"
+	WarmupImageSessionID = "warmup-image"
+)

@@ -187,7 +187,7 @@ var ITX_B = &types.Interaction{
 }
 
 var WarmupSession_Model_Mistral7b = types.Session{
-	ID:           "warmup-text",
+	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
 	Updated:      time.Now(),
@@ -201,7 +201,7 @@ var WarmupSession_Model_Mistral7b = types.Session{
 }
 
 var WarmupSession_Model_Ollama_Mistral7b = types.Session{
-	ID:           "warmup-text",
+	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
 	Updated:      time.Now(),
@@ -215,7 +215,7 @@ var WarmupSession_Model_Ollama_Mistral7b = types.Session{
 }
 
 var WarmupSession_Model_SDXL = types.Session{
-	ID:           "warmup-image",
+	ID:           types.WarmupImageSessionID,
 	Name:         "warmup-image",
 	Created:      time.Now(),
 	Updated:      time.Now(),

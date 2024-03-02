@@ -36,6 +36,6 @@ type Runtimes struct {
 		WarmupModels []string `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"mistral:7b-instruct"`
 		// Ollama instance can be kept for much longer as it automatically unloads
 		// the model from memory when it's not used
-		InstanceTTL time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"5m"`
+		InstanceTTL time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"60s"`
 	}
 }

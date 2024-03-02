@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -222,12 +223,32 @@ WAIT:
 	}
 
 	// TODO: make this dynamic
-	err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
-		Model: string(session.ModelName),
-	}, func(progress api.ProgressResponse) error {
-		log.Info().Msgf("🟢 Pulling model %s (%d/%d)", session.ModelName, progress.Completed, progress.Total)
-		return nil
-	})
+
+	var wg sync.WaitGroup
+	wg.Add(len(i.runnerOptions.Config.Runtimes.Ollama.WarmupModels))
+
+	for _, modelName := range i.runnerOptions.Config.Runtimes.Ollama.WarmupModels {
+		go func(modelName string) {
+			defer wg.Done()
+
+			log.Info().Msgf("🟢 Pulling model %s", modelName)
+
+			err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
+				Model: modelName,
+			}, func(progress api.ProgressResponse) error {
+				log.Info().Msgf("🟢 Pulling model %s (%d/%d)", modelName, progress.Completed, progress.Total)
+				return nil
+			})
+
+			if err != nil {
+				log.Error().Msgf("error pulling model: %s", err.Error())
+				return
+			}
+
+			log.Info().Msgf("🟢 Model '%s' pulled", modelName)
+
+		}(modelName)
+	}
 
 	if err != nil {
 		return fmt.Errorf("error pulling model: %s", err.Error())
