@@ -18,28 +18,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type ModelInstance interface {
-	ID() string
-	Filter() types.SessionFilter
-	Stale() bool
-	Model() model.Model
-	GetState() (*types.ModelInstanceState, error)
-
-	Start(session *types.Session) error
-
-	NextSession() *types.Session
-	SetNextSession(session *types.Session)
-
-	QueueSession(session *types.Session, isInitialSession bool)
-	GetQueuedSession() *types.Session
-
-	AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error)
-
-	Stop() error
-
-	Done() <-chan bool
-}
-
 var (
 	_ ModelInstance = &AxolotlModelInstance{}
 )
