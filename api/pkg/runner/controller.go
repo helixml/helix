@@ -717,6 +717,11 @@ func (r *Runner) getHypotheticalFreeMemory() int64 {
 }
 
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
+	// Ignore warmup sessions
+	if res.SessionID == types.WarmupTextSessionID || res.SessionID == types.WarmupImageSessionID {
+		return nil
+	}
+
 	switch res.Type {
 	case types.WorkerTaskResponseTypeResult:
 		// if it's a full result then we just post it to the api
