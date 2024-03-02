@@ -11,6 +11,9 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// TODO: move server into the axolotl model instance struct and
+// start it together with the model
+
 type RunnerServerOptions struct {
 	Host string
 	Port int
