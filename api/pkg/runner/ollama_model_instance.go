@@ -103,16 +103,6 @@ type OllamaModelInstance struct {
 	// the session currently running on this model
 	currentSession *types.Session
 
-	// if there is a value here - it will be fed into the running python
-	// process next - it acts as a buffer for a session we want to run right away
-	nextSession *types.Session
-
-	// this is the session that we are preparing to run next
-	// if there is a value here - then we return nil
-	// because there is a task running (e.g. downloading files)
-	// that we need to complete before we want this session to run
-	queuedSession *types.Session
-
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
 	// we use this timestamp to cleanup non-active model instances
@@ -152,8 +142,8 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 	cmd.Env = append(cmd.Env,
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
-		"OLLAMA_HOST="+ollamaHost,
-		"OLLAMA_MODELS="+i.runnerOptions.CacheDir,
+		"OLLAMA_HOST="+ollamaHost,                 // Bind on localhost with random port
+		"OLLAMA_MODELS="+i.runnerOptions.CacheDir, // Where to store the models
 	)
 
 	cmd.Stdout = os.Stdout
@@ -262,7 +252,9 @@ WAIT:
 						Err(err).
 						Msg("error processing interaction")
 				} else {
-					log.Info().Str("session_id", session.ID).Msg("🟢 interaction processed")
+					log.Info().
+						Str("session_id", session.ID).
+						Msg("🟢 interaction processed")
 				}
 
 				i.currentSession = nil
@@ -324,21 +316,14 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 	if i.initialSession == nil {
 		return nil, fmt.Errorf("no initial session")
 	}
-	currentSession := i.currentSession
-	if currentSession == nil {
-		currentSession = i.queuedSession
-	}
-	// this can happen when the session has downloaded and is ready
-	// but the python is still booting up
-	if currentSession == nil {
-		currentSession = i.nextSession
-	}
 
-	var sessionSummary *types.SessionSummary
-	var err error
+	var (
+		sessionSummary *types.SessionSummary
+		err            error
+	)
 
-	if currentSession != nil {
-		sessionSummary, err = data.GetSessionSummary(currentSession)
+	if i.currentSession != nil {
+		sessionSummary, err = data.GetSessionSummary(i.currentSession)
 		if err != nil {
 			return nil, err
 		}
@@ -367,7 +352,8 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 }
 
 func (i *OllamaModelInstance) NextSession() *types.Session {
-	return i.nextSession
+	// No-op for ollama instance, only used in runner server
+	return nil
 }
 
 func (i *OllamaModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
@@ -376,7 +362,7 @@ func (i *OllamaModelInstance) AssignSessionTask(ctx context.Context, session *ty
 }
 
 func (i *OllamaModelInstance) SetNextSession(session *types.Session) {
-	i.nextSession = session
+	// No-op for ollama instance, only used in runner server
 }
 
 func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
@@ -388,9 +374,6 @@ func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSess
 	// TODO: for finetuned model serving, this is where
 	// the queued session would be set while we download
 	// the adapter and load it into the server
-
-	i.queuedSession = nil
-	i.nextSession = session
 
 	i.workCh <- session
 }
