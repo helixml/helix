@@ -14,6 +14,8 @@ func GetModel(modelName types.ModelName) (Model, error) {
 		return &CogSDXL{}, nil
 	case types.Model_Ollama_Mistral7b:
 		return &OllamaMistral7bInstruct01{}, nil
+	case types.Model_Ollama_Gemma7b:
+		return &OllamaGemma7bInstruct01{}, nil
 	default:
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
@@ -29,6 +31,7 @@ func GetModels() (map[types.ModelName]Model, error) {
 
 	// Ollama
 	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
+	models[types.Model_Ollama_Gemma7b] = &OllamaGemma7bInstruct01{}
 	return models, nil
 }
 
