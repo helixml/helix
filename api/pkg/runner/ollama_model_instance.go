@@ -87,6 +87,7 @@ type OllamaModelInstance struct {
 	// Streaming response handler
 	responseHandler func(res *types.RunnerTaskResponse) error
 
+	// Pulls the next session from the API
 	getNextSession func() (*types.Session, error)
 
 	// we create a cancel context for the running process
