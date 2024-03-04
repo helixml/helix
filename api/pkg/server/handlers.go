@@ -740,18 +740,33 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
 			triple := strings.Split(rejectPair, ":")
-			if len(triple) != 3 {
+			var rejectModelName types.ModelName
+			var rejectModelMode types.SessionMode
+			var rejectLoraDir string
+			var err error
+			if len(triple) == 4 {
+				rejectModelName, err = types.ValidateModelName(triple[0]+":"+triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[2], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[3]
+			} else if len(triple) == 3 {
+				rejectModelName, err = types.ValidateModelName(triple[0], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[2]
+			} else {
 				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			rejectModelName, err := types.ValidateModelName(triple[0], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectModelMode, err := types.ValidateSessionMode(triple[1], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectLoraDir := triple[2]
 			reject = append(reject, types.SessionFilterModel{
 				ModelName: rejectModelName,
 				Mode:      rejectModelMode,
