@@ -13,7 +13,6 @@ function mock-runner() {
     --api-token oh-hallo-insecure-token \
     --memory 24GB \
     --runner-id mock \
-    --timeout-seconds 20 \
     --label gpu=4090 "$@"
 }
 
@@ -64,7 +63,7 @@ function start() {
 
   if [[ -n "$WITH_RUNNER" ]]; then
     tmux send-keys -t 3 'docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
-    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --timeout-seconds 10 --runner-id dev-runner' C-m
+    tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
   fi
 
   tmux -2 attach-session -t $TMUX_SESSION

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/system"
@@ -20,7 +21,6 @@ import (
 	"github.com/inhies/go-bytesize"
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v3"
 )
 
 type RunnerOptions struct {
@@ -28,13 +28,9 @@ type RunnerOptions struct {
 	ApiHost  string
 	ApiToken string
 
-	// WarmupModels specifies the models that should go through the
-	// warmup on start
-	WarmupModels []string
+	CacheDir string
 
-	// this means a CLI will be posting jobs to us locally and we will
-	// not be polling a remote api
-	LocalMode bool
+	Config *config.RunnerConfig
 
 	// these URLs will have the instance ID appended by the model instance
 	// e.g. http://localhost:8080/api/v1/worker/task/:instanceid
@@ -55,9 +51,6 @@ type RunnerOptions struct {
 
 	// do we want to allow multiple models of the same type to run on this GPU?
 	AllowMultipleCopies bool
-
-	// how long without running a job before we close a model instance
-	ModelInstanceTimeoutSeconds int
 
 	// how long to wait between loops for the controller
 	// this will affect how often we ask for a global session
@@ -103,17 +96,13 @@ type Runner struct {
 
 	// the map of model instances that we have loaded
 	// and are currently running
-	activeModelInstances *xsync.MapOf[string, *ModelInstance]
+	activeModelInstances *xsync.MapOf[string, ModelInstance]
 
 	// the lowest amount of memory that something can run with
 	// if we have less than this amount of memory then there is
 	// no point asking for more top level tasks
 	// we get this on boot by asking the model package
 	lowestMemoryRequirement uint64
-
-	// local sessions, which will be executed in no particular order
-	// TODO: maybe preserve insertion order
-	localSessions *xsync.MapOf[string, *types.Session]
 
 	// how we write web sockets messages to the api server
 	websocketEventChannel chan *types.WebsocketEvent
@@ -138,17 +127,17 @@ func NewRunner(
 	options RunnerOptions,
 	warmupSessions []types.Session,
 ) (*Runner, error) {
-	if !options.LocalMode {
-		if options.ID == "" {
-			return nil, fmt.Errorf("id is required")
-		}
-		if options.ApiHost == "" {
-			return nil, fmt.Errorf("api host required")
-		}
-		if options.ApiToken == "" {
-			return nil, fmt.Errorf("api token is required")
-		}
+
+	if options.ID == "" {
+		return nil, fmt.Errorf("id is required")
 	}
+	if options.ApiHost == "" {
+		return nil, fmt.Errorf("api host required")
+	}
+	if options.ApiToken == "" {
+		return nil, fmt.Errorf("api token is required")
+	}
+
 	if options.MemoryString != "" {
 		bytes, err := bytesize.Parse(options.MemoryString)
 		if err != nil {
@@ -172,8 +161,7 @@ func NewRunner(
 			Host:  options.ApiHost,
 			Token: options.ApiToken,
 		},
-		activeModelInstances:  xsync.NewMapOf[string, *ModelInstance](),
-		localSessions:         xsync.NewMapOf[string, *types.Session](),
+		activeModelInstances:  xsync.NewMapOf[string, ModelInstance](),
 		State:                 map[string]types.RunnerTaskResponse{},
 		websocketEventChannel: make(chan *types.WebsocketEvent),
 		schedulingDecisions:   []string{},
@@ -183,16 +171,14 @@ func NewRunner(
 }
 
 func (r *Runner) Initialize(ctx context.Context) error {
-	if r.Options.LocalMode {
-		// don't push our state anywhere when we're in local-only mode
-		return nil
-	}
 	// connect to the runner websocket server on the api
 	// when we write events down the channel - write them to the websocket
 	parsedURL, err := url.Parse(system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("Connecting to controlplane", system.WSURL(r.httpClientOptions, system.GetApiPath("/ws/runner")))
 
 	queryParams := url.Values{}
 	queryParams.Add("runnerid", r.Options.ID)
@@ -252,7 +238,7 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 
 		// TODO: get the timeout to be configurable from the api and so dynamic
 		// based on load
-		err = r.checkForStaleModelInstances(ctx, time.Second*time.Duration(r.Options.ModelInstanceTimeoutSeconds), session)
+		err = r.checkForStaleModelInstances(ctx, session)
 		if err != nil {
 			return err
 		}
@@ -269,10 +255,6 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 }
 
 func (r *Runner) startReportStateLoop() {
-	if r.Options.LocalMode {
-		// don't push our state anywhere when we're in local-only mode
-		return
-	}
 	for {
 		select {
 		case <-r.Ctx.Done():
@@ -304,75 +286,38 @@ func (r *Runner) reportStateLoop(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runner) AddToLocalQueue(ctx context.Context, session *types.Session) error {
-	if !r.Options.LocalMode {
-		return fmt.Errorf("cannot add to local queue when not in local mode")
-	}
-	// iterate over model instances to see if one exists and if it doesn't, create it.
-	// then add session to localQueue
-
-	// Check if a model instance exists for the session's model ID
-	found := false
-
-	// loop over r.activeModelInstances, checking whether the filters on the
-	// model instance match the session mode, type and finetune
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		if modelInstanceMatchesSession(modelInstance, session) {
-			// no need to create another one, because there's already one which will match the session
-			log.Debug().Msgf("🟠 Found modelInstance %+v which matches session %+v", modelInstance, session)
-			found = true
-			return false
-		}
-		return true
-	})
-	if !found {
-		// Create a new model instance because it doesn't exist
-		log.Debug().Msgf("🟠 No currently running modelInstance for session %+v, starting a new one", session)
-		err := r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Add the session to the local queue
-	r.localSessions.Store(session.ID, session)
-	return nil
-}
-
 func GiB(bytes int64) float32 {
 	return float32(bytes) / 1024 / 1024 / 1024
 }
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.Duration, newSession *types.Session) error {
+func (r *Runner) checkForStaleModelInstances(ctx context.Context, newSession *types.Session) error {
 	// calculate stale model instances
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
 
-	allModels := []ModelInstance{}
-	stales := []ModelInstance{}
-	r.activeModelInstances.Range(func(key string, activeModelInstance *ModelInstance) bool {
-		allModels = append(allModels, *activeModelInstance)
-		stale := false
-		if activeModelInstance.lastActivityTimestamp == 0 {
-			stale = false
-		} else if activeModelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
-			stale = true
-		}
-		if stale {
-			stales = append(stales, *activeModelInstance)
+	var (
+		allModels []ModelInstance
+		stales    []ModelInstance
+	)
+
+	r.activeModelInstances.Range(func(key string, activeModelInstance ModelInstance) bool {
+		allModels = append(allModels, activeModelInstance)
+
+		if activeModelInstance.Stale() {
+			stales = append(stales, activeModelInstance)
 		}
 		return true
 	})
 
 	// sort by memory usage ascending
 	sort.Slice(stales, func(i, j int) bool {
-		return stales[i].model.GetMemoryRequirements(stales[i].filter.Mode) < stales[j].model.GetMemoryRequirements(stales[j].filter.Mode)
+		return stales[i].Model().GetMemoryRequirements(stales[i].Filter().Mode) < stales[j].Model().GetMemoryRequirements(stales[j].Filter().Mode)
 	})
 
 	// calculate mem required by new session
-	modelInstance, err := NewModelInstance(
+	modelInstance, err := NewAxolotlModelInstance(
 		r.Ctx,
 		&ModelInstanceConfig{
 			InitialSession:    newSession,
@@ -408,15 +353,15 @@ func (r *Runner) checkForStaleModelInstances(ctx context.Context, timeout time.D
 		if requiredMemoryFreed > 0 {
 			r.addSchedulingDecision(fmt.Sprintf(
 				"Killing stale model instance %s (%.2fGiB) to make room for %.2fGiB model, requiredMemoryFreed=%.2fGiB, currentlyAvailableMemory=%.2fGiB",
-				m.id, GiB(int64(m.model.GetMemoryRequirements(m.filter.Mode))), GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
+				m.ID(), GiB(int64(m.Model().GetMemoryRequirements(m.Filter().Mode))), GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), GiB(int64(currentlyAvailableMemory))),
 			)
-			log.Info().Msgf("Killing stale model instance %s", m.id)
-			err := m.stopProcess()
+			log.Info().Msgf("Killing stale model instance %s", m.ID())
+			err := m.Stop()
 			if err != nil {
-				log.Error().Msgf("error stopping model instance %s: %s", m.id, err.Error())
+				log.Error().Msgf("error stopping model instance %s: %s", m.ID(), err.Error())
 			}
-			r.activeModelInstances.Delete(m.id)
-			requiredMemoryFreed -= int64(m.model.GetMemoryRequirements(m.filter.Mode))
+			r.activeModelInstances.Delete(m.ID())
+			requiredMemoryFreed -= int64(m.Model().GetMemoryRequirements(m.Filter().Mode))
 		} else {
 			r.addSchedulingDecision(fmt.Sprintf("Cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed)))
 			log.Info().Msgf("cleared up enough model memory, overshot by %.2f GiB", GiB(requiredMemoryFreed))
@@ -453,13 +398,6 @@ func (r *Runner) getNextWarmupSession() (*types.Session, error) {
 // we pass that free memory back to the master API - it will filter out any tasks
 // for models that would require more memory than we have available
 func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, error) {
-	if r.httpClientOptions.Host == "" {
-		// we are in local only mode... the next session will be injected into
-		// us rather than queried from the control server
-		// TODO: it would be nice to still support memory limits and other
-		// smarts for local tasks
-		return nil, nil
-	}
 	freeMemory := r.getHypotheticalFreeMemory()
 
 	// only run one for dev mode
@@ -491,12 +429,12 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	if !r.Options.AllowMultipleCopies {
 		// if we are not allowed to run multiple copies of the same model
 		// then we need to tell the api what we are currently running
-		r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
+		r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
 			queryParams.Add("reject", fmt.Sprintf(
 				"%s:%s:%s",
-				modelInstance.filter.ModelName,
-				modelInstance.filter.Mode,
-				modelInstance.filter.LoraDir,
+				modelInstance.Filter().ModelName,
+				modelInstance.Filter().Mode,
+				modelInstance.Filter().LoraDir,
 			))
 			return true
 		})
@@ -526,7 +464,7 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 // queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
 // but it gives the python code a chance to wait for Lora weights to download before loading them
 // into GPU memory - at which point it would start pulling from the queue as normal
-func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string) (*types.Session, error) {
+func (r *Runner) readInitialWorkerSession(instanceID string) (*types.Session, error) {
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
@@ -534,10 +472,10 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
-	if modelInstance.nextSession == nil {
+	if modelInstance.NextSession() == nil {
 		return nil, fmt.Errorf("no session found")
 	}
-	return modelInstance.nextSession, nil
+	return modelInstance.NextSession(), nil
 }
 
 // we have popped the next session from the master API
@@ -548,38 +486,66 @@ func (r *Runner) readInitialWorkerSession(ctx context.Context, instanceID string
 // and will add the de-prioritise filter to the next request
 // so that we get a different job type
 func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.Session) error {
-	modelInstance, err := NewModelInstance(
-		r.Ctx,
-		&ModelInstanceConfig{
-			InitialSession:    initialSession,
-			InitialSessionURL: r.Options.InitialSessionURL,
-			NextTaskURL:       r.Options.TaskURL,
-			// this function will convert any files it sees locally into an upload
-			// to the api server filestore - all files will be written to the filestore
-			// under a session sub path - you can include tar files and they will untarred at the other end
-			// into the filestore
-			// TODO: support the tar feature above
-			ResponseHandler: func(res *types.RunnerTaskResponse) error {
-				if r.Options.LocalMode {
-					err := r.addLocalResponse(ctx, res)
-					if err != nil {
-						return err
-					}
-					return nil
-				} else {
-					// if the response is for the initial session then inclide
-					return r.handleWorkerResponse(res)
-				}
-			},
-			RunnerOptions: r.Options,
-		},
+	var (
+		modelInstance ModelInstance
+		err           error
 	)
-	if err != nil {
-		return err
+
+	switch initialSession.ModelName.InferenceRuntime() {
+	case types.InferenceRuntimeOllama:
+		log.Info().Msg("using Ollama model instance")
+		modelInstance, err = NewOllamaModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:  initialSession,
+				ResponseHandler: r.handleWorkerResponse,
+				GetNextSession: func() (*types.Session, error) {
+					queryParams := url.Values{}
+
+					queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
+					queryParams.Add("mode", string(modelInstance.Filter().Mode))
+					queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
+
+					nextSession, err := r.getNextApiSession(ctx, queryParams)
+					if err != nil {
+						return nil, err
+					}
+					return nextSession, nil
+				},
+				RunnerOptions: r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	default:
+		// Defaulting to axolotl
+		log.Info().Msg("using Axolotl model instance")
+		modelInstance, err = NewAxolotlModelInstance(
+			r.Ctx,
+			&ModelInstanceConfig{
+				InitialSession:    initialSession,
+				InitialSessionURL: r.Options.InitialSessionURL,
+				NextTaskURL:       r.Options.TaskURL,
+				// this function will convert any files it sees locally into an upload
+				// to the api server filestore - all files will be written to the filestore
+				// under a session sub path - you can include tar files and they will untarred at the other end
+				// into the filestore
+				// TODO: support the tar feature above
+				ResponseHandler: func(res *types.RunnerTaskResponse) error {
+					return r.handleWorkerResponse(res)
+				},
+				RunnerOptions: r.Options,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
 	}
 
 	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := float32(modelInstance.model.GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
+	modelMem := float32(modelInstance.Model().GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
 	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
 	if modelMem > freeMem && initialSession.Owner != "warmup-user" {
 		// refuse to start or record the model instance, it will just get GC'd at this point
@@ -587,48 +553,28 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	}
 	log.Debug().Msgf("🔵 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	log.Debug().
-		Msgf("🔵 runner started model instance: %s", modelInstance.id)
+		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
-	r.activeModelInstances.Store(modelInstance.id, modelInstance)
+	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)
 
 	// THERE IS NOT A RACE HERE (so Kai please stop thinking there is)
 	// the files are dowloading at the same time as the python process is booting
 	// whilst the files are downloading - there is no session to pull as "nextSession"
 	// so even if the python process starts up first - it has nothing to pull until
 	// the files have downloaded
-	go modelInstance.queueSession(initialSession, true)
+	go modelInstance.QueueSession(initialSession, true)
 
-	err = modelInstance.startProcess(initialSession)
+	err = modelInstance.Start(initialSession)
 	if err != nil {
 		return err
 	}
 
 	go func() {
-		<-modelInstance.finishChan
+		<-modelInstance.Done()
 		log.Debug().
-			Msgf("🔵 runner stop model instance: %s", modelInstance.id)
-		r.activeModelInstances.Delete(modelInstance.id)
+			Msgf("🔵 runner stop model instance: %s", modelInstance.ID())
+		r.activeModelInstances.Delete(modelInstance.ID())
 	}()
-	return nil
-}
-
-func (r *Runner) addLocalResponse(ctx context.Context, res *types.RunnerTaskResponse) error {
-	r.StateMtx.Lock()
-	defer r.StateMtx.Unlock()
-
-	// record in-memory for any local clients who want to query us
-	r.State[res.SessionID] = *res
-
-	stateYAML, err := yaml.Marshal(r.State)
-	if err != nil {
-		return err
-	}
-	fmt.Println("==========================================")
-	fmt.Println("             LOCAL STATE")
-	fmt.Println("==========================================")
-	fmt.Println(string(stateYAML))
-	fmt.Println("==========================================")
-
 	return nil
 }
 
@@ -649,40 +595,16 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	}
 
 	var session *types.Session
-	foundLocalQueuedSession := false
 
-	if r.Options.LocalMode {
-		r.localSessions.Range(func(i string, sess *types.Session) bool {
-			if modelInstanceMatchesSession(modelInstance, sess) {
-				foundLocalQueuedSession = true
-				// remove it from the local queue
-				r.localSessions.Delete(i)
-				session = sess
-				return false
-			}
-			return true
-		})
-	}
-
-	// as the first check, we need to ask if there's a session in localQueue
-	// that matches this model instance. if there is, we've got a local
-	// session and it takes precedence over remote work
-
-	// if there is, call modelInstance.queueSession on it
-
-	if foundLocalQueuedSession {
-		// queue it, and fall thru below to assign
-		log.Debug().Msgf("🟠🟠 Found local queued session %+v for model instance %+v", session, modelInstance)
-		go modelInstance.queueSession(session, false)
-	} else if modelInstance.nextSession != nil {
+	if modelInstance.NextSession() != nil {
 		// if there is a session in the nextSession cache then we return it immediately
-		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.nextSession)
-		session = modelInstance.nextSession
-		modelInstance.nextSession = nil
-	} else if modelInstance.queuedSession != nil {
+		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.NextSession())
+		session = modelInstance.NextSession()
+		modelInstance.SetNextSession(nil)
+	} else if modelInstance.GetQueuedSession() != nil {
 		// if there is a session in the queuedSession cache then we are waiting for
 		// a task to complete before we want to actually run the session
-		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.queuedSession)
+		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.GetQueuedSession())
 	} else {
 		// ask the upstream api server if there is another task
 		// if there is - then assign it to the queuedSession
@@ -690,9 +612,9 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 		if r.httpClientOptions.Host != "" {
 			queryParams := url.Values{}
 
-			queryParams.Add("model_name", string(modelInstance.filter.ModelName))
-			queryParams.Add("mode", string(modelInstance.filter.Mode))
-			queryParams.Add("lora_dir", string(modelInstance.filter.LoraDir))
+			queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
+			queryParams.Add("mode", string(modelInstance.Filter().Mode))
+			queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
 
 			apiSession, err := r.getNextApiSession(ctx, queryParams)
 			if err != nil {
@@ -700,7 +622,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 			}
 
 			if apiSession != nil {
-				go modelInstance.queueSession(apiSession, false)
+				go modelInstance.QueueSession(apiSession, false)
 			}
 		}
 	}
@@ -711,7 +633,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 		return nil, fmt.Errorf("no session found")
 	}
 
-	task, err := modelInstance.assignSessionTask(ctx, session)
+	task, err := modelInstance.AssignSessionTask(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -720,6 +642,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 }
 
 func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
+
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
 		return nil, err
@@ -765,33 +688,23 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 
 func (r *Runner) getUsedMemory() uint64 {
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
-		memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
+		memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		return true
 	})
 	return memoryUsed
 }
 
 func (r *Runner) getUsedMemoryByNonStale() uint64 {
-	timeout := time.Second * time.Duration(r.Options.ModelInstanceTimeoutSeconds)
-
 	memoryUsed := uint64(0)
-	r.activeModelInstances.Range(func(i string, modelInstance *ModelInstance) bool {
-		// assume nonStale
-		nonStale := true
-		// this means we are booting so let's leave it alone to boot
-		if modelInstance.lastActivityTimestamp == 0 {
-			nonStale = false
-		}
-		// the model is not stale don't include it
-		if modelInstance.lastActivityTimestamp+int64(timeout.Seconds()) < time.Now().Unix() {
-			nonStale = false
-		}
-		if nonStale {
-			memoryUsed += modelInstance.model.GetMemoryRequirements(modelInstance.filter.Mode)
+
+	r.activeModelInstances.Range(func(i string, modelInstance ModelInstance) bool {
+		if !modelInstance.Stale() {
+			memoryUsed += modelInstance.Model().GetMemoryRequirements(modelInstance.Filter().Mode)
 		}
 		return true
 	})
+
 	return memoryUsed
 }
 
@@ -804,10 +717,15 @@ func (r *Runner) getHypotheticalFreeMemory() int64 {
 }
 
 func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
+	// Ignore warmup sessions
+	if res.SessionID == types.WarmupTextSessionID || res.SessionID == types.WarmupImageSessionID {
+		return nil
+	}
+
 	switch res.Type {
 	case types.WorkerTaskResponseTypeResult:
 		// if it's a full result then we just post it to the api
-		log.Debug().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
+		log.Info().Msgf("🟠 Sending task response %s %+v", res.SessionID, res)
 		return r.postWorkerResponseToApi(res)
 	case types.WorkerTaskResponseTypeProgress, types.WorkerTaskResponseTypeStream:
 		// streaming updates it's a websocket event
@@ -850,16 +768,17 @@ func (r *Runner) postWorkerResponseToApi(res *types.RunnerTaskResponse) error {
 
 func (r *Runner) getState() (*types.RunnerState, error) {
 	modelInstances := []*types.ModelInstanceState{}
-	r.activeModelInstances.Range(func(key string, modelInstance *ModelInstance) bool {
-		state, err := modelInstance.getState()
+	r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
+		state, err := modelInstance.GetState()
 		if err != nil {
+			log.Error().Msgf("error getting state for model instance %s (%s): %s", modelInstance.ID(), modelInstance.Filter().ModelName, err.Error())
 			return false
 		}
 		modelInstances = append(modelInstances, state)
 		return true
 	})
 	if len(modelInstances) != r.activeModelInstances.Size() {
-		return nil, fmt.Errorf("error getting state")
+		return nil, fmt.Errorf("error getting state, incorrect model instance count")
 	}
 	return &types.RunnerState{
 		ID:                  r.Options.ID,

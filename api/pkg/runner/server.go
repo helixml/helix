@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -11,6 +10,9 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+// TODO: move server into the axolotl model instance struct and
+// start it together with the model
 
 type RunnerServerOptions struct {
 	Host string
@@ -53,15 +55,6 @@ func (runnerServer *RunnerServer) ListenAndServe(ctx context.Context, cm *system
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	if runnerServer.Controller.Options.LocalMode {
-		// TODO: record worker response state locally, _in memory_ if we are in "local only mode"
-		// an endpoint to add our next session
-		subrouter.HandleFunc("/worker/session", system.DefaultWrapper(runnerServer.setNextLocalSession)).Methods("POST")
-
-		// an endpoint to query the local state
-		subrouter.HandleFunc("/worker/state", system.DefaultWrapper(runnerServer.state)).Methods("GET")
-	}
-
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", runnerServer.Options.Host, runnerServer.Options.Port),
 		WriteTimeout:      time.Minute * 15,
@@ -90,40 +83,5 @@ func (runnerServer *RunnerServer) readInitialWorkerSession(res http.ResponseWrit
 	if vars["instanceid"] == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	return runnerServer.Controller.readInitialWorkerSession(req.Context(), vars["instanceid"])
-}
-
-func (runnerServer *RunnerServer) state(res http.ResponseWriter, req *http.Request) (map[string]types.RunnerTaskResponse, error) {
-	runnerServer.Controller.StateMtx.Lock()
-	defer runnerServer.Controller.StateMtx.Unlock()
-
-	// stateYAML, err := yaml.Marshal(runnerServer.Controller.State)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// fmt.Println("==========================================")
-	// fmt.Println("             LOCAL STATE")
-	// fmt.Println("==========================================")
-	// fmt.Println(string(stateYAML))
-	// fmt.Println("==========================================")
-
-	return runnerServer.Controller.State, nil
-}
-
-func (runnerServer *RunnerServer) setNextLocalSession(res http.ResponseWriter, req *http.Request) (*types.RunnerTask, error) {
-	session := &types.Session{}
-	err := json.NewDecoder(req.Body).Decode(session)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding session as post body: %s", err)
-	}
-
-	err = runnerServer.Controller.AddToLocalQueue(req.Context(), session)
-	if err != nil {
-		return nil, err
-	}
-	response := &types.RunnerTask{
-		SessionID: session.ID,
-	}
-
-	return response, nil
+	return runnerServer.Controller.readInitialWorkerSession(vars["instanceid"])
 }

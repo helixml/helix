@@ -313,10 +313,10 @@ func (chunker *mistral7bInferenceChunker) emitResult() {
 }
 
 func (chunker *mistral7bInferenceChunker) write(word string) error {
-	log.Info().Msgf("👉 '%s' 👈", strings.Replace(word, "\n", "\\n", -1))
+	log.Debug().Msgf("👉 '%s' 👈", strings.Replace(word, "\n", "\\n", -1))
 	// [SESSION_START]session_id=7d11a9ef-a192-426c-bc8e-6bd2c6364b46
 	if strings.HasPrefix(word, "[SESSION_START]") {
-		log.Info().Msg("👉 case 1")
+		log.Debug().Msg("👉 case 1")
 		parts := strings.Split(word, "=")
 		if len(parts) < 2 {
 			// we reset here because we got a session start line with no ID
@@ -327,7 +327,7 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 		chunker.sessionID = parts[1]
 		chunker.active = true
 	} else if strings.HasPrefix(word, "[SESSION_END]") {
-		log.Info().Msg("👉 case 2")
+		log.Debug().Msg("👉 case 2")
 		// Signal that we are done with this session for
 		// any streaming clients
 		chunker.emitStreamDone()
@@ -337,12 +337,12 @@ func (chunker *mistral7bInferenceChunker) write(word string) error {
 		// Reset the buffer
 		chunker.reset()
 	} else if chunker.sessionID != "" {
-		log.Info().Msg("👉 case 3")
+		log.Debug().Msg("👉 case 3")
 		if chunker.active {
 			if strings.HasSuffix(word, "</s>\n") {
 				word = strings.Replace(word, "</s>", "", 1)
 			}
-			log.Info().Msg("👉 case 4")
+			log.Debug().Msg("👉 case 4")
 			chunker.addBuffer(word)
 		}
 	}
