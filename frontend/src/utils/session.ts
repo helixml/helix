@@ -22,6 +22,7 @@ const COLORS: Record<string, string> = {
   sdxl_inference: '#D183C9',
   sdxl_finetune: '#E3879E',
   mistral_inference: '#F4D35E',
+  text_inference: '#F4D35E', // Same as mistral inference
   mistral_finetune: '#EE964B',
 }
 
@@ -82,6 +83,9 @@ export const hasFinishedFinetune = (session: ISession): boolean => {
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {
+  // If starts with 'ollama', return inference color
+  if(getModelName(modelName).indexOf('ollama') >= 0) return COLORS['text_inference']
+
   const key = `${getModelName(modelName)}_${mode}`
   return COLORS[key]
 }
@@ -89,6 +93,8 @@ export const getColor = (modelName: string, mode: ISessionMode): string => {
 export const getModelName = (model_name: string): string => {
   if(model_name.indexOf('stabilityai') >= 0) return 'sdxl'
   if(model_name.indexOf('mistralai') >= 0) return 'mistral'
+  // If has ':' in the name, it's Ollama model, need to split and keep the first part
+  if(model_name.indexOf(':') >= 0) return `ollama_${model_name.split(':')[0]}`
   return ''
 }
 

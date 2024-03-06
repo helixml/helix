@@ -7,11 +7,16 @@ import (
 )
 
 func GetModel(modelName types.ModelName) (Model, error) {
-	if modelName == types.Model_Mistral7b {
+	switch modelName {
+	case types.Model_Axolotl_Mistral7b:
 		return &Mistral7bInstruct01{}, nil
-	} else if modelName == types.Model_SDXL {
+	case types.Model_Axolotl_SDXL:
 		return &CogSDXL{}, nil
-	} else {
+	case types.Model_Ollama_Mistral7b:
+		return &OllamaMistral7bInstruct01{}, nil
+	case types.Model_Ollama_Gemma7b:
+		return &OllamaGemma7bInstruct01{}, nil
+	default:
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
 }
@@ -21,18 +26,13 @@ func GetModel(modelName types.ModelName) (Model, error) {
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
-	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
-	models[types.Model_SDXL] = &CogSDXL{}
-	return models, nil
-}
+	models[types.Model_Axolotl_Mistral7b] = &Mistral7bInstruct01{}
+	models[types.Model_Axolotl_SDXL] = &CogSDXL{}
 
-func GetModelNameForSession(sessionType types.SessionType) (types.ModelName, error) {
-	if sessionType == types.SessionTypeImage {
-		return types.Model_SDXL, nil
-	} else if sessionType == types.SessionTypeText {
-		return types.Model_Mistral7b, nil
-	}
-	return types.Model_None, fmt.Errorf("no model for session type %s", sessionType)
+	// Ollama
+	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
+	models[types.Model_Ollama_Gemma7b] = &OllamaGemma7bInstruct01{}
+	return models, nil
 }
 
 func GetLowestMemoryRequirement() (uint64, error) {
