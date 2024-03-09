@@ -138,9 +138,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	var modelName types.ModelName
 	switch sessionType {
 	case types.SessionTypeText:
-		modelName = types.Model_Axolotl_Mistral7b
+		// TODO: switch based on user toggle e.g. GPT-3.5 vs GPT-4
+		modelName = types.Model_Ollama_Mixtral
 	case types.SessionTypeImage:
-		modelName = types.Model_Axolotl_SDXL
+		modelName = types.Model_Cog_SDXL
 	}
 
 	sessionID := system.GenerateUUID()

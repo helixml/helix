@@ -10,10 +10,12 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	switch modelName {
 	case types.Model_Axolotl_Mistral7b:
 		return &Mistral7bInstruct01{}, nil
-	case types.Model_Axolotl_SDXL:
+	case types.Model_Cog_SDXL:
 		return &CogSDXL{}, nil
 	case types.Model_Ollama_Mistral7b:
 		return &OllamaMistral7bInstruct01{}, nil
+	case types.Model_Ollama_Mixtral:
+		return &OllamaMixtral{}, nil
 	case types.Model_Ollama_Gemma7b:
 		return &OllamaGemma7bInstruct01{}, nil
 	default:
@@ -27,7 +29,7 @@ func GetModel(modelName types.ModelName) (Model, error) {
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
 	models[types.Model_Axolotl_Mistral7b] = &Mistral7bInstruct01{}
-	models[types.Model_Axolotl_SDXL] = &CogSDXL{}
+	models[types.Model_Cog_SDXL] = &CogSDXL{}
 
 	// Ollama
 	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
