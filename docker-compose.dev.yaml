@@ -77,14 +77,13 @@ services:
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       - KC_PROXY=edge
-      - DB_VENDOR=h2
-      - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
+      - KC_HEALTH_ENABLED=true
       - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
     volumes:
       - ./realm.json:/imported/realm.json
       - ${KEYCLOAK_DATA:-helix-keycloak-db}:/opt/jboss/keycloak/standalone/data
     healthcheck:
-      test: ['CMD-SHELL', '[ -f /tmp/HealthCheck.java ] || echo "public class HealthCheck { public static void main(String[] args) throws java.lang.Throwable { System.exit(java.net.HttpURLConnection.HTTP_OK == ((java.net.HttpURLConnection)new java.net.URL(args[0]).openConnection()).getResponseCode() ? 0 : 1); } }" > /tmp/HealthCheck.java && java /tmp/HealthCheck.java http://localhost:8080/health/live']
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
       interval: 5s
       timeout: 5s
       retries: 30
