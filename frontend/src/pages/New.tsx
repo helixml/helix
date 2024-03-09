@@ -169,7 +169,7 @@ const New: FC = () => {
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     sessions.addSesssion(session)
-    await bluebird.delay(300)
+    // await bluebird.delay(300)
     navigate('session', {session_id: session.id})
   }
 
@@ -197,7 +197,7 @@ const New: FC = () => {
         return
       }
       sessions.loadSessions()
-      await bluebird.delay(300)
+      // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
@@ -235,7 +235,9 @@ const New: FC = () => {
         return
       }
       sessions.loadSessions()
-      await bluebird.delay(300)
+      // XXX maybe this delay is why we don't subscribe fast enough to the
+      // websocket
+      // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
