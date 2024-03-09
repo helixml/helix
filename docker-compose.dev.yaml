@@ -67,7 +67,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   keycloak:
-    image: quay.io/modeldynamics/keycloak:15.0.2-helix
+    image: quay.io/keycloak/keycloak:23.0
     restart: always
     environment:
       - KEYCLOAK_USER=admin
@@ -85,6 +85,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+    command:
+      - start-dev
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
     entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
