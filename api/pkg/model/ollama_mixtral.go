@@ -11,7 +11,7 @@ import (
 type OllamaMixtral struct{}
 
 func (i *OllamaMixtral) GetMemoryRequirements(mode types.SessionMode) uint64 {
-	return MB * 6440
+	return GB * 24
 }
 
 func (i *OllamaMixtral) GetType() types.SessionType {

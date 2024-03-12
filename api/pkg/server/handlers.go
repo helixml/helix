@@ -719,6 +719,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	modelName, err := types.ValidateModelName(req.URL.Query().Get("model_name"), true)
 	if err != nil {
+		log.Error().Msgf("invalid model name %s -> %s", req.URL.Query().Get("model_name"), err)
 		return nil, err
 	}
 
