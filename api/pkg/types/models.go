@@ -1,6 +1,10 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/rs/zerolog/log"
+)
 
 type ModelName string
 
@@ -41,6 +45,8 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 		return Model_Axolotl_Mistral7b, nil
 	case Model_Ollama_Mistral7b:
 		return Model_Ollama_Mistral7b, nil
+	case Model_Ollama_Mixtral:
+		return Model_Ollama_Mixtral, nil
 	case Model_Ollama_Gemma7b:
 		return Model_Ollama_Gemma7b, nil
 	case Model_Cog_SDXL:
@@ -49,6 +55,7 @@ func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 		if acceptEmpty && modelName == string(Model_None) {
 			return Model_None, nil
 		} else {
+			log.Error().Msgf("invalid model name requested: %s", modelName)
 			return Model_None, fmt.Errorf("invalid model name: %s", modelName)
 		}
 	}

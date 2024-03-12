@@ -273,6 +273,7 @@ WAIT:
 						Str("session_id", session.ID).
 						Err(err).
 						Msg("error processing interaction")
+					i.errorSession(session, err)
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
@@ -310,7 +311,7 @@ func (i *OllamaModelInstance) Stop() error {
 		return fmt.Errorf("no Ollama process to stop")
 	}
 	log.Info().Msgf("🟢 stop Ollama model instance")
-	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+	if err := syscall.Kill(i.currentCommand.Process.Pid, syscall.SIGTERM); err != nil {
 		log.Error().Msgf("error stopping Ollama model instance: %s", err.Error())
 		return err
 	}

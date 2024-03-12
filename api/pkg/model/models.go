@@ -33,6 +33,7 @@ func GetModels() (map[types.ModelName]Model, error) {
 
 	// Ollama
 	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
+	models[types.Model_Ollama_Mixtral] = &OllamaMixtral{}
 	models[types.Model_Ollama_Gemma7b] = &OllamaGemma7bInstruct01{}
 	return models, nil
 }
