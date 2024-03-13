@@ -166,6 +166,9 @@ const New: FC = () => {
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
+    if (params.model !== undefined) {
+      formData.set('helixModel', params.model);
+    }
 
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
