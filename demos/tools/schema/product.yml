@@ -1,0 +1,86 @@
+openapi: 3.0.0
+info:
+  title: Products API
+  version: 1.0.0
+servers:
+  - url: /products/v1
+paths:
+  /list:
+    get:
+      summary: List all products
+      parameters:
+        - in: query
+          name: min_price
+          schema:
+            type: integer
+          required: false
+        - in: query
+          name: max_price
+          schema:
+            type: integer
+          required: false
+        - in: query
+          name: delivery_before
+          schema:
+            type: string
+            format: date
+          required: false
+      responses:
+        '200':
+          description: An array of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+
+  /book:
+    get:
+      summary: Book a product
+      parameters:
+        - in: query
+          name: product_id
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: customer_email
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Booking receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: integer
+        deliveryLeadtime:
+          type: integer
+        inStock:
+          type: integer
+
+    Receipt:
+      type: object
+      properties:
+        id:
+          type: string
+        product_id:
+          type: string
+        customer_email:
+          type: string
