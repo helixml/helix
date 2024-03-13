@@ -72,6 +72,7 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 const Layout: FC = ({
   children
 }) => {
+  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const layout = useLayout()
@@ -138,36 +139,46 @@ const Layout: FC = ({
           width: '100%',
         }}
       >
-        <List
-          disablePadding
-        >
-          <ListItem
-            disablePadding
-            onClick={ () => {
-              navigate('new')
-              account.setMobileMenuOpen(false)
-            }}
-          >
+        <List disablePadding>
+          <ListItem disablePadding>
             <ListItemButton
               sx={{
                 height: '68px',
-               }}
+              }}
+              onClick={(event) => setAnchorEl(event.currentTarget)}
             >
               <ListItemText
-              sx={{
-                ml: 2,
-                p: 1,
-                fontWeight: 'heading',
-                '&:hover': {
-                  color: themeConfig.darkHighlight,
-                }
-              }}
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
                 primary="New Session"
               />
               <ListItemIcon>
                 <AddIcon color="primary" />
               </ListItemIcon>
             </ListItemButton>
+            <Menu
+              anchorEl={anchorEl}
+              open={Boolean(anchorEl)}
+              onClose={() => setAnchorEl(null)}
+              onClick={() => account.setMobileMenuOpen(false)}
+              anchorOrigin={{
+                vertical: 'center',
+                horizontal: 'right',
+              }}
+              transformOrigin={{
+                vertical: 'center',
+                horizontal: 'right',
+              }}
+            >
+              <MenuItem onClick={() => { navigate('mistral-7b'); setAnchorEl(null); }}>Mistral 7B</MenuItem>
+              <MenuItem onClick={() => { navigate('mixtral-moe'); setAnchorEl(null); }}>Mixtral MoE</MenuItem>
+            </Menu>
           </ListItem>
         </List>
       </Box>
