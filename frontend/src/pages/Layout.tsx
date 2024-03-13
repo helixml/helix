@@ -72,7 +72,6 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 const Layout: FC = ({
   children
 }) => {
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null)
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const layout = useLayout()
@@ -145,7 +144,10 @@ const Layout: FC = ({
               sx={{
                 height: '68px',
               }}
-              onClick={(event) => setAnchorEl(event.currentTarget)}
+              onClick={ () => {
+                navigate('new')
+                account.setMobileMenuOpen(false)
+              }}
             >
               <ListItemText
                 sx={{
@@ -162,23 +164,6 @@ const Layout: FC = ({
                 <AddIcon color="primary" />
               </ListItemIcon>
             </ListItemButton>
-            <Menu
-              anchorEl={anchorEl}
-              open={Boolean(anchorEl)}
-              onClose={() => setAnchorEl(null)}
-              onClick={() => account.setMobileMenuOpen(false)}
-              anchorOrigin={{
-                vertical: 'center',
-                horizontal: 'right',
-              }}
-              transformOrigin={{
-                vertical: 'center',
-                horizontal: 'right',
-              }}
-            >
-              <MenuItem onClick={() => { navigate('mistral-7b'); setAnchorEl(null); }}>Mistral 7B</MenuItem>
-              <MenuItem onClick={() => { navigate('mixtral-moe'); setAnchorEl(null); }}>Mixtral MoE</MenuItem>
-            </Menu>
           </ListItem>
         </List>
       </Box>
