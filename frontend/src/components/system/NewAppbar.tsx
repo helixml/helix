@@ -55,6 +55,52 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
     setModelMenuAnchorEl(null)
   };
 
+    const modelSwitcher = (
+        <div>
+            <Typography
+                className="inferenceTitle"
+                component="h1"
+                variant="h6"
+                color="inherit"
+                noWrap
+                onClick={handleModelMenu}
+                sx={{
+                    flexGrow: 1,
+                    ml: 1,
+                    color: 'text.primary',
+                    borderRadius: '15px', // Add rounded corners
+                    padding: "3px",
+                    "&:hover": {
+                        backgroundColor: theme.palette.mode === "light" ? "#efefef" : "#13132b",
+                    },
+                    cursor: "pointer"
+                }}
+            >
+                &nbsp;&nbsp;{model} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+            </Typography>
+            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                <Menu
+                    anchorEl={modelMenuAnchorEl}
+                    open={Boolean(modelMenuAnchorEl)}
+                    onClose={handleCloseAccountMenu}
+                    onClick={() => account.setMobileMenuOpen(false)}
+                    sx={{marginTop:"50px"}}
+                    anchorOrigin={{
+                        vertical: 'bottom',
+                        horizontal: 'left',
+                    }}
+                    transformOrigin={{
+                        vertical: 'center',
+                        horizontal: 'left',
+                    }}
+                >
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { setModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { setModel('Helix 4'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
+                </Menu>
+            </Box>
+        </div>
+    )
+
   return (
     <AppBar
         elevation={0}
@@ -90,47 +136,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 }}
                 >
                 {
-                    getTitle ?
-                    getTitle() :
-                    (
-                        <div>
-                        <Typography
-                            className="inferenceTitle"
-                            component="h1"
-                            variant="h6"
-                            color="inherit"
-                            noWrap
-                            onClick={handleModelMenu}
-                            sx={{
-                                flexGrow: 1,
-                                ml: 1,
-                                color: 'text.primary',
-                            }}
-                        >
-                            {model} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>
-                        </Typography>
-                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Menu
-                                anchorEl={modelMenuAnchorEl}
-                                open={Boolean(modelMenuAnchorEl)}
-                                onClose={handleCloseAccountMenu}
-                                onClick={() => account.setMobileMenuOpen(false)}
-                                sx={{marginTop:"45px", marginLeft:"-5px"}}
-                                anchorOrigin={{
-                                vertical: 'bottom',
-                                horizontal: 'left',
-                                }}
-                                transformOrigin={{
-                                vertical: 'center',
-                                horizontal: 'left',
-                                }}
-                            >
-                                <MenuItem sx={{fontSize: "large"}} onClick={() => { console.log('mistral-7b'); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
-                                <MenuItem sx={{fontSize: "large"}} onClick={() => { console.log('mixtral-moe'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
-                            </Menu>
-                        </Box>
-                        </div>
-                    )
+                  modelSwitcher
                 }
                 </Box>
             ) : (
@@ -155,6 +161,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                     <MenuIcon />
                 </IconButton>
                 {/* { themeConfig.logo() } */}
+                { modelSwitcher }
                 </Box>
             )
             }
