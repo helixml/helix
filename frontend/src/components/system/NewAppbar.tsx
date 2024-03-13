@@ -72,11 +72,15 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
     }
   }
 
+  let isNew = false
+  if (window.location.pathname == "" || window.location.pathname == "/") {
+    isNew = true
+  }
   const mode = new URLSearchParams(window.location.search).get('mode');
   const isInference = mode === 'inference' || mode === null;
   const type = new URLSearchParams(window.location.search).get('type')
   const isText = type === 'text' || type === null;
-  const modelSwitcher = (isInference && isText) && (
+  const modelSwitcher = (isNew && isInference && isText) && (
         <div>
             <Typography
                 className="inferenceTitle"
