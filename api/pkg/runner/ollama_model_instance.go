@@ -260,6 +260,7 @@ WAIT:
 			select {
 			case <-i.ctx.Done():
 				log.Info().Msgf("🟢 stopping Ollama model instance")
+				// TODO: does this need to call Stop()?
 				return
 			case session := <-i.workCh:
 				log.Info().Str("session_id", session.ID).Msg("🟢 processing interaction")

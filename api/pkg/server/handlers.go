@@ -139,7 +139,13 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	switch sessionType {
 	case types.SessionTypeText:
 		// TODO: switch based on user toggle e.g. GPT-3.5 vs GPT-4
-		modelName = types.Model_Ollama_Mixtral
+		if sessionMode == types.SessionModeInference {
+			modelName = types.Model_Ollama_Mixtral
+		} else {
+			// fine tuning doesn't work with ollama yet
+			modelName = types.Model_Ollama_Mixtral
+
+		}
 	case types.SessionTypeImage:
 		modelName = types.Model_Cog_SDXL
 	}
@@ -719,7 +725,6 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 
 	modelName, err := types.ValidateModelName(req.URL.Query().Get("model_name"), true)
 	if err != nil {
-		log.Error().Msgf("invalid model name %s -> %s", req.URL.Query().Get("model_name"), err)
 		return nil, err
 	}
 

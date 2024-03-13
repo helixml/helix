@@ -74,16 +74,16 @@ const New: FC = () => {
   const selectedType = type
 
   const getTextPrompts = () => [
-    "Draft an elaborate weekly newsletter focusing on [a specific topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
-    "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
-    "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail",
+    "Draft a weekly newsletter focusing on [a specific topic] tailored for a particular [company type], covering all necessary updates and insights",
+    "Prepare a pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines",
     "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
     "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
     "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
   ]
 
   const getImagePrompts = () => [
-    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color], [resolution] resolution",
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color]",
     "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
     "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
     "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
@@ -99,6 +99,7 @@ const New: FC = () => {
   const SampleContent = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
+      textFieldRef.current?.focus();
     };
 
     if (selectedMode == "finetune") {
@@ -196,7 +197,7 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
-      sessions.loadSessions()
+      await sessions.loadSessions()
       // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
@@ -234,7 +235,7 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
-      sessions.loadSessions()
+      await sessions.loadSessions()
       // XXX maybe this delay is why we don't subscribe fast enough to the
       // websocket
       // await bluebird.delay(300)
