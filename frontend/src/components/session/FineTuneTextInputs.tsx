@@ -49,21 +49,23 @@ interface CustomFile {
   content?: string; // Optional property to store the text content
 }
 
-interface FineTuneTextInputsProps {
-  initialCounter?: number;
-  initialFiles?: File[];
-  showButton?: boolean;
-  hideTextField?: boolean; // Changed from 'false' to 'boolean' to allow both true and false
-  showSystemInteraction?: boolean;
-  onChange?: (counter: number, files: File[]) => void;
-  onDone?: (manuallyReviewQuestions?: boolean) => void;
-}
-
-export const FineTuneTextInputs: FC<FineTuneTextInputsProps> = ({
+export const FineTuneTextInputs: FC<{
+  initialCounter?: number,
+  initialFiles?: File[],
+  showButton?: boolean,
+  hideTextField?: boolean,
+  showSystemInteraction?: boolean,
+  onChange?: {
+    (counter: number, files: File[]): void
+  },
+  onDone?: {
+    (manuallyReviewQuestions?: boolean): void
+  },
+}> = ({
   initialCounter,
   initialFiles,
   showButton = false,
-  hideTextField = false,
+  
   showSystemInteraction = true,
   onChange,
   onDone,
@@ -246,7 +248,7 @@ const [files, setFiles] = useState<CustomFile[]>(
               height: '100px',
         maxHeight: '100px',
               pb: 1,
-              // backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
               borderRadius: 0,
               
             }}
@@ -386,6 +388,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           minHeight: '120px',
           cursor: 'pointer',
           backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+          
         }}
         onClick={handleManualUploadClick} // Use the function to trigger file input click
       >
@@ -419,7 +422,6 @@ const [files, setFiles] = useState<CustomFile[]>(
   />
     </Cell>
   </Row>
-  
 </FileUpload>
 
 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
@@ -479,7 +481,7 @@ const [files, setFiles] = useState<CustomFile[]>(
       </Typography>
     )}
   </Grid>
-  <Grid item xs={6} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+  <Grid item xs={6} sx={{ display: 'flex', justifyContent: 'flex-end',  }}>
     {files.length > 0 && showButton && onDone && (
       <Button
         sx={{
@@ -504,7 +506,7 @@ const [files, setFiles] = useState<CustomFile[]>(
   onClose={() => setDrawerOpen(false)}
   sx={{
     '& .MuiDrawer-paper': {
-      backgroundColor: 'transparent', 
+      backgroundColor: '#070714', 
       height: '50vh'// Assuming each file item is 48px tall
       // overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
     },
@@ -581,12 +583,6 @@ const [files, setFiles] = useState<CustomFile[]>(
 
   </Box>
 </Drawer>
-{!hideTextField && (
-        <TextField
-          // ... TextField props
-        />
-      )}
-      {/* ... other component JSX */}
 </Box>
   )
       }

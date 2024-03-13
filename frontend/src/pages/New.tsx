@@ -401,6 +401,7 @@ const New: FC = () => {
   }
 
   return (
+    
     <Box
       className="helix-new"
       sx={{
@@ -417,69 +418,66 @@ const New: FC = () => {
         backgroundRepeat: 'no-repeat',
       }}
     >
-  <Box sx={{ display: 'flex', width: '93%',  }}>
-
-     {/* IMAGE Typography with line */}
-  <Box
-    sx={{
-      width: '49%',
-      textAlign: 'center',
-      cursor: 'pointer',
-      opacity: selectedType === SESSION_TYPE_TEXT ? 0.5 : 1,
-      '&:after': {
-        content: '""',
-        display: 'block',
-        height: '2px',
-        backgroundColor: '#FFFFFF', 
-        marginTop: '0.25rem',
-      }
-    }}
-    onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
-  >
-    <Typography
-      variant="subtitle1"
+      
+      {mode !== SESSION_MODE_INFERENCE && (
+  <Box sx={{ display: 'flex', width: '93%' }}>
+    {/* IMAGE Typography with line */}
+    <Box
       sx={{
-        fontSize: "medium",
-        fontWeight: 800,
-        color: '#FFFFFF', // Green text color
-        marginBottom: '10px',
+        width: '49%',
+        textAlign: 'center',
+        cursor: 'pointer',
+        '&:after': {
+          content: '""',
+          display: 'block',
+          height: '2px',
+          backgroundColor: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
+          marginTop: '0.25rem',
+        }
       }}
+      onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
     >
-      Images
-    </Typography>
-  </Box>
-  {/* TEXT Typography with line */}
-  <Box
-    sx={{
-      width: '50%',
-      textAlign: 'center',
-      cursor: 'pointer',
-      opacity: selectedType === SESSION_TYPE_IMAGE ? 0.5 : 1,
-      '&:after': {
-        content: '""',
-        display: 'block',
-        height: '2px',
-        backgroundColor: '#ffff00', // Yellow line color
-       
-      }
-    }}
-    onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
-  >
-    <Typography
-      variant="subtitle1"
+      <Typography
+        variant="subtitle1"
+        sx={{
+          fontSize: "medium",
+          fontWeight: 800,
+          color: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
+          marginBottom: '10px',
+        }}
+      >
+        Images
+      </Typography>
+    </Box>
+    {/* TEXT Typography with line */}
+    <Box
       sx={{
-        fontSize: "medium",
-        fontWeight: 800,
-        color: '#ffff00', // Yellow text color
-        marginBottom: '10px',
+        width: '50%',
+        textAlign: 'center',
+        cursor: 'pointer',
+        '&:after': {
+          content: '""',
+          display: 'block',
+          height: '2px',
+          backgroundColor: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+        }
       }}
+      onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
     >
-      Text
-    </Typography>
+      <Typography
+        variant="subtitle1"
+        sx={{
+          fontSize: "medium",
+          fontWeight: 800,
+          color: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+          marginBottom: '10px',
+        }}
+      >
+        Text
+      </Typography>
+    </Box>
   </Box>
-
- 
-</Box>
+)}
       <Box
         sx={{
           width: '100%',
@@ -544,86 +542,91 @@ const New: FC = () => {
         </Container>
       </Box>
 
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 0,
-          p: 2,
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Container maxWidth="xl">
+      {
+        mode == SESSION_MODE_INFERENCE && (
           <Box
             sx={{
               width: '100%',
               flexGrow: 0,
+              p: 2,
               display: 'flex',
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <SampleContent />
+            <Container maxWidth="xl">
+              <Box
+                sx={{
+                  width: '100%',
+                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <SampleContent />
+              </Box>
+              <Box
+                sx={{
+                  width: '100%',
+                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <TextField
+                  id="textEntry"
+                  fullWidth
+                  inputRef={textFieldRef}
+                  autoFocus
+                  label={(
+                    (
+                      type == SESSION_TYPE_TEXT ?
+                        'Chat with Helix...' :
+                        'Describe what you want to see in an image...'
+                    ) + " (shift+enter to add a newline)"
+                  )}
+                  value={inputs.inputValue}
+                  disabled={selectedMode == SESSION_MODE_FINETUNE}
+                  onChange={handleInputChange}
+                  name="ai_submit"
+                  multiline={true}
+                  onKeyDown={handleKeyDown}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="send"
+                          disabled={selectedMode == SESSION_MODE_FINETUNE}
+                          onClick={onInference}
+                          sx={{
+                            color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                          }}
+                        >
+                          <SendIcon />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+              <Box
+                sx={{
+                  mt: 2,
+                }}
+              >
+                <Disclaimer />
+              </Box>
+            </Container>
+            
           </Box>
-          <Box
-            sx={{
-              width: '100%',
-              flexGrow: 0,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <TextField
-              id="textEntry"
-              fullWidth
-              inputRef={textFieldRef}
-              autoFocus
-              label={(
-                (
-                  type == SESSION_TYPE_TEXT ?
-                    'Chat with Helix...' :
-                    'Describe what you want to see in an image...'
-                ) + " (shift+enter to add a newline)"
-              )}
-              value={inputs.inputValue}
-              disabled={selectedMode == SESSION_MODE_FINETUNE}
-              onChange={handleInputChange}
-              name="ai_submit"
-              multiline={true}
-              onKeyDown={handleKeyDown}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="send"
-                      disabled={selectedMode == SESSION_MODE_FINETUNE}
-                      onClick={onInference}
-                      sx={{
-                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                      }}
-                    >
-                      <SendIcon />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Box>
-          <Box
-            sx={{
-              mt: 2,
-            }}
-          >
-            <Disclaimer />
-          </Box>
-        </Container>
-        
-      </Box>
+        )
+      }
+      
 
       {
         inputs.uploadProgress && (

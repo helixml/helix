@@ -90,14 +90,14 @@ export const Interaction: FC<{
   return (
     <Box
       sx={{
-        backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? (theme.palette.mode === 'dark' ? themeConfig.darkPanel : themeConfig.lightPanel) : 'none',
+        // backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? (theme.palette.mode === 'dark' ? themeConfig.darkPanel : themeConfig.lightPanel) : 'none',
         p: 2,
         borderRadius: '0.5rem',
       }}
     >
       <InteractionContainer
-        name={ useName }
-        buttons={ headerButtons }
+         name={ useName }
+         buttons={ headerButtons }
       >
           {
             showFinetuning && (
