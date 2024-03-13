@@ -4,6 +4,7 @@ import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import { Button } from '@mui/material'
 
 export const InteractionContainer: FC<{
   name: string,
@@ -18,7 +19,19 @@ export const InteractionContainer: FC<{
       mb: 3,
     }}>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', pb: 1, }}>
-        <Avatar className="interactionAvatar" sx={{ width: 24, height: 24 }}>{name.charAt(0).toUpperCase()}</Avatar>
+       <Button
+          variant="contained"
+          color="primary"
+          size="small"
+          sx={{ textTransform: 'none', bgcolor: '#B4FDC0', color: 'black', fontWeight: 800, padding: '2px 8px', minWidth: 'auto', height: 'auto' }}
+          
+        >
+          
+          AI
+        </Button> 
+     {/* <Avatar className="interactionAvatar" sx={{ width: 24, height: 24 }}></Avatar>  */}
+        
+        
         <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
           <Row>
             <Cell flexGrow={1}>
@@ -30,12 +43,12 @@ export const InteractionContainer: FC<{
                   color: '#aaa'
                 }}
               >
-                { name.charAt(0).toUpperCase() + name.slice(1) }
+                {/* { name.charAt(0).toUpperCase() + name.slice(1) }  */}
               </Typography>
             </Cell>
             <Cell>
               {
-                buttons
+                 buttons
               }
             </Cell>
           </Row>

@@ -539,23 +539,28 @@ const Session: FC = () => {
                         retryFinetuneErrors={ retryFinetuneErrors }
                         headerButtons={ isLastInteraction ? (
                           <Tooltip title="Restart Session">
-                            <IconButton onClick={ onRestart }>
+                            <IconButton onClick={ onRestart }  sx={{ mt: '0.5rem' }} >
                               <RefreshIcon
                                 sx={{
                                   color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
                                   '&:hover': {
                                     color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                                  }
+                                  },
+                                 
+                                  
                                 }}
                               />
                             </IconButton>
                           </Tooltip>
+                          
                         ) : undefined }
+                        
                         onReloadSession={ () => session.reload() }
                         onClone={ onClone }
                         onAddDocuments={ isLastFinetune ? onAddDocuments : undefined }
                         onRestart={ isLastInteraction ? onRestart : undefined }
                       >
+                        
                         {
                           isLive && (isOwner || account.admin) && (
                             <InteractionLiveStream
@@ -596,7 +601,7 @@ const Session: FC = () => {
                       }, `Thank you for your feedback!`)
                     }}
                   >
-                    { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> }
+                    {/* { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> } */}
                   </Button>
                   <Button
                     onClick={ () => {
@@ -605,7 +610,7 @@ const Session: FC = () => {
                       }, `Sorry! We will use your feedback to improve`)
                     }}
                   >
-                    { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> }
+                    {/* { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> } */}
                   </Button>
                 </Box>
                 {

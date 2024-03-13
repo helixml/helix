@@ -1,11 +1,11 @@
-import React, { useCallback, ReactNode, FC } from 'react'
-import { SxProps } from '@mui/system'
-import Dialog, { DialogProps } from '@mui/material/Dialog'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
-import DialogActions from '@mui/material/DialogActions'
-import Button from '@mui/material/Button'
-import Box from '@mui/material/Box'
+import React, { useCallback, ReactNode, FC } from 'react';
+import { SxProps } from '@mui/system';
+import Dialog, { DialogProps } from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
 
 export interface WindowProps {
   leftButtons?: ReactNode,
@@ -23,12 +23,8 @@ export interface WindowProps {
   fullHeight?: boolean,
   noActions?: boolean,
   background?: string,
-  onCancel?: {
-    (): void,
-  },
-  onSubmit?: {
-    (): void,
-  },
+  onCancel?: () => void,
+  onSubmit?: () => void,
   theme?: Record<string, string>,
   disabled?: boolean,
 }
@@ -40,7 +36,7 @@ const Window: FC<WindowProps> = ({
   withCancel,
   loading = false,
   submitTitle = 'Save',
-  cancelTitle = 'Cancel',
+  cancelTitle = 'Close', // Changed from 'Cancel' to 'Close'
   background = '#fff',
   open,
   title,
@@ -56,120 +52,76 @@ const Window: FC<WindowProps> = ({
 }) => {
 
   const closeWindow = useCallback(() => {
-    onCancel && onCancel()
-  }, [
-    onCancel,
-  ])
+    if (onCancel) {
+      onCancel();
+    }
+  }, [onCancel]);
 
   return (
     <Dialog
-      open={ open }
-      onClose={ closeWindow }
+      open={open}
+      onClose={closeWindow}
       fullWidth
-      maxWidth={ size }
+      maxWidth={size}
       sx={{
         '& .MuiDialog-paper': {
-          backgroundColor: "#10101E",
-          ...(fullHeight && {
-            height: '100%',
-          }),
-          ...(noScroll && {
-            overflowX: 'hidden!important',
-            overflowY: 'hidden!important',
-          }),
+          position: 'fixed', // Use fixed to position relative to the viewport
+          top: 0,
+          right: 0,
+          width: '60vw', // Use 50% of the viewport width
+          height: '100vh', // Use 100% of the viewport height
+          overflow: 'hidden', // Remove scrollbar by hiding overflow
+           // Set the background color to match the page's background
         },
       }}
     >
-      {
-        title && (
-          <DialogTitle
-            sx={{
-              padding: 1,
-            }}
-          >
-            { title }
-          </DialogTitle>
-        )
-      }
+      {title && (
+        <DialogTitle>{title}</DialogTitle>
+      )}
       <DialogContent
         sx={{
-          ...(compact && {
-            padding: '0px!important',
-          }),
-          ...(noScroll && {
-            overflowX: 'hidden!important',
-            overflowY: 'hidden!important',
-          }),
+          padding: compact ? '0px!important' : undefined,
+          overflow: noScroll ? 'hidden!important' : 'auto',
+          // ... other styles if needed
         }}
       >
-        { children }
+        {children}
       </DialogContent>
-      {
-        !noActions && (
-          <DialogActions>
-            <Box 
-              component="div"
-              sx={{
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'row',
-              }}
-            >
-              <Box
-                component="div"
-                sx={{
-                  flexGrow: 0,
-                }}
+      {!noActions && (
+        <DialogActions>
+          <Box 
+            component="div"
+            sx={{
+              width: '100%',
+              display: 'flex',
+              justifyContent: 'flex-end',
+            }}
+          >
+            {leftButtons}
+            {withCancel && (
+              <Button
+                sx={{ mr: 1, color: 'black', 
+                bgcolor: 'white', 
+                '&:hover': {
+                  bgcolor: 'white', 
+                  opacity: 0.7, 
+                },
+              
+               }}
+                type="button"
+                variant="outlined"
+                onClick={closeWindow}
               >
-                { leftButtons }
-              </Box>
-              <Box
-                component="div"
-                sx={{
-                  flexGrow: 1,
-                  textAlign: 'right',
-                }}
-              >
-                {
-                  withCancel && (
-                    <Button
-                      sx={{
-                        marginLeft: 2,
-                      }}
-                      type="button"
-                      color="secondary"
-                      variant="outlined"
-                      onClick={ closeWindow }
-                    >
-                      { cancelTitle }
-                    </Button>
-                  )
-                }
-                {
-                  onSubmit && (
-                    <Button
-                      sx={{
-                        marginLeft: 2,
-                      }}
-                      type="button"
-                      id="submitButton"
-                      variant="contained"
-                      color="primary"
-                      disabled={ disabled || loading ? true : false }
-                      onClick={ onSubmit }
-                    >
-                      { submitTitle }
-                    </Button>
-                  )
-                }
-                { rightButtons || buttons }
-              </Box>
-            </Box>
-          </DialogActions>
-        )
-      }
+                {cancelTitle}
+              </Button>
+            )}
+            {rightButtons}
+            {buttons}
+          </Box>
+        </DialogActions>
+      )}
     </Dialog>
-  )
-}
+  );
+};
 
-export default Window
+export default Window;

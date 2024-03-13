@@ -182,7 +182,7 @@ export const InteractionFinetune: FC<{
           </Box>
         )
       }
-      {
+      {/* {
         isTextFinetune && interaction.files && interaction.files.length > 0 && (
           <Box
             sx={{
@@ -221,7 +221,7 @@ export const InteractionFinetune: FC<{
                             window.open(useURL)
                           }}
                         >
-                        <AttachFileIcon />
+                        { <AttachFileIcon /> }
                           <Typography variant="caption" sx={{
                             textAlign: 'center',
                             color: theme.palette.mode == "light" ? 'blue' : 'lightblue',
@@ -236,8 +236,8 @@ export const InteractionFinetune: FC<{
             </Grid>
           </Box>
         )
-      }
-      {
+      } */}
+      {/* {
         session.type == SESSION_TYPE_TEXT && interaction.data_prep_stage != TEXT_DATA_PREP_STAGE_NONE && getTextDataPrepStageIndex(interaction.data_prep_stage) > 0 && (
           <Box
             sx={{
@@ -261,7 +261,7 @@ export const InteractionFinetune: FC<{
             </Stepper>
           </Box>
         )
-      }
+      } */}
       {
         isEditingConversations && dataPrepErrors.length == 0 && (
           <Box

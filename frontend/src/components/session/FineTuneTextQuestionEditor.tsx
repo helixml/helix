@@ -56,7 +56,7 @@ export const FineTuneTextQuestionEditor: FC<{
               width: '100%',
               height: '100%',
             }}
-          >
+           >
             <Typography
               variant="caption"
               sx={{
@@ -94,43 +94,43 @@ export const FineTuneTextQuestionEditor: FC<{
         )
       }
     },
-    {
-      name: 'actions',
-      header: 'Actions',
-      minWidth: 120,
-      defaultWidth: 120,
-      render: ({ data }) => {
-        if(readOnly) return null
-        return (
-          <Box
-            sx={{
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'flex-end',
-              justifyContent: 'space-between',
-              pl: 2,
-              pr: 2,
-            }}
-          >
-            <ClickLink
-              onClick={ () => {
-                setDeleteQuestion(data)
-              }}
-            >
-              <DeleteIcon />
-            </ClickLink>
-            <ClickLink
-              onClick={ () => {
-                setEditQuestion(data)
-              }}
-            >
-              <EditIcon />
-            </ClickLink>
-          </Box>
-        )
-      }
-    }
+    // {
+    //   name: 'actions',
+    //   header: 'Actions',
+    //   minWidth: 120,
+    //   defaultWidth: 120,
+    //   render: ({ data }) => {
+    //     if(readOnly) return null
+    //     return (
+    //       <Box
+    //         sx={{
+    //           width: '100%',
+    //           display: 'flex',
+    //           flexDirection: 'row',
+    //           alignItems: 'flex-end',
+    //           justifyContent: 'space-between',
+    //           pl: 2,
+    //           pr: 2,
+    //         }}
+    //       >
+    //         <ClickLink
+    //           onClick={ () => {
+    //             setDeleteQuestion(data)
+    //           }}
+    //         >
+    //           <DeleteIcon />
+    //         </ClickLink>
+    //         <ClickLink
+    //           onClick={ () => {
+    //             setEditQuestion(data)
+    //           }}
+    //         >
+    //           <EditIcon />
+    //         </ClickLink>
+    //       </Box>
+    //     )
+    //   }
+    // }
   ]
   }, [
     readOnly,
@@ -138,26 +138,42 @@ export const FineTuneTextQuestionEditor: FC<{
 
   return (
     <Window
-      title={ title }
+      // title={ title }
       size="lg"
       fullHeight
       open
       withCancel
       submitTitle="Save"
       cancelTitle={ cancelTitle }
-      leftButtons={(
+      // leftButtons={(
+      //   <>
+      //     <Button
+      //       variant="contained"
+      //       onClick={ () => {
+      //         setEditQuestion({
+      //           id: 'new',
+      //           question: '',
+      //           answer: ''
+      //         })
+      //       }}
+      //     >
+      //       Add more
+      //     </Button>
+      //   </>
+      // )}
+      rightButtons={(
         <>
           <Button
             variant="contained"
-            onClick={ () => {
+            onClick={() => {
               setEditQuestion({
                 id: 'new',
                 question: '',
                 answer: ''
-              })
+              });
             }}
           >
-            Add Question
+            Add more
           </Button>
         </>
       )}
@@ -187,79 +203,81 @@ export const FineTuneTextQuestionEditor: FC<{
           />
         )
       }
-      {
-        editQuestion && (
-          <Window
-            title="Edit Question"
-            open
-            withCancel
-            onCancel={ () => setEditQuestion(undefined) }
-            onSubmit={ () => {
-              if(editQuestion.id == 'new') {
-                const newQuestions = [
-                  ...questions,
-                  {
-                    ...editQuestion,
-                    id: uuidv4(),
-                  }
-                ]
-                setQuestions(newQuestions)
-              } else {
-                setQuestions(questions.map(q => {
-                  if(q.id == editQuestion.id) {
-                    return editQuestion
-                  }
-                  return q
-                }))
-              }
-              setEditQuestion(undefined)
-              snackbar.info('Question updated')
-            } }
-          >
-            <Box
-              sx={{
-                p: 2,
-              }}
-            >
-              <TextField
-                label="Question"
-                fullWidth
-                multiline
-                helperText="Enter the question text here"
-                rows={ 5 }
-                value={ editQuestion.question }
-                onChange={ (e) => {
-                  setEditQuestion({
-                    ...editQuestion,
-                    question: e.target.value,
-                  })
-                }}
-              />
-            </Box>
-            <Box
-              sx={{
-                p: 2,
-              }}
-            >
-              <TextField
-                label="Answer"
-                fullWidth
-                multiline
-                helperText="Enter the answer text here"
-                rows={ 5 }
-                value={ editQuestion.answer }
-                onChange={ (e) => {
-                  setEditQuestion({
-                    ...editQuestion,
-                    answer: e.target.value,
-                  })
-                }}
-              />
-            </Box>
-          </Window>
-        )
-      }
+   {
+  editQuestion && (
+    <Window
+      // title="Edit Question"
+      open
+      withCancel
+      cancelTitle="Cancel"
+      onCancel={() => setEditQuestion(undefined)}
+      onSubmit={() => {
+        if (editQuestion.id === 'new') {
+          const newQuestions = [
+            ...questions,
+            {
+              ...editQuestion,
+              id: uuidv4(),
+            },
+          ];
+          setQuestions(newQuestions);
+        } else {
+          setQuestions(questions.map(q => (q.id === editQuestion.id ? editQuestion : q)));
+        }
+        setEditQuestion(undefined);
+        snackbar.info('Question updated');
+      }}
+    >
+      <Box sx={{ p: 2 }}>
+        <TextField
+          // label="Question"
+          fullWidth
+          multiline
+          helperText="Enter the question text here"
+          rows={5}
+          value={editQuestion.question}
+          onChange={(e) => setEditQuestion({ ...editQuestion, question: e.target.value })}
+        />
+      </Box>
+      <Box sx={{ p: 2 }}>
+        <TextField
+          label="Answer"
+          fullWidth
+          multiline
+          helperText="Enter the answer text here"
+          rows={5}
+          value={editQuestion.answer}
+          onChange={(e) => setEditQuestion({ ...editQuestion, answer: e.target.value })}
+        />
+      </Box>
+      {/* Add the new button here */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2 }}>
+        <Button
+          variant="contained"
+          onClick={() => {
+            const newQuestion = {
+              id: uuidv4(),
+              question: '',
+              answer: '',
+            };
+            setQuestions([...questions, newQuestion]);
+            // Optionally, set the new question for editing
+            setEditQuestion(newQuestion);
+          }}
+        >
+          Add Question and Answer
+        </Button>
+        {/* <Button
+          variant="outlined"
+          onClick={() => setEditQuestion(undefined)}
+        >
+          Cancel
+        </Button> */}
+      </Box>
     </Window>
+  )
+}
+</Window>
   )  
 }
 
