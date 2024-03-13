@@ -58,70 +58,87 @@ const Window: FC<WindowProps> = ({
   }, [onCancel]);
 
   return (
-    <Dialog
-      open={open}
-      onClose={closeWindow}
-      fullWidth
-      maxWidth={size}
+    <Box
       sx={{
-        '& .MuiDialog-paper': {
-          position: 'fixed', // Use fixed to position relative to the viewport
-          top: 0,
-          right: 0,
-          width: '60vw', // Use 50% of the viewport width
-          height: '100vh', // Use 100% of the viewport height
-          overflow: 'hidden', // Remove scrollbar by hiding overflow
-           // Set the background color to match the page's background
-        },
+        position: 'absolute',
+        right: 0,
+        top: 0,
+        height: '100%',
+        width: '50%',
+        backgroundColor: 'red',
+        padding: 20,
+        zIndex: 2000,
       }}
     >
-      {title && (
-        <DialogTitle>{title}</DialogTitle>
-      )}
-      <DialogContent
-        sx={{
-          padding: compact ? '0px!important' : undefined,
-          overflow: noScroll ? 'hidden!important' : 'auto',
-          // ... other styles if needed
-        }}
-      >
-        {children}
-      </DialogContent>
-      {!noActions && (
-        <DialogActions>
-          <Box 
-            component="div"
-            sx={{
-              width: '100%',
-              display: 'flex',
-              justifyContent: 'flex-end',
-            }}
-          >
-            {leftButtons}
-            {withCancel && (
-              <Button
-                sx={{ mr: 1, color: 'black', 
-                bgcolor: 'white', 
-                '&:hover': {
-                  bgcolor: 'white', 
-                  opacity: 0.7, 
-                },
+      {children}
+    </Box>
+  )
+  // return (
+  //   <Dialog
+  //     open={open}
+  //     onClose={closeWindow}
+  //     fullWidth
+  //     maxWidth={size}
+  //     sx={{
+  //       height: '100%',
+  //       '& .MuiDialog-paper': {
+  //         position: 'fixed', // Use fixed to position relative to the viewport
+  //         top: 0,
+  //         right: 0,
+  //         width: '60vw', // Use 50% of the viewport width
+  //         height: '100vh', // Use 100% of the viewport height
+  //         overflow: 'hidden', // Remove scrollbar by hiding overflow
+  //          // Set the background color to match the page's background
+  //       },
+  //     }}
+  //   >
+  //     {title && (
+  //       <DialogTitle>{title}</DialogTitle>
+  //     )}
+  //     <DialogContent
+  //       sx={{
+  //         padding: compact ? '0px!important' : undefined,
+  //         overflow: noScroll ? 'hidden!important' : 'auto',
+  //         // ... other styles if needed
+  //       }}
+  //     >
+  //       {children}
+  //     </DialogContent>
+  //     {!noActions && (
+  //       <DialogActions>
+  //         <Box 
+  //           component="div"
+  //           sx={{
+  //             width: '100%',
+  //             display: 'flex',
+  //             justifyContent: 'flex-end',
+  //           }}
+  //         >
+  //           {leftButtons}
+  //           {withCancel && (
+  //             <Button
+  //               sx={{ mr: 1, color: 'black', 
+  //               bgcolor: 'white', 
+  //               '&:hover': {
+  //                 bgcolor: 'white', 
+  //                 opacity: 0.7, 
+  //               },
               
-               }}
-                type="button"
-                variant="outlined"
-                onClick={closeWindow}
-              >
-                {cancelTitle}
-              </Button>
-            )}
-            {rightButtons}
-            {buttons}
-          </Box>
-        </DialogActions>
-      )}
-    </Dialog>
-  );
+  //              }}
+  //               type="button"
+  //               variant="outlined"
+  //               onClick={closeWindow}
+  //             >
+  //               {cancelTitle}
+  //             </Button>
+  //           )}
+  //           {rightButtons}
+  //           {buttons}
+  //         </Box>
+  //       </DialogActions>
+  //     )}
+  //   </Dialog>
+  // );
 };
 
 export default Window;
