@@ -135,16 +135,21 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	helixModel := req.FormValue("helixModel")
+
 	var modelName types.ModelName
 	switch sessionType {
 	case types.SessionTypeText:
-		// TODO: switch based on user toggle e.g. GPT-3.5 vs GPT-4
+		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
 		if sessionMode == types.SessionModeInference {
-			modelName = types.Model_Ollama_Mixtral
+			if helixModel == "helix-4" {
+				modelName = types.Model_Ollama_Mixtral
+			} else {
+				modelName = types.Model_Ollama_Mistral7b
+			}
 		} else {
 			// fine tuning doesn't work with ollama yet
-			modelName = types.Model_Ollama_Mixtral
-
+			modelName = types.Model_Axolotl_Mistral7b
 		}
 	case types.SessionTypeImage:
 		modelName = types.Model_Cog_SDXL
