@@ -1,4 +1,4 @@
-import React, { useContext } from 'react'
+import React, { useContext, useState } from 'react'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import IconButton from '@mui/material/IconButton'
@@ -7,8 +7,11 @@ import Tooltip from '@mui/material/Tooltip'
 import Button from '@mui/material/Button'
 import Link from '@mui/material/Link'
 import Box from '@mui/material/Box'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 
 import LoginIcon from '@mui/icons-material/Login'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import MenuIcon from '@mui/icons-material/Menu'
 import AutoStoriesIcon from '@mui/icons-material/AutoStories'
 import useAccount from '../../hooks/useAccount'
@@ -41,6 +44,16 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
   const themeConfig = useThemeConfig()
 
   const { setParams, params } = useRouter()
+  const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<null | HTMLElement>(null)
+  const [model, setModel] = useState<string>("Helix 3.5")
+
+  const handleModelMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setModelMenuAnchorEl(event.currentTarget)
+  };
+
+  const handleCloseAccountMenu = () => {
+    setModelMenuAnchorEl(null)
+  };
 
   return (
     <AppBar
@@ -80,20 +93,43 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                     getTitle ?
                     getTitle() :
                     (
+                        <div>
                         <Typography
                             className="inferenceTitle"
                             component="h1"
                             variant="h6"
                             color="inherit"
                             noWrap
+                            onClick={handleModelMenu}
                             sx={{
                                 flexGrow: 1,
                                 ml: 1,
                                 color: 'text.primary',
                             }}
                         >
-                        {meta.title || ''}
+                            {model} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>
                         </Typography>
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Menu
+                                anchorEl={modelMenuAnchorEl}
+                                open={Boolean(modelMenuAnchorEl)}
+                                onClose={handleCloseAccountMenu}
+                                onClick={() => account.setMobileMenuOpen(false)}
+                                sx={{marginTop:"45px", marginLeft:"-5px"}}
+                                anchorOrigin={{
+                                vertical: 'bottom',
+                                horizontal: 'left',
+                                }}
+                                transformOrigin={{
+                                vertical: 'center',
+                                horizontal: 'left',
+                                }}
+                            >
+                                <MenuItem sx={{fontSize: "large"}} onClick={() => { console.log('mistral-7b'); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
+                                <MenuItem sx={{fontSize: "large"}} onClick={() => { console.log('mixtral-moe'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
+                            </Menu>
+                        </Box>
+                        </div>
                     )
                 }
                 </Box>
