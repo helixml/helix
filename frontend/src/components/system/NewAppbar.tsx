@@ -45,7 +45,15 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
 
   const { setParams, params } = useRouter()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<null | HTMLElement>(null)
-  const [model, setModel] = useState<string>("Helix 3.5")
+
+  // XXX this is hacky, if we switch to gpt-4, then to image mode and back to
+  // text mode, UI thinks we are still gpt-4 but params has forgotten it :-(
+  let defaultModel = "Helix 3.5"
+  if (params.model === "helix-4") {
+    defaultModel = "Helix 4"
+  }
+
+  const [model, setModel] = useState<string>(defaultModel)
 
   const handleModelMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
@@ -55,7 +63,20 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
     setModelMenuAnchorEl(null)
   };
 
-    const modelSwitcher = (
+  const updateModel = (model: string) => {
+    setModel(model)
+    if (model == "Helix 4") {
+        setParams({"model": "helix-4"})
+    } else if (model == "Helix 3.5") {
+        setParams({"model": "helix-3.5"})
+    }
+  }
+
+  const mode = new URLSearchParams(window.location.search).get('mode');
+  const isInference = mode === 'inference' || mode === null;
+  const type = new URLSearchParams(window.location.search).get('type')
+  const isText = type === 'text' || type === null;
+  const modelSwitcher = (isInference && isText) && (
         <div>
             <Typography
                 className="inferenceTitle"
@@ -94,8 +115,8 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         horizontal: 'left',
                     }}
                 >
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { setModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { setModel('Helix 4'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix 4'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
                 </Menu>
             </Box>
         </div>
