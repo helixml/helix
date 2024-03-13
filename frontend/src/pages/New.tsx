@@ -279,7 +279,6 @@ const New: FC = () => {
     loader()
   }, [])
 
-  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
