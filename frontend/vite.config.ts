@@ -12,9 +12,9 @@ export default defineConfig({
   publicDir: 'assets',
   build: {
     lib: {
-      entry: path.resolve(__dirname, 'src/components/widgets/Embed.tsx'), // Adjust this path to your component
-      name: 'Embed', // The global variable name when included via a script tag
-      fileName: (format) => `embed.${format}.js`
+      entry: path.resolve(__dirname, 'src/components/widgets/Embed.tsx'),
+      name: 'HelixEmbed',
+      fileName: (format) => `helix-embed.${format}.js`
     },
     rollupOptions: {
       external: ['react', 'react-dom'],

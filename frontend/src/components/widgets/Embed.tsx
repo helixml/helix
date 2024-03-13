@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import Dialog from '@mui/material/Dialog'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
@@ -6,6 +6,7 @@ import Button from '@mui/material/Button'
 import { DialogTitle, DialogActions, InputAdornment, IconButton } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import CloseIcon from '@mui/icons-material/Close'
 import useThemeConfig from '../../hooks/useThemeConfig'
 
 type AnswerType = {
@@ -42,7 +43,7 @@ interface AskQuestionModalProps {
   answer: AnswerType
 }
 
-const AskQuestionModal: FC<AskQuestionModalProps> = ({ verifiedSources, onSubmitQuestion, open, handleClose, answer }) => {
+export default ({ verifiedSources, onSubmitQuestion, open, handleClose, answer }: AskQuestionModalProps) => {
   const themeConfig = useThemeConfig()
   const [question, setQuestion] = useState('')
   const [showAnswer, setShowAnswer] = useState(false)
@@ -95,8 +96,16 @@ const AskQuestionModal: FC<AskQuestionModalProps> = ({ verifiedSources, onSubmit
           <Box sx={{flexGrow: 1,}}></Box>
           {showAnswer && (
             <Box sx={{alignSelf: 'flex-end'}}>
-              <IconButton onClick={resetToInitialState} aria-label="reset">
-                <RefreshIcon color="action" />
+              <IconButton
+                onClick={resetToInitialState}
+                aria-label="reset"
+              >
+                <CloseIcon
+                  color="action"
+                  sx={{
+                    color: themeConfig.secondary,
+                  }}
+                />
               </IconButton>
             </Box>
           )}
@@ -205,13 +214,17 @@ const AskQuestionModal: FC<AskQuestionModalProps> = ({ verifiedSources, onSubmit
         </Box>
       )}
       <DialogActions>
-        <Button onClick={() => {
-          handleClose()
-          setShowAnswer(false)
-        }}>Close</Button>
+        <Button
+          variant="outlined"
+          sx={{ color: themeConfig.secondary }}
+          onClick={() => {
+            handleClose()
+            setShowAnswer(false)
+          }}
+        >
+          Close
+        </Button>
       </DialogActions>
     </Dialog>
   )
 }
-
-export default AskQuestionModal
