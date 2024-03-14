@@ -76,9 +76,12 @@ services:
       - KC_DB_PASSWORD=postgres
       - KEYCLOAK_ADMIN=admin
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      - KC_PROXY=edge
+      - KC_PROXY_HEADERS=forwarded|xforwarded
       - KC_HEALTH_ENABLED=true
-      - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
+      - KC_HOSTNAME_PATH==/auth
+      - KC_HTTP_RELATIVE_PATH=/auth/
+      - KC_HOSTNAME_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
+      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
     volumes:
       - ./realm.json:/imported/realm.json
       - ${KEYCLOAK_DATA:-helix-keycloak-db}:/opt/jboss/keycloak/standalone/data
