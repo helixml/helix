@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	gocloak "github.com/Nerzal/gocloak/v13"
-	jwt "github.com/golang-jwt/jwt/v4"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
