@@ -2,12 +2,11 @@ openapi: 3.0.0
 info:
   title: Products API
   version: 1.0.0
-servers:
-  - url: /products/v1
 paths:
-  /list:
+  /products/v1/list:
     get:
-      summary: List all products and filter by min and max price and delivery before date
+      summary: List all laptops and filter by min and max price, cpu type and ram size
+      operationId: listProducts
       parameters:
         - in: query
           name: min_price
@@ -31,7 +30,7 @@ paths:
           required: false
       responses:
         '200':
-          description: An array of products
+          description: An array of laptops each one with a price, cpu type and ram amount
           content:
             application/json:
               schema:
@@ -39,9 +38,10 @@ paths:
                 items:
                   $ref: '#/components/schemas/Product'
 
-  /book:
-    get:
-      summary: Book a product
+  /products/v1/book:
+    post:
+      summary: Book a product by providing it's ID and customer email
+      operationId: bookProduct
       parameters:
         - in: query
           name: product_id
@@ -84,8 +84,6 @@ components:
     Receipt:
       type: object
       properties:
-        id:
-          type: string
         product_id:
           type: string
         customer_email:

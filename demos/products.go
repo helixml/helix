@@ -27,9 +27,13 @@ type ProductQuery struct {
 	RAM      int
 }
 
+type PurchaseQuery struct {
+	ProductID     string
+	CustomerEmail string
+}
+
 // Receipt struct defines the structure of a receipt object
 type Receipt struct {
-	ID            string `json:"id"`
 	ProductID     string `json:"product_id"`
 	CustomerEmail string `json:"customer_email"`
 }
@@ -64,31 +68,7 @@ var PRODUCT_DATA = []Product{
 	},
 }
 
-func listProducts(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	query := parseQueryParameters(r.URL.Query())
-	filteredProducts := filterProducts(PRODUCT_DATA, query)
-	fmt.Printf("filteredProducts --------------------------------------\n")
-	spew.Dump(filteredProducts)
-	json.NewEncoder(w).Encode(filteredProducts)
-}
-
-func bookProduct(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var receipt Receipt
-	err := json.NewDecoder(r.Body).Decode(&receipt)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Simulate booking logic and creation of a fake invoice here
-	receipt.ID = "fake-receipt-id" // Generate a real ID for production use
-	json.NewEncoder(w).Encode(receipt)
-}
-
-func parseQueryParameters(params map[string][]string) ProductQuery {
+func parseListParameters(params map[string][]string) ProductQuery {
 	var query ProductQuery
 
 	if val, ok := params["min_price"]; ok && len(val[0]) > 0 {
@@ -140,4 +120,39 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 		filtered = append(filtered, product)
 	}
 	return filtered
+}
+
+func listProducts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	query := parseListParameters(r.URL.Query())
+	filteredProducts := filterProducts(PRODUCT_DATA, query)
+	fmt.Printf("listProducts --------------------------------------\n")
+	spew.Dump(query)
+	spew.Dump(filteredProducts)
+	json.NewEncoder(w).Encode(filteredProducts)
+}
+
+func parsePurchaseParameters(params map[string][]string) PurchaseQuery {
+	var query PurchaseQuery
+
+	if val, ok := params["product_id"]; ok && len(val[0]) > 0 {
+		query.ProductID = val[0]
+	}
+
+	if val, ok := params["customer_email"]; ok && len(val[0]) > 0 {
+		query.CustomerEmail = val[0]
+	}
+
+	return query
+}
+
+func bookProduct(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	query := parsePurchaseParameters(r.URL.Query())
+	fmt.Printf("bookProduct --------------------------------------\n")
+	spew.Dump(query)
+	json.NewEncoder(w).Encode(PurchaseQuery{
+		ProductID:     query.ProductID,
+		CustomerEmail: query.CustomerEmail,
+	})
 }

@@ -26,6 +26,10 @@ func main() {
 	r.HandleFunc("/products/v1/list", listProducts).Methods("GET")
 	r.HandleFunc("/products/v1/book", bookProduct).Methods("POST")
 
+	r.HandleFunc("/jobvacancies/v1/list", listCandidates).Methods("GET")
+
+	r.HandleFunc("/salesleads/v1/list", listSalesLeads).Methods("GET")
+
 	fmt.Println("Server will listen on port", config.Port)
 	http.ListenAndServe(fmt.Sprintf(":%s", config.Port), r)
 }

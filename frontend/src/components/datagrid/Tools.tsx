@@ -91,7 +91,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
               return (
                 <Box key={index}>
                   <Stack direction="row" spacing={1}>
-                    <Box sx={{minWidth: '300px'}}>
+                    <Box sx={{width: '50%'}}>
                       <Typography sx={{minWidth: '300px'}}>
                         {action.name}
                       </Typography>
