@@ -123,6 +123,23 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+  demos:
+    profiles: ["demos"]
+    build:
+      context: .
+      dockerfile: Dockerfile.demos
+    ports:
+      - ${DEMOS_PORT:-8085}:8085
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PORT=8085
+    entrypoint: ${DEMOS_ENTRYPOINT:-tail -f /dev/null}
+    volumes:
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./demos:/app/demos
 
   frontend:
     ports:
