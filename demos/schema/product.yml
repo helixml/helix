@@ -7,7 +7,7 @@ servers:
 paths:
   /list:
     get:
-      summary: List all products
+      summary: List all products and filter by min and max price and delivery before date
       parameters:
         - in: query
           name: min_price
@@ -20,10 +20,14 @@ paths:
             type: integer
           required: false
         - in: query
-          name: delivery_before
+          name: cpu
           schema:
             type: string
-            format: date
+          required: false
+        - in: query
+          name: ram
+          schema:
+            type: integer
           required: false
       responses:
         '200':
@@ -70,9 +74,11 @@ components:
           type: string
         price:
           type: integer
-        deliveryLeadtime:
+        cpu:
+          type: string
+        ram:
           type: integer
-        inStock:
+        inventory:
           type: integer
 
     Receipt:

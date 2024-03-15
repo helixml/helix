@@ -5,6 +5,7 @@ IFS=$'\n\t'
 export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export TMUX_SESSION=${TMUX_SESSION:="helix"}
 export WITH_RUNNER=${WITH_RUNNER:=""}
+export WITH_DEMOS=${WITH_DEMOS:=""}
 
 function mock-runner() {
    go run . runner \
@@ -32,11 +33,21 @@ function start() {
   export LOG_LEVEL=debug
 
   echo "Starting docker-compose"
+
+  local COMPOSE_FLAGS=""
+  local COMPOSE_PROFILES=""
+
   if [[ -n "$WITH_RUNNER" ]]; then
-    docker-compose -f docker-compose.dev.yaml --profile dev_gpu_runner up --build -d
-  else
-    docker-compose -f docker-compose.dev.yaml up -d
+    COMPOSE_FLAGS="--build"
+    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile dev_gpu_runner"
   fi
+
+  if [[ -n "$WITH_DEMOS" ]]; then
+    COMPOSE_PROFILES="$COMPOSE_PROFILES --profile demos"
+  fi
+
+  eval "docker-compose -f docker-compose.dev.yaml $COMPOSE_PROFILES up $COMPOSE_FLAGS -d"
+
   sleep 2
 
   echo "Creating tmux session $TMUX_SESSION..."
@@ -54,6 +65,8 @@ function start() {
   tmux split-window -v -d
   tmux select-pane -t 0
   tmux split-window -v -d
+  tmux select-pane -t 0
+  tmux split-window -v -d
 
   tmux send-keys -t 0 'docker-compose -f docker-compose.dev.yaml logs -f frontend' C-m
   tmux send-keys -t 1 'docker-compose exec api bash' C-m
@@ -66,12 +79,17 @@ function start() {
     tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
   fi
 
+  if [[ -n "$WITH_DEMOS" ]]; then
+    tmux send-keys -t 4 'docker-compose --profile demos -f docker-compose.dev.yaml exec demos bash' C-m
+    tmux send-keys -t 4 'go run .' C-m
+  fi
+
   tmux -2 attach-session -t $TMUX_SESSION
 }
 
 function stop() {
   echo "Removing docker containers"
-  docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml down
+  docker-compose --profile dev_gpu_runner --profile demos -f docker-compose.dev.yaml down
   echo "Stopping tmux session $TMUX_SESSION..."
   tmux kill-session -t $TMUX_SESSION ||true
 }

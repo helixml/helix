@@ -1,0 +1,10 @@
+FROM golang:1.22-alpine
+WORKDIR /app
+RUN apk add --no-cache bash openssh
+COPY go.mod go.sum ./
+RUN go mod download
+COPY demos ./demos
+WORKDIR /app/demos
+RUN go build -o /demos
+EXPOSE 8080
+ENTRYPOINT [ "/demos" ]
