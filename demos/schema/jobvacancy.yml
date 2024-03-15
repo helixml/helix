@@ -1,0 +1,43 @@
+openapi: 3.0.0
+info:
+  title: Job Vacancies API
+  version: 1.0.0
+paths:
+  /jobvacancies/v1/list:
+    get:
+      summary: List all job vacancies, optionally filter by job title
+      operationId: listJobVacancies
+      parameters:
+        - in: query
+          name: job_title
+          schema:
+            type: string
+          required: false
+          description: Filter vacancies by job title
+      responses:
+        '200':
+          description: An array of job vacancies, each with details including ID, name, email, job title, job description, and CV
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobVacancyCandidate'
+
+components:
+  schemas:
+    JobVacancyCandidate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        jobTitle:
+          type: string
+        jobDescription:
+          type: string
+        CV:
+          type: string
