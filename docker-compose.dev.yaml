@@ -85,15 +85,13 @@ services:
       - KC_HOSTNAME_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
       - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
     volumes:
-      - ./realm.json:/imported/realm.json
-      - ${KEYCLOAK_DATA:-helix-keycloak-db}:/opt/jboss/keycloak/standalone/data
+      - ./realm.json:/opt/keycloak/data/import/realm.json
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
       interval: 5s
       timeout: 5s
       retries: 30
-    command:
-      - start-dev
+    command: ["start-dev", "--import-realm"]
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
     entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
