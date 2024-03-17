@@ -62,10 +62,12 @@ services:
       - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+      - ./scripts/postgres:/docker-entrypoint-initdb.d
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - POSTGRES_DATABASES=keycloak
   keycloak:
     image: quay.io/keycloak/keycloak:23.0
     restart: always
