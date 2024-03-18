@@ -8,7 +8,7 @@ This guide provides instructions for migrating a running version of [Helix 0.5.5
 
 ## Local development upgrades
 
-This will reset your users database.
+This will DESTROY your entire local database (e.g. sessions) as well as your users database.
 
 ```
 ./stack stop
