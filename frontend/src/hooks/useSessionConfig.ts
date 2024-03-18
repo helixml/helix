@@ -31,9 +31,9 @@ export const useSessionConfig = () => {
   const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
 
   const setFormData = useCallback((formData: FormData) => {
-    formData.set('active_tools_ids', activeToolIDs.join(','))
-    formData.set('text_finetune_enabled', finetuneEnabled ? 'yes' : 'no')
-    formData.set('rag_enabled', ragEnabled ? 'yes' : 'no')
+    formData.set('active_tools', activeToolIDs.join(','))
+    formData.set('text_finetune_enabled', finetuneEnabled ? 'yes' : '')
+    formData.set('rag_enabled', ragEnabled ? 'yes' : '')
     formData.set('rag_distance_function', ragDistanceFunction)
     formData.set('rag_threshold', ragThreshold.toString())
     formData.set('rag_results_count', ragResultsCount.toString())

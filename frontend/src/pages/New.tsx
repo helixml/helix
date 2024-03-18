@@ -189,11 +189,12 @@ const New: FC = () => {
       setShowLoginWindow(true)
       return
     }
-    const formData = new FormData()
+    let formData = new FormData()
 
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
+    formData = sessionConfig.setFormData(formData)
 
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
@@ -690,6 +691,7 @@ const New: FC = () => {
             title="Session Settings"
             onCancel={ () => {
               setShowSessionSettings(false)
+              setActiveSettingsTab(0)
             }}
             withCancel
             cancelTitle="Close"
@@ -704,7 +706,7 @@ const New: FC = () => {
                   )
                 }
                 {
-                  account.admin && (
+                  selectedMode == SESSION_MODE_FINETUNE && account.admin && (
                     <Tab label="Admin" />
                   )
                 }
