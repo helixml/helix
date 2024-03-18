@@ -149,6 +149,8 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 				modelName = types.Model_Ollama_Mistral7b
 			case "helix-code":
 				modelName = types.Model_Ollama_DeepseekCoder
+			case "helix-json":
+				modelName = types.Model_Ollama_NousHermes2Pro
 			case "helix-large":
 				modelName = types.Model_Ollama_Qwen72b
 			default:
