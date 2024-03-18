@@ -219,6 +219,22 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	finetuneEnable := false
+	finetuneString := req.FormValue("text_finetune_enabled")
+	
+	ragEnable := false
+	ragString := req.FormValue("rag_enabled")
+
+	if sessionMode == types.SessionModeFinetune {
+		if finetuneString == "yes" || finetuneString == "" {
+			finetuneEnable = true
+		}
+
+		if ragString == "yes" {
+			ragEnable = true
+		}
+	}
+
 	createRequest := types.CreateSessionRequest{
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
@@ -229,11 +245,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		UserInteractions: []*types.Interaction{userInteraction},
 		Priority:         status.Config.StripeSubscriptionActive,
 		ParentSession:    req.FormValue("parent_session"),
-		// the default is no unless we specifically say yes
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		// the default is yes unless we specifically say no
-		RagEnabled:          req.FormValue("rag_enabled") != "no",
-		TextFinetuneEnabled: req.FormValue("text_finetune_enabled") != "no",
+		RagEnabled:          ragEnable,
+		TextFinetuneEnabled: finetuneEnable,
 		RagSettings:         *ragSettings,
 	}
 
