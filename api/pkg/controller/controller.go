@@ -137,6 +137,7 @@ func (c *Controller) Initialize() error {
 				return
 			case event := <-c.RunnerWebsocketEventChanReader:
 				log.Trace().Msgf("Runner websocket event: %+v", *event)
+
 				err := c.BroadcastWebsocketEvent(context.Background(), event)
 				if err != nil {
 					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
