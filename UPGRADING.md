@@ -78,13 +78,14 @@ docker exec -it helix-keycloak-1 /opt/keycloak/bin/kc.sh import --file /tmp/heli
 docker-compose restart keycloak
 ```
 
+## Trouble shooting your upgrade:
+
 Watch closely, if you get an error about "script uploads are disabled", follow [this guide](https://medium.com/@ramanamuttana/script-upload-is-disabled-in-keycloak-4cb22d9358c8) on how to delete the `authorizationSettings` node from the JSON file.
 
 Remember to run `docker cp` again after you do this!
 
 Once the import of user and realm configuration metadata is complete, Keycloak v.23 should be up and running.
 
-Trouble shooting your upgrade:
 
 If Keycloak v.23 does not start up, look at `docker logs helix-keycloak-1`
 
