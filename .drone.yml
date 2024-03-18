@@ -102,7 +102,7 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-unstructured
+name: build-llamaindex
 
 volumes:
   - name: dockersocket
@@ -110,14 +110,14 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-unstructured
+- name: publish-llamaindex
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: unstructured/Dockerfile
-    context: unstructured
+    dockerfile: llamaindex/Dockerfile
+    context: llamaindex
     auto_tag: true
-    repo: helixml/helix/unstructured
+    repo: helixml/helix/llamaindex
     location: europe
     json_key:
       from_secret: gar_json_key_b64
