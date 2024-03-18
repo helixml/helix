@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -24,6 +25,7 @@ import (
 const API_PREFIX = "/api/v1"
 
 type ServerOptions struct {
+	Config        *config.ServerConfig
 	URL           string
 	Host          string
 	Port          int

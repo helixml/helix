@@ -326,6 +326,7 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
 		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Options.EvalUserID,
+		ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
 		GlobalTools:             tools,
 	}, nil
 }

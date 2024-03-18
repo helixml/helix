@@ -496,6 +496,7 @@ type ServerConfigForFrontend struct {
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
+	ToolsEnabled            bool   `json:"tools_enabled"`
 	GlobalTools             []Tool `json:"global_tools"`
 }
 

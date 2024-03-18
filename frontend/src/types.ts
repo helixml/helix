@@ -249,6 +249,7 @@ export interface IServerConfig {
   sentry_dsn_frontend: string,
   google_analytics_frontend: string,
   eval_user_id: string,
+  tools_enabled: boolean,
   global_tools: ITool[],
 }
 

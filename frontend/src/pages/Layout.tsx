@@ -321,16 +321,20 @@ const Layout: FC = ({
                       )
                     }
 
-                    <MenuItem onClick={ () => {
-                      handleCloseAccountMenu()
-                      navigate('tools')
-                    }}>
-                      <ListItemIcon>
-                        <ConstructionIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Tools
-                    </MenuItem>
-
+                    {
+                      account.serverConfig.tools_enabled && (
+                        <MenuItem onClick={ () => {
+                          handleCloseAccountMenu()
+                          navigate('tools')
+                        }}>
+                          <ListItemIcon>
+                            <ConstructionIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Tools
+                        </MenuItem>
+                      )
+                    }
+                    
                     <MenuItem onClick={ () => {
                       handleCloseAccountMenu()
                       navigate('account')
