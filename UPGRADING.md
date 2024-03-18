@@ -19,11 +19,16 @@ Remove postgres volumes with
 
 `docker exec -it helix-keycloak-1 /opt/jboss/keycloak/bin/standalone.sh -Djboss.socket.binding.port-offset=100 -Dkeycloak.migration.action=export -Dkeycloak.migration.provider=singleFile -Dkeycloak.migration.realmName=helix -Dkeycloak.migration.usersExportStrategy=REALM_FILE -Dkeycloak.migration.file=/tmp/helix_realm.json`
 
+Press ctrl+c after you see it print:
+```
+11:30:51,563 INFO  [org.keycloak.exportimport.singlefile.SingleFileExportProvider] (ServerService Thread Pool -- 54) Exporting realm 'helix' into file /tmp/helix_realm.json
+11:30:52,544 INFO  [org.keycloak.services] (ServerService Thread Pool -- 54) KC-SERVICES0035: Export finished successfully                                                  ```
+
 2. Then copy the backup file out of the container
 `docker cp helix-keycloak-1:/tmp/helix_realm.json helix_realm.json`
 
 3. Create a Postgres database for Keycloak
-`docker exec -it helix-postgres-1 psql -U {POSTGRES_USER}`
+`docker exec -it helix-postgres-1 psql -U postgres`
 
 on the psql interface
 `create database keycloak;`
