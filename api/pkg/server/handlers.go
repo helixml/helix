@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -190,9 +189,12 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	modelName, err := model.GetModelNameForSession(sessionType)
-	if err != nil {
-		return nil, err
+	var modelName types.ModelName
+	switch sessionType {
+	case types.SessionTypeText:
+		modelName = types.Model_Axolotl_Mistral7b
+	case types.SessionTypeImage:
+		modelName = types.Model_Axolotl_SDXL
 	}
 
 	sessionID := system.GenerateUUID()
@@ -805,18 +807,33 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
 			triple := strings.Split(rejectPair, ":")
-			if len(triple) != 3 {
+			var rejectModelName types.ModelName
+			var rejectModelMode types.SessionMode
+			var rejectLoraDir string
+			var err error
+			if len(triple) == 4 {
+				rejectModelName, err = types.ValidateModelName(triple[0]+":"+triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[2], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[3]
+			} else if len(triple) == 3 {
+				rejectModelName, err = types.ValidateModelName(triple[0], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[2]
+			} else {
 				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			rejectModelName, err := types.ValidateModelName(triple[0], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectModelMode, err := types.ValidateSessionMode(triple[1], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectLoraDir := triple[2]
 			reject = append(reject, types.SessionFilterModel{
 				ModelName: rejectModelName,
 				Mode:      rejectModelMode,
@@ -864,11 +881,12 @@ func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	taskResponse, err = apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
+	resp, err := apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
+		log.Error().Err(err).Str("session_id", taskResponse.SessionID).Msg("failed to handle runner response")
 		return nil, err
 	}
-	return taskResponse, nil
+	return resp, nil
 }
 
 func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {

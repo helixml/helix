@@ -8,11 +8,11 @@ workspace:
 
 steps:
 - name: build
-  image: golang:1.20-alpine
+  image: golang:1.22-alpine
   commands:
     - go build -o helix
 - name: unit-test
-  image: golang:1.20-alpine
+  image: golang:1.22-alpine
   environment:
     TOGETHER_API_KEY:
       from_secret: openai_api_key
