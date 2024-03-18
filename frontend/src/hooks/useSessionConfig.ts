@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react'
 
 export interface ISessionConfig {
   setFormData: (formData: FormData) => FormData,
+  activeToolIDs: string[],
+  setActiveToolIDs: (value: string[]) => void,
   finetuneEnabled: boolean,
   setFinetuneEnabled: (value: boolean) => void,
   ragEnabled: boolean,
@@ -20,6 +22,7 @@ export interface ISessionConfig {
 
 export const useSessionConfig = () => {
   const [finetuneEnabled, setFinetuneEnabled] = useState(true)
+  const [activeToolIDs, setActiveToolIDs] = useState<string[]>([])
   const [ragEnabled, setRagEnabled] = useState(false)
   const [ragDistanceFunction, setRagDistanceFunction] = useState<'l2' | 'inner_product' | 'cosine'>('cosine')
   const [ragThreshold, setRagThreshold] = useState(0.2)
@@ -28,6 +31,7 @@ export const useSessionConfig = () => {
   const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
 
   const setFormData = useCallback((formData: FormData) => {
+    formData.set('active_tools_ids', activeToolIDs.join(','))
     formData.set('text_finetune_enabled', finetuneEnabled ? 'yes' : 'no')
     formData.set('rag_enabled', ragEnabled ? 'yes' : 'no')
     formData.set('rag_distance_function', ragDistanceFunction)
@@ -35,9 +39,9 @@ export const useSessionConfig = () => {
     formData.set('rag_results_count', ragResultsCount.toString())
     formData.set('rag_chunk_size', ragChunkSize.toString())
     formData.set('rag_chunk_overflow', ragChunkOverflow.toString())
-    
     return formData
   }, [
+    activeToolIDs,
     finetuneEnabled,
     ragEnabled,
     ragDistanceFunction,
@@ -49,6 +53,7 @@ export const useSessionConfig = () => {
 
   return {
     setFormData,
+    activeToolIDs, setActiveToolIDs,
     finetuneEnabled, setFinetuneEnabled,
     ragEnabled, setRagEnabled,
     ragDistanceFunction, setRagDistanceFunction,

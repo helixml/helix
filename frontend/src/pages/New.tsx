@@ -73,7 +73,7 @@ const New: FC = () => {
   const themeConfig = useThemeConfig()
   const theme = useTheme()
 
-  const [activeToolIDs, setActiveToolIDs] = useState<string[]>([])
+  
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [showSessionSettings, setShowSessionSettings] = useState(false)
@@ -168,9 +168,9 @@ const New: FC = () => {
 
   const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
     if(event.target.checked) {
-      setActiveToolIDs(current => [ ...current, id ])
+      sessionConfig.setActiveToolIDs(current => [ ...current, id ])
     } else {
-      setActiveToolIDs(current => current.filter(toolId => toolId !== id))
+      sessionConfig.setActiveToolIDs(current => current.filter(toolId => toolId !== id))
     }
   }
 
@@ -698,7 +698,11 @@ const New: FC = () => {
               <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
                 setActiveSettingsTab(newValue)
               }}>
-                <Tab label="Active Tools" />
+                {
+                  account.serverConfig.tools_enabled && (
+                    <Tab label="Active Tools" />
+                  )
+                }
                 {
                   account.admin && (
                     <Tab label="Admin" />
@@ -708,7 +712,7 @@ const New: FC = () => {
             </Box>
             <Box>
               {
-                activeSettingsTab == 0 && (
+                account.serverConfig.tools_enabled && activeSettingsTab == 0 && (
                   <Box sx={{ mt: 2 }}>
                     <Grid container spacing={3}>
                       <Grid item xs={ 12 } md={ 6 }>
@@ -721,7 +725,7 @@ const New: FC = () => {
                                 key={tool.id}
                                 control={
                                   <Checkbox 
-                                    checked={activeToolIDs.includes(tool.id)}
+                                    checked={sessionConfig.activeToolIDs.includes(tool.id)}
                                     onChange={(event) => {
                                       handleToolsCheckboxChange(tool.id, event)
                                     }}
@@ -752,7 +756,7 @@ const New: FC = () => {
                                 key={tool.id}
                                 control={
                                   <Checkbox 
-                                    checked={activeToolIDs.includes(tool.id)}
+                                    checked={sessionConfig.activeToolIDs.includes(tool.id)}
                                     onChange={(event) => {
                                       handleToolsCheckboxChange(tool.id, event)
                                     }}
@@ -779,7 +783,8 @@ const New: FC = () => {
               }
 
               {
-                activeSettingsTab == 1 && (
+                // TODO: we need a better way of handling dynamic tabs
+                activeSettingsTab == (account.serverConfig.tools_enabled ? 1 : 0) && (
                   <Box sx={{ mt: 2 }}>
                     {
                       selectedMode == SESSION_MODE_FINETUNE && (

@@ -43,6 +43,7 @@ export const AccountContext = createContext<IAccountContext>({
     sentry_dsn_frontend: '',
     google_analytics_frontend: '',
     eval_user_id: '',
+    tools_enabled: true,
     global_tools: [],
   },
   userConfig: {},
@@ -69,6 +70,7 @@ export const useAccountContext = (): IAccountContext => {
     sentry_dsn_frontend: '',
     google_analytics_frontend: '',
     eval_user_id: '',
+    tools_enabled: true,
     global_tools: [],
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])

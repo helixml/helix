@@ -90,6 +90,9 @@ func NewServeOptions() (*ServeOptions, error) {
 			AutoMigrate: true,
 		},
 		ServerOptions: server.ServerOptions{
+			// TODO: unify the config by using the config pkg
+			// and then we can get rid of all those flags too
+			Config:        &serverConfig,
 			URL:           getDefaultServeOptionString("SERVER_URL", ""),
 			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
