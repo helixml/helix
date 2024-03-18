@@ -267,7 +267,7 @@ WAIT:
 				return
 			case session, ok := <-i.workCh:
 				if !ok {
-					log.Info().Str("session_id", session.ID).Msg("🟢 workCh closed, exiting")
+					log.Info().Msg("🟢 workCh closed, exiting")
 					return
 				}
 				log.Info().Str("session_id", session.ID).Msg("🟢 processing interaction")
