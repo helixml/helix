@@ -142,9 +142,16 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	case types.SessionTypeText:
 		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
 		if sessionMode == types.SessionModeInference {
-			if helixModel == "helix-4" {
+			switch helixModel {
+			case "helix-4":
 				modelName = types.Model_Ollama_Mixtral
-			} else {
+			case "helix-3.5":
+				modelName = types.Model_Ollama_Mistral7b
+			case "helix-code":
+				modelName = types.Model_Ollama_DeepseekCoder
+			case "helix-large":
+				modelName = types.Model_Ollama_Qwen72b
+			default:
 				modelName = types.Model_Ollama_Mistral7b
 			}
 		} else {
