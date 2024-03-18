@@ -144,7 +144,11 @@ func unmarshalParams(data string) (map[string]string, error) {
 
 	for k, v := range initial {
 		// Convert any type of value to string
-		params[k] = fmt.Sprintf("%v", v)
+		if v == nil {
+			params[k] = "" // Set empty string if value is nil
+		} else {
+			params[k] = fmt.Sprintf("%v", v)
+		}
 	}
 
 	return params, nil
