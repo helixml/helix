@@ -9,6 +9,7 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import Divider from '@mui/material/Divider'
 import Checkbox from '@mui/material/Checkbox'
 import InputLabel from '@mui/material/InputLabel'
 import MenuItem from '@mui/material/MenuItem'
@@ -167,9 +168,9 @@ const New: FC = () => {
 
   const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
     if(event.target.checked) {
-
+      setActiveToolIDs(current => [ ...current, id ])
     } else {
-
+      setActiveToolIDs(current => current.filter(toolId => toolId !== id))
     }
   }
 
@@ -218,7 +219,8 @@ const New: FC = () => {
       formData.set('mode', selectedMode)
       formData.set('type', selectedType)
       formData = inputs.setFormData(formData)
-
+      formData = sessionConfig.setFormData(formData)
+      
       formData.set('manuallyReviewQuestions', manuallyReviewQuestions ? 'yes' : '')
       
       const session = await api.post('/api/v1/sessions', formData, {
@@ -262,6 +264,7 @@ const New: FC = () => {
       formData.set('mode', selectedMode)
       formData.set('type', selectedType)
       formData = inputs.setFormData(formData)
+      formData = sessionConfig.setFormData(formData)
       
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
@@ -512,68 +515,16 @@ const New: FC = () => {
           }
           {
             selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
-              <>
-                <FineTuneTextInputs
-                  showButton
-                  initialCounter={ inputs.manualTextFileCounter }
-                  initialFiles={ inputs.files }
-                  onChange={ (counter, files) => {
-                    inputs.setManualTextFileCounter(counter)
-                    inputs.setFiles(files)
-                  }}
-                  onDone={ onStartTextFinetune }
-                />
-                {
-                  account.admin && (
-                    <Row
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        mb: 2,
-                        mt: 2,
-                        alignItems: 'flex-start',
-                        justifyContent: 'flex-start',
-                        flexDirection: {
-                          xs: 'column',
-                          sm: 'column',
-                          md: 'row'
-                        }
-                      }}
-                    >
-                      <Cell
-                        sx={{
-                          width: '100%',
-                          flexGrow: 1,
-                          pr: 2,
-                          pb: 1,
-                        }}
-                      >
-                        
-                      </Cell>
-                      <Cell
-                        sx={{
-                          width: '240px',
-                          minWidth: '240px',
-                        }}
-                      >
-                        <Button
-                          sx={{
-                            width: '100%',
-                          }}
-                          variant="contained"
-                          color={ BUTTON_STATES.addUrlColor }
-                          endIcon={<SettingsIcon />}
-                          onClick={ () => {
-                            setShowSessionSettings(true)
-                          }}
-                        >
-                          Admin
-                        </Button>
-                      </Cell>
-                    </Row>
-                  )
-                }
-              </>
+              <FineTuneTextInputs
+                showButton
+                initialCounter={ inputs.manualTextFileCounter }
+                initialFiles={ inputs.files }
+                onChange={ (counter, files) => {
+                  inputs.setManualTextFileCounter(counter)
+                  inputs.setFiles(files)
+                }}
+                onDone={ onStartTextFinetune }
+              />
             )
           }
           {
@@ -747,7 +698,7 @@ const New: FC = () => {
               <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
                 setActiveSettingsTab(newValue)
               }}>
-                <Tab label="Tools" />
+                <Tab label="Active Tools" />
                 {
                   account.admin && (
                     <Tab label="Admin" />
@@ -755,21 +706,72 @@ const New: FC = () => {
                 }
               </Tabs>
             </Box>
-            <Box
-              sx={{
-                p: 2,
-              }}
-            >
+            <Box>
               {
                 activeSettingsTab == 0 && (
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="body1" sx={{ mt: 4 }}>Choose which tools are active for this session:</Typography>
                     <Grid container spacing={3}>
                       <Grid item xs={ 12 } md={ 6 }>
-                        <Typography variant="subtitle1">Your Tools:</Typography>
+                        <Typography variant="body1">Your Tools:</Typography>
+                        <Divider sx={{mt:2,mb:2}} />
+                        {
+                          tools.data.map((tool) => {
+                            return (
+                              <FormControlLabel
+                                key={tool.id}
+                                control={
+                                  <Checkbox 
+                                    checked={activeToolIDs.includes(tool.id)}
+                                    onChange={(event) => {
+                                      handleToolsCheckboxChange(tool.id, event)
+                                    }}
+                                  />
+                                }
+                                label={(
+                                  <Box>
+                                    <Box>
+                                      <Typography variant="body1">{ tool.name }</Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption">{ tool.description }</Typography>
+                                    </Box>
+                                  </Box> 
+                                )}
+                              />
+                            )
+                          })
+                        }
                       </Grid>
                       <Grid item xs={ 12 } md={ 6 }>
-                        <Typography variant="subtitle1">Demo Tools:</Typography>
+                        <Typography variant="body1">Demo Tools:</Typography>
+                        <Divider sx={{mt:2,mb:2}} />
+                        {
+                          account.serverConfig.global_tools.map((tool) => {
+                            return (
+                              <FormControlLabel
+                                key={tool.id}
+                                control={
+                                  <Checkbox 
+                                    checked={activeToolIDs.includes(tool.id)}
+                                    onChange={(event) => {
+                                      handleToolsCheckboxChange(tool.id, event)
+                                    }}
+                                  />
+                                }
+                                label={(
+                                  <Box>
+                                    <Box>
+                                      <Typography variant="body1">{ tool.name }</Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption">{ tool.description }</Typography>
+                                    </Box>
+                                  </Box> 
+                                )}
+                              />
+                            )
+                          })
+                        }
                       </Grid>
                     </Grid>
                   </Box>
@@ -778,35 +780,44 @@ const New: FC = () => {
 
               {
                 activeSettingsTab == 1 && (
-                  <>
-                    <FormGroup row>
-                      <FormControlLabel
-                        control={
-                          <Checkbox 
-                            checked={sessionConfig.finetuneEnabled}
-                            onChange={(event) => {
-                              sessionConfig.setFinetuneEnabled(event.target.checked)
-                            }}
+                  <Box sx={{ mt: 2 }}>
+                    {
+                      selectedMode == SESSION_MODE_FINETUNE && (
+                        <FormGroup row>
+                          <FormControlLabel
+                            control={
+                              <Checkbox 
+                                checked={sessionConfig.finetuneEnabled}
+                                onChange={(event) => {
+                                  sessionConfig.setFinetuneEnabled(event.target.checked)
+                                }}
+                              />
+                            }
+                            label="Finetune Enabled?"
                           />
-                        }
-                        label="Finetune Enabled?"
-                      />
-                      <FormControlLabel
-                        control={
-                          <Checkbox 
-                            checked={sessionConfig.ragEnabled}
-                            onChange={(event) => {
-                              sessionConfig.setRagEnabled(event.target.checked)
-                            }}
-                          />
-                        }
-                        label="Rag Enabled?"
-                      />
-                    </FormGroup>
+                          {
+                            selectedType == SESSION_TYPE_TEXT && (
+                              <FormControlLabel
+                                control={
+                                  <Checkbox 
+                                    checked={sessionConfig.ragEnabled}
+                                    onChange={(event) => {
+                                      sessionConfig.setRagEnabled(event.target.checked)
+                                    }}
+                                  />
+                                }
+                                label="Rag Enabled?"
+                              />
+                            )
+                          }
+                        </FormGroup>
+                      )
+                    }
                     {
                       sessionConfig.ragEnabled && (
                         <>
-                          <Typography variant="h6" sx={{ mt: 4 }}>RAG Settings</Typography>
+                          <Divider sx={{mt:2,mb:2}} />
+                          <Typography variant="h6" gutterBottom sx={{mb: 2}}>RAG Settings</Typography>
                           <Grid container spacing={3}>
                             <Grid item xs={ 12 } md={ 4 }>
                               <FormControl fullWidth>
@@ -886,7 +897,7 @@ const New: FC = () => {
                         </>
                       )
                     }
-                  </>
+                  </Box>
                 )
               }              
             </Box>
