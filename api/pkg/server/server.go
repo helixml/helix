@@ -46,7 +46,7 @@ type ServerOptions struct {
 	LocalFilestorePath string
 	// the list of tool ids that are allowed to be used by any user
 	// this is returned to the frontend as part of the /config route
-	GlobalToolIDS []string
+	ToolsGlobalIDS []string
 }
 
 type HelixAPIServer struct {
@@ -147,7 +147,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {

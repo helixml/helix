@@ -312,7 +312,7 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	}
 
 	tools := []types.Tool{}
-	for _, id := range apiServer.Options.GlobalToolIDS {
+	for _, id := range apiServer.Options.ToolsGlobalIDS {
 		tool, err := apiServer.Store.GetTool(context.Background(), id)
 		if err != nil {
 			return types.ServerConfigForFrontend{}, err
