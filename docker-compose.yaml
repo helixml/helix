@@ -73,7 +73,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    command: ["start-dev", "--import-realm"]
+    command: ["start"]
   unstructured:
     image: europe-docker.pkg.dev/helixml/helix/unstructured:latest
     # ports:
