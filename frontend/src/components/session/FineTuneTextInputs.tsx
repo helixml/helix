@@ -24,7 +24,7 @@ import useSnackbar from '../../hooks/useSnackbar'
 import InteractionContainer from './InteractionContainer'
 
 import {
-  buttonStates,
+  BUTTON_STATES,
 } from '../../types'
 
 import {
@@ -184,11 +184,11 @@ export const FineTuneTextInputs: FC<{
               width: '100%',
             }}
             variant="contained"
-            color={ buttonStates.addUrlColor }
+            color={ BUTTON_STATES.addUrlColor }
             endIcon={<AddCircleIcon />}
             onClick={ onAddURL }
           >
-            { buttonStates.addUrlLabel }
+            { BUTTON_STATES.addUrlLabel }
           </Button>
         </Cell>
       </Row>
@@ -241,11 +241,11 @@ export const FineTuneTextInputs: FC<{
               width: '100%',
             }}
             variant="contained"
-            color={ buttonStates.addTextColor }
+            color={ BUTTON_STATES.addTextColor }
             endIcon={<AddCircleIcon />}
             onClick={ onAddTextFile }
           >
-            { buttonStates.addTextLabel }
+            { BUTTON_STATES.addTextLabel }
           </Button>
         </Cell>
         
@@ -316,10 +316,10 @@ export const FineTuneTextInputs: FC<{
                 width: '100%',
               }}
               variant="contained"
-              color={ buttonStates.uploadFilesColor }
+              color={ BUTTON_STATES.uploadFilesColor }
               endIcon={<CloudUploadIcon />}
             >
-              { buttonStates.uploadFilesLabel }
+              { BUTTON_STATES.uploadFilesLabel }
             </Button>
           </Cell>
           

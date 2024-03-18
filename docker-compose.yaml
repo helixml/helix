@@ -7,7 +7,7 @@ services:
     # API_PORT environment variable and also updated env variables
     # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
     # connect to Helix
-    ports:    
+    ports:
       - ${API_PORT:-80}:80
     restart: always
     env_file:
@@ -29,8 +29,10 @@ services:
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
       - ADMIN_USER_IDS=${ADMIN_USER_IDS-all}
+      - TEXT_EXTRACTION_URL=http://llamaindex:5000/api/v1/extract
+      - RAG_INDEX_URL=http://llamaindex:5000/api/v1/rag/chunk
+      - RAG_QUERY_URL=http://llamaindex:5000/api/v1/rag/query
       - EVAL_USER_ID=${EVAL_USER_ID:-}
-      - TEXT_EXTRACTION_URL=http://unstructured:5000/api/v1/extract
       - FILESTORE_LOCALFS_PATH=/filestore
     volumes:
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
@@ -44,37 +46,63 @@ services:
       - 5432:5432
     volumes:
       - ${POSTGRES_DATA:-helix-postgres-db}:/var/lib/postgresql/data
+      - ./scripts/postgres:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - POSTGRES_DATABASES=keycloak
+  # postgres 15 with pgvector installed
+  # why run this as a different server?
+  # because we want the quick path to something working without having to create a hard dependency on pgvector
+  # being installed in our main database
+  # also - we would need to migrate our existing postgres 12 DB -> 15, which is a bit of a pain
+  # TODO: figure out how to ship the pgvector extension with our main database
+  # so we don't need to run what is essentially 2 versions of postgres
+  pgvector:
+    image: ankane/pgvector
+    restart: always
+    ports:
+      - 5433:5432
+    volumes:
+      - ${PGVECTOR_DATA:-helix-pgvector-db}:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
   keycloak:
-    image: quay.io/modeldynamics/keycloak:15.0.2-helix
+    image: quay.io/keycloak/keycloak:23.0
     restart: always
     environment:
-      - KEYCLOAK_USER=admin
-      - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
-      - KC_PROXY=edge
-      - DB_VENDOR=h2
-      - KEYCLOAK_IMPORT=/imported/realm.json -Dkeycloak.profile.feature.upload_scripts=enabled -Dkeycloak.profile=preview
-      - KEYCLOAK_FRONTEND_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+      - KC_DB_USERNAME=postgres
+      - KC_DB_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
+      - KC_PROXY_HEADERS=forwarded|xforwarded
+      - KC_HEALTH_ENABLED=true
+      - KC_HOSTNAME_PATH=/auth
+      - KC_HTTP_RELATIVE_PATH=/auth/
+      - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
+      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
     volumes:
-      - ./realm.json:/imported/realm.json
-      - ${KEYCLOAK_DATA:-helix-keycloak-db}:/opt/jboss/keycloak/standalone/data
+      - ./realm.json:/opt/keycloak/data/import/realm.json
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-  unstructured:
-    image: europe-docker.pkg.dev/helixml/helix/unstructured:latest
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e \"GET /auth/health/ready HTTP/1.1\r\nhost: http://localhost\r\nConnection: close\r\n\r\n\" >&3;grep \"HTTP/1.1 200 OK\" <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    command: ["start-dev"]
+  llamaindex:
+    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
     # ports:
-      # - 5000:5000    
+      # - 5000:5000
     restart: always
 
 volumes:
   helix-keycloak-db:
   helix-postgres-db:
+  helix-pgvector-db:
   helix-filestore:
 

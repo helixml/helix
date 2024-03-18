@@ -180,6 +180,7 @@ const (
 	TextDataPrepStageNone              TextDataPrepStage = ""
 	TextDataPrepStageEditFiles         TextDataPrepStage = "edit_files"
 	TextDataPrepStageExtractText       TextDataPrepStage = "extract_text"
+	TextDataPrepStageIndexRag          TextDataPrepStage = "index_rag"
 	TextDataPrepStageGenerateQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions     TextDataPrepStage = "edit_questions"
 	TextDataPrepStageFineTune          TextDataPrepStage = "finetune"

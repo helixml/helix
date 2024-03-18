@@ -65,6 +65,9 @@ def do_inference():
         instruction: str = task["prompt"]
         session_id = task["session_id"]
 
+        print("🟣🟣🟣 Mistral Prompt --------------------------------------------------")
+        print(instruction)
+
         time.sleep(1)
 
         print(f" [SESSION_START]session_id={session_id} ")
