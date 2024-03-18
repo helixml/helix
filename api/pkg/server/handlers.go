@@ -3,6 +3,7 @@ package server
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -242,12 +243,23 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
+
+	tools := []types.Tool{}
+	for _, id := range apiServer.Options.GlobalToolIDS {
+		tool, err := apiServer.Store.GetTool(context.Background(), id)
+		if err != nil {
+			return types.ServerConfigForFrontend{}, err
+		}
+		tools = append(tools, *tool)
+	}
+
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
 		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Options.EvalUserID,
+		GlobalTools:             tools,
 	}, nil
 }
 
