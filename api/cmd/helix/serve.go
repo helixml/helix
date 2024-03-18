@@ -97,10 +97,10 @@ func NewServeOptions() (*ServeOptions, error) {
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
-			RunnerToken:   getDefaultServeOptionString("RUNNER_TOKEN", ""),
-			AdminIDs:      getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
-			EvalUserID:    getDefaultServeOptionString("EVAL_USER_ID", ""),
-			GlobalToolIDS: getDefaultServeOptionStringArray("GLOBAL_TOOL_IDS", []string{}),
+			RunnerToken:    getDefaultServeOptionString("RUNNER_TOKEN", ""),
+			AdminIDs:       getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+			EvalUserID:     getDefaultServeOptionString("EVAL_USER_ID", ""),
+			ToolsGlobalIDS: getDefaultServeOptionStringArray("TOOLS_GLOBAL_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SentryDSNApi:            serverConfig.Janitor.SentryDsnAPI,
