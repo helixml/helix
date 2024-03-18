@@ -44,6 +44,9 @@ type ServerOptions struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+	// the list of tool ids that are allowed to be used by any user
+	// this is returned to the frontend as part of the /config route
+	GlobalToolIDS []string
 }
 
 type HelixAPIServer struct {
