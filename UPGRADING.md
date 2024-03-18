@@ -22,7 +22,8 @@ Remove postgres volumes with
 Press ctrl+c after you see it print:
 ```
 11:30:51,563 INFO  [org.keycloak.exportimport.singlefile.SingleFileExportProvider] (ServerService Thread Pool -- 54) Exporting realm 'helix' into file /tmp/helix_realm.json
-11:30:52,544 INFO  [org.keycloak.services] (ServerService Thread Pool -- 54) KC-SERVICES0035: Export finished successfully                                                  ```
+11:30:52,544 INFO  [org.keycloak.services] (ServerService Thread Pool -- 54) KC-SERVICES0035: Export finished successfully
+```
 
 2. Then copy the backup file out of the container
 `docker cp helix-keycloak-1:/tmp/helix_realm.json helix_realm.json`
