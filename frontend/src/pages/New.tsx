@@ -21,6 +21,8 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
 import IconButton from '@mui/material/IconButton'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -35,9 +37,11 @@ import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useTools from '../hooks/useTools'
 import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
+import useSessionConfig from '../hooks/useSessionConfig'
 
 import {
   ISessionMode,
@@ -58,17 +62,21 @@ const New: FC = () => {
     setParams,
   } = useRouter()
   const account = useAccount()
+  const tools = useTools()
   const sessions = useSessions()
   const layout = useLayout()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
-
+  const sessionConfig = useSessionConfig()
+  
   const themeConfig = useThemeConfig()
   const theme = useTheme()
 
+  const [activeToolIDs, setActiveToolIDs] = useState<string[]>([])
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
-  const [showAdminSettings, setShowAdminSettings] = useState(false)
+  const [showSessionSettings, setShowSessionSettings] = useState(false)
+  const [activeSettingsTab, setActiveSettingsTab] = useState(0)
   
   const {
     mode = SESSION_MODE_INFERENCE,
@@ -157,6 +165,14 @@ const New: FC = () => {
     inputs.setInputValue(event.target.value)
   }
 
+  const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    if(event.target.checked) {
+
+    } else {
+
+    }
+  }
+
   const proceedToLogin = async () => {
     await inputs.serializePage()
     account.onLogin()
@@ -198,7 +214,11 @@ const New: FC = () => {
     })
 
     try {
-      const formData = inputs.getFormData(selectedMode, selectedType)
+      let formData = new FormData()
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+      formData = inputs.setFormData(formData)
+
       formData.set('manuallyReviewQuestions', manuallyReviewQuestions ? 'yes' : '')
       
       const session = await api.post('/api/v1/sessions', formData, {
@@ -238,7 +258,11 @@ const New: FC = () => {
     })
 
     try {
-      const formData = inputs.getFormData(selectedMode, selectedType)
+      let formData = new FormData()
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+      formData = inputs.setFormData(formData)
+      
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
       })
@@ -278,6 +302,13 @@ const New: FC = () => {
   ])
 
   useEffect(() => {
+    if(!account.user) return
+    tools.loadData()
+  }, [
+    account.user,
+  ])
+
+  useEffect(() => {
     const loader = async () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
@@ -285,11 +316,17 @@ const New: FC = () => {
     loader()
   }, [])
 
-  console.log(params.mode)
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton
+            onClick={ () => {
+              setShowSessionSettings(true)
+            }}
+          >
+            <SettingsIcon />
+          </IconButton>
           <Typography
             sx={{
               color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
@@ -310,20 +347,20 @@ const New: FC = () => {
               sx={{
                 transform: 'scale(1.6)',
                 '& .MuiSwitch-thumb': {
-                    scale: 0.4,
+                scale: 0.4,
                 },
               }}
             />
           </Box>
           <Typography
-              sx={{
-                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                marginLeft: 2,
-                textAlign: 'left',
-              }}
+            sx={{
+              color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+              marginLeft: 2,
+              textAlign: 'left',
+            }}
           >
-              Fine-tuning
+            Fine-tuning
           </Typography>
         </Box>
       )
@@ -527,7 +564,7 @@ const New: FC = () => {
                           color={ BUTTON_STATES.addUrlColor }
                           endIcon={<SettingsIcon />}
                           onClick={ () => {
-                            setShowAdminSettings(true)
+                            setShowSessionSettings(true)
                           }}
                         >
                           Admin
@@ -695,131 +732,163 @@ const New: FC = () => {
         )
       }
       {
-        showAdminSettings && (
+        showSessionSettings && (
           <Window
             open
             size="md"
-            title="Admin Settings"
+            title="Session Settings"
             onCancel={ () => {
-              setShowAdminSettings(false)
+              setShowSessionSettings(false)
             }}
             withCancel
             cancelTitle="Close"
           >
+            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
+                setActiveSettingsTab(newValue)
+              }}>
+                <Tab label="Tools" />
+                {
+                  account.admin && (
+                    <Tab label="Admin" />
+                  )
+                }
+              </Tabs>
+            </Box>
             <Box
               sx={{
                 p: 2,
               }}
             >
-              <Grid container spacing={3} sx={{mt: 2}}>
-                <Grid item xs={ 12 } md={ 4 }>
-                  <FormGroup>
-                    <FormControlLabel
-                      control={
-                        <Checkbox 
-                          checked={ inputs.finetuneEnabled }
-                          onChange={ (event) => {
-                            inputs.setFinetuneEnabled(event.target.checked)
-                          }}
-                        />
-                      }
-                      label="Finetune Enabled?"
-                    />
-                    <FormControlLabel
-                      control={
-                        <Checkbox 
-                          checked={ inputs.ragEnabled }
-                          onChange={ (event) => {
-                            inputs.setRagEnabled(event.target.checked)
-                          }}
-                        />
-                      }
-                      label="Rag Enabled?"
-                    />
-                  </FormGroup>
-                </Grid>
-                {
-                  inputs.ragEnabled && (
-                    <>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <FormControl fullWidth>
-                          <InputLabel>Rag Distance Function</InputLabel>
-                          <Select
-                            value={inputs.ragDistanceFunction}
-                            label="Rag Distance Function"
-                            onChange={(e) => inputs.setRagDistanceFunction(e.target.value as any)}
-                          >
-                            <MenuItem value="l2">l2</MenuItem>
-                            <MenuItem value="inner_product">inner_product</MenuItem>
-                            <MenuItem value="cosine">cosine</MenuItem>
-                          </Select>
-                        </FormControl>
+              {
+                activeSettingsTab == 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body1" sx={{ mt: 4 }}>Choose which tools are active for this session:</Typography>
+                    <Grid container spacing={3}>
+                      <Grid item xs={ 12 } md={ 6 }>
+                        <Typography variant="subtitle1">Your Tools:</Typography>
                       </Grid>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <TextField
-                          fullWidth
-                          label="Rag Threshold"
-                          type="number"
-                          InputLabelProps={{
-                            shrink: true,
-                          }}
-                          variant="standard"
-                          value={ inputs.ragThreshold }
-                          onChange={ (event) => {
-                            inputs.setRagThreshold(event.target.value as any)
-                          }}
-                        />
+                      <Grid item xs={ 12 } md={ 6 }>
+                        <Typography variant="subtitle1">Demo Tools:</Typography>
                       </Grid>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <TextField
-                          fullWidth
-                          label="Rag Results Count"
-                          type="number"
-                          InputLabelProps={{
-                            shrink: true,
-                          }}
-                          variant="standard"
-                          value={ inputs.ragResultsCount }
-                          onChange={ (event) => {
-                            inputs.setRagResultsCount(event.target.value as any)
-                          }}
-                        />
-                      </Grid>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <TextField
-                          fullWidth
-                          label="Rag Chunk Size"
-                          type="number"
-                          InputLabelProps={{
-                            shrink: true,
-                          }}
-                          variant="standard"
-                          value={ inputs.ragChunkSize }
-                          onChange={ (event) => {
-                            inputs.setRagChunkSize(event.target.value as any)
-                          }}
-                        />
-                      </Grid>
-                      <Grid item xs={ 12 } md={ 4 }>
-                        <TextField
-                          fullWidth
-                          label="Rag Chunk Overflow"
-                          type="number"
-                          InputLabelProps={{
-                            shrink: true,
-                          }}
-                          variant="standard"
-                          value={ inputs.ragChunkOverflow }
-                          onChange={ (event) => {
-                            inputs.setRagChunkOverflow(event.target.value as any)
-                          }}
-                        />
-                      </Grid>
-                    </>
-                  )
-                }
-                
-              </Grid> 
+                    </Grid>
+                  </Box>
+                )
+              }
+
+              {
+                activeSettingsTab == 1 && (
+                  <>
+                    <FormGroup row>
+                      <FormControlLabel
+                        control={
+                          <Checkbox 
+                            checked={sessionConfig.finetuneEnabled}
+                            onChange={(event) => {
+                              sessionConfig.setFinetuneEnabled(event.target.checked)
+                            }}
+                          />
+                        }
+                        label="Finetune Enabled?"
+                      />
+                      <FormControlLabel
+                        control={
+                          <Checkbox 
+                            checked={sessionConfig.ragEnabled}
+                            onChange={(event) => {
+                              sessionConfig.setRagEnabled(event.target.checked)
+                            }}
+                          />
+                        }
+                        label="Rag Enabled?"
+                      />
+                    </FormGroup>
+                    {
+                      sessionConfig.ragEnabled && (
+                        <>
+                          <Typography variant="h6" sx={{ mt: 4 }}>RAG Settings</Typography>
+                          <Grid container spacing={3}>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <FormControl fullWidth>
+                                <InputLabel>Rag Distance Function</InputLabel>
+                                <Select
+                                  value={sessionConfig.ragDistanceFunction}
+                                  label="Rag Distance Function"
+                                  onChange={(e) => sessionConfig.setRagDistanceFunction(e.target.value as any)}
+                                >
+                                  <MenuItem value="l2">l2</MenuItem>
+                                  <MenuItem value="inner_product">inner_product</MenuItem>
+                                  <MenuItem value="cosine">cosine</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Threshold"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragThreshold }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagThreshold(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Results Count"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragResultsCount }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagResultsCount(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Chunk Size"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragChunkSize }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagChunkSize(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Chunk Overflow"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragChunkOverflow }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagChunkOverflow(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                          </Grid>
+                        </>
+                      )
+                    }
+                  </>
+                )
+              }              
             </Box>
           </Window>
         )

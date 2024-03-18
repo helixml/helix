@@ -35,23 +35,9 @@ export interface IFinetuneInputs {
   setUploadProgress: (value: IFilestoreUploadProgress | undefined) => void,
   serializePage: () => Promise<void>,
   loadFromLocalStorage: () => Promise<void>,
-  getFormData: (mode: string, type: string) => FormData,
+  setFormData: (formData: FormData) => FormData,
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
   reset: () => Promise<void>,
-  finetuneEnabled: boolean,
-  setFinetuneEnabled: (value: boolean) => void,
-  ragEnabled: boolean,
-  setRagEnabled: (value: boolean) => void,
-  ragDistanceFunction: 'l2' | 'inner_product' | 'cosine',
-  setRagDistanceFunction: (value: 'l2' | 'inner_product' | 'cosine') => void,
-  ragThreshold: number,
-  setRagThreshold: (value: number) => void,
-  ragResultsCount: number,
-  setRagResultsCount: (value: number) => void,
-  ragChunkSize: number,
-  setRagChunkSize: (value: number) => void,
-  ragChunkOverflow: number,
-  setRagChunkOverflow: (value: number) => void,
 }
 
 export const useFinetuneInputs = () => {
@@ -62,14 +48,7 @@ export const useFinetuneInputs = () => {
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
-  const [finetuneEnabled, setFinetuneEnabled] = useState(true)
-  const [ragEnabled, setRagEnabled] = useState(false)
-  const [ragDistanceFunction, setRagDistanceFunction] = useState<'l2' | 'inner_product' | 'cosine'>('cosine')
-  const [ragThreshold, setRagThreshold] = useState(0.2)
-  const [ragResultsCount, setRagResultsCount] = useState(3)
-  const [ragChunkSize, setRagChunkSize] = useState(1024)
-  const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
-
+  
   const serializePage = useCallback(async () => {
     const serializedFiles = await bluebird.map(files, async (file) => {
       const serializedFile = await serializeFile(file)
@@ -93,35 +72,17 @@ export const useFinetuneInputs = () => {
     inputValue,
   ])
 
-  const getFormData = useCallback((mode: string, type: string) => {
-    const formData = new FormData()
+  const setFormData = useCallback((formData: FormData) => {
     files.forEach((file) => {
       formData.append("files", file)
       if(labels[file.name]) {
         formData.set(file.name, labels[file.name])
       }
     })
-    formData.set('mode', mode)
-    formData.set('type', type)
-    formData.set('text_finetune_enabled', finetuneEnabled ? 'yes' : 'no')
-    formData.set('rag_enabled', ragEnabled ? 'yes' : 'no')
-    formData.set('rag_distance_function', ragDistanceFunction)
-    formData.set('rag_threshold', ragThreshold.toString())
-    formData.set('rag_results_count', ragResultsCount.toString())
-    formData.set('rag_chunk_size', ragChunkSize.toString())
-    formData.set('rag_chunk_overflow', ragChunkOverflow.toString())
-    
     return formData
   }, [
     files,
     labels,
-    finetuneEnabled,
-    ragEnabled,
-    ragDistanceFunction,
-    ragThreshold,
-    ragResultsCount,
-    ragChunkSize,
-    ragChunkOverflow,
   ])
 
   const uploadProgressHandler = useCallback((progressEvent: AxiosProgressEvent) => {
@@ -175,16 +136,9 @@ export const useFinetuneInputs = () => {
     uploadProgress, setUploadProgress,
     serializePage,
     loadFromLocalStorage,
-    getFormData,
+    setFormData,
     uploadProgressHandler,
     reset,
-    finetuneEnabled, setFinetuneEnabled,
-    ragEnabled, setRagEnabled,
-    ragDistanceFunction, setRagDistanceFunction,
-    ragThreshold, setRagThreshold,
-    ragResultsCount, setRagResultsCount,
-    ragChunkSize, setRagChunkSize,
-    ragChunkOverflow, setRagChunkOverflow
   }
 }
 
