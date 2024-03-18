@@ -73,6 +73,11 @@ Import the Keycloak realm and user metadata with
 docker exec -it helix-keycloak-1 /opt/keycloak/bin/kc.sh import --file /tmp/helix_realm.json
 ```
 
+6. Restart keycloak after the import completes with
+```
+docker-compose restart keycloak
+```
+
 Watch closely, if you get an error about "script uploads are disabled", follow [this guide](https://medium.com/@ramanamuttana/script-upload-is-disabled-in-keycloak-4cb22d9358c8) on how to delete the `authorizationSettings` node from the JSON file.
 
 Remember to run `docker cp` again after you do this!
@@ -86,5 +91,7 @@ If Keycloak v.23 does not start up, look at `docker logs helix-keycloak-1`
 Check Postgres database 'keycloak' exists in
 `docker exec -it helix-postgres-1 psql -U {POSTGRES_USER}`
 `psql> \list`
+
+If the realm 'Helix' does not show up on the UI, you can force this to re-appear by creating another new realm (and deleting it later), as this seems to refresh the cache of known realms shown in the UI.
 
 If you encounter issues, please reach out to the Helix team on [Discord](https://discord.com/channels/1180827321704390657/1209590511745106022)
