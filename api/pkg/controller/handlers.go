@@ -82,7 +82,7 @@ func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.Api
 	return key, nil
 }
 
-func (c *Controller) cleanOldRunnerMetrics(ctx context.Context) error {
+func (c *Controller) cleanOldRunnerMetrics(_ context.Context) error {
 	deleteIDs := []string{}
 	c.activeRunners.Range(func(i string, metrics *types.RunnerState) bool {
 		// any runner that has not reported within the last minute

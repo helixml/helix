@@ -17,7 +17,6 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/prompts"
-	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -38,6 +37,11 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Finished:       false,
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
+	}
+
+	activeTools := req.ActiveTools
+	if activeTools == nil {
+		activeTools = []string{}
 	}
 
 	newSession := types.Session{
@@ -64,6 +68,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			RagEnabled:              req.RagEnabled,
 			TextFinetuneEnabled:     req.TextFinetuneEnabled,
 			RagSettings:             req.RagSettings,
+			ActiveTools:             activeTools,
 		},
 	}
 
@@ -441,12 +446,16 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	ctx := context.Background()
 
-	tools, err := c.Options.Store.ListTools(ctx, &store.ListToolsQuery{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	})
-	if err != nil {
-		return nil, err
+	tools := []*types.Tool{}
+	for _, id := range session.Metadata.ActiveTools {
+		tool, err := c.Options.Store.GetTool(context.Background(), id)
+		// we might have stale tool ids in our metadata
+		// so let's not error here
+		if err != nil {
+			log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
+			continue
+		}
+		tools = append(tools, tool)
 	}
 
 	if len(tools) == 0 {

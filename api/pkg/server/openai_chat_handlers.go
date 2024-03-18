@@ -96,6 +96,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		OwnerType:        userContext.OwnerType,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
+		ActiveTools:      []string{},
 	}
 
 	startReq := &startSessionConfig{

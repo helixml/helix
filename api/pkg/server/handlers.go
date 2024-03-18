@@ -220,22 +220,44 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	activeTools := []string{}
+	for _, tool := range strings.Split(req.FormValue("active_tools"), ",") {
+		if tool != "" {
+			activeTools = append(activeTools, tool)
+		}
+	}
+
+	finetuneEnable := false
+	finetuneString := req.FormValue("text_finetune_enabled")
+
+	ragEnable := false
+	ragString := req.FormValue("rag_enabled")
+
+	if sessionMode == types.SessionModeFinetune {
+		if finetuneString == "yes" || finetuneString == "" {
+			finetuneEnable = true
+		}
+
+		if ragString == "yes" {
+			ragEnable = true
+		}
+	}
+
 	createRequest := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      sessionType,
-		ModelName:        modelName,
-		Owner:            reqContext.Owner,
-		OwnerType:        reqContext.OwnerType,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
-		ParentSession:    req.FormValue("parent_session"),
-		// the default is no unless we specifically say yes
+		SessionID:               sessionID,
+		SessionMode:             sessionMode,
+		SessionType:             sessionType,
+		ModelName:               modelName,
+		Owner:                   reqContext.Owner,
+		OwnerType:               reqContext.OwnerType,
+		UserInteractions:        []*types.Interaction{userInteraction},
+		Priority:                status.Config.StripeSubscriptionActive,
+		ParentSession:           req.FormValue("parent_session"),
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		// the default is yes unless we specifically say no
-		RagEnabled:          req.FormValue("rag_enabled") != "no",
-		TextFinetuneEnabled: req.FormValue("text_finetune_enabled") != "no",
-		RagSettings:         *ragSettings,
+		RagEnabled:              ragEnable,
+		TextFinetuneEnabled:     finetuneEnable,
+		RagSettings:             *ragSettings,
+		ActiveTools:             activeTools,
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
