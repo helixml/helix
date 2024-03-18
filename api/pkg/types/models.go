@@ -1,10 +1,12 @@
 package types
 
 import (
-	"fmt"
-
-	"github.com/rs/zerolog/log"
+	"strings"
 )
+
+// what to do next: there's tremendous value in supporting all ollama models out of the box, so switch model names to being dynamic rather than hardcoded, so it's super easy to add new ones to the UI
+// then have a generic ollama model that can be instantiated anyhow
+// we need to maintain a mapping from known model names to optimal memory usage, though
 
 type ModelName string
 
@@ -13,50 +15,32 @@ const (
 	Model_Axolotl_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
 
-	Model_Ollama_Mistral7b ModelName = "mistral:7b-instruct"
-	Model_Ollama_Mixtral   ModelName = "mixtral:instruct"
-	Model_Ollama_Gemma7b   ModelName = "gemma:7b-instruct" // 7030MiB
+	Model_Ollama_Mistral7b      ModelName = "mistral:7b-instruct"
+	Model_Ollama_Mixtral        ModelName = "mixtral:instruct"
+	Model_Ollama_DeepseekCoder  ModelName = "deepseek-coder:33b"
+	Model_Ollama_NousHermes2Pro ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
+	Model_Ollama_Qwen72b        ModelName = "qwen:72b-chat"
 )
+
+func NewModel(name string) ModelName {
+	return ModelName(name)
+}
 
 func (m ModelName) String() string {
 	return string(m)
 }
 
 func (m ModelName) InferenceRuntime() InferenceRuntime {
-	switch m {
-	case // Axolotl/Cog
-		Model_Axolotl_Mistral7b,
-		Model_Cog_SDXL:
-		return InferenceRuntimeAxolotl
-	case // Ollama
-		Model_Ollama_Mistral7b,
-		Model_Ollama_Mixtral,
-		Model_Ollama_Gemma7b:
+	// only ollama model names contain a colon.
+	// TODO: add explicit API field for backend
+	if strings.Contains(m.String(), ":") {
 		return InferenceRuntimeOllama
-	// TODO: vllm
-	default:
-		return InferenceRuntimeAxolotl
 	}
+	// misnamed: axolotl runtime handles axolotl and cog/sd-scripts
+	return InferenceRuntimeAxolotl
 }
 
 func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
-	switch ModelName(modelName) {
-	case Model_Axolotl_Mistral7b:
-		return Model_Axolotl_Mistral7b, nil
-	case Model_Ollama_Mistral7b:
-		return Model_Ollama_Mistral7b, nil
-	case Model_Ollama_Mixtral:
-		return Model_Ollama_Mixtral, nil
-	case Model_Ollama_Gemma7b:
-		return Model_Ollama_Gemma7b, nil
-	case Model_Cog_SDXL:
-		return Model_Cog_SDXL, nil
-	default:
-		if acceptEmpty && modelName == string(Model_None) {
-			return Model_None, nil
-		} else {
-			log.Error().Msgf("invalid model name requested: %s", modelName)
-			return Model_None, fmt.Errorf("invalid model name: %s", modelName)
-		}
-	}
+	// All model names are valid for now.
+	return ModelName(modelName), nil
 }
