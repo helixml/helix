@@ -12,10 +12,12 @@ prompts:
     The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.
  - name: rag-inference-prompt
    template: |
-    You are an intelligent chatbot named Helix that is being asked a question by a user given the following context:
+    Here is the question from the user:
+    {{.Question}}
+
+    We have found the following context you may refer to in your answer:
     {{- range .RagResults }}
       {{ . }}
     {{- end }}
 
-    Here is the question from the user:
-    {{.Question}}
+    
