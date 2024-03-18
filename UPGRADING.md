@@ -4,15 +4,32 @@ This version also migrates from using Keycloak's own embedded Java H2 relational
 
 This guide provides instructions for migrating a running version of [Helix 0.5.5](https://github.com/helixml/helix/releases/tag/0.5.5) to Helix 0.6.0.
 
+# Local development upgrades
+
+`./stack stop`
+
+Remove postgres volumes with
+`docker volume rm helix_helix-postgres-db`. This will force the creation of the postgres db needed for keycloak on the next step.
+
+`./stack up`
+
+# Production environment upgrades
+
 1. Backup all your data on Keycloak 15.0.2
 
 `docker exec -it helix-keycloak-1 /opt/jboss/keycloak/bin/standalone.sh -Djboss.socket.binding.port-offset=100 -Dkeycloak.migration.action=export -Dkeycloak.migration.provider=singleFile -Dkeycloak.migration.realmName=helix -Dkeycloak.migration.usersExportStrategy=REALM_FILE -Dkeycloak.migration.file=/tmp/helix_realm.json`
+
+Press ctrl+c after you see it print:
+```
+11:30:51,563 INFO  [org.keycloak.exportimport.singlefile.SingleFileExportProvider] (ServerService Thread Pool -- 54) Exporting realm 'helix' into file /tmp/helix_realm.json
+11:30:52,544 INFO  [org.keycloak.services] (ServerService Thread Pool -- 54) KC-SERVICES0035: Export finished successfully
+```
 
 2. Then copy the backup file out of the container
 `docker cp helix-keycloak-1:/tmp/helix_realm.json helix_realm.json`
 
 3. Create a Postgres database for Keycloak
-`docker exec -it helix-postgres-1 psql -U {POSTGRES_USER}`
+`docker exec -it helix-postgres-1 psql -U postgres`
 
 on the psql interface
 `create database keycloak;`
