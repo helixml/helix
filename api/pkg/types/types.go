@@ -29,19 +29,21 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner   string            `json:"runner"`   // e.g. 0
-	Message  string            `json:"message"`  // e.g. Prove pythagoras
-	Progress int               `json:"progress"` // e.g. 0-100
-	Files    []string          `json:"files"`    // list of filepath paths
-	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State    InteractionState  `json:"state"`
-	Status   string            `json:"status"`
-	Error    string            `json:"error"`
+	Runner         string            `json:"runner"`          // e.g. 0
+	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
+	Progress       int               `json:"progress"`        // e.g. 0-100
+	Files          []string          `json:"files"`           // list of filepath paths
+	Finished       bool              `json:"finished"`        // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	Metadata       map[string]string `json:"metadata"`        // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State          InteractionState  `json:"state"`
+	Status         string            `json:"status"`
+	Error          string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
 	LoraDir        string                     `json:"lora_dir"`
 	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
 	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
+	RagResults     []SessionRagResult         `json:"rag_results"`
 }
 
 type InteractionMessage struct {
@@ -53,6 +55,49 @@ type SessionOrigin struct {
 	Type                SessionOriginType `json:"type"`
 	ClonedSessionID     string            `json:"cloned_session_id"`
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
+}
+
+type SessionRagSettings struct {
+	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
+	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
+	ChunkSize        int     `json:"chunk_size"`        // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
+}
+
+// the data we send off to llamaindex to be indexed in the db
+type SessionRagIndexChunk struct {
+	SessionID       string `json:"session_id"`
+	InteractionID   string `json:"interaction_id"`
+	Filename        string `json:"filename"`
+	DocumentID      string `json:"document_id"`
+	DocumentGroupID string `json:"document_group_id"`
+	ContentOffset   int    `json:"content_offset"`
+	Content         string `json:"content"`
+}
+
+// the query we post to llamaindex to get results back from a user
+// prompt against a rag enabled session
+type SessionRagQuery struct {
+	Prompt            string  `json:"prompt"`
+	SessionID         string  `json:"session_id"`
+	DistanceThreshold float64 `json:"distance_threshold"`
+	DistanceFunction  string  `json:"distance_function"`
+	MaxResults        int     `json:"max_results"`
+}
+
+// the thing we load from llamaindex when we send the user prompt
+// there and it does a lookup
+type SessionRagResult struct {
+	ID              string  `json:"id"`
+	SessionID       string  `json:"session_id"`
+	InteractionID   string  `json:"interaction_id"`
+	DocumentID      string  `json:"document_id"`
+	DocumentGroupID string  `json:"document_group_id"`
+	Filename        string  `json:"filename"`
+	ContentOffset   int     `json:"content_offset"`
+	Content         string  `json:"content"`
+	Distance        float64 `json:"distance"`
 }
 
 // gives us a quick way to add settings
@@ -77,6 +122,14 @@ type SessionMetadata struct {
 	EvalAutomaticScore      string   `json:"eval_automatic_score"`
 	EvalAutomaticReason     string   `json:"eval_automatic_reason"`
 	EvalOriginalUserPrompts []string `json:"eval_original_user_prompts"`
+	// these settings control which features of a session we want to use
+	// even if we have a Lora file and RAG indexed prepared
+	// we might choose to not use them (this will help our eval framework know what works the best)
+	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
+	// and what the threshold for a "good" answer is
+	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
+	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
+	RagSettings         SessionRagSettings `json:"rag_settings"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -457,6 +510,9 @@ type CreateSessionRequest struct {
 	UserInteractions        []*Interaction
 	Priority                bool
 	ManuallyReviewQuestions bool
+	RagEnabled              bool
+	TextFinetuneEnabled     bool
+	RagSettings             SessionRagSettings
 }
 
 type UpdateSessionRequest struct {
