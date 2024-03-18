@@ -17,8 +17,12 @@ function mock-runner() {
     --label gpu=4090 "$@"
 }
 
+function compose() {
+  docker-compose -f docker-compose.dev.yaml "$@"
+}
+
 function build() {
-  docker-compose -f docker-compose.dev.yaml build
+  compose build
 }
 
 function start() {
@@ -63,19 +67,19 @@ function start() {
   tmux split-window -v -d
   tmux select-pane -t 0
   tmux split-window -v -d
-  tmux select-pane -t 0
+  tmux select-pane -t 1
   tmux split-window -v -d
   tmux select-pane -t 0
   tmux split-window -v -d
 
-  tmux send-keys -t 0 'docker-compose -f docker-compose.dev.yaml logs -f frontend' C-m
-  tmux send-keys -t 1 'docker-compose exec api bash' C-m
+  tmux send-keys -t 0 './stack compose logs -f frontend' C-m
+  tmux send-keys -t 1 './stack compose exec api bash' C-m
   tmux send-keys -t 1 'go run . serve' C-m
-  tmux send-keys -t 2 'docker-compose exec unstructured bash' C-m
+  tmux send-keys -t 2 './stack compose exec llamaindex bash' C-m
   tmux send-keys -t 2 'python3 src/main.py' C-m
 
   if [[ -n "$WITH_RUNNER" ]]; then
-    tmux send-keys -t 3 'docker-compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
+    tmux send-keys -t 3 './stack compose --profile dev_gpu_runner -f docker-compose.dev.yaml exec dev_gpu_runner bash' C-m
     tmux send-keys -t 3 'go run . runner --api-host http://172.17.0.1 --api-token oh-hallo-insecure-token --memory 24GB --runner-id dev-runner' C-m
   fi
 
@@ -89,7 +93,7 @@ function start() {
 
 function stop() {
   echo "Removing docker containers"
-  docker-compose --profile dev_gpu_runner --profile demos -f docker-compose.dev.yaml down
+  ./stack compose --profile dev_gpu_runner --profile demos down
   echo "Stopping tmux session $TMUX_SESSION..."
   tmux kill-session -t $TMUX_SESSION ||true
 }
@@ -105,10 +109,12 @@ function rebuild() {
 function db() {
   local subcommand="${1-cli}"
   shift
+  local containername="${1-postgres}"
+  shift
   if [[ "$subcommand" == "cli" ]]; then
-    docker-compose exec postgres psql --user postgres "$@"
+    ./stack compose exec $containername psql --user postgres "$@"
   elif [[ "$subcommand" == "pipe" ]]; then
-    docker-compose exec -T postgres psql --user postgres "$@"
+    ./stack compose exec -T $containername psql --user postgres "$@"
   fi
 }
 
@@ -118,11 +124,19 @@ function generate() {
 }
 
 function psql() {
-  db cli "$@"
+  db cli postgres "$@"
 }
 
 function psql_pipe() {
-  db pipe "$@"
+  db pipe postgres "$@"
+}
+
+function pgvector() {
+  db cli pgvector "$@"
+}
+
+function pgvector_pipe() {
+  db pipe pgvector "$@"
 }
 
 function update_openapi() {

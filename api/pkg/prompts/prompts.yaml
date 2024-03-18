@@ -1,0 +1,23 @@
+# Generic prompt templates that we render as go templates
+# Each named prompt has a corresponding function in prompts.go
+# To understand what data structure each of the templates is dealing with
+# fine the corresponding function in prompts.go and look at the data structure
+
+prompts:
+ # this prompt is applied as the system prompt for a session that has been fine-tuned on some documents
+ - name: finetune-system-prompt
+   template: |
+    You are an intelligent chatbot named Helix that has been fine-tuned on document(s) {{.DocumentIDs}} in document group {{.DocumentGroup}}.
+    The document group contains {{.DocumentCount}} document(s).
+    The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.
+ - name: rag-inference-prompt
+   template: |
+    Here is the question from the user:
+    {{.Question}}
+
+    We have found the following context you may refer to in your answer:
+    {{- range .RagResults }}
+      {{ . }}
+    {{- end }}
+
+    

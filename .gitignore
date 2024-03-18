@@ -4,6 +4,7 @@ node_modules
 *.sw*
 frontend/lib
 gradio/__pycache__
+__pycache__
 venv
 *.tar
 dist
