@@ -1,10 +1,10 @@
-# From Helix < 0.6.0 to Helix >= 0.6.0
+# From Helix < 0.6 to Helix 0.6
 
 This version has a significant upgrade of keycloak from Keycloak 15.0.2 to Keycloak 23.0.6. There have been a number of security vulnerabilities addressed with Keycloak, feature support and admin UI changes between these versions.
 
 This version also migrates from using Keycloak's own embedded Java H2 relational database to using Postgres as the backend data store for Keycloak.
 
-This guide provides instructions for migrating a running version of [Helix 0.5.5](https://github.com/helixml/helix/releases/tag/0.5.5) to Helix 0.6.0.
+This guide provides instructions for migrating a running version of Helix <= 0.5 to Helix 0.6.
 
 ## Local development upgrades
 
