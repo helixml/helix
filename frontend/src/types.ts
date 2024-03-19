@@ -252,7 +252,6 @@ export interface IServerConfig {
   google_analytics_frontend: string,
   eval_user_id: string,
   tools_enabled: boolean,
-  global_tools: ITool[],
 }
 
 export interface IConversation {
@@ -434,6 +433,7 @@ export interface ITool {
   owner_type: IOwnerType,
   name: string,
   description: string,
+  global: boolean,
   tool_type: IToolType,
   config: IToolConfig,
 }

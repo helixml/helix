@@ -8,10 +8,12 @@ import DeleteIcon from '@mui/icons-material/Delete'
 const StringMapEditor: FC<React.PropsWithChildren<{
   data: Record<string, string>,
   entityTitle?: string,
+  disabled?: boolean,
   onChange: (data: Record<string, string>) => void,
 }>> = ({
   data,
   entityTitle = 'key',
+  disabled = false,
   onChange,
 }) => {
   const [record, setRecord] = useState<Record<string, string>>(data)
@@ -55,6 +57,7 @@ const StringMapEditor: FC<React.PropsWithChildren<{
             size="small"
             variant="outlined"
             value={record[key]}
+            disabled={ disabled }
             onChange={(e: ChangeEvent<HTMLInputElement>) => handleChangeValue(key, e.target.value)}
           />
           <IconButton onClick={() => handleDeleteEntry(key)}>
@@ -68,6 +71,7 @@ const StringMapEditor: FC<React.PropsWithChildren<{
           label={`new ${entityTitle}`}
           variant="outlined"
           value={newKey}
+          disabled={ disabled }
           onChange={(e: ChangeEvent<HTMLInputElement>) => setNewKey(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleAddEntry()}
         />
@@ -77,6 +81,7 @@ const StringMapEditor: FC<React.PropsWithChildren<{
           label="new value"
           variant="outlined"
           value={newValue}
+          disabled={ disabled }
           onChange={(e: ChangeEvent<HTMLInputElement>) => setNewValue(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleAddEntry()}
         />
