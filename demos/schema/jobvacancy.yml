@@ -14,6 +14,12 @@ paths:
             type: string
           required: false
           description: Filter vacancies by job title
+        - in: query
+          name: candidate_name
+          schema:
+            type: string
+          required: false
+          description: Filter vacancies by candidate name
       responses:
         '200':
           description: An array of job vacancies, each with details including ID, name, email, job title, job description, and CV

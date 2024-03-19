@@ -123,9 +123,16 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+	answer := resp.Choices[0].Message.Content
+	if strings.Contains(answer, "```json") {
+		answer = strings.Split(answer, "```json")[1]
+	}
+	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+	parts := strings.Split(answer, "```")
+	answer = parts[0]
 
 	// var params map[string]string
-	params, err := unmarshalParams(resp.Choices[0].Message.Content)
+	params, err := unmarshalParams(answer)
 	if err != nil {
 		return nil, err
 	}
@@ -222,9 +229,21 @@ Examples:
 		}		
 	}
 ]
-**Verdict:** response should be {"status": "active"}
+**Verdict:** response should be:
 
-**Response Format:** Always respond with JSON without any commentary, for example: {"parameterName": "parameterValue", "parameterName2": "parameterValue2"}  
+` + "```" + `json
+{
+  "status": "active"
+}
+` + "```" + `
+
+**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+` + "```" + `json
+{
+  "parameterName": "parameterValue",
+  "parameterName2": "parameterValue2"
+} 
+` + "```" + `
 
 ===END EXAMPLES===
 OpenAPI schema: {{.Schema}}
