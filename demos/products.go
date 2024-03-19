@@ -105,6 +105,7 @@ func parseListParameters(params map[string][]string) ProductQuery {
 func filterProducts(products []Product, query ProductQuery) []Product {
 	var filtered []Product
 	for _, product := range products {
+		// THESE ARE ALL FILTERING OUT
 		if query.MinPrice > 0 && product.Price < query.MinPrice {
 			continue
 		}
@@ -114,7 +115,7 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 		if len(query.CPU) > 0 && product.CPU != query.CPU {
 			continue
 		}
-		if query.RAM > 0 && product.RAM != query.RAM {
+		if query.RAM > 0 && product.RAM < query.RAM {
 			continue
 		}
 		filtered = append(filtered, product)

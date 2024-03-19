@@ -2,7 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type JobVacancyCandidate struct {
@@ -14,7 +18,8 @@ type JobVacancyCandidate struct {
 }
 
 type JobCandidateQuery struct {
-	JobTitle string
+	JobTitle      string
+	CandidateName string
 }
 
 var JOB_VACANCY_CANDIDATES = []JobVacancyCandidate{
@@ -48,6 +53,10 @@ func parseCandidateListParameters(params map[string][]string) JobCandidateQuery 
 		query.JobTitle = val[0]
 	}
 
+	if val, ok := params["candidate_name"]; ok && len(val[0]) > 0 {
+		query.CandidateName = val[0]
+	}
+
 	return query
 }
 
@@ -55,6 +64,9 @@ func filterCandidates(candidates []JobVacancyCandidate, query JobCandidateQuery)
 	var filtered []JobVacancyCandidate
 	for _, candidate := range candidates {
 		if len(query.JobTitle) > 0 && candidate.JobTitle != query.JobTitle {
+			continue
+		}
+		if len(query.CandidateName) > 0 && !strings.Contains(candidate.Name, query.CandidateName) {
 			continue
 		}
 		filtered = append(filtered, candidate)
@@ -66,5 +78,8 @@ func listCandidates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	query := parseCandidateListParameters(r.URL.Query())
 	filteredCandidates := filterCandidates(JOB_VACANCY_CANDIDATES, query)
+	fmt.Printf("filteredCandidates --------------------------------------\n")
+	spew.Dump(query)
+	spew.Dump(filteredCandidates)
 	json.NewEncoder(w).Encode(filteredCandidates)
 }
