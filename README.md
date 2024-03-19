@@ -46,7 +46,7 @@ docker-compose up -d
 
 The dashboard will be available on `http://localhost`.
 
-Attach GPU runners: see [runners docs](https://docs.helix.ml/docs/controlplane/)
+Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 
 ## License
 
