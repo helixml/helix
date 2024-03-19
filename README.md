@@ -46,6 +46,8 @@ docker-compose up -d
 
 The dashboard will be available on `http://localhost`.
 
+Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
+
 ## License
 
 Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under a similar license to Docker Desktop. You can run the source code (in this repo) for free for:

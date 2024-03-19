@@ -221,7 +221,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    types.Model_Axolotl_SDXL,
+	ModelName:    types.Model_Cog_SDXL,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -279,7 +279,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 				switch modelName {
 				case types.Model_Axolotl_Mistral7b.String():
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
-				case types.Model_Axolotl_SDXL.String():
+				case types.Model_Cog_SDXL.String():
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
 				}
 			}

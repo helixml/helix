@@ -60,6 +60,7 @@ func (c *Controller) getMatchingSessionFilterIndex(_ context.Context, filter typ
 		if filter.Memory > 0 {
 			model, ok := c.models[session.ModelName]
 			if !ok {
+				log.Error().Msgf("unable to look up model %s, possible programming error in adding model to models map", session.ModelName)
 				continue
 			}
 			if model.GetMemoryRequirements(session.Mode) > filter.Memory {
