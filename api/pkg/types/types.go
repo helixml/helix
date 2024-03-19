@@ -130,6 +130,7 @@ type SessionMetadata struct {
 	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
 	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
 	RagSettings         SessionRagSettings `json:"rag_settings"`
+	ActiveTools         []string           `json:"active_tools"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -496,6 +497,8 @@ type ServerConfigForFrontend struct {
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
+	ToolsEnabled            bool   `json:"tools_enabled"`
+	GlobalTools             []Tool `json:"global_tools"`
 }
 
 type CreateSessionRequest struct {
@@ -513,6 +516,7 @@ type CreateSessionRequest struct {
 	RagEnabled              bool
 	TextFinetuneEnabled     bool
 	RagSettings             SessionRagSettings
+	ActiveTools             []string
 }
 
 type UpdateSessionRequest struct {

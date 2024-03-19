@@ -73,7 +73,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		sessionID := r.URL.Query().Get("session_id")
 		if sessionID == "" {
 			log.Error().Msgf("No session_id supplied")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "No session_id supplied", http.StatusInternalServerError)
 			return
 		}
 
