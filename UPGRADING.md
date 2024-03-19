@@ -97,6 +97,6 @@ docker exec -it helix-postgres-1 psql -U {POSTGRES_USER}
 psql> \list
 ```
 
-If the realm 'Helix' does not show up on the UI, you can force this to re-appear by creating another new realm (and deleting it later), as this seems to refresh the cache of known realms shown in the UI.
+If the realm 'Helix' does not show up on the keycloak admin UI, you can force this to re-appear by creating another new realm (and deleting it later), as this seems to refresh the cache of known realms shown in the UI.
 
 If you encounter issues, please reach out to the Helix team on [Discord](https://discord.com/channels/1180827321704390657/1209590511745106022)
