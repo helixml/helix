@@ -729,7 +729,7 @@ const New: FC = () => {
                         <Typography variant="body1">Your Tools:</Typography>
                         <Divider sx={{mt:2,mb:2}} />
                         {
-                          tools.data.map((tool) => {
+                          tools.userTools.map((tool) => {
                             return (
                               <FormControlLabel
                                 key={tool.id}
@@ -757,10 +757,10 @@ const New: FC = () => {
                         }
                       </Grid>
                       <Grid item xs={ 12 } md={ 6 }>
-                        <Typography variant="body1">Demo Tools:</Typography>
+                        <Typography variant="body1">Global Tools:</Typography>
                         <Divider sx={{mt:2,mb:2}} />
                         {
-                          account.serverConfig.global_tools.map((tool) => {
+                          tools.globalTools.map((tool) => {
                             return (
                               <FormControlLabel
                                 key={tool.id}
