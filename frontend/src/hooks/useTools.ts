@@ -1,4 +1,4 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useMemo } from 'react'
 import useApi from '../hooks/useApi'
 
 import {
@@ -13,6 +13,18 @@ export const useTools = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<ITool[]>([])
+
+  const userTools = useMemo(() => {
+    return data.filter(tool => !tool.global)
+  }, [
+    data,
+  ])
+
+  const globalTools = useMemo(() => {
+    return data.filter(tool => tool.global)
+  }, [
+    data,
+  ])
   
   const loadData = useCallback(async () => {
     const result = await api.get<ITool[]>(`/api/v1/tools`, undefined, {
@@ -68,6 +80,8 @@ export const useTools = () => {
 
   return {
     data,
+    userTools,
+    globalTools,
     loadData,
     createTool,
     updateTool,

@@ -161,7 +161,7 @@ func unmarshalParams(data string) (map[string]string, error) {
 	return params, nil
 }
 
-func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletionMessage, error) {
 	return openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: apiSystemPrompt,

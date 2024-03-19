@@ -455,6 +455,12 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
 			continue
 		}
+
+		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
+		if !tool.Global && tool.Owner != session.Owner {
+			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
+		}
+
 		tools = append(tools, tool)
 	}
 

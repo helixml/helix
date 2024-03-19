@@ -498,7 +498,6 @@ type ServerConfigForFrontend struct {
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
 	ToolsEnabled            bool   `json:"tools_enabled"`
-	GlobalTools             []Tool `json:"global_tools"`
 }
 
 type CreateSessionRequest struct {
@@ -643,6 +642,7 @@ type Tool struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	ToolType    ToolType  `json:"tool_type"`
+	Global      bool      `json:"global"`
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
 	Config ToolConfig `json:"config" gorm:"jsonb"`

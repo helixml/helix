@@ -69,6 +69,7 @@ func (s *PostgresStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*ty
 	err := s.gdb.WithContext(ctx).Where(&types.Tool{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
+		Global:    q.Global,
 	}).Find(&tools).Error
 	if err != nil {
 		return nil, err
