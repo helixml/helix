@@ -17,7 +17,7 @@ const (
 
 	Model_Ollama_Mistral7b      ModelName = "mistral:7b-instruct"
 	Model_Ollama_Mixtral        ModelName = "mixtral:instruct"
-	Model_Ollama_DeepseekCoder  ModelName = "deepseek-coder:33b"
+	Model_Ollama_CodeLlama      ModelName = "codellama:70b-instruct"
 	Model_Ollama_NousHermes2Pro ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
 	Model_Ollama_Qwen72b        ModelName = "qwen:72b-chat"
 )
