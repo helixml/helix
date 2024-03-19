@@ -6,5 +6,5 @@ RUN go mod download
 COPY demos ./demos
 WORKDIR /app/demos
 RUN go build -o /demos
-EXPOSE 8080
+EXPOSE 80
 ENTRYPOINT [ "/demos" ]
