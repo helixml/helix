@@ -47,7 +47,7 @@ const Tool: FC = () => {
     navigate,
   } = useRouter()
 
-  const isAdmin = false//account.admin
+  const isAdmin = account.admin
   
   const themeConfig = useThemeConfig()
   const theme = useTheme()
