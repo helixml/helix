@@ -58,7 +58,7 @@ Note: This is only required if you have running volumes of postgres. For any new
 4. Upgrade/restart the helix stack with
 
 ```
-git pull; git checkout 0.6.0; docker-compose pull; docker-compose up -d
+git pull; git checkout 0.6.1; docker-compose pull; docker-compose up -d
 ```
 
 5. Import the keycloak realm and user metadata back into the container
