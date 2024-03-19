@@ -45,7 +45,7 @@ func (c *ChainStrategy) validateAndDefaultAPI(ctx context.Context, tool *types.T
 	return tool, nil
 }
 
-func (c *ChainStrategy) validateOperationIDs(ctx context.Context, tool *types.Tool, schema *openapi3.T) error {
+func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, schema *openapi3.T) error {
 
 	for path, pathItem := range schema.Paths.Map() {
 

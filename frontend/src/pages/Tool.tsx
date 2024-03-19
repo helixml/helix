@@ -3,6 +3,8 @@ import { useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
@@ -45,6 +47,8 @@ const Tool: FC = () => {
     navigate,
   } = useRouter()
 
+  const isAdmin = account.admin
+  
   const themeConfig = useThemeConfig()
   const theme = useTheme()
 
@@ -53,6 +57,7 @@ const Tool: FC = () => {
   const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
   const [ url, setURL ] = useState('')
+  const [ global, setGlobal ] = useState(false)
   const [ headers, setHeaders ] = useState<Record<string, string>>({})
   const [ query, setQuery ] = useState<Record<string, string>>({})
   const [ schema, setSchema ] = useState('')
@@ -67,6 +72,15 @@ const Tool: FC = () => {
     params,
   ])
 
+  const readOnly = useMemo(() => {
+    if(!tool) return true
+    if(!tool.global) return false
+    return isAdmin ? false : true
+  }, [
+    tool,
+    isAdmin,
+  ])
+
   const sessionID = useMemo(() => {
     return session.data?.id || ''
   }, [
@@ -75,12 +89,14 @@ const Tool: FC = () => {
 
   // this is for inference in both modes
   const onInference = async () => {
+    if(!tool) return
     session.setData(undefined)
     const formData = new FormData()
     
     formData.set('input', inputValue)
     formData.set('mode', SESSION_MODE_INFERENCE)
     formData.set('type', SESSION_TYPE_TEXT)
+    formData.set('active_tools', tool.id)
     formData.set('parent_session', params.tool_id)
 
     const newSessionData = await api.post('/api/v1/sessions', formData)
@@ -115,6 +131,7 @@ const Tool: FC = () => {
     const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
       name,
       description,
+      global,
       config: {
         api: newConfig,
       },
@@ -128,6 +145,7 @@ const Tool: FC = () => {
     tool,
     name,
     description,
+    global,
     url,
     schema,
     headers,
@@ -161,6 +179,7 @@ const Tool: FC = () => {
     setSchema(tool.config.api.schema)
     setHeaders(tool.config.api.headers)
     setQuery(tool.config.api.query)
+    setGlobal(tool.global)
     setHasLoaded(true)
   }, [
     tool,
@@ -244,6 +263,7 @@ const Tool: FC = () => {
                 }}
                 error={ showErrors && !name }
                 value={ name }
+                disabled={readOnly}
                 onChange={(e) => setName(e.target.value)}
                 fullWidth
                 label="Name"
@@ -255,12 +275,27 @@ const Tool: FC = () => {
                 }}
                 value={ description }
                 onChange={(e) => setDescription(e.target.value)}
+                disabled={readOnly}
                 fullWidth
                 multiline
                 rows={2}
                 label="Description"
                 helperText="Enter a description of this tool (optional)"
               />
+              {
+                (account.admin || tool.global) && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={global}
+                        disabled={readOnly}
+                        onChange={(e) => setGlobal(e.target.checked)}
+                      />
+                    }
+                    label="Global?"
+                  />
+                )
+              }
               <Typography variant="h6" sx={{mb: 1}}>
                 API Specification
               </Typography>
@@ -271,6 +306,7 @@ const Tool: FC = () => {
                 error={ showErrors && !url }
                 value={ url }
                 onChange={(e) => setURL(e.target.value)}
+                disabled={readOnly}
                 fullWidth
                 label="Endpoint URL"
                 placeholder="Enter API URL"
@@ -280,6 +316,7 @@ const Tool: FC = () => {
                 error={ showErrors && !schema }
                 value={ schema }
                 onChange={(e) => setSchema(e.target.value)}
+                disabled={readOnly}
                 fullWidth
                 multiline
                 rows={10}
@@ -311,6 +348,7 @@ const Tool: FC = () => {
                 </Typography>
                 <StringMapEditor
                   entityTitle="header"
+                  disabled={readOnly}
                   data={ headers }
                   onChange={ setHeaders }
                 />
@@ -325,6 +363,7 @@ const Tool: FC = () => {
                 </Typography>
                 <StringMapEditor
                   entityTitle="query param"
+                  disabled={readOnly}
                   data={ query }
                   onChange={ setQuery }
                 />

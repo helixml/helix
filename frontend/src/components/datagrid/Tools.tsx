@@ -8,6 +8,8 @@ import Chip from '@mui/material/Chip'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
+import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -55,6 +57,14 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
       }
     },
     {
+      name: 'type',
+      header: 'Type',
+      defaultFlex: 0,
+      render: ({ data }) => {
+        return data.global ? 'Global' : 'User'
+      }
+    },
+    {
       name: 'updated',
       header: 'Updated',
       defaultFlex: 0,
@@ -90,22 +100,32 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
             data.config.api.actions.map((action, index) => {
               return (
                 <Box key={index}>
-                  <Stack direction="row" spacing={1}>
-                    <Box sx={{width: '50%'}}>
-                      <Typography sx={{minWidth: '300px'}}>
+                  <Row sx={{mt:1}}>
+                    <Cell sx={{width:'50%'}}>
+                      <Typography>
                         {action.name}
                       </Typography>
+                    </Cell>
+                    <Cell sx={{width:'50%'}}>
+                      <Row>
+                        <Cell sx={{width: '70px'}}>
+                          <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
+                        </Cell>
+                        <Cell>
+                          <Typography>
+                            {action.path}
+                          </Typography>
+                        </Cell>
+                      </Row>
+                    </Cell>
+                  </Row>
+                  <Row>
+                    <Cell>
                       <Typography variant="caption" sx={{color: '#999'}}>
                         {action.description}
                       </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={1} sx={{pt:1}}>
-                      <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
-                      <Typography>
-                        {action.path}
-                      </Typography>
-                    </Stack>
-                  </Stack>
+                    </Cell>
+                  </Row>
                 </Box>
               )
             })
@@ -120,6 +140,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
       minWidth: 120,
       defaultWidth: 120,
       render: ({ data }) => {
+        if(data.global && !account.admin) return null
         return (
           <Box
             sx={{
@@ -154,6 +175,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
     onEdit,
     onDelete,
     account.token,
+    account.admin,
   ])
 
   return (

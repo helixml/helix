@@ -44,7 +44,6 @@ export const AccountContext = createContext<IAccountContext>({
     google_analytics_frontend: '',
     eval_user_id: '',
     tools_enabled: true,
-    global_tools: [],
   },
   userConfig: {},
   apiKeys: [],
@@ -71,7 +70,6 @@ export const useAccountContext = (): IAccountContext => {
     google_analytics_frontend: '',
     eval_user_id: '',
     tools_enabled: true,
-    global_tools: [],
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 

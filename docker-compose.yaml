@@ -104,6 +104,12 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  demos:
+    profiles: ["demos"]
+    image: europe-docker.pkg.dev/helixml/helix/demos:latest
+    restart: always
+    environment:
+      - PORT=80
 
 volumes:
   helix-keycloak-db:

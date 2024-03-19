@@ -24,7 +24,7 @@ import (
 func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*types.Tool, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
-	tools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
+	userTools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
 	})
@@ -32,7 +32,36 @@ func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return tools, nil
+	// remove global tools from the list in case this is the admin user who created the global tool
+
+	nonGlobalUserTools := []*types.Tool{}
+	for _, tool := range userTools {
+		if !tool.Global {
+			nonGlobalUserTools = append(nonGlobalUserTools, tool)
+		}
+	}
+
+	globalTools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
+		Global: true,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	// Concatenate globalTools to userTools list
+	allTools := append(nonGlobalUserTools, globalTools...)
+	sanitizedTools := []*types.Tool{}
+
+	// remove api keys from global tools in the response
+	for _, tool := range allTools {
+		if !userContext.Admin && tool.Global {
+			tool.Config.API.Headers = map[string]string{}
+			tool.Config.API.Query = map[string]string{}
+		}
+		sanitizedTools = append(sanitizedTools, tool)
+	}
+
+	return sanitizedTools, nil
 }
 
 // createTool godoc
@@ -52,6 +81,11 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	}
 
 	userContext := s.getRequestContext(r)
+
+	// only let admins create global tools
+	if tool.Global && !userContext.Admin {
+		return nil, system.NewHTTPError403("only admin users can create global tools")
+	}
 
 	// Getting existing tools for the user
 	existingTools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
@@ -123,8 +157,16 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != userContext.Owner {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	// let any admin update a global tool
+	// but otherwise you must own the tool to update it
+	if tool.Global {
+		if !userContext.Admin {
+			return nil, system.NewHTTPError403("only admin users can update global tools")
+		}
+	} else {
+		if existing.Owner != userContext.Owner {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
 	}
 
 	tool.Owner = existing.Owner
@@ -206,8 +248,16 @@ func (s *HelixAPIServer) deleteTool(rw http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != userContext.Owner {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	// let any admin delete a global tool
+	// but otherwise you must own the tool to update it
+	if existing.Global {
+		if !userContext.Admin {
+			return nil, system.NewHTTPError403("only admin users can delete global tools")
+		}
+	} else {
+		if existing.Owner != userContext.Owner {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
 	}
 
 	err = s.Store.DeleteTool(r.Context(), id)
