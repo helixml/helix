@@ -81,7 +81,7 @@ const Widget = () => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        height: '100vh', // Adjust the height as needed
+        height: '100vh', // Adjust the height as neededperhaps
         width: '100%',
       }}
     >

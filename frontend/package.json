@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "tsc": "tsc -b tsconfig.json",
-    "build": "yarn tsc && vite build",
+    "build": "yarn tsc && vite build && vite build --config vite-widget.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {
