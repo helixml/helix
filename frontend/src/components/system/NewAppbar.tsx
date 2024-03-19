@@ -69,6 +69,12 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
         setParams({"model": "helix-4"})
     } else if (model == "Helix 3.5") {
         setParams({"model": "helix-3.5"})
+    } else if (model == "Helix Large") {
+        setParams({"model": "helix-large"})
+    } else if (model == "Helix Code") {
+        setParams({"model": "helix-code"})
+    } else if (model == "Helix JSON") {
+        setParams({"model": "helix-json"})
     }
   }
 
@@ -119,8 +125,22 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                         horizontal: 'left',
                     }}
                 >
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>Helix 3.5 &nbsp; <small>(Mistral-7B, good for everyday tasks)</small></MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix 4'); setModelMenuAnchorEl(null); }}>Helix 4 &nbsp; <small>(Mixtral MoE, smarter but slower)</small></MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>
+                        Helix 3.5 &nbsp; <small>(Mistral-7B, fast and good for everyday tasks)</small>
+                    </MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix 4'); setModelMenuAnchorEl(null); }}>
+                        Helix 4 &nbsp; <small>(Mixtral MoE 8x7B, smarter but a bit slower)</small>
+                    </MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Large'); setModelMenuAnchorEl(null); }}>
+                        Helix Large &nbsp; <small>(Qwen 72B, strongest OSS model in the LMSYS Chatbot Arena)</small>
+                    </MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Code'); setModelMenuAnchorEl(null); }}>
+                        Helix Code &nbsp; <small>(CodeLlama 70B from Meta, better than GPT-4 at code)</small>
+                    </MenuItem>
+                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix JSON'); setModelMenuAnchorEl(null); }}>
+                        Helix JSON &nbsp; <small>(Nous Hermes 2 Pro 7B, for function calling & JSON output)</small>
+                    </MenuItem>
+                    {/* TODO: Vision model */}
                 </Menu>
             </Box>
         </div>
