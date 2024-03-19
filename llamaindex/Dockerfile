@@ -20,5 +20,6 @@ RUN apt-get install -y \
 WORKDIR /home/app
 ADD requirements.txt .
 RUN pip install -r requirements.txt
+ADD src .
 ENTRYPOINT ["python3"]
 CMD ["src/main.py"]
