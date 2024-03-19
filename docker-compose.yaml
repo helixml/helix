@@ -99,6 +99,11 @@ services:
     # ports:
       # - 5000:5000
     restart: always
+    environment:
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
 
 volumes:
   helix-keycloak-db:
