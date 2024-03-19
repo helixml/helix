@@ -14,8 +14,7 @@ import (
 )
 
 // this function expects the sessionQueueMtx to be locked when it is run
-func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
-
+func (c *Controller) getMatchingSessionFilterIndex(_ context.Context, filter types.SessionFilter) int {
 	for i, session := range c.sessionQueue {
 		// include sessions that are older than filter.Older
 		// so - filter out ones that are too new

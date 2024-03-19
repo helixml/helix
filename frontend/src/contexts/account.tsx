@@ -40,7 +40,11 @@ export const AccountContext = createContext<IAccountContext>({
   serverConfig: {
     filestore_prefix: '',
     stripe_enabled: false,
+    sentry_dsn_frontend: '',
+    google_analytics_frontend: '',
     eval_user_id: '',
+    tools_enabled: true,
+    global_tools: [],
   },
   userConfig: {},
   apiKeys: [],
@@ -63,7 +67,11 @@ export const useAccountContext = (): IAccountContext => {
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
     stripe_enabled: false,
+    sentry_dsn_frontend: '',
+    google_analytics_frontend: '',
     eval_user_id: '',
+    tools_enabled: true,
+    global_tools: [],
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 

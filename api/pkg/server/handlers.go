@@ -3,6 +3,7 @@ package server
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -240,9 +241,16 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	activeTools := []string{}
+	for _, tool := range strings.Split(req.FormValue("active_tools"), ",") {
+		if tool != "" {
+			activeTools = append(activeTools, tool)
+		}
+	}
+
 	finetuneEnable := false
 	finetuneString := req.FormValue("text_finetune_enabled")
-	
+
 	ragEnable := false
 	ragString := req.FormValue("rag_enabled")
 
@@ -257,19 +265,20 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	createRequest := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      sessionType,
-		ModelName:        modelName,
-		Owner:            reqContext.Owner,
-		OwnerType:        reqContext.OwnerType,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
-		ParentSession:    req.FormValue("parent_session"),
+		SessionID:               sessionID,
+		SessionMode:             sessionMode,
+		SessionType:             sessionType,
+		ModelName:               modelName,
+		Owner:                   reqContext.Owner,
+		OwnerType:               reqContext.OwnerType,
+		UserInteractions:        []*types.Interaction{userInteraction},
+		Priority:                status.Config.StripeSubscriptionActive,
+		ParentSession:           req.FormValue("parent_session"),
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		RagEnabled:          ragEnable,
-		TextFinetuneEnabled: finetuneEnable,
-		RagSettings:         *ragSettings,
+		RagEnabled:              ragEnable,
+		TextFinetuneEnabled:     finetuneEnable,
+		RagSettings:             *ragSettings,
+		ActiveTools:             activeTools,
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
@@ -344,12 +353,24 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
+
+	tools := []types.Tool{}
+	for _, id := range apiServer.Options.ToolsGlobalIDS {
+		tool, err := apiServer.Store.GetTool(context.Background(), id)
+		if err != nil {
+			return types.ServerConfigForFrontend{}, err
+		}
+		tools = append(tools, *tool)
+	}
+
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
 		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Options.EvalUserID,
+		ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
+		GlobalTools:             tools,
 	}, nil
 }
 

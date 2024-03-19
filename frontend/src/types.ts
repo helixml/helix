@@ -248,7 +248,11 @@ export interface IWebsocketEvent {
 export interface IServerConfig {
   filestore_prefix: string,
   stripe_enabled: boolean,
+  sentry_dsn_frontend: string,
+  google_analytics_frontend: string,
   eval_user_id: string,
+  tools_enabled: boolean,
+  global_tools: ITool[],
 }
 
 export interface IConversation {
