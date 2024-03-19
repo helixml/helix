@@ -10,20 +10,4 @@ export default defineConfig({
     port: 8081,
   },
   publicDir: 'assets',
-  build: {
-    lib: {
-      entry: path.resolve(__dirname, 'src/components/widgets/Embed.tsx'),
-      name: 'HelixEmbed',
-      fileName: (format) => `helix-embed.${format}.js`
-    },
-    rollupOptions: {
-      external: ['react', 'react-dom'],
-      output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM'
-        },
-      },
-    },
-  },
 })
