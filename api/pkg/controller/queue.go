@@ -15,6 +15,7 @@ import (
 
 // this function expects the sessionQueueMtx to be locked when it is run
 func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter types.SessionFilter) int {
+
 	for i, session := range c.sessionQueue {
 		// include sessions that are older than filter.Older
 		// so - filter out ones that are too new
@@ -60,6 +61,7 @@ func (c *Controller) getMatchingSessionFilterIndex(ctx context.Context, filter t
 		if filter.Memory > 0 {
 			model, ok := c.models[session.ModelName]
 			if !ok {
+				log.Error().Msgf("unable to look up model %s, possible programming error in adding model to models map", session.ModelName)
 				continue
 			}
 			if model.GetMemoryRequirements(session.Mode) > filter.Memory {

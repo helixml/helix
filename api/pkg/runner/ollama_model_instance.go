@@ -45,8 +45,10 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
 	i := &OllamaModelInstance{
 		ctx:             ctx,
+		cancel:          cancel,
 		id:              system.GenerateUUID(),
 		finishCh:        make(chan bool),
 		workCh:          make(chan *types.Session, 1),
@@ -92,7 +94,8 @@ type OllamaModelInstance struct {
 
 	// we create a cancel context for the running process
 	// which is derived from the main runner context
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	// the command we are currently executing
 	currentCommand *exec.Cmd
@@ -260,8 +263,13 @@ WAIT:
 			select {
 			case <-i.ctx.Done():
 				log.Info().Msgf("🟢 stopping Ollama model instance")
+				// TODO: does this need to call Stop()?
 				return
-			case session := <-i.workCh:
+			case session, ok := <-i.workCh:
+				if !ok {
+					log.Info().Msg("🟢 workCh closed, exiting")
+					return
+				}
 				log.Info().Str("session_id", session.ID).Msg("🟢 processing interaction")
 
 				i.currentSession = session
@@ -273,6 +281,7 @@ WAIT:
 						Str("session_id", session.ID).
 						Err(err).
 						Msg("error processing interaction")
+					i.errorSession(session, err)
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
@@ -310,11 +319,19 @@ func (i *OllamaModelInstance) Stop() error {
 		return fmt.Errorf("no Ollama process to stop")
 	}
 	log.Info().Msgf("🟢 stop Ollama model instance")
-	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+	if err := syscall.Kill(i.currentCommand.Process.Pid, syscall.SIGTERM); err != nil {
 		log.Error().Msgf("error stopping Ollama model instance: %s", err.Error())
 		return err
 	}
 	log.Info().Msgf("🟢 stopped Ollama instance")
+	// from Karolis: and on model instance stop close the workCh but the writer
+	// needs to not write then as it will panic, better to cancel the ctx, I
+	// think that was the idea there
+	//
+	// Luke: so... try both?
+	close(i.workCh)
+	i.cancel()
+
 	return nil
 }
 
