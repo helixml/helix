@@ -163,6 +163,7 @@ const [files, setFiles] = useState<CustomFile[]>(
     // Extract the File objects from the CustomFile array
     const fileArray = files.map(customFile => customFile.file);
     onChange(manualTextFileCounter, fileArray);
+    
   }, [
     manualTextFileCounter,
     files,
@@ -179,35 +180,45 @@ const [files, setFiles] = useState<CustomFile[]>(
 
   return (
     <Box
-      sx={{
-        mt: 2,
-        width: '100%',
-      }}
-    >
+    sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between', // Distributes space between items
+      height: '100vh', // Use the full height of the viewport
+      overflow: 'hidden', // Hide the overflow
+      width: '100%',
+      p: 2, // Consider reducing padding if necessary
+      boxSizing: 'border-box', // Include padding and border in the element's total width and height
+    }}
+     >
       
       {
         showSystemInteraction && (
           <Box
             sx={{
-              mt: 4,
-              mb: 10,
+              mt: 1,
+              mb: 3,
+              width: '100%',
+              
               
             }}
           >
            
               <Typography  sx={{
-    fontWeight: 'bold', 
-  }}className="interactionMessage">
+       fontWeight: 'bold', 
+       
+        }}className="interactionMessage">
                 Add URLs, paste some text or upload some files you want your model to learn from:
               </Typography>
           
           </Box>
         )
-      }
+       }
            <Typography
-    sx={{
+        sx={{
+         
       width: '100%',
-      pb: 4,
+      pb: 1,
       fontSize: '1rem', // Example size, adjust as needed
       fontWeight: 'bold', 
     }}
@@ -218,22 +229,22 @@ const [files, setFiles] = useState<CustomFile[]>(
         sx={{
           
           mb: 0,
+          mt: 1,
           alignItems: 'flex-start',
-       
           flexDirection: {
             xs: 'column',
             sm: 'column',
             md: 'row'
           }
         }}
-      >
+       >
    
         <Cell
           sx={{
             width: '100%',
             flexGrow: 1,
             pr: 0.5,
-            pb: 1,
+            pb: 0.5,
             display: 'flex', 
             alignItems: 'flex-start',
           }}
@@ -245,8 +256,8 @@ const [files, setFiles] = useState<CustomFile[]>(
             value={manualURL}
             onChange={(e) => setManualURL(e.target.value)}
             sx={{
-              height: '100px',
-        maxHeight: '100px',
+              height: '70px',
+              maxHeight: '100px',
               pb: 1,
               backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
               borderRadius: 0,
@@ -260,7 +271,7 @@ const [files, setFiles] = useState<CustomFile[]>(
                   sx={{
                     marginLeft: 'auto',
                     height: '40px',
-                     backgroundColor: 'transparent',
+                    backgroundColor: 'transparent',
                    
                   }}
                 >
@@ -274,15 +285,16 @@ const [files, setFiles] = useState<CustomFile[]>(
       <Typography
     sx={{
       width: '100%',
-      pb: 4,
+      pb: 1,
       fontSize: '1rem', // Example size, adjust as needed
       fontWeight: 'bold', 
     }}
-  >
-  Text
-  </Typography>
+    >
+    Text
+    </Typography>
       <Row
   sx={{
+    mt: 1,
     mb: 2,
     alignItems: 'flex-start',
     flexDirection: {
@@ -306,7 +318,7 @@ const [files, setFiles] = useState<CustomFile[]>(
         height: '100px',
         maxHeight: '100px',
         pb: 1,
-        // backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+        backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
        
       }}
       fullWidth
@@ -339,7 +351,7 @@ const [files, setFiles] = useState<CustomFile[]>(
 <Typography
     sx={{
       width: '100%',
-      pb: 4,
+      pb: 2,
       fontSize: '1rem', // Example size, adjust as needed
       fontWeight: 'bold', 
     }}
@@ -507,7 +519,7 @@ const [files, setFiles] = useState<CustomFile[]>(
   sx={{
     '& .MuiDrawer-paper': {
       backgroundColor: '#070714', 
-      height: '50vh'// Assuming each file item is 48px tall
+     // Assuming each file item is 48px tall
       // overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
     },
   }}
