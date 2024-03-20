@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -46,27 +45,13 @@ var JOB_VACANCY_CANDIDATES = []JobVacancyCandidate{
 	},
 }
 
-func parseCandidateListParameters(params map[string][]string) JobCandidateQuery {
-	var query JobCandidateQuery
-
-	if val, ok := params["job_title"]; ok && len(val[0]) > 0 {
-		query.JobTitle = val[0]
-	}
-
-	if val, ok := params["candidate_name"]; ok && len(val[0]) > 0 {
-		query.CandidateName = val[0]
-	}
-
-	return query
-}
-
 func filterCandidates(candidates []JobVacancyCandidate, query JobCandidateQuery) []JobVacancyCandidate {
 	var filtered []JobVacancyCandidate
 	for _, candidate := range candidates {
-		if len(query.JobTitle) > 0 && candidate.JobTitle != query.JobTitle {
+		if !doesQueryMatchString(candidate.JobTitle, query.JobTitle) {
 			continue
 		}
-		if len(query.CandidateName) > 0 && !strings.Contains(candidate.Name, query.CandidateName) {
+		if !doesQueryMatchString(candidate.Name, query.CandidateName) {
 			continue
 		}
 		filtered = append(filtered, candidate)
@@ -76,7 +61,11 @@ func filterCandidates(candidates []JobVacancyCandidate, query JobCandidateQuery)
 
 func listCandidates(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	query := parseCandidateListParameters(r.URL.Query())
+	params := r.URL.Query()
+	query := JobCandidateQuery{
+		JobTitle:      getQueryParamStringAny("job_title", params),
+		CandidateName: getQueryParamStringAny("candidate_name", params),
+	}
 	filteredCandidates := filterCandidates(JOB_VACANCY_CANDIDATES, query)
 	fmt.Printf("filteredCandidates --------------------------------------\n")
 	spew.Dump(query)

@@ -52,20 +52,10 @@ var SALES_LEADS = []SalesLead{
 	},
 }
 
-func parseSalesLeadListParameters(params map[string][]string) SalesLeadQuery {
-	var query SalesLeadQuery
-
-	if val, ok := params["status"]; ok && len(val[0]) > 0 {
-		query.Status = val[0]
-	}
-
-	return query
-}
-
 func filterSalesLeads(salesLeads []SalesLead, query SalesLeadQuery) []SalesLead {
 	var filtered []SalesLead
 	for _, salesLead := range salesLeads {
-		if len(query.Status) > 0 && salesLead.Status != query.Status {
+		if !doesQueryMatchString(salesLead.Status, query.Status) {
 			continue
 		}
 		filtered = append(filtered, salesLead)
@@ -75,7 +65,10 @@ func filterSalesLeads(salesLeads []SalesLead, query SalesLeadQuery) []SalesLead 
 
 func listSalesLeads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	query := parseSalesLeadListParameters(r.URL.Query())
+	params := r.URL.Query()
+	query := SalesLeadQuery{
+		Status: getQueryParamString("status", params, []string{"active"}),
+	}
 	filteredSalesLeads := filterSalesLeads(SALES_LEADS, query)
 	fmt.Printf("filteredSalesLeads --------------------------------------\n")
 	spew.Dump(query)
