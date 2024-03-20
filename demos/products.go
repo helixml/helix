@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -68,40 +67,6 @@ var PRODUCT_DATA = []Product{
 	},
 }
 
-func parseListParameters(params map[string][]string) ProductQuery {
-	var query ProductQuery
-
-	if val, ok := params["min_price"]; ok && len(val[0]) > 0 {
-		minPrice, err := strconv.Atoi(val[0])
-		if err != nil {
-			minPrice = 0
-		}
-		query.MinPrice = minPrice
-	}
-
-	if val, ok := params["max_price"]; ok && len(val[0]) > 0 {
-		maxPrice, err := strconv.Atoi(val[0])
-		if err != nil {
-			maxPrice = 0
-		}
-		query.MaxPrice = maxPrice
-	}
-
-	if val, ok := params["cpu"]; ok && len(val[0]) > 0 {
-		query.CPU = val[0]
-	}
-
-	if val, ok := params["ram"]; ok && len(val[0]) > 0 {
-		ram, err := strconv.Atoi(val[0])
-		if err != nil {
-			ram = 0
-		}
-		query.RAM = ram
-	}
-
-	return query
-}
-
 func filterProducts(products []Product, query ProductQuery) []Product {
 	var filtered []Product
 	for _, product := range products {
@@ -112,7 +77,7 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 		if query.MaxPrice > 0 && product.Price > query.MaxPrice {
 			continue
 		}
-		if len(query.CPU) > 0 && product.CPU != query.CPU {
+		if !doesQueryMatchString(product.CPU, query.CPU) {
 			continue
 		}
 		if query.RAM > 0 && product.RAM < query.RAM {
@@ -125,7 +90,13 @@ func filterProducts(products []Product, query ProductQuery) []Product {
 
 func listProducts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	query := parseListParameters(r.URL.Query())
+	params := r.URL.Query()
+	query := ProductQuery{
+		MinPrice: getQueryParamInteger("min_price", params),
+		MaxPrice: getQueryParamInteger("max_price", params),
+		CPU:      getQueryParamString("cpu", params, []string{"i5", "i7", "i9"}),
+		RAM:      getQueryParamInteger("ram", params),
+	}
 	filteredProducts := filterProducts(PRODUCT_DATA, query)
 	fmt.Printf("listProducts --------------------------------------\n")
 	spew.Dump(query)
@@ -133,24 +104,14 @@ func listProducts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(filteredProducts)
 }
 
-func parsePurchaseParameters(params map[string][]string) PurchaseQuery {
-	var query PurchaseQuery
-
-	if val, ok := params["product_id"]; ok && len(val[0]) > 0 {
-		query.ProductID = val[0]
-	}
-
-	if val, ok := params["customer_email"]; ok && len(val[0]) > 0 {
-		query.CustomerEmail = val[0]
-	}
-
-	return query
-}
-
 func bookProduct(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	query := parsePurchaseParameters(r.URL.Query())
-	fmt.Printf("bookProduct --------------------------------------\n")
+	params := r.URL.Query()
+	query := PurchaseQuery{
+		ProductID:     getQueryParamString("product_id", params, []string{"SX67", "SX88", "SX99"}),
+		CustomerEmail: getQueryParamStringAny("customer_email", params),
+	}
+	fmt.Printf("purchaseProduct --------------------------------------\n")
 	spew.Dump(query)
 	json.NewEncoder(w).Encode(PurchaseQuery{
 		ProductID:     query.ProductID,
