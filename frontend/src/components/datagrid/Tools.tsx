@@ -1,6 +1,7 @@
 import React, { FC, useMemo } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import ViewIcon from '@mui/icons-material/Visibility'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
@@ -30,6 +31,8 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
 
   const theme = useTheme()
   const account = useAccount()
+
+  const isAdmin = account.admin
 
   const columns = useMemo<IDataGrid2_Column<ITool>[]>(() => {
     return [
@@ -100,7 +103,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
             data.config.api.actions.map((action, index) => {
               return (
                 <Box key={index}>
-                  <Row sx={{mt:1}}>
+                  <Row>
                     <Cell sx={{width:'50%'}}>
                       <Typography>
                         {action.name}
@@ -140,7 +143,29 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
       minWidth: 120,
       defaultWidth: 120,
       render: ({ data }) => {
-        if(data.global && !account.admin) return null
+        if(data.global && !isAdmin) {
+          return (
+            <Box
+              sx={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'flex-end',
+                justifyContent: 'space-between',
+                pl: 2,
+                pr: 2,
+              }}
+            >
+              <ClickLink
+                onClick={ () => {
+                  onEdit(data)
+                }}
+              >
+                <ViewIcon />
+              </ClickLink>
+            </Box>
+          )
+        }
         return (
           <Box
             sx={{
@@ -175,7 +200,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
     onEdit,
     onDelete,
     account.token,
-    account.admin,
+    isAdmin,
   ])
 
   return (
