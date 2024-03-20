@@ -634,6 +634,7 @@ const New: FC = () => {
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
+                      id="sendButton"
                       aria-label="send"
                       disabled={selectedMode == SESSION_MODE_FINETUNE}
                       onClick={onInference}
