@@ -20,6 +20,11 @@ docker volume rm helix_helix-postgres-db
 ```
 This will force the creation of the postgres db needed for keycloak on the next step.
 
+Ensure keycloak realm settings are up to date with your .env file
+```
+./update-realm-settings.sh
+```
+
 ```
 ./stack up
 ```
