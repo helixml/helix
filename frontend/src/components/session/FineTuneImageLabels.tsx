@@ -102,37 +102,34 @@ export const FineTuneImageLabels: FC<{
   
       {/* "Return to upload images" button */}
       {files.length > 0 && showButton && (
-      <Button
-        component="button"
-        onClick={() => {}}
-        sx={{
-          bgcolor: '#3BF959',
-          color: 'black',
-          position: 'fixed',
-          bottom: 16,
-          left: 16, 
-          textDecoration: 'underline',
-        }}
-      >
-        Return to upload images
-      </Button>
-    )}
-  
-      {/* "Start Training" button */}
-      {files.length > 0 && showButton && onDone && (
-        <Button
-          sx={{
-            bgcolor: '#3BF959',
-            color: 'black',
-            position: 'fixed',
-            bottom: 16,
-            right: 16, // Positioned on the right side
-          }}
-          variant="contained"
-          onClick={onDone}
-        >
-          Start Training
-        </Button>
+
+        <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2, mb: 2 }}>
+          <Grid item xs={6}>
+            <Button
+              component="button"
+              onClick={() => {}}
+              sx={{
+                // bgcolor: '#3BF959',
+                // color: 'black',
+                textDecoration: 'underline',
+              }}
+            >
+              Return to upload images
+            </Button>
+          </Grid>
+          <Grid item xs={6} style={{ textAlign: 'right' }} >
+            <Button
+              sx={{
+                bgcolor: '#3BF959',
+                color: 'black',
+              }}
+              variant="contained"
+              onClick={onDone}
+            >
+              Start Training
+            </Button>
+          </Grid>
+        </Grid>
       )}
     </Box>
   )

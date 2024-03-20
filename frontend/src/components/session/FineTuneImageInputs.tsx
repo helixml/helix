@@ -106,64 +106,54 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
         onlyImages
         onUpload={ onDropFiles }
       >
-        {/* <Button
-          sx={{
-            width: '100%',
-          }}
-          variant="contained"
-          color={ buttonStates.uploadFilesColor }
-          endIcon={<CloudUploadIcon />}
-        >
-          { buttonStates.uploadFilesLabel }
-        </Button> */}
         <Box
-  sx={{
-    border: '1px solid #333',
-    p: 2,
-    height: '250px',
-    minHeight: '100px',
-    cursor: 'pointer',
-    backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
-    width: '100%',
-    display: 'flex', 
-    flexDirection: 'column', 
-    alignItems: 'center', 
-    justifyContent: 'center',
-  }}
->
-  {
-    files.length <= 0 && (
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: '40px',
-        }}
-      >
-        <Typography
           sx={{
-            color: '#bbb',
-            textAlign: 'center',
-          }}
-          variant="caption"
-        >
-          Drag images here to upload
-        </Typography>
-        <Typography
-          sx={{
-            color: '#bbb',
-            textDecoration: 'underline',
+            border: '1px solid #333',
+            p: 2,
+            height: '250px',
+            minHeight: '100px',
             cursor: 'pointer',
-            ml: 2,
+            backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+            width: '100%',
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center',
           }}
         >
-          upload manually
-        </Typography>
-      </Box>
-    )
-  }
+          {
+            files.length <= 0 && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '40px',
+                }}
+              >
+                <Typography
+                  sx={{
+                    color: '#bbb',
+                    textAlign: 'center',
+                  }}
+                  variant="caption"
+                >
+                  Drag images here to upload
+                </Typography>
+                <Typography
+                  sx={{
+                    color: '#bbb',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    ml: 2,
+                  }}
+                >
+                  upload manually
+                </Typography>
+              </Box>
+            )
+          }
 
           <Grid container spacing={3} direction="row" justifyContent="flex-start">
             {
@@ -206,7 +196,8 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
           </Grid>
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '30vh', justifyContent: 'space-between' }}></Box>
-        {files.length > 0 && (
+      </FileUpload>
+      {files.length > 0 && (
         <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2, mb: 2 }}>
           <Grid item xs={6}>
             <Typography sx={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -239,8 +230,6 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
           </Grid>
         </Grid>
       )}
-      
-      </FileUpload>
       <Drawer
         anchor="right"
         open={drawerOpen}
