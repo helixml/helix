@@ -131,6 +131,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	parts := strings.Split(answer, "```")
 	answer = parts[0]
 
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	answer = strings.Replace(answer, "\\", "", -1)
+
 	// var params map[string]string
 	params, err := unmarshalParams(answer)
 	if err != nil {
