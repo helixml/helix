@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
+import ObiMock from './pages/ObiMock'
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
 import CollectionTitle from './components/collection/CollectionTitle'
@@ -147,6 +148,16 @@ const routes: IApplicationRoute[] = [
     sidebar: true,
   },
   render: () => <Account />,
+}, {
+  name: 'obimock',
+  path: '/obimock',
+  meta: {
+    title: 'Obi Mock',
+    sidebar: true,
+  },
+  render: () => (
+      <ObiMock />
+  ),
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
