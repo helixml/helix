@@ -73,7 +73,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
   return (
     <Box
     sx={{
-      mt: 2,
+      mt: 0,
     }}
   >
 
@@ -101,7 +101,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
       <FileUpload
         sx={{
           width: '100%',
-          mt: 2,
+          mt: 4,
         }}
         onlyImages
         onUpload={ onDropFiles }

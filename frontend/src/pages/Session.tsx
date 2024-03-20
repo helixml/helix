@@ -539,7 +539,7 @@ const Session: FC = () => {
                         retryFinetuneErrors={ retryFinetuneErrors }
                         headerButtons={ isLastInteraction ? (
                           <Tooltip title="Restart Session">
-                            <IconButton onClick={ onRestart }  sx={{ mt: '0.5rem' }} >
+                            <IconButton onClick={ onRestart }  sx={{ mb: '0.5rem' }} >
                               <RefreshIcon
                                 sx={{
                                   color:theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,

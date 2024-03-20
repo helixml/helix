@@ -1,284 +1,157 @@
-import React, { FC, useState, useMemo } from 'react'
-import { v4 as uuidv4 } from 'uuid'
-import Button from '@mui/material/Button'
-import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
-import TextField from '@mui/material/TextField'
+import React, { FC, useState, useMemo } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+import Button from '@mui/material/Button';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import TextField from '@mui/material/TextField';
 
-import EditIcon from '@mui/icons-material/Edit'
-import DeleteIcon from '@mui/icons-material/Delete'
+import DataGrid2, { IDataGrid2_Column } from '../datagrid/DataGrid';
+import Window from '../widgets/Window';
+import SimpleDeleteConfirmWindow from '../widgets/SimpleDeleteConfirmWindow';
 
-import DataGrid2, { IDataGrid2_Column } from '../datagrid/DataGrid'
-import ClickLink from '../widgets/ClickLink'
-import Window from '../widgets/Window'
-import SimpleDeleteConfirmWindow from '../widgets/SimpleDeleteConfirmWindow'
+import useSnackbar from '../../hooks/useSnackbar';
 
-import useSnackbar from '../../hooks/useSnackbar'
-
-import {
-  IQuestionAnswer,
-} from '../../types'
+import { IQuestionAnswer } from '../../types';
 
 export const FineTuneTextQuestionEditor: FC<{
   readOnly?: boolean,
   title?: string,
   cancelTitle?: string,
   initialQuestions: IQuestionAnswer[],
-  onSubmit?: {
-    (questions: IQuestionAnswer[]): void,
-  },
-  onCancel: {
-    (): void,
-  }
+  onSubmit?: (questions: IQuestionAnswer[]) => void,
+  onCancel: () => void,
 }> = ({
   readOnly = false,
-  title = 'Edit Questions',
   cancelTitle = 'Cancel',
   initialQuestions,
   onSubmit,
   onCancel,
 }) => {
-  const snackbar = useSnackbar()
+  const snackbar = useSnackbar();
 
-  const [ questions, setQuestions ] = useState<IQuestionAnswer[]>(initialQuestions)
-  const [ editQuestion, setEditQuestion ] = useState<IQuestionAnswer>()
-  const [ deleteQuestion, setDeleteQuestion ] = useState<IQuestionAnswer>()
-  
-  const columns = useMemo<IDataGrid2_Column<IQuestionAnswer>[]>(() => {
-    return [{
+  const [questions, setQuestions] = useState<IQuestionAnswer[]>(initialQuestions);
+  const [editQuestion, setEditQuestion] = useState<IQuestionAnswer | null>(null);
+  const [deleteQuestion, setDeleteQuestion] = useState<IQuestionAnswer | null>(null);
+
+  const columns = useMemo<IDataGrid2_Column<IQuestionAnswer>[]>(() => [
+    {
       name: 'question',
-      header: 'Question',
+      header: 'Questions',
       defaultFlex: 1,
-      render: ({ data }) => {
-        return (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-            }}
-           >
-            <Typography
-              variant="caption"
-              sx={{
-                whiteSpace: 'normal',
-                wordBreak: 'break-word',
-              }}
-            >
-              { data.question }
-            </Typography>
-          </Box>
-        )
-      }
+      render: ({ data }) => (
+        <Box sx={{ width: '100%', height: '100%' }}>
+          <Typography variant="caption" sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+            {data.question}
+          </Typography>
+        </Box>
+      ),
     },
     {
       name: 'answer',
-      header: 'Answer',
+      header: 'Answers',
       defaultFlex: 1,
-      render: ({ data }) => {
-        return (
-          <Box
-            sx={{
-              
-            }}
-          >
-            <Typography
-              variant="caption"
-              sx={{
-                whiteSpace: 'normal',
-                wordBreak: 'break-word',
-              }}
-            >
-              { data.answer }
-            </Typography>
-          </Box>
-        )
-      }
+      render: ({ data }) => (
+        <Box sx={{}}>
+          <Typography variant="caption" sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+            {data.answer}
+          </Typography>
+        </Box>
+      ),
     },
-    // {
-    //   name: 'actions',
-    //   header: 'Actions',
-    //   minWidth: 120,
-    //   defaultWidth: 120,
-    //   render: ({ data }) => {
-    //     if(readOnly) return null
-    //     return (
-    //       <Box
-    //         sx={{
-    //           width: '100%',
-    //           display: 'flex',
-    //           flexDirection: 'row',
-    //           alignItems: 'flex-end',
-    //           justifyContent: 'space-between',
-    //           pl: 2,
-    //           pr: 2,
-    //         }}
-    //       >
-    //         <ClickLink
-    //           onClick={ () => {
-    //             setDeleteQuestion(data)
-    //           }}
-    //         >
-    //           <DeleteIcon />
-    //         </ClickLink>
-    //         <ClickLink
-    //           onClick={ () => {
-    //             setEditQuestion(data)
-    //           }}
-    //         >
-    //           <EditIcon />
-    //         </ClickLink>
-    //       </Box>
-    //     )
-    //   }
-    // }
-  ]
-  }, [
-    readOnly,
-  ])
+    // Other columns can be added here if needed
+  ], [readOnly]);
 
   return (
     <Window
-      // title={ title }
       size="lg"
       fullHeight
       open
-      withCancel
+      withCancel={true}
       submitTitle="Save"
-      cancelTitle={ cancelTitle }
-      // leftButtons={(
-      //   <>
-      //     <Button
-      //       variant="contained"
-      //       onClick={ () => {
-      //         setEditQuestion({
-      //           id: 'new',
-      //           question: '',
-      //           answer: ''
-      //         })
-      //       }}
-      //     >
-      //       Add more
-      //     </Button>
-      //   </>
-      // )}
+      cancelTitle={cancelTitle}
       rightButtons={(
         <>
           <Button
             variant="contained"
-            onClick={() => {
-              setEditQuestion({
-                id: 'new',
-                question: '',
-                answer: ''
-              });
+            onClick={() => setEditQuestion({ id: 'new', question: '', answer: '' })}
+            sx={{
+              bgcolor: '#fcdb05',
+              color: 'black',
+              '&:hover': {
+                bgcolor: '#e6c405',
+              },
+              marginRight: 1,
+              mt: 2,
             }}
           >
             Add more
           </Button>
+         
         </>
       )}
-      onCancel={ onCancel }
-      onSubmit={ readOnly ? undefined : () => {
-        if(!onSubmit) return
-        onSubmit(questions)
-      }}
+      onCancel={onCancel}
+      onSubmit={readOnly ? undefined : () => onSubmit && onSubmit(questions)}
     >
       <DataGrid2
         autoSort
         userSelect
-        rows={ questions }
-        columns={ columns }
-        loading={ false }
+        rows={questions}
+        columns={columns}
+        loading={false}
       />
-      {
-        deleteQuestion && (
-          <SimpleDeleteConfirmWindow
-            title="this question"
-            onCancel={ () => setDeleteQuestion(undefined) }
-            onSubmit={ () => {
-              setQuestions(questions.filter(q => q.id != deleteQuestion.id))
-              setDeleteQuestion(undefined)
-              snackbar.info('Question deleted')
-            } }
-          />
-        )
-      }
-   {
-  editQuestion && (
-    <Window
-      // title="Edit Question"
-      open
-      withCancel
-      cancelTitle="Cancel"
-      onCancel={() => setEditQuestion(undefined)}
-      onSubmit={() => {
-        if (editQuestion.id === 'new') {
-          const newQuestions = [
-            ...questions,
-            {
-              ...editQuestion,
-              id: uuidv4(),
-            },
-          ];
-          setQuestions(newQuestions);
-        } else {
-          setQuestions(questions.map(q => (q.id === editQuestion.id ? editQuestion : q)));
-        }
-        setEditQuestion(undefined);
-        snackbar.info('Question updated');
-      }}
-    >
-      <Box sx={{ p: 2 }}>
-        <TextField
-          // label="Question"
-          fullWidth
-          multiline
-          helperText="Enter the question text here"
-          rows={5}
-          value={editQuestion.question}
-          onChange={(e) => setEditQuestion({ ...editQuestion, question: e.target.value })}
+      {deleteQuestion && (
+        <SimpleDeleteConfirmWindow
+          title="Confirm Deletion"
+          onCancel={() => setDeleteQuestion(null)}
+          onSubmit={() => {
+            setQuestions(questions.filter(q => q.id !== deleteQuestion.id));
+            setDeleteQuestion(null);
+            snackbar.info('Question deleted');
+          }}
         />
-      </Box>
-      <Box sx={{ p: 2 }}>
-        <TextField
-          label="Answer"
-          fullWidth
-          multiline
-          helperText="Enter the answer text here"
-          rows={5}
-          value={editQuestion.answer}
-          onChange={(e) => setEditQuestion({ ...editQuestion, answer: e.target.value })}
-        />
-      </Box>
-      {/* Add the new button here */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2 }}>
-        <Button
-          variant="contained"
-          onClick={() => {
-            const newQuestion = {
-              id: uuidv4(),
-              question: '',
-              answer: '',
-            };
-            setQuestions([...questions, newQuestion]);
-            // Optionally, set the new question for editing
-            setEditQuestion(newQuestion);
+      )}
+      {editQuestion && (
+        <Window
+          title="Edit Question"
+          open
+          withCancel
+          onCancel={() => setEditQuestion(null)}
+          onSubmit={() => {
+            let updatedQuestions;
+            if (editQuestion.id === 'new') {
+              updatedQuestions = [...questions, { ...editQuestion, id: uuidv4() }];
+            } else {
+              updatedQuestions = questions.map(q => (q.id === editQuestion.id ? editQuestion : q));
+            }
+            setQuestions(updatedQuestions);
+            setEditQuestion(null);
+            snackbar.info('Question updated');
           }}
         >
-          Add Question and Answer
-        </Button>
-        {/* <Button
-          variant="outlined"
-          onClick={() => setEditQuestion(undefined)}
-        >
-          Cancel
-        </Button> */}
-      </Box>
+          <Box sx={{ p: 2 }}>
+            <TextField
+              label="Question"
+              fullWidth
+              multiline
+              rows={5}
+              value={editQuestion?.question || ''}
+              onChange={(e) => setEditQuestion({ ...editQuestion, question: e.target.value })}
+            />
+          </Box>
+          <Box sx={{ p: 2 }}>
+            <TextField
+              label="Answer"
+              fullWidth
+              multiline
+              rows={5}
+              value={editQuestion?.answer || ''}
+              onChange={(e) => setEditQuestion({ ...editQuestion, answer: e.target.value })}
+            />
+          </Box>
+        </Window>
+      )}
     </Window>
-  )
-}
-</Window>
-  )  
-}
+  );
+};
 
-export default FineTuneTextQuestionEditor
+export default FineTuneTextQuestionEditor;
