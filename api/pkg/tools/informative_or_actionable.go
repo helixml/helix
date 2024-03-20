@@ -99,6 +99,11 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	parts := strings.Split(answer, "```")
 	answer = parts[0]
 
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	answer = strings.Replace(answer, "\\", "", -1)
+
 	err = unmarshalJSON(answer, &actionableResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, resp.Choices[0].Message.Content)
