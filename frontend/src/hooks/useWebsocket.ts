@@ -21,12 +21,16 @@ export const useWebsocket = (
     const wsHostname = window.location.hostname
     const url = `${wsProtocol}//${wsHostname}/api/v1/ws/user?access_token=${account.token}&session_id=${session_id}`
     const rws = new ReconnectingWebSocket(url)
-    rws.addEventListener('message', (event) => {
+    const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
       if(parsedData.session_id != session_id) return
       handler(parsedData)
-    })
-    return () => rws.close()
+    }
+    rws.addEventListener('message', messageHandler)
+    return () => {
+      rws.removeEventListener('message', messageHandler)
+      rws.close()
+    }
   }, [
     account.token,
     session_id,
