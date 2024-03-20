@@ -1,4 +1,5 @@
-import React, { FC, useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react'
+import React, { FC, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import throttle from 'lodash/throttle'
 import Typography from '@mui/material/Typography'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -357,14 +358,20 @@ const Session: FC = () => {
     onSend,
   ])
 
-  const scrollToBottom = useCallback(() => {
+  const handleScroll = throttle(() => {
     const divElement = divRef.current
     if(!divElement) return
-    divElement.scrollTo({
-      top: divElement.scrollHeight - divElement.clientHeight,
-      behavior: "smooth"
-    })
-  }, [])
+    const scrollHeight = divElement.scrollHeight;
+    const isScrolledToBottom = divElement.scrollHeight - divElement.clientHeight === divElement.scrollTop;
+    if (!isScrolledToBottom) {
+      setTimeout(() => {
+        divElement.scrollTo({ top: scrollHeight, behavior: 'smooth' });
+      }, 50)
+    }
+  }, 100, {
+    leading: true,
+    trailing: true,
+  })
 
   useEffect(() => {
     if(loading) return
@@ -377,15 +384,6 @@ const Session: FC = () => {
     textFieldRef.current?.focus()
   }, [
     router.params.session_id,
-  ])
-
-  useEffect(() => {
-    if(!session.data) return
-    setTimeout(() => {
-      scrollToBottom()
-    }, 10) 
-  }, [
-    session.data,
   ])
 
   useEffect(() => {
@@ -564,7 +562,7 @@ const Session: FC = () => {
                               session={ session.data }
                               serverConfig={ account.serverConfig }
                               hasSubscription={ account.userConfig.stripe_subscription_active ? true : false }
-                              onMessageChange={ scrollToBottom }
+                              onMessageChange={ handleScroll }
                             />
                           )
                         }
