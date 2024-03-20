@@ -175,6 +175,7 @@ func NewAxolotlModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Ax
 		runnerOptions:     cfg.RunnerOptions,
 		httpClientOptions: httpClientOptions,
 		jobHistory:        []*types.SessionSummary{},
+		lastActivity:      time.Now(),
 	}
 
 	fileHandler := NewFileHandler(cfg.RunnerOptions.ID, httpClientOptions, modelInstance.taskResponseHandler)
