@@ -6,11 +6,11 @@ import Box from '@mui/material/Box'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 import ReplayIcon from '@mui/icons-material/Replay'
-
 import TerminalWindow from '../widgets/TerminalWindow'
 import ClickLink from '../widgets/ClickLink'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import Markdown from './Markdown'
 
 import useAccount from '../../hooks/useAccount'
 
@@ -53,11 +53,15 @@ export const InteractionInference: FC<{
     return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}&redirect_urls=true`
   }
 
+  const sourceText = replaceMessageText(message || '', session, getFileURL)
+
   return (
     <>
       {
         message && (
-          <Typography className="interactionMessage" dangerouslySetInnerHTML={{__html: replaceMessageText(message, session, getFileURL)}}></Typography>
+          <Markdown
+            text={ sourceText }
+          />
         )
       }
       {

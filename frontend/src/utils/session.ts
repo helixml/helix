@@ -221,7 +221,6 @@ export const replaceMessageText = (
   session: ISession,
   getFileURL: (filename: string) => string,
 ): string => {
-  message = message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')
   const document_ids = session.config.document_ids || {}
   const allNonTextFiles = session.interactions.reduce((acc: string[], interaction) => {
     return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true))
