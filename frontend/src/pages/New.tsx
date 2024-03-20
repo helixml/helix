@@ -400,8 +400,14 @@ const New: FC = () => {
     )
   }
 
+  const isOnTextFineTuneFirstStep = selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0
+  const isOnImageFineTuneFirstStep = selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0
+  const isOnImageFineTuneSecondStep = selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1
+  const isFineTuneMode = mode !== SESSION_MODE_INFERENCE
+
+  const shouldShowModeTabs = isFineTuneMode && !isOnImageFineTuneSecondStep
+
   return (
-    
     <Box
       className="helix-new"
       sx={{
@@ -419,65 +425,66 @@ const New: FC = () => {
       }}
     >
       
-      {mode !== SESSION_MODE_INFERENCE && (
-  <Box sx={{ display: 'flex', width: '93%' }}>
-    {/* IMAGE Typography with line */}
-    <Box
-      sx={{
-        width: '49%',
-        textAlign: 'center',
-        cursor: 'pointer',
-        '&:after': {
-          content: '""',
-          display: 'block',
-          height: '2px',
-          backgroundColor: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
-          marginTop: '0.25rem',
-        }
-      }}
-      onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
-    >
-      <Typography
-        variant="subtitle1"
-        sx={{
-          fontSize: "medium",
-          fontWeight: 800,
-          color: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
-          marginBottom: '10px',
-        }}
-      >
-        Images
-      </Typography>
-    </Box>
-    {/* TEXT Typography with line */}
-    <Box
-      sx={{
-        width: '50%',
-        textAlign: 'center',
-        cursor: 'pointer',
-        '&:after': {
-          content: '""',
-          display: 'block',
-          height: '2px',
-          backgroundColor: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
-        }
-      }}
-      onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
-    >
-      <Typography
-        variant="subtitle1"
-        sx={{
-          fontSize: "medium",
-          fontWeight: 800,
-          color: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
-          marginBottom: '10px',
-        }}
-      >
-        Text
-      </Typography>
-    </Box>
-  </Box>
-)}
+      {shouldShowModeTabs && (
+        <Box sx={{ display: 'flex', width: '93%' }}>
+          {/* IMAGE Typography with line */}
+          <Box
+            sx={{
+              width: '49%',
+              textAlign: 'center',
+              cursor: 'pointer',
+              '&:after': {
+                content: '""',
+                display: 'block',
+                height: '2px',
+                backgroundColor: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
+                marginTop: '0.25rem',
+              }
+            }}
+            onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
+          >
+            <Typography
+              variant="subtitle1"
+              sx={{
+                fontSize: "medium",
+                fontWeight: 800,
+                color: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
+                marginBottom: '10px',
+              }}
+            >
+              Images
+            </Typography>
+          </Box>
+          {/* TEXT Typography with line */}
+          <Box
+            sx={{
+              width: '50%',
+              textAlign: 'center',
+              cursor: 'pointer',
+              '&:after': {
+                content: '""',
+                display: 'block',
+                height: '2px',
+                backgroundColor: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+              }
+            }}
+            onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
+          >
+            <Typography
+              variant="subtitle1"
+              sx={{
+                fontSize: "medium",
+                fontWeight: 800,
+                color: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+                marginBottom: '10px',
+              }}
+            >
+              Text
+            </Typography>
+          </Box>
+        </Box>
+      )}
+      
       <Box
         sx={{
           width: '100%',
@@ -499,7 +506,7 @@ const New: FC = () => {
             {selectedMode !== SESSION_MODE_FINETUNE && <CenteredMessage />}
           </Box>
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
+            isOnImageFineTuneFirstStep && (
               <FineTuneImageInputs
                 showButton
                 initialFiles={ inputs.files }
@@ -511,7 +518,7 @@ const New: FC = () => {
             )
           }
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
+            isOnTextFineTuneFirstStep && (
               <FineTuneTextInputs
                 showButton
                 initialCounter={ inputs.manualTextFileCounter }
@@ -526,7 +533,7 @@ const New: FC = () => {
             )
           }
           {
-            selectedMode === SESSION_MODE_FINETUNE && selectedType === SESSION_TYPE_IMAGE && inputs.fineTuneStep == 1 && (
+            isOnImageFineTuneSecondStep && (
               <FineTuneImageLabels
                 showButton
                 showImageLabelErrors={ inputs.showImageLabelErrors }
