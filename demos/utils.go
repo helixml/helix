@@ -52,8 +52,8 @@ func doesQueryMatchString(value string, query string) bool {
 	if query == "" {
 		return true
 	}
-	value = removeNonAlphanumeric(value)
-	query = removeNonAlphanumeric(query)
+	value = strings.ToLower(removeNonAlphanumeric(value))
+	query = strings.ToLower(removeNonAlphanumeric(query))
 	return strings.Contains(value, query)
 }
 
