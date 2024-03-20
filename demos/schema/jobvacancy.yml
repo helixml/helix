@@ -5,7 +5,7 @@ info:
 paths:
   /jobvacancies/v1/list:
     get:
-      summary: List all job vacancies, optionally filter by job title
+      summary: List all job vacancies, optionally filter by job title and/or candidate name
       operationId: listJobVacancies
       parameters:
         - in: query

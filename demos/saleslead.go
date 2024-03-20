@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 type SalesLead struct {
@@ -35,7 +38,7 @@ var SALES_LEADS = []SalesLead{
 		CompanyDescription: "An environmental consultancy firm providing sustainable solutions to reduce carbon footprint for businesses. They have been instrumental in implementing eco-friendly practices in over 100 companies globally.",
 		ContactName:        "David Wei",
 		JobTitle:           "Sustainability Officer",
-		Status:             "pending",
+		Status:             "active",
 		Notes:              "Contacted via LinkedIn after noticing our work with similar eco-conscious companies. Discussed their current projects and how our products could align with their sustainability goals. David requested detailed case studies and a cost-benefit analysis report. Need to prepare customized proposal highlighting our successful projects in the renewable energy sector.",
 	},
 	{
@@ -44,7 +47,7 @@ var SALES_LEADS = []SalesLead{
 		CompanyDescription: "Gourmet Express is a fast-growing chain of boutique fast-food outlets offering healthy, gourmet-quality meals at competitive prices. Currently operating in 30 locations nationwide and planning to expand internationally.",
 		ContactName:        "Samantha Lee",
 		JobTitle:           "Director of Operations",
-		Status:             "follow-up",
+		Status:             "active",
 		Notes:              "Met Samantha at the National Restaurant Owners Conference. Expressed interest in our supply chain optimization services. Provided initial consultation and shared testimonials from other food industry clients. Samantha raised concerns about implementation timeline and training for staff. Agreed to arrange a trial at two locations with full support. Need to follow up to finalize the details and set a start date.",
 	},
 }
@@ -74,5 +77,8 @@ func listSalesLeads(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	query := parseSalesLeadListParameters(r.URL.Query())
 	filteredSalesLeads := filterSalesLeads(SALES_LEADS, query)
+	fmt.Printf("filteredSalesLeads --------------------------------------\n")
+	spew.Dump(query)
+	spew.Dump(filteredSalesLeads)
 	json.NewEncoder(w).Encode(filteredSalesLeads)
 }

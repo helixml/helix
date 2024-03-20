@@ -731,27 +731,28 @@ const New: FC = () => {
                         {
                           tools.userTools.map((tool) => {
                             return (
-                              <FormControlLabel
-                                key={tool.id}
-                                control={
-                                  <Checkbox 
-                                    checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                    onChange={(event) => {
-                                      handleToolsCheckboxChange(tool.id, event)
-                                    }}
-                                  />
-                                }
-                                label={(
-                                  <Box>
+                              <Box sx={{ mb: 2 }} key={tool.id}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox 
+                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                      onChange={(event) => {
+                                        handleToolsCheckboxChange(tool.id, event)
+                                      }}
+                                    />
+                                  }
+                                  label={(
                                     <Box>
-                                      <Typography variant="body1">{ tool.name }</Typography>
-                                    </Box>
-                                    <Box>
-                                      <Typography variant="caption">{ tool.description }</Typography>
-                                    </Box>
-                                  </Box> 
-                                )}
-                              />
+                                      <Box>
+                                        <Typography variant="body1">{ tool.name }</Typography>
+                                      </Box>
+                                      <Box>
+                                        <Typography variant="caption">{ tool.description }</Typography>
+                                      </Box>
+                                    </Box> 
+                                  )}
+                                />
+                              </Box>
                             )
                           })
                         }
@@ -762,27 +763,29 @@ const New: FC = () => {
                         {
                           tools.globalTools.map((tool) => {
                             return (
-                              <FormControlLabel
-                                key={tool.id}
-                                control={
-                                  <Checkbox 
-                                    checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                    onChange={(event) => {
-                                      handleToolsCheckboxChange(tool.id, event)
-                                    }}
-                                  />
-                                }
-                                label={(
-                                  <Box>
+                              <Box sx={{ mb: 2 }} key={tool.id}>
+                                <FormControlLabel
+                                  key={tool.id}
+                                  control={
+                                    <Checkbox 
+                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                      onChange={(event) => {
+                                        handleToolsCheckboxChange(tool.id, event)
+                                      }}
+                                    />
+                                  }
+                                  label={(
                                     <Box>
-                                      <Typography variant="body1">{ tool.name }</Typography>
-                                    </Box>
-                                    <Box>
-                                      <Typography variant="caption">{ tool.description }</Typography>
-                                    </Box>
-                                  </Box> 
-                                )}
-                              />
+                                      <Box>
+                                        <Typography variant="body1">{ tool.name }</Typography>
+                                      </Box>
+                                      <Box>
+                                        <Typography variant="caption">{ tool.description }</Typography>
+                                      </Box>
+                                    </Box> 
+                                  )}
+                                />
+                              </Box>
                             )
                           })
                         }
