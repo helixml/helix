@@ -79,10 +79,9 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Stream:    false,
-			MaxTokens: 100,
-			Model:     c.cfg.Tools.Model,
-			Messages:  messages,
+			Stream:   false,
+			Model:    c.cfg.Tools.Model,
+			Messages: messages,
 		},
 	)
 	if err != nil {
