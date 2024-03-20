@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://app.tryhelix.ai/">SaaS</a> •
   <a href="https://docs.helix.ml/docs/controlplane">Private Deployment</a> •
-  <a href="https://docs.helix.ml/docs/overview">Docs</a> •  
+  <a href="https://docs.helix.ml/docs/overview">Docs</a> •
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
@@ -36,6 +36,11 @@ Create an `.env` file with settings based on the example values and edit it:
 
 ```
 cp .env.example-prod .env
+```
+
+Ensure keycloak realm settings are up to date with your .env file
+```
+./update-realm-settings.sh
 ```
 
 To start the services:
