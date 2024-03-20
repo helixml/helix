@@ -114,10 +114,9 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Stream:    false,
-			MaxTokens: 100,
-			Model:     c.cfg.Tools.Model,
-			Messages:  messages,
+			Stream:   false,
+			Model:    c.cfg.Tools.Model,
+			Messages: messages,
 		},
 	)
 	if err != nil {
