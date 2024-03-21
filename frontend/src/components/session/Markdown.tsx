@@ -1,4 +1,5 @@
 import React, { FC } from 'react'
+import { useTheme } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import Markdown from 'react-markdown'
 import {Prism as SyntaxHighlighterTS} from 'react-syntax-highlighter'
@@ -16,15 +17,19 @@ export const InteractionMarkdown: FC<{
 }> = ({
   text,
 }) => {
+  const theme = useTheme()
   if(!text) return null
   return (
     <Box
       sx={{
         '& code': {
-          backgroundColor: '#333',
+          backgroundColor: theme.palette.mode === 'light' ? '#ccc' : '#333',
           fontSize: '0.9rem',
           p: 0.5,
-        }
+        },
+        '& a': {
+          color: theme.palette.mode === 'light' ? '#333' : '#999',
+        },
       }}
     >
       <Markdown
