@@ -31,6 +31,7 @@ export const InteractionMarkdown: FC<{
         children={text}
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        className="interactionMessage"
         components={{
           code(props) {
             const {children, className, node, ...rest} = props
