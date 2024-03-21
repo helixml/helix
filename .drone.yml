@@ -56,9 +56,9 @@ steps:
   - name: dockersocket
     path: /var/run/docker.sock
   when:
-    branch:
-    - main
-    - offline-hacks
+    # branch:
+    # - main
+    # - offline-hacks
     event:
     - tag
     - push
