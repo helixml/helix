@@ -48,7 +48,7 @@ steps:
   settings:
     dockerfile: Dockerfile
     auto_tag: true
-    repo: helixml/helix/controlplane
+    repo: helixml/helix/controlplane-dev
     location: europe
     json_key:
       from_secret: gar_json_key_b64
@@ -58,6 +58,7 @@ steps:
   when:
     branch:
     - main
+    - offline-hacks
     event:
     - tag
     - push
