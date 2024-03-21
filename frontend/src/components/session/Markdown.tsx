@@ -28,7 +28,7 @@ export const InteractionMarkdown: FC<{
           p: 0.5,
         },
         '& a': {
-          color: theme.palette.mode === 'light' ? '#333' : '#999',
+          color: theme.palette.mode === 'light' ? '#333' : '#bbb',
         },
       }}
     >
