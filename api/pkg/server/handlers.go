@@ -201,6 +201,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 				modelName = types.Model_Ollama_Mixtral
 			case "helix-3.5":
 				modelName = types.Model_Ollama_Mistral7b
+				// just for offline hacking - mock runner doesn't work with
+				// ollama
+				log.Info().Msgf("Using axolotl mistral7b for helix-3.5")
+				modelName = types.Model_Axolotl_Mistral7b
 			case "helix-code":
 				modelName = types.Model_Ollama_CodeLlama
 			case "helix-json":
@@ -209,6 +213,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 				modelName = types.Model_Ollama_Qwen72b
 			default:
 				modelName = types.Model_Ollama_Mistral7b
+				// just for offline hacking - mock runner doesn't work with
+				// ollama
+				log.Info().Msgf("Using axolotl mistral7b for helix-3.5 (2)")
+				modelName = types.Model_Axolotl_Mistral7b
 			}
 		} else {
 			// fine tuning doesn't work with ollama yet

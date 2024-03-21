@@ -13,7 +13,7 @@ services:
       - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - MEMORY_STRING=12GB
       - ALLOW_MULTIPLE_COPIES=true
-      - RUNNER_WARMUP_MODELS=mistral:7b-instruct # Ollama runner
+      - RUNTIME_OLLAMA_WARMUP_MODELS=mistral:7b-instruct # Ollama runner
     deploy:
       resources:
         reservations:

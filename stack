@@ -8,7 +8,7 @@ export WITH_RUNNER=${WITH_RUNNER:=""}
 export WITH_DEMOS=${WITH_DEMOS:=""}
 
 function mock-runner() {
-   go run . runner \
+  go run . runner \
     --mock-runner \
     --api-host http://localhost \
     --api-token oh-hallo-insecure-token \
