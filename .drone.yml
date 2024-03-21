@@ -47,7 +47,7 @@ steps:
   pull: always
   settings:
     dockerfile: Dockerfile
-    auto_tag: true
+    # auto_tag: true
     repo: helixml/helix/controlplane-dev
     location: europe
     json_key:
