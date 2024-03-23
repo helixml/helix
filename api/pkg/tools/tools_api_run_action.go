@@ -5,8 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	apiActionRetries       = 3
+	delayBetweenApiRetries = 50 * time.Millisecond
 )
 
 type RunActionResponse struct {
@@ -20,7 +26,14 @@ func (c *ChainStrategy) RunAction(ctx context.Context, tool *types.Tool, history
 	case types.ToolTypeFunction:
 		return nil, fmt.Errorf("function tool type is not supported yet")
 	case types.ToolTypeAPI:
-		return c.runApiAction(ctx, tool, history, currentMessage, action)
+		return retry.DoWithData(
+			func() (*RunActionResponse, error) {
+				return c.runApiAction(ctx, tool, history, currentMessage, action)
+			},
+			retry.Attempts(apiActionRetries),
+			retry.Delay(delayBetweenApiRetries),
+			retry.Context(ctx),
+		)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}

@@ -123,17 +123,6 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 	answer := resp.Choices[0].Message.Content
-	if strings.Contains(answer, "```json") {
-		answer = strings.Split(answer, "```json")[1]
-	}
-	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-	parts := strings.Split(answer, "```")
-	answer = parts[0]
-
-	// LLMs are sometimes bad at correct JSON escaping, trying to escape
-	// characters like _ that don't need to be escaped. Just remove all
-	// backslashes for now...
-	answer = strings.Replace(answer, "\\", "", -1)
 
 	// var params map[string]string
 	params, err := unmarshalParams(answer)
@@ -145,6 +134,18 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 }
 
 func unmarshalParams(data string) (map[string]string, error) {
+	if strings.Contains(data, "```json") {
+		data = strings.Split(data, "```json")[1]
+	}
+	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+	parts := strings.Split(data, "```")
+	data = parts[0]
+
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	data = strings.Replace(data, "\\", "", -1)
+
 	var initial map[string]interface{}
 	err := json.Unmarshal([]byte(data), &initial)
 	if err != nil {
