@@ -572,6 +572,24 @@ func Test_unmarshalParams(t *testing.T) {
 				"yes": "true",
 			},
 		},
+		{
+			name: "``` in json",
+			args: args{
+				data: "```json{\"id\": 1000}```",
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
+		{
+			name: "``` in json",
+			args: args{
+				data: "```json{\"id\": 1000}```blah blah blah I am very smart LLM",
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
