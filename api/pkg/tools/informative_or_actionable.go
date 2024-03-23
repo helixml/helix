@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,6 +25,24 @@ func (i *IsActionableResponse) Actionable() bool {
 }
 
 func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+	return retry.DoWithData(
+		func() (*IsActionableResponse, error) {
+			return c.isActionable(ctx, tools, history, currentMessage)
+		},
+		retry.Attempts(apiActionRetries),
+		retry.Delay(delayBetweenApiRetries),
+		retry.Context(ctx),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Str("user_input", currentMessage).
+				Uint("retry_number", n).
+				Msg("retrying isActionable")
+		}),
+	)
+}
+
+func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsApi:      "no",
@@ -91,21 +110,10 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	var actionableResponse IsActionableResponse
 
 	answer := resp.Choices[0].Message.Content
-	if strings.Contains(answer, "```json") {
-		answer = strings.Split(answer, "```json")[1]
-	}
-	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-	parts := strings.Split(answer, "```")
-	answer = parts[0]
-
-	// LLMs are sometimes bad at correct JSON escaping, trying to escape
-	// characters like _ that don't need to be escaped. Just remove all
-	// backslashes for now...
-	answer = strings.Replace(answer, "\\", "", -1)
 
 	err = unmarshalJSON(answer, &actionableResponse)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, resp.Choices[0].Message.Content)
+		return nil, fmt.Errorf("failed to parse response from inference API: %w (response: %s)", err, answer)
 	}
 
 	log.Info().
