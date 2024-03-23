@@ -13,6 +13,8 @@ const (
 	delayBetweenRetries = time.Second
 )
 
+//go:generate mockgen -source $GOFILE -destination openai_client_mocks.go -package $GOPACKAGE
+
 type Client interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
 }
