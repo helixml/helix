@@ -24,19 +24,6 @@ func (c *ChainStrategy) runGPTScriptAction(ctx context.Context, tool *types.Tool
 		return nil, fmt.Errorf("action is required")
 	}
 
-	found := false
-
-	for _, ac := range tool.Config.API.Actions {
-		if ac.Name == action {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return nil, fmt.Errorf("action %s is not found in the tool %s", action, tool.Name)
-	}
-
 	started := time.Now()
 
 	gptOpt := gptscript.Options{
