@@ -45,8 +45,8 @@ const Tools: FC = () => {
     tools.createTool,
   ])
 
-  const onCreateGptScriptTool = useCallback(async (description: string, script: string) => {
-    console.log(description, script)
+  const onCreateGptScriptTool = useCallback(async (name: string, description: string, script: string) => {
+    console.log(name, description, script)
     // const newTool = await tools.createTool(url, schema)
     // if(!newTool) return
     setAddingApiTool(false)
@@ -89,7 +89,9 @@ const Tools: FC = () => {
             variant="contained"
             color="secondary"
             endIcon={<AddIcon />}
-            className='mr-2'
+            sx={{
+              mr: 2,
+            }}
             onClick={ () => {
               setAddingGptScriptTool(true)
             }}
