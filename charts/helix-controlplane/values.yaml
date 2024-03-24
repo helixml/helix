@@ -13,6 +13,9 @@ keycloak:
   image: 
     repository: quay.io/keycloak/keycloak
     tag: "23.0"
+  # Keycloak configuration
+  db: postgres
+  dbUrl: "jdbc:postgresql://postgres:5432/keycloak"
   
 
 imagePullSecrets: []
