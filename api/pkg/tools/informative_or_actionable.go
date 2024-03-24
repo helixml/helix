@@ -147,7 +147,7 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.C
 					Description: action.Description,
 				})
 			}
-		case types.ToolTypeFunction:
+		case types.ToolTypeGPTScript:
 			modelTools = append(modelTools, &modelTool{
 				Name:        tool.Name,
 				Description: tool.Description,

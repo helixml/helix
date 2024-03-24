@@ -23,7 +23,7 @@ type RunActionResponse struct {
 
 func (c *ChainStrategy) RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
 	switch tool.ToolType {
-	case types.ToolTypeFunction:
+	case types.ToolTypeGPTScript:
 		return nil, fmt.Errorf("function tool type is not supported yet")
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
