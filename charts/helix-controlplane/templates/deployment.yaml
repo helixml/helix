@@ -64,6 +64,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          env:
+            - name: KC_DB
+              value: {{ .Values.keycloak.db }}
+            - name: KC_DB_URL
+              value: {{ .Values.keycloak.dbUrl }}    
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
