@@ -7,6 +7,7 @@ import Container from '@mui/material/Container'
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
+import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 
 import useLayout from '../hooks/useLayout'
@@ -28,17 +29,31 @@ const Tools: FC = () => {
     navigate,
   } = useRouter()
 
-  const [ addingTool, setAddingTool ] = useState(false)
+  const [ addingTool, setAddingApiTool ] = useState(false)
+  const [ addingGptScriptTool, setAddingGptScriptTool ] = useState(false)
   const [ deletingTool, setDeletingTool ] = useState<ITool>()
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
     const newTool = await tools.createTool(url, schema)
     if(!newTool) return
-    setAddingTool(false)
+    setAddingApiTool(false)
     snackbar.success('Tool created')
     navigate('tool', {
       tool_id: newTool.id,
     })
+  }, [
+    tools.createTool,
+  ])
+
+  const onCreateGptScriptTool = useCallback(async (description: string, script: string) => {
+    console.log(description, script)
+    // const newTool = await tools.createTool(url, schema)
+    // if(!newTool) return
+    setAddingApiTool(false)
+    snackbar.success('Tool created')
+    // navigate('tool', {
+    //   tool_id: newTool.id,
+    // })
   }, [
     tools.createTool,
   ])
@@ -69,16 +84,31 @@ const Tools: FC = () => {
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
-        <Button
-          variant="contained"
-          color="secondary"
-          endIcon={<AddIcon />}
-          onClick={ () => {
-            setAddingTool(true)
-          }}
-        >
-          Create Tool
-        </Button>
+        <div>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            className='mr-2'
+            onClick={ () => {
+              setAddingGptScriptTool(true)
+            }}
+            >
+              New GPTScript tool
+          </Button>
+
+          <Button
+              variant="contained"
+              color="secondary"
+              endIcon={<AddIcon />}
+              onClick={ () => {
+                setAddingApiTool(true)
+              }}
+            >
+              New API tool
+          </Button>
+        </div>
+        
       )
     })
 
@@ -106,7 +136,15 @@ const Tools: FC = () => {
         addingTool && (
           <CreateToolWindow
             onCreate={ onCreateTool }
-            onCancel={ () => setAddingTool(false) }
+            onCancel={ () => setAddingApiTool(false) }
+          />
+        )
+      }
+      {
+        addingGptScriptTool && (
+          <CreateGPTScriptToolWindow
+            onCreate={ onCreateGptScriptTool }
+            onCancel={ () => setAddingGptScriptTool(false) }
           />
         )
       }
