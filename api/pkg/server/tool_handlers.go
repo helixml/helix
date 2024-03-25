@@ -99,7 +99,7 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	tool.Owner = userContext.Owner
 	tool.OwnerType = userContext.OwnerType
 
-	err = s.validateTool(&tool)
+	err = s.validateTool(&userContext, &tool)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -143,7 +143,7 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 
 	tool.ID = id
 
-	err = s.validateTool(&tool)
+	err = s.validateTool(&userContext, &tool)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -181,8 +181,26 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 	return updated, nil
 }
 
-func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
+func (s *HelixAPIServer) validateTool(userContext *types.RequestContext, tool *types.Tool) error {
 	switch tool.ToolType {
+	case types.ToolTypeGPTScript:
+		if !userContext.Admin {
+			return system.NewHTTPError403("only admin users can create gptscript tools")
+		}
+
+		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
+			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
+		}
+
+		if tool.Config.GPTScript.Script != "" && tool.Config.GPTScript.ScriptURL != "" {
+			return system.NewHTTPError400("only one of script or script URL is allowed for GPTScript tools")
+		}
+
+		// OK
+		if tool.Description == "" {
+			return system.NewHTTPError400("description is required for GPTScript tools, make as descriptive as possible")
+		}
+
 	case types.ToolTypeAPI:
 		// Validate the API
 		if tool.Config.API == nil {
