@@ -27,7 +27,7 @@ export const CreateToolWindow: FC<{
 
   return (
     <Window
-      title="Create Tool"
+      title="New API tool"
       size="md"
       open
       withCancel
@@ -58,7 +58,7 @@ export const CreateToolWindow: FC<{
           onChange={(e) => setURL(e.target.value)}
           fullWidth
           label="Endpoint URL"
-          placeholder="Enter API URL"
+          placeholder="https://api.example.com/v1/"
           helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
         />
         <TextField

@@ -206,7 +206,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	// we can have race-conditions on very fast responses
 	// from the runner
 	err = startReq.start()
-	// _, err = apiServer.Controller.CreateSession(userContext, *session)
+
 	if err != nil {
 		system.NewHTTPError500("failed to start session: %s", err)
 		return
