@@ -188,6 +188,10 @@ func (s *HelixAPIServer) validateTool(userContext *types.RequestContext, tool *t
 			return system.NewHTTPError403("only admin users can create gptscript tools")
 		}
 
+		if s.Options.Config.Providers.OpenAI.APIKey == "" {
+			return system.NewHTTPError400("OpenAI API key is required for GPTScript tools. Set OPENAI_API_KEY env variable for Helix controlplane")
+		}
+
 		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
 			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
 		}
