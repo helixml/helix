@@ -67,13 +67,13 @@ export const CreateToolWindow: FC<{
           sx={{
             mb: 2,
           }}
-          error={ showErrors && !name }
-          value={ name }
-          onChange={(e) => setName(e.target.value)}
+          error={ showErrors && !description }
+          value={ description }
+          onChange={(e) => setDescription(e.target.value)}
           fullWidth
-          label="Script description"
+          label="Description"
           placeholder=""
-          helperText={ showErrors && !description ? "Please provide script description" : "Explain the purpose of this script, i.e. 'echo tool, use it when you need to echo back the input'" }
+          helperText={ showErrors && !description ? "Please provide description" : "Explain the purpose of this script, i.e. 'echo tool, use it when you need to echo back the input'" }
         />
         <TextField
           error={ showErrors && !script }
