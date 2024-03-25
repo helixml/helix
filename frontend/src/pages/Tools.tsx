@@ -1,15 +1,12 @@
 import React, { FC, useCallback, useEffect, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
-import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
-import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
 import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-
+import ToolsTable from '../components/tools/ToolsTable'
 import useLayout from '../hooks/useLayout'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
@@ -140,7 +137,7 @@ const Tools: FC = () => {
           height: 'calc(100% - 100px)',
         }}
       >
-        <ToolsGrid
+        <ToolsTable
           data={ tools.data }
           onEdit={ onEditTool }
           onDelete={ setDeletingTool }
