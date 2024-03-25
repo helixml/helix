@@ -34,10 +34,18 @@ const Tools: FC = () => {
   const [ deletingTool, setDeletingTool ] = useState<ITool>()
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
-    const newTool = await tools.createTool(url, schema)
+    const newTool = await tools.createTool('', 'api', '', {
+      api: {
+        url,
+        schema,
+        actions: [],
+        headers: {},
+        query: {},
+      }
+    })
     if(!newTool) return
     setAddingApiTool(false)
-    snackbar.success('Tool created')
+    snackbar.success('API tool created')
     navigate('tool', {
       tool_id: newTool.id,
     })
@@ -47,13 +55,17 @@ const Tools: FC = () => {
 
   const onCreateGptScriptTool = useCallback(async (name: string, description: string, script: string) => {
     console.log(name, description, script)
-    // const newTool = await tools.createTool(url, schema)
-    // if(!newTool) return
+    const newTool = await tools.createTool(name, 'gptscript', description, {
+      gptscript: {
+        script,        
+      }
+    })
+    if(!newTool) return
     setAddingApiTool(false)
-    snackbar.success('Tool created')
-    // navigate('tool', {
-    //   tool_id: newTool.id,
-    // })
+    snackbar.success('GPTScript tool created')
+    navigate('tool', {
+      tool_id: newTool.id,
+    })
   }, [
     tools.createTool,
   ])
