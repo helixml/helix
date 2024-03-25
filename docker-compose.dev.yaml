@@ -100,10 +100,10 @@ services:
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       - KC_PROXY_HEADERS=forwarded|xforwarded
       - KC_HEALTH_ENABLED=true
-      - KC_HOSTNAME_PATH==/auth
+      - KC_HOSTNAME_PATH=/auth
       - KC_HTTP_RELATIVE_PATH=/auth/
-      - KC_HOSTNAME_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
-      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_HOSTNAME:-http://localhost/auth/}
+      - KC_HOSTNAME_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
+      - KC_HOSTNAME_ADMIN_URL=${KEYCLOAK_FRONTEND_URL:-http://localhost/auth/}
     volumes:
       - ./realm.json:/opt/keycloak/data/import/realm.json
     healthcheck:
