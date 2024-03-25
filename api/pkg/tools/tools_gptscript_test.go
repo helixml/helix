@@ -46,3 +46,31 @@ description: I'm jarvis, a truck guy.
 args: question: The question to ask Jarvis about trucks.
 
 When asked about trucks, respond with "Thanks for asking "${question}", I'm am looking into it and will send you an email once I am done!"`
+
+func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
+
+	echoGptScript := &types.Tool{
+		Name:        "jarvis",
+		Description: truckGPTDescription,
+		ToolType:    types.ToolTypeGPTScript,
+		Config: types.ToolConfig{
+			GPTScript: &types.ToolGPTScriptConfig{
+				Script: truckGPT,
+			},
+		},
+	}
+
+	history := []*types.Interaction{}
+
+	currentMessage := "can I get info about the volvo truck?"
+
+	resp, err := suite.strategy.RunAction(suite.ctx, echoGptScript, history, currentMessage, "echo")
+	suite.NoError(err)
+
+	suite.Assert().Contains(resp.Message, `Thanks for asking "can I get info about the volvo truck?", I'm am looking into it and will send you an email once I am done!`)
+
+	spew.Dump(resp)
+
+	fmt.Println("U:", currentMessage)
+	fmt.Println("A:", resp.Message)
+}
