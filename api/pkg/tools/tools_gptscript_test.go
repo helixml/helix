@@ -38,3 +38,11 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
 	fmt.Println("U:", currentMessage)
 	fmt.Println("A:", resp.Message)
 }
+
+const truckGPTDescription = `is an intelligent remote system that should be used when getting asking for information about trucks`
+
+const truckGPT = `name: jarvis
+description: I'm jarvis, a truck guy.
+args: question: The question to ask Jarvis about trucks.
+
+When asked about trucks, respond with "Thanks for asking "${question}", I'm am looking into it and will send you an email once I am done!"`

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -63,6 +64,8 @@ func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, h
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
+
+	spew.Dump(systemPrompt)
 
 	var messages []openai.ChatCompletionMessage
 
