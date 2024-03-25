@@ -627,8 +627,8 @@ type Counter struct {
 type ToolType string
 
 const (
-	ToolTypeAPI      ToolType = "api"
-	ToolTypeFunction ToolType = "function"
+	ToolTypeAPI       ToolType = "api"
+	ToolTypeGPTScript ToolType = "gptscript"
 )
 
 type Tool struct {
@@ -649,7 +649,8 @@ type Tool struct {
 }
 
 type ToolConfig struct {
-	API *ToolApiConfig `json:"api"`
+	API       *ToolApiConfig       `json:"api"`
+	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -689,6 +690,11 @@ type ToolApiAction struct {
 	Description string `json:"description"`
 	Method      string `json:"method"`
 	Path        string `json:"path"`
+}
+
+type ToolGPTScriptConfig struct {
+	Script    string `json:"script"`     // Program code
+	ScriptURL string `json:"script_url"` // URL to download the script
 }
 
 // SessionToolBinding used to add tools to sessions

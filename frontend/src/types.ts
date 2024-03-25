@@ -404,7 +404,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'function'
+export type IToolType = 'api' | 'gptscript'
 
 export interface IToolApiAction {
   name: string,
@@ -421,8 +421,14 @@ export interface IToolApiConfig {
   query: Record<string, string>,
 }
 
+export interface IToolGptScriptConfig {
+  script?: string,
+  script_url?: string, // If script lives on a remote server, specify the URL
+}
+
 export interface IToolConfig {
-  api: IToolApiConfig,
+  api?: IToolApiConfig,
+  gptscript?: IToolGptScriptConfig,
 }
 
 export interface ITool {
