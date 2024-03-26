@@ -122,7 +122,7 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 	// Set the bearer token API key
 	req.Header.Set("Authorization", "Bearer "+options.ApiKey)
 
-	fmt.Println("Using API key", options.ApiKey)
+	// fmt.Println("Using API key", options.ApiKey)
 
 	if err != nil {
 		fmt.Println("Error creating request:", err)
