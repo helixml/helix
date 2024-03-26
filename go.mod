@@ -51,6 +51,7 @@ require (
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/docker/docker v24.0.0+incompatible // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
+	github.com/fatih/color v1.16.0 // indirect
 	github.com/go-openapi/jsonpointer v0.20.2 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
@@ -88,6 +89,7 @@ require (
 	github.com/sashabaranov/go-openai v1.20.4 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
+	github.com/theckman/yacspin v0.13.12 // indirect
 	github.com/therootcompany/xz v1.0.1 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
