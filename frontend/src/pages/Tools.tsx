@@ -1,14 +1,12 @@
 import React, { FC, useCallback, useEffect, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
-import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
-import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
+import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-
+import ToolsTable from '../components/tools/ToolsTable'
 import useLayout from '../hooks/useLayout'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
@@ -28,14 +26,40 @@ const Tools: FC = () => {
     navigate,
   } = useRouter()
 
-  const [ addingTool, setAddingTool ] = useState(false)
+  const [ addingTool, setAddingApiTool ] = useState(false)
+  const [ addingGptScriptTool, setAddingGptScriptTool ] = useState(false)
   const [ deletingTool, setDeletingTool ] = useState<ITool>()
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
-    const newTool = await tools.createTool(url, schema)
+    const newTool = await tools.createTool('', 'api', '', {
+      api: {
+        url,
+        schema,
+        actions: [],
+        headers: {},
+        query: {},
+      }
+    })
     if(!newTool) return
-    setAddingTool(false)
-    snackbar.success('Tool created')
+    setAddingApiTool(false)
+    snackbar.success('API tool created')
+    navigate('tool', {
+      tool_id: newTool.id,
+    })
+  }, [
+    tools.createTool,
+  ])
+
+  const onCreateGptScriptTool = useCallback(async (name: string, description: string, script: string) => {
+    console.log(name, description, script)
+    const newTool = await tools.createTool(name, 'gptscript', description, {
+      gptscript: {
+        script,        
+      }
+    })
+    if(!newTool) return
+    setAddingApiTool(false)
+    snackbar.success('GPTScript tool created')
     navigate('tool', {
       tool_id: newTool.id,
     })
@@ -69,16 +93,33 @@ const Tools: FC = () => {
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
       return (
-        <Button
-          variant="contained"
-          color="secondary"
-          endIcon={<AddIcon />}
-          onClick={ () => {
-            setAddingTool(true)
-          }}
-        >
-          Create Tool
-        </Button>
+        <div>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            sx={{
+              mr: 2,
+            }}
+            onClick={ () => {
+              setAddingGptScriptTool(true)
+            }}
+            >
+              New GPTScript tool
+          </Button>
+
+          <Button
+              variant="contained"
+              color="secondary"
+              endIcon={<AddIcon />}
+              onClick={ () => {
+                setAddingApiTool(true)
+              }}
+            >
+              New API tool
+          </Button>
+        </div>
+        
       )
     })
 
@@ -96,7 +137,7 @@ const Tools: FC = () => {
           height: 'calc(100% - 100px)',
         }}
       >
-        <ToolsGrid
+        <ToolsTable
           data={ tools.data }
           onEdit={ onEditTool }
           onDelete={ setDeletingTool }
@@ -106,7 +147,15 @@ const Tools: FC = () => {
         addingTool && (
           <CreateToolWindow
             onCreate={ onCreateTool }
-            onCancel={ () => setAddingTool(false) }
+            onCancel={ () => setAddingApiTool(false) }
+          />
+        )
+      }
+      {
+        addingGptScriptTool && (
+          <CreateGPTScriptToolWindow
+            onCreate={ onCreateGptScriptTool }
+            onCancel={ () => setAddingGptScriptTool(false) }
           />
         )
       }
