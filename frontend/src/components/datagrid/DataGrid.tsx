@@ -149,8 +149,8 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
           onCellClick={onCellClick}
           onCellDoubleClick={(ev, props) => onDoubleClick && onDoubleClick(props.rowIndex)}
           headerHeight={headerHeight}
-          minRowHeight={rowHeight}
-          rowHeight={null}
+          // minRowHeight={rowHeight}
+          // rowHeight={rowHeight}
           style={gridStyle}
           showCellBorders={false}
           showHoverRows={false}
