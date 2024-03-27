@@ -93,7 +93,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    command: ["start-dev", "--import-realm"]
+    command: ["start", "--import-realm", "--proxy", "edge"]
   llamaindex:
     image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
     # ports:
