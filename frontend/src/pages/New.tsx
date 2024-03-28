@@ -433,7 +433,7 @@ const New: FC = () => {
             sx={{
               bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
               ":hover": {
-                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Lighter on hover
               },
               color: 'black',
               mr: 2,
@@ -444,7 +444,9 @@ const New: FC = () => {
               pt: '1px',
               pb: '1px',
               m: 0.5,
-              display: "inline",
+              display: "inline-flex", // Changed from "inline" to "inline-flex" to align icon with text
+              alignItems: "center", // Added to vertically center the text and icon
+              justifyContent: "center", // Added to horizontally center the text and icon
             }}
             endIcon={<SwapHorizIcon />}
             onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
