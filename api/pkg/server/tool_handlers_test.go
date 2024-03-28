@@ -64,7 +64,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,
-				Planner: &tools.ChainStrategy{},
+				Planner: &tools.ChainStrategy{local: true},
 			},
 		},
 		adminAuth: &adminAuth{},

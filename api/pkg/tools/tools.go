@@ -29,6 +29,7 @@ type ChainStrategy struct {
 	cfg        *config.ServerConfig
 	apiClient  openai.Client
 	httpClient *http.Client
+	local      bool // run locally for tests XXX security risk, never set this to true in production
 }
 
 func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
@@ -48,13 +49,13 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 	case config.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey != "" {
 
-		log.Info().
-			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
-			Msg("using TogetherAI provider for tools")
+			log.Info().
+				Str("base_url", cfg.Providers.TogetherAI.BaseURL).
+				Msg("using TogetherAI provider for tools")
 
-		apiClient = openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
+			apiClient = openai.New(
+				cfg.Providers.TogetherAI.APIKey,
+				cfg.Providers.TogetherAI.BaseURL)
 		} else {
 			// gptscript server case
 			log.Info().Msg("no explicit tools provider LLM configured (gptscript server will still work if OPENAI_API_KEY is set)")
