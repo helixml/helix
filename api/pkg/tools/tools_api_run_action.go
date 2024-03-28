@@ -25,7 +25,8 @@ func (c *ChainStrategy) RunAction(ctx context.Context, tool *types.Tool, history
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		// TODO: switch this to c.runRemote(...)
-		return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
+		return c.RunRemoteGPTScriptAction(ctx, tool, history, currentMessage, action)
+		// return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
