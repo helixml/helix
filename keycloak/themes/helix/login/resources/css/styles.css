@@ -1,0 +1,135 @@
+:root {
+  --textColor: #f6f5f7;
+  --textOffColor: #7c858d;
+  --baseColor: #23333f;
+  --baseDarkColor: #1e2b36;
+  --baseLightColor: #283b48;
+  --secColor: #11f7e2;
+}
+
+body {
+  background: var(--baseColor) !important;
+  color: var(--textColor);
+  font-size: 18px;
+}
+
+/* Login Card */
+
+.login-pf-page .card-pf {
+  border-radius: 20px;
+  background: var(--baseColor);
+  box-shadow: 15px 15px 30px var(--baseDarkColor), -15px -15px 30px var(--baseLightColor);
+}
+
+/* Card Title */
+
+.login-pf-page .login-pf-header {
+  margin-bottom: 50px;
+}
+
+#kc-page-title {
+  font-size: 26px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Login Form */
+
+.login-pf-page .form-group {
+  margin-bottom: 30px;
+}
+
+.login-pf-page .form-control {
+  border: none;
+  padding: 22px 30px;
+  font-size: 18px;
+  color: var(--textColor);
+  height: auto;
+
+  border-radius: 32px;
+  background: var(--baseColor);
+  box-shadow: inset 15px 15px 30px var(--baseDarkColor), inset -15px -15px 30px var(--baseLightColor);
+}
+
+.login-pf-page .form-control::placeholder {
+  font-style: normal;
+  color: var(--textOffColor);
+}
+
+/* Remember Me Toggle */
+
+#kc-form-options .checkbox {
+  font-size: 16px;
+  color: var(--textOffColor);
+  margin-bottom: 0;
+}
+
+#kc-form-options label {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding-left: 8px;
+}
+
+#kc-form-options .toggle {
+  isolation: isolate;
+  position: relative;
+  height: 30px;
+  width: 60px;
+  border-radius: 15px;
+  overflow: hidden;
+  box-shadow: -8px -4px 8px var(--baseLightColor), 8px 4px 12px var(--baseDarkColor),
+    4px 4px 4px var(--baseDarkColor) inset, -4px -4px 4px var(--baseLightColor) inset;
+}
+
+#rememberMe {
+  display: none;
+}
+
+#kc-form-options .dot {
+  height: 100%;
+  width: 200%;
+  background: var(--baseColor);
+  border-radius: 15px;
+  transform: translate3d(-75%, 0, 0);
+  transition: transform 0.4s cubic-bezier(0.85, 0.05, 0.18, 1.35);
+  box-shadow: -8px -4px 8px var(--baseLightColor), 8px 4px 12px var(--baseDarkColor);
+}
+
+#rememberMe:checked ~ .dot {
+  transform: translate3d(25%, 0, 0);
+}
+
+#kc-form-options .label-text {
+  margin-left: 16px;
+}
+
+/* Reset Password Link */
+
+#kc-form-reset-psw a {
+  font-size: 16px;
+  color: var(--secColor);
+  padding-right: 8px;
+}
+
+#kc-form-buttons {
+  margin-top: 50px;
+}
+
+/* Login Button */
+
+#kc-login {
+  border: none;
+  padding: 22px 30px;
+  font-size: 18px;
+  color: var(--secColor);
+
+  border-radius: 32px;
+  background: linear-gradient(145deg, #253743, #202e39);
+  box-shadow: 15px 15px 30px var(--baseDarkColor), -15px -15px 30px var(--baseLightColor);
+}
+
+#kc-login:active:focus {
+  background: linear-gradient(145deg, #202e39, #253743) !important;
+  outline: none;
+}
