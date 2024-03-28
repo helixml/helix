@@ -282,6 +282,10 @@ WAIT:
 						Err(err).
 						Msg("error processing interaction")
 					i.errorSession(session, err)
+					if strings.Contains(err.Error(), "connection refused") {
+						log.Error().Msg("detected connection refused, exiting and hoping we get restarted")
+						os.Exit(1)
+					}
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
