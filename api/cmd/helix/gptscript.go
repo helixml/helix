@@ -6,7 +6,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/tools"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -32,13 +31,6 @@ func newGptScriptCmd() *cobra.Command {
 	return serveCmd
 }
 
-type GptScriptRunRequest struct {
-	Tool           *types.Tool
-	History        []*types.Interaction
-	CurrentMessage string
-	Action         string
-}
-
 func gptscript(cmd *cobra.Command) error {
 
 	var cfg config.ServerConfig
@@ -57,7 +49,7 @@ func gptscript(cmd *cobra.Command) error {
 			return
 		}
 
-		var req GptScriptRunRequest
+		var req tools.GptScriptRunRequest
 		err := json.NewDecoder(r.Body).Decode(&req)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
