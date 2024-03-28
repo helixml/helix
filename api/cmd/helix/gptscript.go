@@ -20,7 +20,7 @@ What to do next:
 
 func newGptScriptCmd() *cobra.Command {
 	serveCmd := &cobra.Command{
-		Use:     "serve",
+		Use:     "gptscript",
 		Short:   "Start the helix gptscript server.",
 		Long:    "Start the helix gptscript server.",
 		Example: "TBD",
@@ -72,10 +72,12 @@ func gptscript(cmd *cobra.Command) error {
 		w.WriteHeader(http.StatusOK)
 	}
 
-	http.HandleFunc("/run", runHandler)
-
+	http.HandleFunc("/api/v1/run", runHandler)
+	
+	listen := "0.0.0.0:31380"
 	// start a gptscript server
-	err = http.ListenAndServe("0.0.0.0:31380", nil)
+	log.Info().Msgf("helix gptscript server starting on %s", listen)
+	err = http.ListenAndServe(listen, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
 	}
