@@ -38,15 +38,6 @@ func (c *ChainStrategy) RunRemoteGPTScriptAction(ctx context.Context, tool *type
 		CurrentMessage: currentMessage,
 		Action:         action,
 	}
-	debugReqBytes, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal debug request: %w", err)
-	}
-
-	log.Info().Msg("===================")
-	log.Info().Msg(string(debugReqBytes))
-	log.Info().Msg("===================")
-
 	helixGptscriptUrl, err := getTestfasterCluster()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get testfaster cluster: %w", err)
