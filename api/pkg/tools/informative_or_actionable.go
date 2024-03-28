@@ -16,13 +16,13 @@ import (
 )
 
 type IsActionableResponse struct {
-	NeedsApi      string `json:"needs_api"`
+	NeedsTool     string `json:"needs_tool"`
 	Api           string `json:"api"`
 	Justification string `json:"justification"`
 }
 
 func (i *IsActionableResponse) Actionable() bool {
-	return i.NeedsApi == "yes"
+	return i.NeedsTool == "yes"
 }
 
 func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
@@ -46,14 +46,14 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
-			NeedsApi:      "no",
+			NeedsTool:     "no",
 			Justification: "No tools available to check if the user input is actionable or not",
 		}, nil
 	}
 
 	if c.apiClient == nil {
 		return &IsActionableResponse{
-			NeedsApi:      "no",
+			NeedsTool:     "no",
 			Justification: "No tools api client has been configured",
 		}, nil
 	}
@@ -122,7 +122,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, h
 	log.Info().
 		Str("user_input", currentMessage).
 		Str("justification", actionableResponse.Justification).
-		Str("needs_api", actionableResponse.NeedsApi).
+		Str("needs_tool", actionableResponse.NeedsTool).
 		Dur("time_taken", time.Since(started)).
 		Msg("is_actionable")
 
@@ -183,20 +183,20 @@ type modelTool struct {
 	Description string
 }
 
-const isInformativeOrActionablePrompt = `You are an AI tool that classifies whether user input requires an API call or not. You should recommend using an API if the user request matches one of the APIs descriptions below. The user requests that can be fulfilled by calling an external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an API. If the user asks about a specific item or person, always check with the API rather than making something up.
+const isInformativeOrActionablePrompt = `You are an AI tool that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an tool. If the user asks about a specific item or person, always check with an appropriate tool rather than making something up/depending on your background knowledge. If the user mentions gptscript, use one of the gptscript tools.
 
 Examples:  
 
 **User Input:** Create a B-1 visa application
 
-**Available APIs:**
-- API(createVisaApplication): This API creates a B-1 visa application. 
-- API(getVisaStatus): This API queries B-1 visa status.
+**Available tools:**
+- API(createVisaApplication): This tool creates a B-1 visa application.
+- API(getVisaStatus): This tool queries B-1 visa status.
 
-**Verdict:** Needs API call so the response should be:
+**Verdict:** Needs tool so the response should be:
 ` + "```" + `json
 {
-  "needs_api": "yes",
+  "needs_tool": "yes",
   "justification": "The user is asking to create a visa application and the (createVisaApplication) API can be used to satisfy the user requirement.",
   "api": "createVisaApplication"
 }
@@ -214,7 +214,7 @@ Examples:
 **Verdict:** Does not need API call so the response should be:
 ` + "```" + `json
 {
-  "needs_api": "no",
+  "needs_tool": "no",
   "justification": "The user is asking how to renew a B-1 visa, which is an informational question that does not require an API call.",
   "api": ""
 } 
@@ -231,7 +231,7 @@ Examples:
 **Verdict:** Needs API call so the response should be:
 ` + "```" + `json
 {
-  "needs_api": "yes",
+  "needs_tool": "yes",
   "justification": "In order to find out what job Marcus is applying for, we can query by candidate name",
   "api": "listJobVacancies"
 } 
@@ -245,10 +245,10 @@ Examples:
 **Available APIs:**    
 - API(getVisaStatus): This API queries status of a B-1 visa application.
 
-**Verdict:** Needs API call so the response should be:
+**Verdict:** Needs tool so the response should be:
 ` + "```" + `json
 {
-  "needs_api": "yes",
+  "needs_tool": "yes",
   "justification": "The user is asking to get visa status",
   "api": "getVisaStatus"
 }
@@ -258,7 +258,7 @@ Examples:
 
 ` + "```" + `json
 {
-  "needs_api": "yes/no",
+  "needs_tool": "yes/no",
   "justification": "The reason behind your verdict",
   "api": "apiName"
 }
