@@ -93,7 +93,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		Choices: []openai_ext.ChatCompletionChoice{
 			{
 				Message: openai_ext.ChatCompletionMessage{
-					Content: `incorrect json maybe? {"justification": "yes", "needs_api": "yes", "api": "getWeather"}`,
+					Content: `incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
 				},
 			},
 		},
@@ -103,7 +103,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		Choices: []openai_ext.ChatCompletionChoice{
 			{
 				Message: openai_ext.ChatCompletionMessage{
-					Content: `{"justification": "yes", "needs_api": "yes", "api": "getWeather"}`,
+					Content: `{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
 				},
 			},
 		},
