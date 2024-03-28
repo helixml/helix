@@ -39,9 +39,9 @@ func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool
 		return nil, fmt.Errorf("failed to marshal debug request: %w", err)
 	}
 
-	log.Info().Msg("===================")
-	log.Info().Msg(string(debugReqBytes))
-	log.Info().Msg("===================")
+	// log.Info().Msg("===================")
+	// log.Info().Msg(string(debugReqBytes))
+	// log.Info().Msg("===================")
 
 	// Validate whether action is valid
 	if action == "" {
