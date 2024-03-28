@@ -18,12 +18,34 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (c *ChainStrategy) runGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+type GptScriptRunRequest struct {
+	Tool           *types.Tool          `json:"tool"`
+	History        []*types.Interaction `json:"history"`
+	CurrentMessage string               `json:"current_message"`
+	Action         string               `json:"action"`
+}
+
+func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+
+	// debugReq := GptScriptRunRequest{
+	// 	Tool:           tool,
+	// 	History:        history,
+	// 	CurrentMessage: currentMessage,
+	// 	Action:         action,
+	// }
+	// debugReqBytes, err := json.Marshal(debugReq)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to marshal debug request: %w", err)
+	// }
+
+	// log.Info().Msg("===================")
+	// log.Info().Msg(string(debugReqBytes))
+	// log.Info().Msg("===================")
+
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
-
 	started := time.Now()
 
 	gptOpt := gptscript.Options{
