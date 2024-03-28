@@ -29,7 +29,7 @@ type ChainStrategy struct {
 	cfg        *config.ServerConfig
 	apiClient  openai.Client
 	httpClient *http.Client
-	local      bool // run locally for tests XXX security risk, never set this to true in production
+	Local      bool // run locally for tests XXX security risk, never set this to true in production
 }
 
 func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
