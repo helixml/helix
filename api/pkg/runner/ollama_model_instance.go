@@ -283,7 +283,7 @@ WAIT:
 						Msg("error processing interaction")
 					i.errorSession(session, err)
 					if strings.Contains(err.Error(), "connection refused") {
-						log.Error().Msg("detected connection refused, exiting and hoping we get restarted")
+						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
 						os.Exit(1)
 					}
 				} else {
