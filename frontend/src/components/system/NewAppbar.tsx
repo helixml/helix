@@ -97,7 +97,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 onClick={handleModelMenu}
                 sx={{
                     flexGrow: 1,
-                    ml: 1,
+                    mx: 0,
                     color: 'text.primary',
                     borderRadius: '15px', // Add rounded corners
                     padding: "3px",
@@ -161,12 +161,13 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
     >
         <Toolbar
             sx={{
-                pr: '24px', // keep right padding when drawer closed
+                pr: '12px', // keep right padding when drawer closed
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'row',
                 alignItems: 'center',
                 width: '100%',
+                mx: 0,
                 backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
             }}
         >
@@ -175,6 +176,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 <Box
                 sx={{
                     flexGrow: 0,
+                    m: 0,
                     display: 'flex',
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -199,8 +201,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                     edge="start"
                     onClick={handleDrawerToggle}
                     sx={{
-                    mr: 1,
-                    ml: 1,
+                        mx: .5,
                     }}
                 >
                     <MenuIcon />
@@ -258,7 +259,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                       {
                           getToolbarElement && getToolbarElement(true)
                       }
-                      {
+                      {/* {
                         !account.user && (
                             <Button
                             variant="contained"
@@ -271,7 +272,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                             Login
                             </Button>
                         )
-                        }
+                        } */}
                     </Box>
                 </>
                 )
