@@ -527,14 +527,7 @@ const New: FC = () => {
         <Typography
           variant="subtitle1"
           sx={{
-            lineHeight: 1.2,
-          }}
-        >
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            lineHeight: 1.2,
+            lineHeight: 1.1,
           }}
         >
           <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
