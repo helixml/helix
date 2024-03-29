@@ -120,9 +120,9 @@ const New: FC = () => {
   ]
 
   // Use the useMediaQuery hook from Material UI to check if the device is in mobile view
-  const isMobileView = useState(useMediaQuery(theme.breakpoints.down('sm')))
+  const isMobileView = useMediaQuery(theme.breakpoints.down('sm'))
 
-  // Define the example prompts, if it's mobile view, only show two prompts, otherwise show three
+  // Define the example prompts, if it's mobile view, show two prompts in one column, otherwise show three in a single row
   const examplePrompts = useMemo(() => ({
     text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3),
     image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3)
@@ -153,7 +153,7 @@ const New: FC = () => {
         </Typography>
         <Grid container spacing={2} sx={{mb: 2}}>
           {prompts.map((prompt, index) => (
-            <Grid item xs={12} sm={isMobileView ? 6 : 4} key={index}>
+            <Grid item xs={12} sm={4} key={index}>
               <Box
                 sx={{
                   width: '100%',
@@ -367,7 +367,7 @@ const New: FC = () => {
 
   // Use an effect hook to set the toolbar renderer
   useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
+    layout.setToolbarRenderer(() => (isMobileView: boolean) => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <IconButton
@@ -446,6 +446,7 @@ const New: FC = () => {
     return () => layout.setToolbarRenderer(undefined)
   }, [
     params,
+    isMobileView,
   ])
   
   if(!initialized) return null
