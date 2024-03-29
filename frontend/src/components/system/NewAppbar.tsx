@@ -21,6 +21,7 @@ import { ThemeContext } from '../../contexts/theme'
 import Switch from '@mui/material/Switch'
 import { useRouter } from '../../hooks/useRouter'
 import { SESSION_MODE_INFERENCE, SESSION_MODE_FINETUNE } from '../../types'
+import useMediaQuery from '@mui/material/useMediaQuery'
 
 interface NewAppBarProps {
   getTitle?: () => React.ReactNode;
@@ -42,6 +43,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
   const theme = useTheme()
   const account = useAccount()
   const themeConfig = useThemeConfig()
+  const isMobileView = useMediaQuery(theme.breakpoints.down('sm'))
 
   const { setParams, params } = useRouter()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<null | HTMLElement>(null)
