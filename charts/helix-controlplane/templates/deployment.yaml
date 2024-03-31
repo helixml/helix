@@ -57,6 +57,41 @@ spec:
             - name: controlplane-storage
               mountPath: /filestore
           {{- end }}
+        # RAG
+        - name: llamaindex
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.llamaindex.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP          
+          env:
+            - name: POSTGRES_HOST
+              value: pgvector
+            - name: POSTGRES_DATABASE
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: pgvector
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: pgvector
+          image: ankane/pgvector:latest
+          env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: pgvector
+
       {{- if .Values.pvc.enabled }}     
       volumes:
       - name: controlplane-storage
