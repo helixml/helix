@@ -88,13 +88,17 @@ readinessProbe:
     path: /
     port: http
 
-
-# Additional volumes on the output Deployment definition.
-volumes: []
-# - name: foo
-#   secret:
-#     secretName: mysecret
-#     optional: false
+# Volumes is mounted to the controlplane for persistence. All user
+# uploads and generated images, finetunes and models are stored here.
+volumes:
+  - name: data
+    
+pvc:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 100Gi
+  storageClassName: ""
 
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
@@ -109,4 +113,5 @@ tolerations: []
 affinity: {}
 
 
-envVariables: {}
+envVariables:
+  

@@ -1,0 +1,15 @@
+# If pvc.enabled is set, create the pvc
+{{- if .Values.pvc.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pvc.size }}
+  storageClassName: {{ .Values.pvc.storageClassName }}
+  volumeName: {{ include "helix-controlplane.fullname" . }}-controlplane-pv
+{{- end }}
