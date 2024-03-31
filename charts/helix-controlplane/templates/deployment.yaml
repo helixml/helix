@@ -44,45 +44,24 @@ spec:
             - configMapRef:
                 name: {{ include "helix-controlplane.fullname" . }}-config
           env:
-            - name: 
+            - name: FILESTORE_LOCALFS_PATH
+              value: /filestore
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
+          {{- if .Values.pvc.enabled }}
           volumeMounts:
-            {{- toYaml . | nindent 12 }}
+            - name: controlplane-storage
+              mountPath: /filestore
           {{- end }}
-        - name: keycloak
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          env:
-            - name: KC_DB
-              value: {{ .Values.keycloak.db }}
-            - name: KC_DB_URL
-              value: {{ .Values.keycloak.dbUrl }}    
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-        
-      {{- with .Values.volumes }}
+      {{- if .Values.pvc.enabled }}     
       volumes:
-        {{- toYaml . | nindent 8 }}
+      - name: controlplane-storage
+        persistentVolumeClaim:
+          claimName: {{ include "helix-controlplane.fullname" . }}-controlplane-pvc      
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
