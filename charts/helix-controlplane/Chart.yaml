@@ -1,6 +1,6 @@
 apiVersion: v2
 name: helix-controlplane
-description: A Helm chart for Kubernetes
+description: Helix ML Helm chart for Kubernetes
 
 # A chart can be either an 'application' or a 'library' chart.
 #

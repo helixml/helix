@@ -17,6 +17,10 @@ keycloak:
   db: postgres
   dbUrl: "jdbc:postgresql://postgres:5432/keycloak"
   
+llamaindex:
+  image:
+    repository: europe-docker.pkg.dev/helixml/helix/llamaindex
+    tag: "latest"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -113,5 +117,4 @@ tolerations: []
 affinity: {}
 
 
-envVariables:
-  
+envVariables: {}
