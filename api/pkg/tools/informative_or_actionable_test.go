@@ -35,6 +35,7 @@ func (suite *ActionTestSuite) SetupTest() {
 	suite.NoError(err)
 
 	strategy, err := NewChainStrategy(&cfg)
+	strategy.Local = true
 	suite.NoError(err)
 
 	suite.strategy = strategy
@@ -79,7 +80,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
 	suite.Require().NoError(err)
 
-	suite.Equal("yes", resp.NeedsApi)
+	suite.Equal("yes", resp.NeedsTool)
 	suite.Equal("getWeather", resp.Api)
 }
 
@@ -93,7 +94,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		Choices: []openai_ext.ChatCompletionChoice{
 			{
 				Message: openai_ext.ChatCompletionMessage{
-					Content: `incorrect json maybe? {"justification": "yes", "needs_api": "yes", "api": "getWeather"}`,
+					Content: `incorrect json maybe? {"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
 				},
 			},
 		},
@@ -103,7 +104,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		Choices: []openai_ext.ChatCompletionChoice{
 			{
 				Message: openai_ext.ChatCompletionMessage{
-					Content: `{"justification": "yes", "needs_api": "yes", "api": "getWeather"}`,
+					Content: `{"justification": "yes", "needs_tool": "yes", "api": "getWeather"}`,
 				},
 			},
 		},
@@ -147,7 +148,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
 	suite.Require().NoError(err)
 
-	suite.Equal("yes", resp.NeedsApi)
+	suite.Equal("yes", resp.NeedsTool)
 	suite.Equal("getWeather", resp.Api)
 }
 
@@ -190,6 +191,6 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
 	suite.NoError(err)
 
-	suite.Equal("no", resp.NeedsApi)
+	suite.Equal("no", resp.NeedsTool)
 	suite.Equal("", resp.Api)
 }

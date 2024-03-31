@@ -20,6 +20,7 @@ func NewRootCmd() *cobra.Command {
 		Long:  `Private GenAI Platform`,
 	}
 	RootCmd.AddCommand(newServeCmd())
+	RootCmd.AddCommand(newGptScriptCmd())
 	RootCmd.AddCommand(newRunnerCmd())
 	RootCmd.AddCommand(newRunCmd())
 	RootCmd.AddCommand(newQapairCommand())

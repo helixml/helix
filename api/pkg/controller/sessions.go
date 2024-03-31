@@ -489,7 +489,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	log.Info().
 		Str("api", isActionable.Api).
-		Str("actionable", isActionable.NeedsApi).
+		Str("actionable", isActionable.NeedsTool).
 		Str("justification", isActionable.Justification).
 		Str("message", userInteraction.Message).
 		Msg("checked for actionable")

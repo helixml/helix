@@ -1,5 +1,6 @@
 import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -12,6 +13,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Divider from '@mui/material/Divider'
 import Checkbox from '@mui/material/Checkbox'
 import InputLabel from '@mui/material/InputLabel'
+import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
 import FormControl from '@mui/material/FormControl'
@@ -19,11 +21,14 @@ import Switch from '@mui/material/Switch'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import SettingsIcon from '@mui/icons-material/Settings'
+import ConstructionIcon from '@mui/icons-material/Construction'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
 import IconButton from '@mui/material/IconButton'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
+import { SelectChangeEvent } from '@mui/material/Select'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -94,6 +99,7 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
+  // Define the text prompts
   const getTextPrompts = () => [
     "Draft a weekly newsletter focusing on [a specific topic] tailored for a particular [company type], covering all necessary updates and insights",
     "Prepare a pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
@@ -103,6 +109,7 @@ const New: FC = () => {
     "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
   ]
 
+  // Define the image prompts
   const getImagePrompts = () => [
     "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color]",
     "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
@@ -112,11 +119,16 @@ const New: FC = () => {
     "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
   ]
 
-  const examplePrompts = useMemo(() => ({
-    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, 3),
-    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, 3)
-  }), [])
+  // Use the useMediaQuery hook from Material UI to check if the device is in mobile view
+  const isMobileView = useMediaQuery(theme.breakpoints.down('sm'))
 
+  // Define the example prompts, if it's mobile view, show two prompts in one column, otherwise show three in a single row
+  const examplePrompts = useMemo(() => ({
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3)
+  }), [isMobileView])
+
+  // Define the SampleContent component
   const SampleContent = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
@@ -136,7 +148,7 @@ const New: FC = () => {
           flexDirection: 'column',
         }}
       >
-        <Typography variant="body2" sx={{mb: 1}}>
+        <Typography variant="body2" sx={{mb: .5}}>
           Try an example
         </Typography>
         <Grid container spacing={2} sx={{mb: 2}}>
@@ -149,8 +161,10 @@ const New: FC = () => {
                   cursor: 'pointer',
                   border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
                   borderRadius: 1,
-                  padding: 1,
+                  padding: .5,
                   fontSize: 'small',
+                  lineHeight: 1.4,
+                  pb: 1,
                 }}
                 onClick={() => handleClick(prompt)}
               >
@@ -301,9 +315,9 @@ const New: FC = () => {
     }
   }
 
-  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
-    setParams({ ...params, mode: newMode })
+  const handleModeChange = (event: SelectChangeEvent<{ value: unknown }>) => {
+    const newMode = event.target.value === SESSION_MODE_FINETUNE ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE;
+    setParams({ ...params, mode: newMode });
   }
 
   useEffect(() => {
@@ -328,8 +342,32 @@ const New: FC = () => {
     loader()
   }, [])
 
+  // Define a state for the anchor element of the mode menu
+  const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState<null | HTMLElement>(null)
+
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const handleModeMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    console.log("handleModeMenuClick called");
+    setModeMenuAnchorEl(event.currentTarget);
+    setModeMenuOpen(true);
+    console.log("modeMenuOpen:", true);
+  };
+  const handleModeMenuClose = () => {
+    setModeMenuAnchorEl(null)
+    setModeMenuOpen(false)
+  }
+
+  // Define a function to handle the click event on a mode menu item
+  const handleModeMenuItemClick = (event: React.MouseEvent<HTMLElement>, mode: ISessionMode) => {
+    setParams({ ...params, mode })
+    setModeMenuAnchorEl(null)
+  }
+
+  const modeMenuRef = useRef<HTMLElement>(null)
+
+  // Use an effect hook to set the toolbar renderer
   useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
+    layout.setToolbarRenderer(() => (isMobileView: boolean) => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <IconButton
@@ -337,43 +375,70 @@ const New: FC = () => {
               setShowSessionSettings(true)
             }}
           >
-            <SettingsIcon />
+            <ConstructionIcon />
           </IconButton>
-          <Typography
-            sx={{
-              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-              mr: 2,
-              ml: 3,
-              textAlign: 'right',
-            }}
-          >
-              Inference
-          </Typography>
-          <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-            <Switch
-              checked={params.mode === SESSION_MODE_FINETUNE}
-              onChange={handleModeChange}
-              name="modeSwitch"
-              size="medium"
-              sx={{
-                transform: 'scale(1.6)',
-                '& .MuiSwitch-thumb': {
-                scale: 0.4,
-                },
-              }}
-            />
-          </Box>
-          <Typography
-            sx={{
-              color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-              marginLeft: 2,
-              textAlign: 'left',
-            }}
-          >
-            Fine-tuning
-          </Typography>
+          {isMobileView ? (
+            <>
+              <Typography
+                onClick={handleModeMenuClick}
+                ref={modeMenuRef}
+                className="inferenceTitle"
+                variant="h6"
+                color="inherit"
+                noWrap
+                sx={{
+                  flexGrow: 1,
+                  mx: 0,
+                  color: 'text.primary',
+                  borderRadius: '15px',
+                  padding: "3px",
+                  "&:hover": {
+                    backgroundColor: theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                  },
+                }}
+              >
+                &nbsp;&nbsp;{params.mode === SESSION_MODE_FINETUNE ? 'Fine-tune' : 'Inference'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography
+                sx={{
+                  color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+                  fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                  mr: 2,
+                  ml: 3,
+                  textAlign: 'right',
+                }}
+              >
+                  Inference
+              </Typography>
+              <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                <Switch
+                  checked={params.mode === SESSION_MODE_FINETUNE}
+                  onChange={handleModeChange}
+                  name="modeSwitch"
+                  size="medium"
+                  sx={{
+                    transform: 'scale(1.6)',
+                    '& .MuiSwitch-thumb': {
+                    scale: 0.4,
+                    },
+                  }}
+                />
+              </Box>
+              <Typography
+                sx={{
+                  color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                  fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                  marginLeft: 2,
+                  textAlign: 'left',
+                }}
+              >
+                Fine-tuning
+              </Typography>
+            </>
+          )}
         </Box>
       )
     })
@@ -381,8 +446,9 @@ const New: FC = () => {
     return () => layout.setToolbarRenderer(undefined)
   }, [
     params,
+    isMobileView,
   ])
-
+  
   if(!initialized) return null
 
   const CenteredMessage: FC = () => {
@@ -414,9 +480,9 @@ const New: FC = () => {
               md: '1.7rem',
             },
             fontWeight: 800,
-            lineHeight: 0.9,
+            lineHeight: 0.8,
             scale: {
-              xs: 0.7,
+              xs: 0.6,
               sm: 0.85,
               md: 1,
             },
@@ -426,45 +492,43 @@ const New: FC = () => {
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
           You are in <strong>Inference</strong> mode:
-          <ul><li>Generate new content based on your prompt</li><li>Click
-          <Button
-            variant="contained"
-            size="small"
-            sx={{
-              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
-              ":hover": {
-                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
-              },
-              color: 'black',
-              mr: 2,
-              borderRadius: 1,
-              textTransform: 'none',
-              fontSize: "medium",
-              fontWeight: 800,
-              pt: '1px',
-              pb: '1px',
-              m: 0.5,
-              display: "inline",
-            }}
-            endIcon={<SwapHorizIcon />}
-            onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-          >
-            {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-          </Button>
-        to change type</li>
-          <li>Type a prompt into the box below and press enter to begin</li></ul>
+          <Box component="ul" sx={{px: 1, mx: .5, my:0, lineHeight: 1.1 }}>
+            <Box component="li" sx={{p: .5, m: 0}}>Generate new content based on your prompt</Box>
+            <Box component="li" sx={{p: .5, m: 0}}>Click
+              <Button
+                variant="contained"
+                size="small"
+                sx={{
+                  bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                  ":hover": {
+                    bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Lighter on hover
+                  },
+                  color: 'black',
+                  mr: 2,
+                  borderRadius: 1,
+                  textTransform: 'none',
+                  fontSize: "medium",
+                  fontWeight: 800,
+                  pt: '1px',
+                  pb: '1px',
+                  m: 0.5,
+                  display: "inline-flex", // Changed from "inline" to "inline-flex" to align icon with text
+                  alignItems: "center", // Added to vertically center the text and icon
+                  justifyContent: "center", // Added to horizontally center the text and icon
+                }}
+                endIcon={<SwapHorizIcon />}
+                onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+              >
+                {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+              </Button>
+            to change type</Box>
+            <Box component="li">Type a prompt into the box below and press enter to begin</Box>
+          </Box>
         </Typography>
         <Typography
           variant="subtitle1"
           sx={{
-            lineHeight: 1.2,
-          }}
-        >
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            lineHeight: 1.2,
+            lineHeight: 1.1,
           }}
         >
           <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<ul><li>Customize your own AI by training it on your own text or images</li></ul>
@@ -499,6 +563,46 @@ const New: FC = () => {
           backgroundFilter: 'opacity(0.5)',
         }}
       >
+        <Menu
+          id="mode-menu"
+          open={Boolean(modeMenuOpen)}
+          onClose={handleModeMenuClose}
+          onClick={() => account.setMobileMenuOpen(false)}
+          anchorEl={modeMenuRef.current}
+          sx={{
+            marginTop:"50px",
+            zIndex: 9999,
+            }}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'left',
+          }}
+          transformOrigin={{
+            vertical: 'center',
+            horizontal: 'left',
+          }}
+        >
+          <MenuItem
+            key={SESSION_MODE_INFERENCE}
+            selected={params.mode === SESSION_MODE_INFERENCE}
+            onClick={(event) => {
+              handleModeMenuItemClick(event, SESSION_MODE_INFERENCE);
+              handleModeMenuClose();
+            }}
+          >
+            Inference
+          </MenuItem>
+          <MenuItem
+            key={SESSION_MODE_FINETUNE}
+            selected={params.mode === SESSION_MODE_FINETUNE}
+            onClick={(event) => {
+              handleModeMenuItemClick(event, SESSION_MODE_FINETUNE);
+              handleModeMenuClose();
+            }}
+          >
+            Fine-tune
+          </MenuItem>
+        </Menu>
         <Container maxWidth="lg">
           <Box
             sx={{
@@ -929,3 +1033,4 @@ const New: FC = () => {
 }
 
 export default New
+

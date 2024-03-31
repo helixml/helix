@@ -184,13 +184,18 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 func (s *HelixAPIServer) validateTool(userContext *types.RequestContext, tool *types.Tool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
-		if !userContext.Admin {
-			return system.NewHTTPError403("only admin users can create gptscript tools")
-		}
 
-		if s.Options.Config.Providers.OpenAI.APIKey == "" {
-			return system.NewHTTPError400("OpenAI API key is required for GPTScript tools. Set OPENAI_API_KEY env variable for Helix controlplane")
-		}
+		// untrusted tools can run now in testfaster VMs
+
+		// if !userContext.Admin {
+		// 	return system.NewHTTPError403("only admin users can create gptscript tools")
+		// }
+
+		// this will actually be set as a testfaster secret!
+
+		// if s.Options.Config.Providers.OpenAI.APIKey == "" {
+		// 	return system.NewHTTPError400("OpenAI API key is required for GPTScript tools. Set OPENAI_API_KEY env variable for Helix controlplane")
+		// }
 
 		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
 			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
