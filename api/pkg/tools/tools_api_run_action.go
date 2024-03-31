@@ -24,7 +24,13 @@ type RunActionResponse struct {
 func (c *ChainStrategy) RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
-		return c.runGPTScriptAction(ctx, tool, history, currentMessage, action)
+		if c.Local {
+			// TESTING ONLY, INSECURE XXX
+			return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
+		} else {
+			// depends on testfaster
+			return c.RunRemoteGPTScriptAction(ctx, tool, history, currentMessage, action)
+		}
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
