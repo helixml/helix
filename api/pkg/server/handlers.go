@@ -189,12 +189,33 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	helixModel := req.FormValue("helixModel")
+
 	var modelName types.ModelName
 	switch sessionType {
 	case types.SessionTypeText:
-		modelName = types.Model_Axolotl_Mistral7b
+		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
+		if sessionMode == types.SessionModeInference {
+			switch helixModel {
+			case "helix-4":
+				modelName = types.Model_Ollama_Mixtral
+			case "helix-3.5":
+				modelName = types.Model_Ollama_Mistral7b
+			case "helix-code":
+				modelName = types.Model_Ollama_CodeLlama
+			case "helix-json":
+				modelName = types.Model_Ollama_NousHermes2Pro
+			case "helix-large":
+				modelName = types.Model_Ollama_Qwen72b
+			default:
+				modelName = types.Model_Ollama_Mistral7b
+			}
+		} else {
+			// fine tuning doesn't work with ollama yet
+			modelName = types.Model_Axolotl_Mistral7b
+		}
 	case types.SessionTypeImage:
-		modelName = types.Model_Axolotl_SDXL
+		modelName = types.Model_Cog_SDXL
 	}
 
 	sessionID := system.GenerateUUID()
@@ -219,9 +240,16 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
+	activeTools := []string{}
+	for _, tool := range strings.Split(req.FormValue("active_tools"), ",") {
+		if tool != "" {
+			activeTools = append(activeTools, tool)
+		}
+	}
+
 	finetuneEnable := false
 	finetuneString := req.FormValue("text_finetune_enabled")
-	
+
 	ragEnable := false
 	ragString := req.FormValue("rag_enabled")
 
@@ -236,19 +264,20 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	createRequest := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      sessionType,
-		ModelName:        modelName,
-		Owner:            reqContext.Owner,
-		OwnerType:        reqContext.OwnerType,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
-		ParentSession:    req.FormValue("parent_session"),
+		SessionID:               sessionID,
+		SessionMode:             sessionMode,
+		SessionType:             sessionType,
+		ModelName:               modelName,
+		Owner:                   reqContext.Owner,
+		OwnerType:               reqContext.OwnerType,
+		UserInteractions:        []*types.Interaction{userInteraction},
+		Priority:                status.Config.StripeSubscriptionActive,
+		ParentSession:           req.FormValue("parent_session"),
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		RagEnabled:          ragEnable,
-		TextFinetuneEnabled: finetuneEnable,
-		RagSettings:         *ragSettings,
+		RagEnabled:              ragEnable,
+		TextFinetuneEnabled:     finetuneEnable,
+		RagSettings:             *ragSettings,
+		ActiveTools:             activeTools,
 	}
 
 	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
@@ -323,12 +352,15 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
+
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
 		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
 		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Options.EvalUserID,
+		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
+		ToolsEnabled: true,
 	}, nil
 }
 

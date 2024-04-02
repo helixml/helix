@@ -114,18 +114,18 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Stream:    false,
-			MaxTokens: 100,
-			Model:     c.cfg.Tools.Model,
-			Messages:  messages,
+			Stream:   false,
+			Model:    c.cfg.Tools.Model,
+			Messages: messages,
 		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+	answer := resp.Choices[0].Message.Content
 
 	// var params map[string]string
-	params, err := unmarshalParams(resp.Choices[0].Message.Content)
+	params, err := unmarshalParams(answer)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +134,18 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 }
 
 func unmarshalParams(data string) (map[string]string, error) {
+	if strings.Contains(data, "```json") {
+		data = strings.Split(data, "```json")[1]
+	}
+	// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
+	parts := strings.Split(data, "```")
+	data = parts[0]
+
+	// LLMs are sometimes bad at correct JSON escaping, trying to escape
+	// characters like _ that don't need to be escaped. Just remove all
+	// backslashes for now...
+	data = strings.Replace(data, "\\", "", -1)
+
 	var initial map[string]interface{}
 	err := json.Unmarshal([]byte(data), &initial)
 	if err != nil {
@@ -154,7 +166,7 @@ func unmarshalParams(data string) (map[string]string, error) {
 	return params, nil
 }
 
-func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletionMessage, error) {
 	return openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: apiSystemPrompt,
@@ -222,9 +234,21 @@ Examples:
 		}		
 	}
 ]
-**Verdict:** response should be {"status": "active"}
+**Verdict:** response should be:
 
-**Response Format:** Always respond with JSON without any commentary, for example: {"parameterName": "parameterValue", "parameterName2": "parameterValue2"}  
+` + "```" + `json
+{
+  "status": "active"
+}
+` + "```" + `
+
+**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+` + "```" + `json
+{
+  "parameterName": "parameterValue",
+  "parameterName2": "parameterValue2"
+} 
+` + "```" + `
 
 ===END EXAMPLES===
 OpenAPI schema: {{.Schema}}

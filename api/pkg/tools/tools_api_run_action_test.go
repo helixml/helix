@@ -7,8 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {

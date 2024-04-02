@@ -1,8 +1,10 @@
-import React, { FC, useState, useCallback, useEffect } from 'react'
+import React, { FC, useState, useCallback, useMemo } from 'react'
 import useApi from '../hooks/useApi'
 
 import {
   ITool,
+  IToolConfig,
+  IToolType,
 } from '../types'
 
 import {
@@ -13,6 +15,18 @@ export const useTools = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<ITool[]>([])
+
+  const userTools = useMemo(() => {
+    return data.filter(tool => !tool.global)
+  }, [
+    data,
+  ])
+
+  const globalTools = useMemo(() => {
+    return data.filter(tool => tool.global)
+  }, [
+    data,
+  ])
   
   const loadData = useCallback(async () => {
     const result = await api.get<ITool[]>(`/api/v1/tools`, undefined, {
@@ -22,19 +36,22 @@ export const useTools = () => {
     setData(result)
   }, [])
 
-  const createTool = useCallback(async (url: string, schema: string): Promise<ITool | undefined> => {
+  // const createTool = useCallback(async (url: string, schema: string): Promise<ITool | undefined> => {
+  const createTool = useCallback(async (name: string, tool_type: IToolType, description: string, config: IToolConfig): Promise<ITool | undefined> => {
     const result = await api.post<Partial<ITool>, ITool>(`/api/v1/tools`, {
-      name: generateAmusingName(),
-      tool_type: 'api',
-      config: {
-        api: {
-          url,
-          schema,
-          actions: [],
-          headers: {},
-          query: {},
-        }
-      }
+      name: name ? name: generateAmusingName(),
+      description: description,
+      tool_type: tool_type,
+      config: config,
+      // config: {
+      //   api: {
+      //     url,
+      //     schema,
+      //     actions: [],
+      //     headers: {},
+      //     query: {},
+      //   }
+      // }
     }, {}, {
       snackbar: true,
     })
@@ -68,6 +85,8 @@ export const useTools = () => {
 
   return {
     data,
+    userTools,
+    globalTools,
     loadData,
     createTool,
     updateTool,

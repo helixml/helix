@@ -36,7 +36,8 @@ export const FineTuneAddFiles: FC<{
       uploadedBytes: 0,
     })
     try {
-      const formData = inputs.getFormData(session.mode, session.type)
+      let formData = new FormData()
+      formData = inputs.setFormData(formData)
       await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
         params: {

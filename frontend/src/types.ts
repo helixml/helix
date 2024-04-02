@@ -35,9 +35,11 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
+export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
@@ -246,7 +248,10 @@ export interface IWebsocketEvent {
 export interface IServerConfig {
   filestore_prefix: string,
   stripe_enabled: boolean,
+  sentry_dsn_frontend: string,
+  google_analytics_frontend: string,
   eval_user_id: string,
+  tools_enabled: boolean,
 }
 
 export interface IConversation {
@@ -399,7 +404,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'function'
+export type IToolType = 'api' | 'gptscript'
 
 export interface IToolApiAction {
   name: string,
@@ -416,8 +421,14 @@ export interface IToolApiConfig {
   query: Record<string, string>,
 }
 
+export interface IToolGptScriptConfig {
+  script?: string,
+  script_url?: string, // If script lives on a remote server, specify the URL
+}
+
 export interface IToolConfig {
-  api: IToolApiConfig,
+  api?: IToolApiConfig,
+  gptscript?: IToolGptScriptConfig,
 }
 
 export interface ITool {
@@ -428,6 +439,7 @@ export interface ITool {
   owner_type: IOwnerType,
   name: string,
   description: string,
+  global: boolean,
   tool_type: IToolType,
   config: IToolConfig,
 }

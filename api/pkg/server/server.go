@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -24,6 +25,7 @@ import (
 const API_PREFIX = "/api/v1"
 
 type ServerOptions struct {
+	Config        *config.ServerConfig
 	URL           string
 	Host          string
 	Port          int
@@ -44,6 +46,9 @@ type ServerOptions struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+	// the list of tool ids that are allowed to be used by any user
+	// this is returned to the frontend as part of the /config route
+	ToolsGlobalIDS []string
 }
 
 type HelixAPIServer struct {
@@ -144,7 +149,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {

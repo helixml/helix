@@ -130,6 +130,7 @@ type SessionMetadata struct {
 	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
 	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
 	RagSettings         SessionRagSettings `json:"rag_settings"`
+	ActiveTools         []string           `json:"active_tools"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -496,6 +497,7 @@ type ServerConfigForFrontend struct {
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
+	ToolsEnabled            bool   `json:"tools_enabled"`
 }
 
 type CreateSessionRequest struct {
@@ -513,6 +515,7 @@ type CreateSessionRequest struct {
 	RagEnabled              bool
 	TextFinetuneEnabled     bool
 	RagSettings             SessionRagSettings
+	ActiveTools             []string
 }
 
 type UpdateSessionRequest struct {
@@ -624,8 +627,8 @@ type Counter struct {
 type ToolType string
 
 const (
-	ToolTypeAPI      ToolType = "api"
-	ToolTypeFunction ToolType = "function"
+	ToolTypeAPI       ToolType = "api"
+	ToolTypeGPTScript ToolType = "gptscript"
 )
 
 type Tool struct {
@@ -639,13 +642,15 @@ type Tool struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	ToolType    ToolType  `json:"tool_type"`
+	Global      bool      `json:"global"`
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
 	Config ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
-	API *ToolApiConfig `json:"api"`
+	API       *ToolApiConfig       `json:"api"`
+	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -685,6 +690,11 @@ type ToolApiAction struct {
 	Description string `json:"description"`
 	Method      string `json:"method"`
 	Path        string `json:"path"`
+}
+
+type ToolGPTScriptConfig struct {
+	Script    string `json:"script"`     // Program code
+	ScriptURL string `json:"script_url"` // URL to download the script
 }
 
 // SessionToolBinding used to add tools to sessions

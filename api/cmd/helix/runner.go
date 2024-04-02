@@ -221,7 +221,7 @@ var WarmupSession_Model_SDXL = types.Session{
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    types.Model_Axolotl_SDXL,
+	ModelName:    types.Model_Cog_SDXL,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -278,9 +278,13 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 			for _, modelName := range options.Runner.Config.Runtimes.Axolotl.WarmupModels {
 				switch modelName {
 				case types.Model_Axolotl_Mistral7b.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
-				case types.Model_Axolotl_SDXL.String():
+				case types.Model_Cog_SDXL.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
+				default:
+					log.Error().Msgf("Unknown warmup model %s", modelName)
 				}
 			}
 		}
@@ -290,6 +294,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
 				switch modelName {
 				case types.Model_Ollama_Mistral7b.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
 					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Mistral7b)
 				}
 			}

@@ -34,6 +34,7 @@ type GetBotsQuery struct {
 type ListToolsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
+	Global    bool            `json:"global"`
 }
 
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE

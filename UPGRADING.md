@@ -1,10 +1,10 @@
-# From Helix < 0.6.0 to Helix >= 0.6.0
+# From Helix < 0.6 to Helix 0.6
 
 This version has a significant upgrade of keycloak from Keycloak 15.0.2 to Keycloak 23.0.6. There have been a number of security vulnerabilities addressed with Keycloak, feature support and admin UI changes between these versions.
 
 This version also migrates from using Keycloak's own embedded Java H2 relational database to using Postgres as the backend data store for Keycloak.
 
-This guide provides instructions for migrating a running version of [Helix 0.5.5](https://github.com/helixml/helix/releases/tag/0.5.5) to Helix 0.6.0.
+This guide provides instructions for migrating a running version of Helix <= 0.5 to Helix 0.6.
 
 ## Local development upgrades
 
@@ -19,6 +19,11 @@ Remove postgres volumes with
 docker volume rm helix_helix-postgres-db
 ```
 This will force the creation of the postgres db needed for keycloak on the next step.
+
+Ensure keycloak realm settings are up to date with your .env file
+```
+./update-realm-settings.sh
+```
 
 ```
 ./stack up
@@ -58,7 +63,7 @@ Note: This is only required if you have running volumes of postgres. For any new
 4. Upgrade/restart the helix stack with
 
 ```
-git pull; git checkout 0.6.0; docker-compose pull; docker-compose up -d
+git pull; git checkout 0.6.1; docker-compose pull; docker-compose up -d
 ```
 
 5. Import the keycloak realm and user metadata back into the container
@@ -97,6 +102,6 @@ docker exec -it helix-postgres-1 psql -U {POSTGRES_USER}
 psql> \list
 ```
 
-If the realm 'Helix' does not show up on the UI, you can force this to re-appear by creating another new realm (and deleting it later), as this seems to refresh the cache of known realms shown in the UI.
+If the realm 'Helix' does not show up on the keycloak admin UI, you can force this to re-appear by creating another new realm (and deleting it later), as this seems to refresh the cache of known realms shown in the UI.
 
 If you encounter issues, please reach out to the Helix team on [Discord](https://discord.com/channels/1180827321704390657/1209590511745106022)

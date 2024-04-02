@@ -6,11 +6,16 @@ import (
 
 func getToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
 	for _, tool := range tools {
-		if tool.ToolType == types.ToolTypeAPI {
+		switch tool.ToolType {
+		case types.ToolTypeAPI:
 			for _, a := range tool.Config.API.Actions {
 				if a.Name == action {
 					return tool, true
 				}
+			}
+		case types.ToolTypeGPTScript:
+			if tool.Name == action {
+				return tool, true
 			}
 		}
 	}
