@@ -155,7 +155,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	if err != nil {
 		return nil, err
 	}
-	// router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
 
 	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
@@ -260,7 +259,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	}
 
 	// OpenAI API compatible routes
-	router.HandleFunc("/v1/chat/completions", apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
+	router.HandleFunc("/v1/chat/completions", corsMiddleware(apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion))).Methods("POST", "OPTIONS")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
