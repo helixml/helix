@@ -77,6 +77,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			OwnerType:        userContext.OwnerType,
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
+			ActiveTools:      startReq.Tools,
 		}
 
 		cfg = &startSessionConfig{

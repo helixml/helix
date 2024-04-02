@@ -7,18 +7,15 @@ import (
 )
 
 func GetModel(modelName types.ModelName) (Model, error) {
-	switch modelName {
-	case types.Model_Axolotl_Mistral7b:
-		return &Mistral7bInstruct01{}, nil
-	case types.Model_Axolotl_SDXL:
-		return &CogSDXL{}, nil
-	case types.Model_Ollama_Mistral7b:
-		return &OllamaMistral7bInstruct01{}, nil
-	case types.Model_Ollama_Gemma7b:
-		return &OllamaGemma7bInstruct01{}, nil
-	default:
+	models, err := GetModels()
+	if err != nil {
+		return nil, err
+	}
+	model, ok := models[modelName]
+	if !ok {
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
+	return model, nil
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
@@ -27,11 +24,15 @@ func GetModel(modelName types.ModelName) (Model, error) {
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
 	models[types.Model_Axolotl_Mistral7b] = &Mistral7bInstruct01{}
-	models[types.Model_Axolotl_SDXL] = &CogSDXL{}
+	models[types.Model_Cog_SDXL] = &CogSDXL{}
 
 	// Ollama
-	models[types.Model_Ollama_Mistral7b] = &OllamaMistral7bInstruct01{}
-	models[types.Model_Ollama_Gemma7b] = &OllamaGemma7bInstruct01{}
+	models[types.Model_Ollama_Mistral7b] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), MB*6440)
+	models[types.Model_Ollama_Mixtral] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), GB*24)
+	models[types.Model_Ollama_CodeLlama] = NewOllamaGenericText(types.Model_Ollama_CodeLlama.String(), GB*24)
+	models[types.Model_Ollama_NousHermes2Pro] = NewOllamaGenericText(types.Model_Ollama_NousHermes2Pro.String(), MB*6440)
+	models[types.Model_Ollama_Qwen72b] = NewOllamaGenericText(types.Model_Ollama_Qwen72b.String(), GB*40)
+
 	return models, nil
 }
 

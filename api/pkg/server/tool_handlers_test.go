@@ -64,7 +64,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,
-				Planner: &tools.ChainStrategy{},
+				Planner: &tools.ChainStrategy{Local: true},
 			},
 		},
 		adminAuth: &adminAuth{},
@@ -75,7 +75,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 }
 
 func (suite *ToolsTestSuite) TestListTools() {
-	tools := []*types.Tool{
+	userTools := []*types.Tool{
 		{
 			ID:   "tool_1",
 			Name: "tool_1_name",
@@ -86,6 +86,8 @@ func (suite *ToolsTestSuite) TestListTools() {
 		},
 	}
 
+	globalTools := []*types.Tool{}
+
 	suite.store.EXPECT().CheckAPIKey(gomock.Any(), "hl-API_KEY").Return(&types.ApiKey{
 		Owner:     suite.userID,
 		OwnerType: types.OwnerTypeUser,
@@ -94,7 +96,11 @@ func (suite *ToolsTestSuite) TestListTools() {
 	suite.store.EXPECT().ListTools(gomock.Any(), &store.ListToolsQuery{
 		Owner:     suite.userID,
 		OwnerType: types.OwnerTypeUser,
-	}).Return(tools, nil)
+	}).Return(globalTools, nil)
+
+	suite.store.EXPECT().ListTools(gomock.Any(), &store.ListToolsQuery{
+		Global: true,
+	}).Return(userTools, nil)
 
 	req, err := http.NewRequest("GET", "/api/v1/tools", http.NoBody)
 	suite.NoError(err)
@@ -111,7 +117,7 @@ func (suite *ToolsTestSuite) TestListTools() {
 
 	var resp []*types.Tool
 	suite.NoError(json.NewDecoder(rec.Body).Decode(&resp))
-	suite.Equal(tools, resp)
+	suite.Equal(userTools, resp)
 }
 
 func (suite *ToolsTestSuite) TestCreateTool() {

@@ -90,6 +90,9 @@ func NewServeOptions() (*ServeOptions, error) {
 			AutoMigrate: true,
 		},
 		ServerOptions: server.ServerOptions{
+			// TODO: unify the config by using the config pkg
+			// and then we can get rid of all those flags too
+			Config:        &serverConfig,
 			URL:           getDefaultServeOptionString("SERVER_URL", ""),
 			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
 			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
@@ -97,9 +100,10 @@ func NewServeOptions() (*ServeOptions, error) {
 			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
 			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
 			// if this is defined it means runner auth is enabled
-			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
-			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
-			EvalUserID:  getDefaultServeOptionString("EVAL_USER_ID", ""),
+			RunnerToken:    getDefaultServeOptionString("RUNNER_TOKEN", ""),
+			AdminIDs:       getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
+			EvalUserID:     getDefaultServeOptionString("EVAL_USER_ID", ""),
+			ToolsGlobalIDS: getDefaultServeOptionStringArray("TOOLS_GLOBAL_IDS", []string{}),
 		},
 		JanitorOptions: janitor.JanitorOptions{
 			SentryDSNApi:            serverConfig.Janitor.SentryDsnAPI,

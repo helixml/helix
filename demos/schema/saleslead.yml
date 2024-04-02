@@ -1,0 +1,45 @@
+openapi: 3.0.0
+info:
+  title: Sales Leads API
+  version: 1.0.0
+paths:
+  /salesleads/v1/list:
+    get:
+      summary: List all sales leads, optionally filter by status
+      operationId: listSalesLeads
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+          required: false
+          description: Filter leads by their status
+      responses:
+        '200':
+          description: An array of sales leads, each with details including ID, company name, company description, contact name, job title, status, and notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SalesLead'
+
+components:
+  schemas:
+    SalesLead:
+      type: object
+      properties:
+        id:
+          type: string
+        companyName:
+          type: string
+        companyDescription:
+          type: string
+        contactName:
+          type: string
+        jobTitle:
+          type: string
+        status:
+          type: string
+        notes:
+          type: string

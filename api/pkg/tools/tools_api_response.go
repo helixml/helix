@@ -23,7 +23,7 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, tool *types.Tool,
 	return c.handleSuccessResponse(ctx, tool, currentMessage, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, tool *types.Tool, currentMessage string, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -46,10 +46,9 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, tool *types.T
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Stream:    false,
-			MaxTokens: 500,
-			Model:     c.cfg.Tools.Model,
-			Messages:  messages,
+			Stream:   false,
+			Model:    c.cfg.Tools.Model,
+			Messages: messages,
 		},
 	)
 	if err != nil {
@@ -66,7 +65,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, tool *types.T
 	}, nil
 }
 
-func (c *ChainStrategy) handleErrorResponse(ctx context.Context, tool *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleErrorResponse(ctx context.Context, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -81,10 +80,9 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, tool *types.Too
 	resp, err := c.apiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Stream:    false,
-			MaxTokens: 100,
-			Model:     c.cfg.Tools.Model,
-			Messages:  messages,
+			Stream:   false,
+			Model:    c.cfg.Tools.Model,
+			Messages: messages,
 		},
 	)
 	if err != nil {

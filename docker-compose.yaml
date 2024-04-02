@@ -93,12 +93,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
   llamaindex:
     image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
     # ports:
       # - 5000:5000
     restart: always
+    environment:
+      - POSTGRES_HOST=pgvector
+      - POSTGRES_DATABASE=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
 
 volumes:
   helix-keycloak-db:
