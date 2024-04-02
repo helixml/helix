@@ -17,11 +17,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (apiServer *HelixAPIServer) corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		res.Header().Set("Access-Control-Allow-Origin", "*")
-		next.ServeHTTP(res, req)
-	})
+func corsMiddleware(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set headers to allow requests from any origin
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		// If method is OPTIONS, return just the headers and finish the request
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		f.ServeHTTP(w, r)
+	}
 }
 
 func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.RequestContext {
