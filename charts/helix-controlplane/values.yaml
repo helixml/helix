@@ -10,14 +10,16 @@ global:
   ##
   imagePullSecrets: []
   storageClass: ""
+  serverUrl: http://localhost:8844
 
 image:
   repository: europe-docker.pkg.dev/helixml/helix/controlplane
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "latest"
   
 llamaindex:
+  enabled: false
   image:
     repository: europe-docker.pkg.dev/helixml/helix/llamaindex
     tag: "latest"
