@@ -7,15 +7,6 @@ image:
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
-
-keycloak:
-  enabled: true
-  image: 
-    repository: quay.io/keycloak/keycloak
-    tag: "23.0"
-  # Keycloak configuration
-  db: postgres
-  dbUrl: "jdbc:postgresql://postgres:5432/keycloak"
   
 llamaindex:
   image:
@@ -116,5 +107,53 @@ tolerations: []
 
 affinity: {}
 
-
 envVariables: {}
+
+## PostgreSQL chart configuration
+## ref: https://github.com/bitnami/charts/blob/main/bitnami/postgresql/values.yaml
+## @param postgresql.enabled Switch to enable or disable the PostgreSQL helm chart
+## @param postgresql.auth.postgresPassword Password for the "postgres" admin user. Ignored if `auth.existingSecret` with key `postgres-password` is provided
+## @param postgresql.auth.username Name for a custom user to create
+## @param postgresql.auth.password Password for the custom user to create
+## @param postgresql.auth.database Name for a custom database to create
+## @param postgresql.auth.existingSecret Name of existing secret to use for PostgreSQL credentials
+## @param postgresql.architecture PostgreSQL architecture (`standalone` or `replication`)
+##
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: ""
+    username: helix
+    password: "oh-hallo-insecure-password"
+    database: helix
+    existingSecret: ""
+  architecture: standalone
+
+## External PostgreSQL configuration
+## All of these values are only used when postgresql.enabled is set to false
+## @param externalDatabase.host Database host
+## @param externalDatabase.port Database port number
+## @param externalDatabase.user Non-root username for Keycloak
+## @param externalDatabase.password Password for the non-root username for Keycloak
+## @param externalDatabase.database Keycloak database name
+## @param externalDatabase.existingSecret Name of an existing secret resource containing the database credentials
+## @param externalDatabase.existingSecretHostKey Name of an existing secret key containing the database host name
+## @param externalDatabase.existingSecretPortKey Name of an existing secret key containing the database port
+## @param externalDatabase.existingSecretUserKey Name of an existing secret key containing the database user
+## @param externalDatabase.existingSecretDatabaseKey Name of an existing secret key containing the database name
+## @param externalDatabase.existingSecretPasswordKey Name of an existing secret key containing the database credentials
+## @param externalDatabase.annotations Additional custom annotations for external database secret object
+##
+externalDatabase:
+  host: ""
+  port: 5432
+  user: helix
+  database: helix
+  password: ""
+  existingSecret: ""
+  existingSecretHostKey: ""
+  existingSecretPortKey: ""
+  existingSecretUserKey: ""
+  existingSecretDatabaseKey: ""
+  existingSecretPasswordKey: ""
+  annotations: {}
