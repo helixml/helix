@@ -89,64 +89,64 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
   const type = new URLSearchParams(window.location.search).get('type')
   const isText = type === 'text' || type === null;
   const modelSwitcher = (isNew && isInference && isText) && (
-        <div>
-            <Typography
-                className="inferenceTitle"
-                component="h1"
-                variant="h6"
-                color="inherit"
-                noWrap
-                onClick={handleModelMenu}
-                sx={{
-                    flexGrow: 1,
-                    mx: 0,
-                    color: 'text.primary',
-                    borderRadius: '15px', // Add rounded corners
-                    padding: "3px",
-                    "&:hover": {
-                        backgroundColor: theme.palette.mode === "light" ? "#efefef" : "#13132b",
-                    },
-                    cursor: "pointer"
+    <div>
+        <Typography
+            className="inferenceTitle"
+            component="h1"
+            variant="h6"
+            color="inherit"
+            noWrap
+            onClick={handleModelMenu}
+            sx={{
+                flexGrow: 1,
+                mx: 0,
+                color: 'text.primary',
+                borderRadius: '15px', // Add rounded corners
+                padding: "3px",
+                "&:hover": {
+                    backgroundColor: theme.palette.mode === "light" ? "#efefef" : "#13132b",
+                               },
+                cursor: "pointer"
+            }}
+        >
+            &nbsp;&nbsp;{model} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+        </Typography>
+        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+            <Menu
+                anchorEl={modelMenuAnchorEl}
+                open={Boolean(modelMenuAnchorEl)}
+                onClose={handleCloseAccountMenu}
+                onClick={() => account.setMobileMenuOpen(false)}
+                sx={{marginTop:"50px"}}
+                anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'left',
+                }}
+                transformOrigin={{
+                    vertical: 'center',
+                    horizontal: 'left',
                 }}
             >
-                &nbsp;&nbsp;{model} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
-            </Typography>
-            <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                <Menu
-                    anchorEl={modelMenuAnchorEl}
-                    open={Boolean(modelMenuAnchorEl)}
-                    onClose={handleCloseAccountMenu}
-                    onClick={() => account.setMobileMenuOpen(false)}
-                    sx={{marginTop:"50px"}}
-                    anchorOrigin={{
-                        vertical: 'bottom',
-                        horizontal: 'left',
-                    }}
-                    transformOrigin={{
-                        vertical: 'center',
-                        horizontal: 'left',
-                    }}
-                >
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>
-                        Helix 3.5 &nbsp; <small>(Mistral-7B, fast and good for everyday tasks)</small>
-                    </MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix 4'); setModelMenuAnchorEl(null); }}>
-                        Helix 4 &nbsp; <small>(Mixtral MoE 8x7B, smarter but a bit slower)</small>
-                    </MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Large'); setModelMenuAnchorEl(null); }}>
-                        Helix Large &nbsp; <small>(Qwen 72B, strongest OSS model in the LMSYS Chatbot Arena)</small>
-                    </MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Code'); setModelMenuAnchorEl(null); }}>
-                        Helix Code &nbsp; <small>(CodeLlama 70B from Meta, better than GPT-4 at code)</small>
-                    </MenuItem>
-                    <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix JSON'); setModelMenuAnchorEl(null); }}>
-                        Helix JSON &nbsp; <small>(Nous Hermes 2 Pro 7B, for function calling & JSON output)</small>
-                    </MenuItem>
-                    {/* TODO: Vision model */}
-                </Menu>
-            </Box>
-        </div>
-    )
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel("Helix 3.5"); setModelMenuAnchorEl(null); }}>
+                    Helix 3.5 &nbsp; <small>(Mistral-7B, fast and good for everyday tasks)</small>
+                </MenuItem>
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix 4'); setModelMenuAnchorEl(null); }}>
+                    Helix 4 &nbsp; <small>(Mixtral MoE 8x7B, smarter but a bit slower)</small>
+                </MenuItem>
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Large'); setModelMenuAnchorEl(null); }}>
+                    Helix Large &nbsp; <small>(Qwen 72B, strongest OSS model in the LMSYS Chatbot Arena)</small>
+                </MenuItem>
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Code'); setModelMenuAnchorEl(null); }}>
+                    Helix Code &nbsp; <small>(CodeLlama 70B from Meta, better than GPT-4 at code)</small>
+                </MenuItem>
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix JSON'); setModelMenuAnchorEl(null); }}>
+                    Helix JSON &nbsp; <small>(Nous Hermes 2 Pro 7B, for function calling & JSON output)</small>
+                </MenuItem>
+                {/* TODO: Vision model */}
+            </Menu>
+        </Box>
+    </div>
+  )
 
   return (
     <AppBar
@@ -219,66 +219,32 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                     textAlign: 'right',
                 }}
             >
-            {
-                bigScreen ? (
-                <>
-                    <Box
-                        sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'flex-end'
-                        }}
-                    >
-                        {
-                            getToolbarElement && getToolbarElement(true)
-                        }
-                        {
-                          !account.user && (
-                            <Button
-                                variant="contained"
-                                color="primary"
-                                endIcon={<LoginIcon />}
-                                onClick={account.onLogin}
-                                sx={{
-                                    ml: 2,
-                                }}
-                            >
-                                Login / Register
-                            </Button>
-                          )
-                        }
-                    </Box>
-                </>
-                ) : (
-                <>
-                    <Box
-                        sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'flex-end'
-                        }}
-                    >
-                      {
-                          getToolbarElement && getToolbarElement(true)
-                      }
-                      {/* {
-                        !account.user && (
-                            <Button
+                <Box
+                    sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end'
+                    }}
+                >
+                    {
+                        getToolbarElement && getToolbarElement(bigScreen)
+                    }
+                    {
+                      !account.user && bigScreen && (
+                        <Button
                             variant="contained"
                             color="primary"
+                            endIcon={bigScreen ? <LoginIcon /> : null}
                             onClick={account.onLogin}
                             sx={{
                                 ml: 2,
                             }}
-                            >
-                            Login
-                            </Button>
-                        )
-                        } */}
-                    </Box>
-                </>
-                )
-            }
+                        >
+                            "Login / Register"
+                        </Button>
+                      )
+                    }
+                </Box>
             </Box>
         </Toolbar>
     </AppBar>
