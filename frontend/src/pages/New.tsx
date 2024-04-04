@@ -493,9 +493,9 @@ const New: FC = () => {
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
           You are in <strong>Inference</strong> mode:
-          <Box component="ul" sx={{px: 1, pt:1, mx: .5, my:0, lineHeight: 1.1 }}>
-            <Box component="li" sx={{p: .5, m: 0}}>Generate new content based on your prompt</Box>
-            <Box component="li" sx={{p: .5, m: 0}}>Click
+          <Box component="ul" sx={{pl:2, pr: 1, pt:1, mx: .5, my:0, lineHeight: 1.1 }}>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Generate new content based on your prompt</Box>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Click
               <Button
                 variant="contained"
                 size="small"
@@ -523,7 +523,7 @@ const New: FC = () => {
                 {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
               </Button>
             to change type</Box>
-            <Box component="li" sx={{p: .5, m: 0}}>Type a prompt into the box below and press enter to begin</Box>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Type a prompt into the box below and press enter to begin</Box>
           </Box>
         </Typography>
         <Typography
@@ -533,8 +533,8 @@ const New: FC = () => {
           }}
         >
           <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<br/>
-          <Box component="ul" sx={{px: 1, pt: 1, mx: .5, my:0, lineHeight: 1.1 }}>
-            <Box component="li" sx={{p: .5, m: 0}}>Customize your own AI by training it on your own text or images</Box>
+          <Box component="ul" sx={{pl:2, pr: 1, pt: 1, mx: .5, my:0, lineHeight: 1.1 }}>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Customize your own AI by training it on your own text or images</Box>
           </Box>
         </Typography>
       </Box>
