@@ -16,7 +16,7 @@ image:
   repository: europe-docker.pkg.dev/helixml/helix/controlplane
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "kr-dev-1"
+  tag: "latest"
   
 llamaindex:
   enabled: false
