@@ -2,10 +2,12 @@ envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
   # Database
-  POSTGRES_HOST: helix-postgres
+  POSTGRES_HOST: helix-postgresql
   POSTGRES_USER: helix
   POSTGRES_PASSWORD: oh-hallo-insecure-password
   POSTGRES_DATABASE: helix
+  # Runners
+  RUNNER_TOKEN: oh-hallo-insecure-token
   # LLM providers
   OPENAI_API_KEY: ""
   TOGETHER_API_KEY: ""
