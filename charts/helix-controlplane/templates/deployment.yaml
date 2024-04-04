@@ -5,9 +5,9 @@ metadata:
   labels:
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
+  # Helix can't run multi-node yet, do not set
+  # to more than 1 replicas for controlplane
   replicas: 1
-  {{- end }}
   selector:
     matchLabels:
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
@@ -52,7 +52,7 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.pvc.enabled }}
+          {{- if .Values.persistence.enabled }}
           volumeMounts:
             - name: controlplane-storage
               mountPath: /filestore
@@ -92,7 +92,7 @@ spec:
             - name: POSTGRES_PASSWORD
               value: pgvector
 
-      {{- if .Values.pvc.enabled }}     
+      {{- if .Values.persistence.enabled }}     
       volumes:
       - name: controlplane-storage
         persistentVolumeClaim:
