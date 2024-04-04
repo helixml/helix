@@ -25,7 +25,7 @@ if(win.HELIX_SENTRY_DSN) {
     // Set tracesSampleRate to 1.0 to capture 100%
     // of transactions for performance monitoring.
     tracesSampleRate: 0.1,
-    replaysSessionSampleRate: 0.1,
+    replaysSessionSampleRate: 1.0,
     replaysOnErrorSampleRate: 1.0,
     beforeSend(event, hint) {
       // Check if it is an exception, and if so, show the report dialog
