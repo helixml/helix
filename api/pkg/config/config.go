@@ -3,12 +3,13 @@ package config
 import "github.com/kelseyhightower/envconfig"
 
 type ServerConfig struct {
-	Providers     Providers
-	Tools         Tools
-	Keycloak      Keycloak
-	Notifications Notifications
-	Janitor       Janitor
-	Stripe        Stripe
+	Providers          Providers
+	Tools              Tools
+	Keycloak           Keycloak
+	Notifications      Notifications
+	Janitor            Janitor
+	Stripe             Stripe
+	SubscriptionQuotas SubscriptionQuotas
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -98,4 +99,18 @@ type Stripe struct {
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY"`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY"`
+}
+
+type SubscriptionQuotas struct {
+	Enabled    bool `envconfig:"SUBSCRIPTION_QUOTAS_ENABLED" default:"true"`
+	Finetuning struct {
+		Free struct {
+			MaxConcurrent int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CONCURRENT" default:"1"`
+			MaxChunks     int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CHUNKS" default:"10"`
+		}
+		Pro struct {
+			MaxConcurrent int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CONCURRENT" default:"3"`
+			MaxChunks     int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
+		}
+	}
 }
