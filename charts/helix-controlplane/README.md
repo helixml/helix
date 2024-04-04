@@ -33,4 +33,10 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 ```
 
 
-Then, open it on http://localhost:8888/auth/
+Then, open it on http://localhost:8888/auth/. Once opened, click on "Create realm" and copy the file conents from [realm.json](https://github.com/helixml/helix/blob/main/realm.json). Search for `"5ca0fc03-d625-456e-bca7-8e732309165f"` and change it to a random UUID. Then click on "Create".
+
+## Setup Helix
+
+```bash
+
+```
