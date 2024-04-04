@@ -457,6 +457,59 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
+
+	// Validate quotas
+	if c.Options.Config.SubscriptionQuotas.Enabled {
+		usermeta, err := c.Options.Store.GetUserMeta(context.Background(), session.Owner)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error getting user '%s' meta: %s", session.Owner, err.Error())
+		}
+
+		// Check if the plan is pro
+		if usermeta.Config.StripeSubscriptionActive {
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks {
+
+				log.Info().
+					Str("user_id", session.Owner).
+					Str("session_id", session.ID).
+					Msgf("chunks have been reduced to the pro tier limit of %d, total chunks before: %d",
+						c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+						len(chunksToProcess),
+					)
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("too many chunks to convert in pro tier (%d), reducing to %d text chunks to question answer pairs",
+					len(chunksToProcess),
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+				)
+
+				// Cut the chunks to the pro tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks]
+			}
+		} else {
+			// Free tier
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks {
+
+				log.Info().
+					Str("user_id", session.Owner).
+					Str("session_id", session.ID).
+					Msgf("chunks have been reduced to the free tier limit of %d, total chunks before: %d",
+						c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+						len(chunksToProcess),
+					)
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("too many chunks to convert in free tier (%d), reducing to %d text chunks to question answer pairs",
+					len(chunksToProcess),
+					c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				)
+
+				// Cut the chunks to the free tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
+			}
+		}
+	}
+
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
 	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
