@@ -35,8 +35,23 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 
 Then, open it on http://localhost:8888/auth/. Once opened, click on "Create realm" and copy the file conents from [realm.json](https://github.com/helixml/helix/blob/main/realm.json). Search for `"5ca0fc03-d625-456e-bca7-8e732309165f"` and change it to a random UUID. Then click on "Create".
 
+Then, update the frontend URL in Keycloak. This is used for redirects:
+
+![frontend URL in keycloak](https://github.com/helixml/helix/blob/feature/chart/docs/frontend.png?raw=true)
+
 ## Setup Helix
 
-```bash
+Copy the values-example.yaml to values-your-env.yaml and update the values as needed. Then run the following command (just with your own file):
 
+```bash
+helm upgrade --install helix \
+  ./helix-controlplane \
+  -f helix-controlplane/values.yaml \
+  -f helix-controlplane/values-example.yaml
 ```
+
+Use port-forward to access the service.
+
+## Ingress
+
+When configuring ingress, adjust both global.serverUrl to your domain name and keycloak's frontend URL to the same domain name. This is important for the redirects to work.
