@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Nerzal/gocloak/v13"
+	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
@@ -20,6 +21,8 @@ type KeycloakAuthenticator struct {
 
 func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
 	gck := gocloak.NewClient(cfg.URL)
+
+	log.Info().Str("keycloak_url", cfg.URL).Msg("connecting to keycloak")
 
 	token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
 	if err != nil {

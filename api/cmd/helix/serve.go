@@ -135,7 +135,11 @@ func newServeCmd() *cobra.Command {
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd, allOptions)
+			err := serve(cmd, allOptions)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to run server")
+			}
+			return nil
 		},
 	}
 
