@@ -795,7 +795,7 @@ const New: FC = () => {
               You can login with your Google account or with your email address.
             </Typography>
             <Typography>
-              We will keep what you've done here for you, so you can continue where you left off.
+              We will keep what you've done here for you, so you may continue where you left off.
             </Typography>
           </Window>
         )
