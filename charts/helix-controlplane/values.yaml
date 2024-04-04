@@ -2,6 +2,15 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+global:
+  imageRegistry: ""
+  ## E.g.
+  ## imagePullSecrets:
+  ##   - myRegistryKeySecretName
+  ##
+  imagePullSecrets: []
+  storageClass: ""
+
 image:
   repository: europe-docker.pkg.dev/helixml/helix/controlplane
   pullPolicy: IfNotPresent
@@ -88,12 +97,62 @@ readinessProbe:
 volumes:
   - name: data
     
-pvc:
+# pvc:
+#   enabled: true
+#   accessModes:
+#     - ReadWriteOnce
+#   size: '50Gi'
+#   storageClassName: "local-path"
+
+
+## Enable persistence using Persistent Volume Claims
+## ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+##
+persistence:
+  ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
+  ##
   enabled: true
+  ## @param backend.persistence.mountPath Path to mount the volume at.
+  ##
+  mountPath: /helix/controlplane
+  ## @param backend.persistence.subPath The subdirectory of the volume to mount to, useful in dev environments and one PV for multiple services
+  ##
+  subPath: ""
+  ## @param backend.persistence.gitDataPath The subdirectory in `/mountPath` or `/mountPath/subPath` where git connected apps will store their local git data.
+  ##
+  gitDataPath: ""
+  ## @param backend.persistence.storageClass Storage class of backing PVC
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+  ##   GKE, AWS & OpenStack)
+  ##
+  storageClass: ""
+  ## @param backend.persistence.annotations Persistent Volume Claim annotations
+  ##
+  annotations: {}
+  ## @param backend.persistence.accessModes Persistent Volume Access Modes
+  ##
   accessModes:
     - ReadWriteOnce
-  size: 100Gi
-  storageClassName: ""
+  ## @param backend.persistence.size Size of data volume
+  ##
+  size: 8Gi
+  ## @param backend.persistence.existingClaim The name of an existing PVC to use for persistence
+  ##
+  existingClaim: ""
+  ## @param backend.persistence.selector Selector to match an existing Persistent Volume for Helix data PVC
+  ## If set, the PVC can't have a PV dynamically provisioned for it
+  ## E.g.
+  ## selector:
+  ##   matchLabels:
+  ##     app: my-app
+  ##
+  selector: {}
+  ## @param backend.persistence.dataSource Custom PVC data source
+  ##
+  dataSource: {}
 
 # Additional volumeMounts on the output Deployment definition.
 volumeMounts: []
