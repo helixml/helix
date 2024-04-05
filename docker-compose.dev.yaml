@@ -29,7 +29,6 @@ services:
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
       - FRONTEND_URL=http://frontend:8081
       # this is an insecure development key do not use!
-      - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
