@@ -6,46 +6,23 @@ import (
 	"net/http"
 	"strings"
 
-	gocloak "github.com/Nerzal/gocloak/v13"
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-const CLIENT_ID = "api"
-const REALM = "helix"
-
-type keycloak struct {
-	gocloak      *gocloak.GoCloak // keycloak client
-	externalUrl  string           // the URL of the keycloak server
-	clientId     string           // clientId specified in Keycloak
-	clientSecret string           // client secret specified in Keycloak
-	realm        string           // realm specified in Keycloak
+type authMiddleware struct {
+	authenticator auth.Authenticator
+	options       ServerOptions
+	store         store.Store
 }
 
-func newKeycloak(options ServerOptions) *keycloak {
-	externalUrl := options.KeyCloakURL
-	keycloak := &keycloak{
-		gocloak:      gocloak.NewClient(externalUrl),
-		externalUrl:  externalUrl,
-		clientId:     CLIENT_ID,
-		clientSecret: options.KeyCloakToken,
-		realm:        REALM,
-	}
-	return keycloak
+func newMiddleware(authenticator auth.Authenticator, options ServerOptions, store store.Store) *authMiddleware {
+	return &authMiddleware{authenticator: authenticator, options: options, store: store}
 }
 
-type keyCloakMiddleware struct {
-	keycloak *keycloak
-	options  ServerOptions
-	store    store.Store
-}
-
-func newMiddleware(keycloak *keycloak, options ServerOptions, store store.Store) *keyCloakMiddleware {
-	return &keyCloakMiddleware{keycloak: keycloak, options: options, store: store}
-}
-
-func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
+func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
 	// in case the request is authenticated with an hl- token, rather than a
 	// keycloak JWT, return the owner. Returns nil if it's not an hl- token.
 	token := r.Header.Get("Authorization")
@@ -73,7 +50,7 @@ func (auth *keyCloakMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.A
 	return nil, nil
 }
 
-func (auth *keyCloakMiddleware) jwtFromRequest(r *http.Request) (*jwt.Token, error) {
+func (auth *authMiddleware) jwtFromRequest(r *http.Request) (*jwt.Token, error) {
 	// try to extract Authorization parameter from the HTTP header
 	token := r.Header.Get("Authorization")
 	if token != "" {
@@ -90,25 +67,10 @@ func (auth *keyCloakMiddleware) jwtFromRequest(r *http.Request) (*jwt.Token, err
 		}
 	}
 
-	result, err := auth.keycloak.gocloak.RetrospectToken(r.Context(), token, CLIENT_ID, auth.options.KeyCloakToken, REALM)
-	if err != nil {
-		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %s", err.Error())
-	}
-
-	j, _, err := auth.keycloak.gocloak.DecodeAccessToken(r.Context(), token, REALM)
-	if err != nil {
-		return nil, fmt.Errorf("DecodeAccessToken: invalid or malformed token: %s", err.Error())
-	}
-
-	// check if the token isn't expired and valid
-	if !*result.Active {
-		return nil, fmt.Errorf("invalid or expired token")
-	}
-
-	return j, nil
+	return auth.authenticator.ValidateUserToken(r.Context(), token)
 }
 
-func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, error) {
+func (auth *authMiddleware) userIDFromRequest(r *http.Request) (string, error) {
 	token, err := auth.jwtFromRequest(r)
 	if err != nil {
 		return "", err
@@ -117,8 +79,7 @@ func (auth *keyCloakMiddleware) userIDFromRequest(r *http.Request) (string, erro
 }
 
 // this will return a user id based on EITHER a database token OR a keycloak token
-// TODO: refactor this mess
-func (auth *keyCloakMiddleware) userIDFromRequestBothModes(r *http.Request) (string, error) {
+func (auth *authMiddleware) userIDFromRequestBothModes(r *http.Request) (string, error) {
 	databaseToken, err := auth.maybeOwnerFromRequest(r)
 	if err != nil {
 		return "", err
@@ -126,11 +87,12 @@ func (auth *keyCloakMiddleware) userIDFromRequestBothModes(r *http.Request) (str
 	if databaseToken != nil {
 		return databaseToken.Owner, nil
 	}
-	keycloakToken, err := auth.jwtFromRequest(r)
+
+	authToken, err := auth.jwtFromRequest(r)
 	if err != nil {
 		return "", err
 	}
-	return getUserIdFromJWT(keycloakToken), nil
+	return getUserIdFromJWT(authToken), nil
 }
 
 func getUserFromJWT(tok *jwt.Token) types.UserData {
@@ -173,7 +135,7 @@ func getRequestUser(req *http.Request) types.UserData {
 
 // this happens in the very first middleware to populate the request context
 // based on EITHER the database api token OR then the keycloak JWT
-func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) http.Handler {
+func (auth *authMiddleware) verifyToken(next http.Handler, enforce bool) http.Handler {
 	f := func(w http.ResponseWriter, r *http.Request) {
 		maybeOwner, err := auth.maybeOwnerFromRequest(r)
 		if err != nil && enforce {
@@ -201,15 +163,15 @@ func (auth *keyCloakMiddleware) verifyToken(next http.Handler, enforce bool) htt
 	return http.HandlerFunc(f)
 }
 
-func (auth *keyCloakMiddleware) maybeVerifyToken(next http.Handler) http.Handler {
+func (auth *authMiddleware) maybeVerifyToken(next http.Handler) http.Handler {
 	return auth.verifyToken(next, false)
 }
 
-func (auth *keyCloakMiddleware) enforceVerifyToken(next http.Handler) http.Handler {
+func (auth *authMiddleware) enforceVerifyToken(next http.Handler) http.Handler {
 	return auth.verifyToken(next, true)
 }
 
-func (auth *keyCloakMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc {
+func (auth *authMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		maybeOwner, err := auth.maybeOwnerFromRequest(req)
 		if err != nil {
@@ -221,6 +183,5 @@ func (auth *keyCloakMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc 
 			ID: maybeOwner.Owner,
 		}))
 		f.ServeHTTP(rw, req)
-
 	}
 }
