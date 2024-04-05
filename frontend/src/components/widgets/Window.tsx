@@ -105,7 +105,7 @@ const Window: FC<WindowProps> = ({
             {leftButtons}
             {withCancel && (
               <Button
-                sx={{ mr: 3,  mt: 2, color: 'black', bgcolor: 'white', '&:hover': { bgcolor: 'white', opacity: 0.7 } }}
+                sx={{ mr: 1,  mt: 2, color: 'black', bgcolor: 'white', '&:hover': { bgcolor: 'white', opacity: 0.7 } }}
                 type="button"
                 variant="outlined"
                 onClick={handleCancel}

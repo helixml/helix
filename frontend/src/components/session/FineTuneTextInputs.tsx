@@ -214,16 +214,16 @@ const [files, setFiles] = useState<CustomFile[]>(
           </Box>
         )
        }
-           <Typography
-        sx={{
-         
-      width: '100%',
-      pb: 1,
-      fontSize: '1rem', // Example size, adjust as needed
-      fontWeight: 'bold', 
-    }}
-  >
-  Links
+    <Typography
+            sx={{
+            
+          width: '100%',
+          pb: 1,
+          fontSize: '1rem', // Example size, adjust as needed
+          fontWeight: 'bold', 
+        }}
+      >
+      Links
   </Typography>
       <Row
         sx={{
@@ -513,84 +513,84 @@ const [files, setFiles] = useState<CustomFile[]>(
   </Grid>
 </Grid>
 <Drawer
-  anchor="right"
-  open={drawerOpen}
-  onClose={() => setDrawerOpen(false)}
-  sx={{
-    '& .MuiDrawer-paper': {
-      backgroundColor: '#070714', 
-     // Assuming each file item is 48px tall
-      // overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
-    },
-  }}
->
-<Box
-    sx={{
-      width: 506, // or you can use a percentage like '50vw' for 50% of the viewport width
-      maxWidth: '100%', // Ensure it doesn't exceed the viewport width
-    }}
-    role="presentation"
-  >
-  <Box
-    sx={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '8px 16px',
-      borderBottom: '1px solid #e0e0e0', // optional border for visual separation
-    }}
-  >
-    <Typography variant="h6">
-      Browse files ({files.length})
-    </Typography>
-    <IconButton onClick={() => setDrawerOpen(false)}>
-      <CloseIcon /> {/* Make sure to import CloseIcon from @mui/icons-material */}
-    </IconButton>
-  </Box>
+      anchor="right"
+      open={drawerOpen}
+      onClose={() => setDrawerOpen(false)}
+      sx={{
+        '& .MuiDrawer-paper': {
+          backgroundColor: '#070714', 
+        // Assuming each file item is 48px tall
+          // overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
+        },
+      }}
+    >
+    <Box
+        sx={{
+          width: 506, // or you can use a percentage like '50vw' for 50% of the viewport width
+          maxWidth: '100%', // Ensure it doesn't exceed the viewport width
+        }}
+        role="presentation"
+      >
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 16px',
+          borderBottom: '1px solid #e0e0e0', // optional border for visual separation
+        }}
+      >
+        <Typography variant="h6">
+          Browse files ({files.length})
+        </Typography>
+        <IconButton onClick={() => setDrawerOpen(false)}>
+          <CloseIcon /> {/* Make sure to import CloseIcon from @mui/icons-material */}
+        </IconButton>
+      </Box>
 
-  {/* Drawer content: List of links, text, and files */}
-  
-
-{/* Drawer content: List of links, text, and files */}
-<List>
-  {files.map((customFile, index) => ( // Ensure 'customFile' is used as the parameter name here
-   <React.Fragment key={customFile.file.name}>
-   <ListItem
-     sx={{
-       display: 'flex',
-       justifyContent: 'space-between',
-       alignItems: 'center',
       
+      
+
+    {/* Drawer content: List of links, text, and files */}
+    <List>
+      {files.map((customFile, index) => ( // Ensure 'customFile' is used as the parameter name here
+      <React.Fragment key={customFile.file.name}>
+      <ListItem
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          
        
      }} secondaryAction={
       <Box sx={{ display: 'flex' }}>
-        {/* Download Icon */}
-        <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
-          <FileDownloadIcon />
-        </IconButton>
-        {/* Delete Icon */}
-        <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
-          <DeleteIcon />
-        </IconButton>
-      </Box>
-    }>
-      <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
-        {customFile.type === 'url' && <LinkIcon />}
-        {customFile.type === 'text' && <TextFieldsIcon />}
-      </ListItemIcon>
-      <ListItemText primary={customFile.type === 'text' ? customFile.content : customFile.file.name} sx={{ mr: 4,  whiteSpace: 'nowrap',
-    overflow: 'hidden',
-     textOverflow: 'ellipsis',
-    
-  
-     }} />
-    </ListItem>
-    {index < files.length - 1 && (
-        <Divider sx={{   my: 0 }} /> // Explicitly set the color for visibility
-      )}
-    </React.Fragment>
-  ))}
-</List>
+            {/* Download Icon */}
+            <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
+              <FileDownloadIcon />
+            </IconButton>
+            {/* Delete Icon */}
+            <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        }>
+          <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
+            {customFile.type === 'url' && <LinkIcon />}
+            {customFile.type === 'text' && <TextFieldsIcon />}
+          </ListItemIcon>
+          <ListItemText primary={customFile.type === 'text' ? customFile.content : customFile.file.name} sx={{ mr: 4,  whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        
+      
+        }} />
+        </ListItem>
+        {index < files.length - 1 && (
+            <Divider sx={{   my: 0 }} /> // Explicitly set the color for visibility
+          )}
+        </React.Fragment>
+      ))}
+    </List>
 
 
   </Box>

@@ -584,7 +584,7 @@ const New: FC = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
-              >
+               >
                 <TextField
                   id="textEntry"
                   fullWidth

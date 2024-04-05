@@ -12,6 +12,10 @@ import New from './pages/New'
 import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
 import ObiMock from './pages/ObiMock'
+import ObiMockOne from './pages/ObiMockOne'
+import ObiMockTwo from './pages/ObiMockTwo'
+import ObiMockThree from './pages/ObiMockThree'
+
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
 import CollectionTitle from './components/collection/CollectionTitle'
@@ -43,7 +47,7 @@ const routes: IApplicationRoute[] = [
     path: '/assistants',
     meta: {
       title: 'Assistants',
-      sidebar: true, // if you want it to appear in the sidebar
+      sidebar: true, 
     },
     render: () => <Assistants />,
   },
@@ -152,13 +156,47 @@ const routes: IApplicationRoute[] = [
   name: 'obimock',
   path: '/obimock',
   meta: {
-    title: 'Obi Mock',
+    title: 'A Dogs Dinner',
     sidebar: true,
   },
   render: () => (
       <ObiMock />
   ),
-}, NOT_FOUND_ROUTE]
+}, {
+  name: 'obimockone',
+  path: '/obimockone',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <ObiMockOne />
+  ),
+}, 
+{
+  name: 'obimocktwo',
+  path: '/obimocktwo',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <ObiMockTwo />
+  ),
+}, 
+{
+  name: 'obimockthree',
+  path: '/obimockthree',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <ObiMockThree />
+  ),
+}, 
+
+NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
   defaultRoute: 'notfound',
