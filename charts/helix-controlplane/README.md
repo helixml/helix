@@ -4,9 +4,9 @@
 
 ## Setup Keycloak
 
-Helix uses keycloak for authentication. If you have one already, you can skip this step. Otherwise, to install one through Helm ([chart info](https://bitnami.com/stack/keycloak/helm), [repo](https://github.com/bitnami/charts/tree/main/bitnami/keycloak/#installing-the-chart)).
+Helix uses keycloak for authentication. If you have one already, you can skip this step. Otherwise, to install one through Helm ([chart info](https://bitnami.com/stack/keycloak/helm), [repo](https://github.com/bitnami/charts/tree/main/bitnami/keycloak/#installing-the-chart)), do this:
 
-Some of the values 
+Some of the values:
 
 ```bash
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
@@ -18,7 +18,7 @@ helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloa
 By default it only has ClusterIP service, in order to expose it, you can either port-forward or create a load balancer to access it if you are on k3s or minikube:
 
 ```
-kubectl expose pod keycloak-0 --port 8888 --target-port 8080 --name keycloak-ext --type=LoadBalancer`
+kubectl expose pod keycloak-0 --port 8888 --target-port 8080 --name keycloak-ext --type=LoadBalancer
 ```
 
 Alternatively, if you run on k3s:
