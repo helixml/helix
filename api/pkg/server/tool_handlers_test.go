@@ -57,7 +57,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 		pubsub:  suite.pubsub,
 		Store:   suite.store,
 		Janitor: janitor,
-		keyCloakMiddleware: &keyCloakMiddleware{
+		authMiddleware: &authMiddleware{
 			store: suite.store,
 		},
 		Controller: &controller.Controller{
