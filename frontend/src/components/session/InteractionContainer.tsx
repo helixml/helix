@@ -29,7 +29,7 @@ export const InteractionContainer: FC<{
             minWidth: 'auto',
             height: 'auto'
           }}
-        >
+         >
           AI
         </Button>
         <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
