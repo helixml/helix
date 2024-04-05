@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -25,14 +26,12 @@ import (
 const API_PREFIX = "/api/v1"
 
 type ServerOptions struct {
-	Config        *config.ServerConfig
-	URL           string
-	Host          string
-	Port          int
-	FrontendURL   string // Can either be a URL to frontend or a path to static files
-	KeyCloakURL   string
-	KeyCloakToken string
-	RunnerToken   string
+	Config      *config.ServerConfig
+	URL         string
+	Host        string
+	Port        int
+	FrontendURL string // Can either be a URL to frontend or a path to static files
+	RunnerToken string
 	// a list of keycloak ids that are considered admins
 	// if the string '*' is included it means ALL users
 	AdminIDs []string
@@ -52,24 +51,22 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Options            ServerOptions
-	Store              store.Store
-	Stripe             *stripe.Stripe
-	Controller         *controller.Controller
-	Janitor            *janitor.Janitor
-	runnerAuth         *runnerAuth
-	adminAuth          *adminAuth
-	keycloak           *keycloak
-	keyCloakMiddleware *keyCloakMiddleware
-	pubsub             pubsub.PubSub
-	// planner            tools.Planner
-	router *mux.Router
+	Options        ServerOptions
+	Store          store.Store
+	Stripe         *stripe.Stripe
+	Controller     *controller.Controller
+	Janitor        *janitor.Janitor
+	runnerAuth     *runnerAuth
+	adminAuth      *adminAuth
+	authMiddleware *authMiddleware
+	pubsub         pubsub.PubSub
+	router         *mux.Router
 }
 
 func NewServer(
 	options ServerOptions,
 	store store.Store,
-	// planner tools.Planner,
+	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
@@ -77,18 +74,15 @@ func NewServer(
 	if options.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
+
 	if options.Host == "" {
 		return nil, fmt.Errorf("server host is required")
 	}
+
 	if options.Port == 0 {
 		return nil, fmt.Errorf("server port is required")
 	}
-	if options.KeyCloakURL == "" {
-		return nil, fmt.Errorf("keycloak url is required")
-	}
-	if options.KeyCloakToken == "" {
-		return nil, fmt.Errorf("keycloak token is required")
-	}
+
 	if options.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
 	}
@@ -102,18 +96,16 @@ func NewServer(
 		return nil, err
 	}
 
-	keycloak := newKeycloak(options)
 	return &HelixAPIServer{
-		Options:            options,
-		Store:              store,
-		Stripe:             stripe,
-		Controller:         controller,
-		Janitor:            janitor,
-		runnerAuth:         runnerAuth,
-		adminAuth:          newAdminAuth(options.AdminIDs),
-		keycloak:           keycloak,
-		keyCloakMiddleware: newMiddleware(keycloak, options, store),
-		pubsub:             ps,
+		Options:        options,
+		Store:          store,
+		Stripe:         stripe,
+		Controller:     controller,
+		Janitor:        janitor,
+		runnerAuth:     runnerAuth,
+		adminAuth:      newAdminAuth(options.AdminIDs),
+		authMiddleware: newMiddleware(authenticator, options, store),
+		pubsub:         ps,
 	}, nil
 }
 
@@ -169,8 +161,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		return true
 	}).Subrouter()
 
-	authRouter.Use(apiServer.keyCloakMiddleware.enforceVerifyToken)
-	maybeAuthRouter.Use(apiServer.keyCloakMiddleware.maybeVerifyToken)
+	authRouter.Use(apiServer.authMiddleware.enforceVerifyToken)
+	maybeAuthRouter.Use(apiServer.authMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
 	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
@@ -260,7 +252,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	}
 
 	// OpenAI API compatible routes
-	router.HandleFunc("/v1/chat/completions", apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
+	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
@@ -316,7 +308,7 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	u, err := url.Parse(apiServer.Options.KeyCloakURL)
+	u, err := url.Parse(apiServer.Options.Config.Keycloak.URL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
 		return
