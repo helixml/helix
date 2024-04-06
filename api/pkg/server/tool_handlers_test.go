@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -54,10 +55,11 @@ func (suite *ToolsTestSuite) SetupTest() {
 	janitor := janitor.NewJanitor(janitor.JanitorOptions{})
 
 	suite.server = &HelixAPIServer{
+		Options: ServerOptions{Config: &config.ServerConfig{}},
 		pubsub:  suite.pubsub,
 		Store:   suite.store,
 		Janitor: janitor,
-		keyCloakMiddleware: &keyCloakMiddleware{
+		authMiddleware: &authMiddleware{
 			store: suite.store,
 		},
 		Controller: &controller.Controller{

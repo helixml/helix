@@ -24,7 +24,6 @@ services:
       - SERVER_URL=${SERVER_URL:-http://localhost}
       - KEYCLOAK_URL=http://keycloak:8080/auth
       # this is an insecure development key do not use!
-      - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production

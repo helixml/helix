@@ -63,7 +63,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		userID, err := apiServer.keyCloakMiddleware.userIDFromRequestBothModes(r)
+		userID, err := apiServer.authMiddleware.userIDFromRequestBothModes(r)
 		if err != nil {
 			log.Error().Msgf("Error getting user id: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
