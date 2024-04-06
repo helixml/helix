@@ -37,6 +37,30 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 		return nil, err
 	}
 
+	if cfg.ClientSecret == "" {
+		log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
+
+		// Lookup
+		clients, err := gck.GetClients(context.Background(), token.AccessToken, cfg.Realm, gocloak.GetClientsParams{})
+		if err != nil {
+			return nil, fmt.Errorf("GetClients: error getting clients: %s", err.Error())
+		}
+
+		for _, client := range clients {
+			if client.ClientID != nil && *client.ClientID == cfg.ClientID {
+				creds, err := gck.GetClientSecret(context.Background(), token.AccessToken, cfg.Realm, *client.ID)
+				if err != nil {
+					return nil, fmt.Errorf("GetClientSecret: error getting client secret: %s", err.Error())
+				}
+				cfg.ClientSecret = *creds.Value
+
+				log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("found client secret")
+
+				break
+			}
+		}
+	}
+
 	return &KeycloakAuthenticator{
 		cfg:     cfg,
 		gocloak: gck,
@@ -48,6 +72,7 @@ func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT
 	if err != nil {
 		return nil, err
 	}
+	fmt.Sprintln("expires in: ", token.ExpiresIn)
 	return token, nil
 }
 
@@ -72,18 +97,19 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 }
 
 func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error) {
-	adminToken, err := k.getAdminToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error accessing keycloak, token error: %w", err)
-	}
-
 	j, _, err := k.gocloak.DecodeAccessToken(ctx, token, k.cfg.Realm)
 	if err != nil {
 		return nil, fmt.Errorf("DecodeAccessToken: invalid or malformed token: %s", err.Error())
 	}
 
-	result, err := k.gocloak.RetrospectToken(ctx, token, k.cfg.ClientID, adminToken.AccessToken, k.cfg.Realm)
+	result, err := k.gocloak.RetrospectToken(ctx, token, k.cfg.ClientID, k.cfg.ClientSecret, k.cfg.Realm)
 	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("token", token).
+			Str("client_id", k.cfg.ClientID).
+			Str("realm", k.cfg.Realm).
+			Msg("failed getting admin token")
 		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %w", err)
 	}
 
