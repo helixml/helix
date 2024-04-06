@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -70,6 +71,58 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			RagSettings:             req.RagSettings,
 			ActiveTools:             activeTools,
 		},
+	}
+
+	if c.Options.Config.SubscriptionQuotas.Enabled && newSession.Mode == types.SessionModeFinetune {
+		// Check for max concurrent finetuning sessions
+		var currentlyRunningFinetuneSessions int
+
+		sessions, err := c.Options.Store.GetSessions(ctx.Ctx, store.GetSessionsQuery{
+			Owner: newSession.Owner,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sessions: %w", err)
+		}
+
+		for _, session := range sessions {
+			if session.Mode == types.SessionModeFinetune {
+				// Check if the last interaction is still running
+				lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+				if err != nil {
+					log.Error().Err(err).Msgf("failed to get last system interaction for session: %s", session.ID)
+					continue
+				}
+
+				if lastInteraction.State == types.InteractionStateWaiting {
+					currentlyRunningFinetuneSessions++
+				}
+			}
+		}
+
+		usermeta, err := c.Options.Store.GetUserMeta(context.Background(), req.Owner)
+		if err != nil {
+			return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
+		}
+
+		if usermeta.Config.StripeSubscriptionActive {
+			// Pro plan
+			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxConcurrent {
+				return nil, fmt.Errorf(
+					"you have reached the maximum number of concurrent finetuning sessions (%d/%d) allowed for your subscription plan",
+					currentlyRunningFinetuneSessions,
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+				)
+			}
+		} else {
+			// Free plan
+			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxConcurrent {
+				return nil, fmt.Errorf(
+					"you have reached the maximum number of concurrent finetuning sessions (%d/%d) allowed for your subscription plan, upgrade to increase your limits",
+					currentlyRunningFinetuneSessions,
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+				)
+			}
+		}
 	}
 
 	// create session in database
