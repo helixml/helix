@@ -49,13 +49,16 @@ services:
       - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
       - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
-
+    # entrypoint: ${API_ENTRYPOINT:-/helix serve}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
+    depends_on:
+      - postgres
+      - keycloak
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -119,11 +122,12 @@ services:
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   llamaindex:
-    build:
-      context: llamaindex
-      dockerfile: Dockerfile
-    ports:
-      - 5000:5000
+    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
+    # build:
+    #   context: llamaindex
+    #   dockerfile: Dockerfile
+    # ports:
+    #   - 5000:5000
     environment:
       - POSTGRES_HOST=pgvector
       - POSTGRES_DATABASE=postgres
