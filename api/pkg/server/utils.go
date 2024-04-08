@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -348,4 +349,46 @@ func getRequestToken(r *http.Request) string {
 func isRequestAuthenticatedAgainstToken(r *http.Request, actualToken string) bool {
 	providedToken := getRequestToken(r)
 	return providedToken == actualToken
+}
+
+// used by the widget server
+// ?apples=red&size.profile=large&top.middle.bottom=hello
+// becomes
+//
+//	{
+//	  apples: "red",
+//	  size: {
+//	    profile: "large"
+//	  },
+//	  top: {
+//	    middle: {
+//	      bottom: "hello"
+//	    }
+//	  }
+//	}
+func convertQueryParamsToNestedObject(queryParams url.Values) map[string]interface{} {
+	result := make(map[string]interface{})
+	for param, values := range queryParams {
+		keys := strings.Split(param, ".")
+		lastKeyIndex := len(keys) - 1
+		currentMap := result
+
+		for i, key := range keys {
+			// If we're at the last key, set the value.
+			if i == lastKeyIndex {
+				currentMap[key] = values[0]
+			} else {
+				// If the key doesn't exist, or isn't a map, create or overwrite it.
+				if nextMap, ok := currentMap[key].(map[string]interface{}); ok {
+					currentMap = nextMap
+				} else {
+					newMap := make(map[string]interface{})
+					currentMap[key] = newMap
+					currentMap = newMap
+				}
+			}
+		}
+	}
+
+	return result
 }

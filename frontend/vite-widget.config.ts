@@ -5,11 +5,11 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: 'widget',
     lib: {
-      entry: path.resolve(__dirname, 'src/components/widgets/Embed.tsx'),
+      entry: path.resolve(__dirname, 'src/widget.tsx'),
+      formats: ['iife'],
       name: 'HelixEmbed',
-      fileName: (format) => `helix-embed.${format}.js`
+      fileName: 'helix-embed'
     },
     target: 'es2015'
   },

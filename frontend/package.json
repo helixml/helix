@@ -1,13 +1,15 @@
 {
-  "name": "@modeldynamics/demos",
+  "name": "@helixml/frontend",
   "private": true,
   "type": "module",
-  "description": "dashboard app",
+  "description": "helix dashboard app",
   "version": "1.0.1",
   "scripts": {
     "dev": "vite",
     "tsc": "tsc -b tsconfig.json",
-    "build": "yarn tsc && vite build && vite build --config vite-widget.config.ts",
+    "build-frontend": "vite build",
+    "build-widget": "vite build --config vite-widget.config.ts",
+    "build": "yarn tsc && yarn build-frontend && yarn build-widget",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -15,6 +17,7 @@
     "@chbphone55/pretty-bytes": "^1.0.0",
     "@emotion/react": "^11.7.1",
     "@emotion/styled": "^11.6.0",
+    "@helixml/chat-widget": "0.2.0",
     "@hookform/resolvers": "^2.8.8",
     "@inovua/reactdatagrid-community": "^5.10.2",
     "@mui/icons-material": "^5.3.1",

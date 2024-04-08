@@ -181,7 +181,7 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 	return updated, nil
 }
 
-func (s *HelixAPIServer) validateTool(userContext *types.RequestContext, tool *types.Tool) error {
+func (s *HelixAPIServer) validateTool(_ *types.RequestContext, tool *types.Tool) error {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 
