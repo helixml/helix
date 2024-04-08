@@ -1,0 +1,25 @@
+envVariables:
+  LOG_LEVEL: debug
+  APP_URL: http://localhost:8080
+  # Database
+  POSTGRES_HOST: helix-postgresql
+  POSTGRES_USER: helix
+  POSTGRES_PASSWORD: oh-hallo-insecure-password
+  POSTGRES_DATABASE: helix
+  # Runners
+  RUNNER_TOKEN: oh-hallo-insecure-token
+  # LLM providers
+  OPENAI_API_KEY: ""
+  TOGETHER_API_KEY: ""
+  # Keycloak location
+  KEYCLOAK_URL: http://keycloak:8888/auth
+  KEYCLOAK_TOKEN: "5ca0fc03-d625-456e-bca7-8e732309165f"
+  KEYCLOAK_USER: "admin"
+  KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
+  # Dashboard
+  ADMIN_USER_IDS: ""
+  TEXT_EXTRACTION_URL: http://llamaindex:5000/api/v1/extract
+  RAG_INDEX_URL: http://llamaindex:5000/api/v1/rag/chunk
+  RAG_QUERY_URL: http://llamaindex:5000/api/v1/rag/query
+  # Evals 
+  EVAL_USER_ID: ""
