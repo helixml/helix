@@ -187,7 +187,7 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 			res.Header().Set("Content-Type", "application/json")
 			jsonError := json.NewEncoder(res).Encode(data)
 			if jsonError != nil {
-				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
+				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", jsonError.Error())
 				http.Error(res, jsonError.Error(), http.StatusInternalServerError)
 				return
 			}

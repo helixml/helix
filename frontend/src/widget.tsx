@@ -1,15 +1,18 @@
-import React from "react"
-import ReactDOM from "react-dom"
+import React from 'react'
+import ReactDOM from 'react-dom'
+import Widget, { WidgetProps } from '@helixml/chat-widget'
 
-
-let render = () => {
+const render = (config: WidgetProps = {
+  url: '',
+  model: '',
+}) => {
+  document.write('<div id="helix-widget-root"></div>')
   ReactDOM.render(
     <>
-      
+      <Widget {...config} />
     </>,
     document.getElementById("helix-widget-root")
   )
 }
 
-document.write('<div id="helix-widget-root"></div>')
-render()
+export default render
