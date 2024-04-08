@@ -92,13 +92,11 @@ func NewServeOptions() (*ServeOptions, error) {
 		ServerOptions: server.ServerOptions{
 			// TODO: unify the config by using the config pkg
 			// and then we can get rid of all those flags too
-			Config:        &serverConfig,
-			URL:           getDefaultServeOptionString("SERVER_URL", ""),
-			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
-			FrontendURL:   getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
-			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
-			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
+			Config:      &serverConfig,
+			URL:         getDefaultServeOptionString("SERVER_URL", ""),
+			Host:        getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
+			Port:        getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
+			FrontendURL: getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
 			// if this is defined it means runner auth is enabled
 			RunnerToken:    getDefaultServeOptionString("RUNNER_TOKEN", ""),
 			AdminIDs:       getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
@@ -135,7 +133,11 @@ func newServeCmd() *cobra.Command {
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd, allOptions)
+			err := serve(cmd, allOptions)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to run server")
+			}
+			return nil
 		},
 	}
 
@@ -247,14 +249,7 @@ func newServeCmd() *cobra.Command {
 		&allOptions.ServerOptions.Port, "server-port", allOptions.ServerOptions.Port,
 		`The port to bind the api server to.`,
 	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.KeyCloakURL, "keycloak-url", allOptions.ServerOptions.KeyCloakURL,
-		`The url for the keycloak server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.KeyCloakToken, "keycloak-token", allOptions.ServerOptions.KeyCloakToken,
-		`The api token for the keycloak server.`,
-	)
+
 	serveCmd.PersistentFlags().StringVar(
 		&allOptions.ServerOptions.RunnerToken, "runner-token", allOptions.ServerOptions.RunnerToken,
 		`The token for runner auth.`,
@@ -499,7 +494,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		},
 	)
 
-	server, err := server.NewServer(options.ServerOptions, store, stripe, appController, janitor)
+	server, err := server.NewServer(options.ServerOptions, store, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}

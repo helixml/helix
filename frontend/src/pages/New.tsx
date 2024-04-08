@@ -120,13 +120,13 @@ const New: FC = () => {
   ]
 
   // Use the useMediaQuery hook from Material UI to check if the device is in mobile view
-  const isMobileView = useMediaQuery(theme.breakpoints.down('sm'))
+  const bigScreen = !useMediaQuery(theme.breakpoints.down('sm'))
 
-  // Define the example prompts, if it's mobile view, show two prompts in one column, otherwise show three in a single row
+  // Define the example prompts, if it's not bigScreen, show two prompts in one column, otherwise show three in a single row
   const examplePrompts = useMemo(() => ({
-    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3),
-    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, isMobileView ? 2 : 3)
-  }), [isMobileView])
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, bigScreen ? 3 : 2),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, bigScreen ? 3 : 2)
+  }), [bigScreen])
 
   // Define the SampleContent component
   const SampleContent = () => {
@@ -365,19 +365,21 @@ const New: FC = () => {
 
   const modeMenuRef = useRef<HTMLElement>(null)
 
+  useEffect(() => {
+    console.log(`Big screen: ${bigScreen}`);
+  }, [bigScreen]);
+
   // Use an effect hook to set the toolbar renderer
   useEffect(() => {
-    layout.setToolbarRenderer(() => (isMobileView: boolean) => {
+    const renderToolbar = (bigScreen: boolean) => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
           <IconButton
-            onClick={ () => {
-              setShowSessionSettings(true)
-            }}
+            onClick={ () => setShowSessionSettings(true)}
           >
             <ConstructionIcon />
           </IconButton>
-          {isMobileView ? (
+          {!bigScreen ? (
             <>
               <Typography
                 onClick={handleModeMenuClick}
@@ -405,7 +407,7 @@ const New: FC = () => {
               <Typography
                 sx={{
                   color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-                  fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                  fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
                   mr: 2,
                   ml: 3,
                   textAlign: 'right',
@@ -416,7 +418,7 @@ const New: FC = () => {
               <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
                 <Switch
                   checked={params.mode === SESSION_MODE_FINETUNE}
-                  onChange={handleModeChange}
+                  onChange={(event) => setParams({ ...params, mode: event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE })}
                   name="modeSwitch"
                   size="medium"
                   sx={{
@@ -430,7 +432,7 @@ const New: FC = () => {
               <Typography
                 sx={{
                   color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                  fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
+                  fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
                   marginLeft: 2,
                   textAlign: 'left',
                 }}
@@ -441,13 +443,12 @@ const New: FC = () => {
           )}
         </Box>
       )
-    })
+    }
+    layout.setToolbarRenderer(() => renderToolbar)
 
+    // Cleanup function to remove the toolbar renderer when the component unmounts or bigScreen changes
     return () => layout.setToolbarRenderer(undefined)
-  }, [
-    params,
-    isMobileView,
-  ])
+  }, [params, bigScreen, setShowSessionSettings, setParams])
   
   if(!initialized) return null
 
@@ -1033,4 +1034,3 @@ const New: FC = () => {
 }
 
 export default New
-

@@ -2,6 +2,8 @@ module github.com/helixml/helix
 
 go 1.22.0
 
+toolchain go1.22.1
+
 require (
 	cloud.google.com/go/storage v1.33.0
 	github.com/Nerzal/gocloak/v13 v13.9.0
@@ -33,6 +35,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/stripe/stripe-go/v76 v76.8.0
 	github.com/swaggo/swag v1.16.3
+	github.com/theckman/yacspin v0.13.12
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
 	google.golang.org/api v0.147.0
 	gorm.io/driver/postgres v1.5.4
@@ -89,7 +92,6 @@ require (
 	github.com/sashabaranov/go-openai v1.20.4 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
-	github.com/theckman/yacspin v0.13.12 // indirect
 	github.com/therootcompany/xz v1.0.1 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect

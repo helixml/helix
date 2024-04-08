@@ -29,7 +29,6 @@ services:
       - STRIPE_PRICE_LOOKUP_KEY=${STRIPE_PRICE_LOOKUP_KEY:-}
       - FRONTEND_URL=http://frontend:8081
       # this is an insecure development key do not use!
-      - KEYCLOAK_TOKEN=5ca0fc03-d625-456e-bca7-8e732309165f
       - KEYCLOAK_USER=admin
       - KEYCLOAK_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD-oh-hallo-insecure-password}
       # lock down dashboard in production
@@ -50,13 +49,16 @@ services:
       - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
       - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
-
+    # entrypoint: ${API_ENTRYPOINT:-/helix serve}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
       - ./api:/app/api
       - ${FILESTORE_DATA:-helix-filestore}:/filestore
+    depends_on:
+      - postgres
+      - keycloak
   postgres:
     image: postgres:12.13-alpine
     restart: always
@@ -120,11 +122,12 @@ services:
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   llamaindex:
-    build:
-      context: llamaindex
-      dockerfile: Dockerfile
-    ports:
-      - 5000:5000
+    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
+    # build:
+    #   context: llamaindex
+    #   dockerfile: Dockerfile
+    # ports:
+    #   - 5000:5000
     environment:
       - POSTGRES_HOST=pgvector
       - POSTGRES_DATABASE=postgres

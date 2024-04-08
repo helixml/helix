@@ -1,0 +1,94 @@
+{
+    "session_queue": [
+        {
+            "created": "2024-03-01T23:36:55.787630488Z",
+            "updated": "2024-03-02T21:15:07.528191055Z",
+            "scheduled": "0001-01-01T00:00:00Z",
+            "completed": "0001-01-01T00:00:00Z",
+            "session_id": "f8a7a74e-6cc9-49ba-af36-ad56cd5bb7b6",
+            "name": "fantastical-conference-246",
+            "interaction_id": "6b13ae21-0a38-4bc8-b4c1-b5a419976a9a",
+            "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+            "mode": "finetune",
+            "type": "text",
+            "owner": "2222c8b4-2932-470e-acc7-b96580d2ea36",
+            "summary": "fine tuning on 3 files",
+            "priority": false
+        }
+    ],
+    "runners": [
+        {
+            "id": "karolis-force1",
+            "created": "2024-03-02T21:16:12.476747417Z",
+            "total_memory": 25769803776,
+            "free_memory": 12264144896,
+            "labels": {},
+            "model_instances": [
+                {
+                    "id": "a821a000-b550-459a-b177-9bec04d98fc1",
+                    "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+                    "mode": "inference",
+                    "lora_dir": "",
+                    "initial_session_id": "warmup-text",
+                    "current_session": null,
+                    "job_history": [
+                        {
+                            "created": "2024-03-02T21:14:55.825823663Z",
+                            "updated": "0001-01-01T00:00:00Z",
+                            "scheduled": "0001-01-01T00:00:00Z",
+                            "completed": "0001-01-01T00:00:00Z",
+                            "session_id": "warmup-text",
+                            "name": "warmup-text",
+                            "interaction_id": "warmup-system",
+                            "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+                            "mode": "inference",
+                            "type": "text",
+                            "owner": "warmup-user",
+                            "summary": "a new runner is born",
+                            "priority": false
+                        }
+                    ],
+                    "timeout": 60,
+                    "last_activity": 1709414108,
+                    "stale": true,
+                    "memory": 6752829440
+                },
+                {
+                    "id": "acd06379-3a79-42e0-97d1-db648459c6ba",
+                    "model_name": "mistral:7b-instruct",
+                    "mode": "inference",
+                    "lora_dir": "",
+                    "initial_session_id": "warmup-text",
+                    "current_session": null,
+                    "job_history": [
+                        {
+                            "created": "2024-03-02T21:14:55.825823663Z",
+                            "updated": "0001-01-01T00:00:00Z",
+                            "scheduled": "0001-01-01T00:00:00Z",
+                            "completed": "0001-01-01T00:00:00Z",
+                            "session_id": "warmup-text",
+                            "name": "warmup-text",
+                            "interaction_id": "warmup-system",
+                            "model_name": "mistral:7b-instruct",
+                            "mode": "inference",
+                            "type": "text",
+                            "owner": "warmup-user",
+                            "summary": "a new runner is born",
+                            "priority": false
+                        }
+                    ],
+                    "timeout": 60,
+                    "last_activity": 1709414097,
+                    "stale": true,
+                    "memory": 6752829440
+                }
+            ],
+            "scheduling_decisions": [
+                "Killing stale model instance 58b4bb69-807e-4b50-968d-4efb1e201c9b (18.88GiB) to make room for 6.29GiB model, requiredMemoryFreed=6.29GiB, currentlyAvailableMemory=0.00GiB",
+                "uh-oh, we didn't free as much memory as we needed to for 18.88 GiB model by 1.17 GiB; stales=[], allModels=[0xc000472488]",
+                "Didn't need to kill any stale sessions because required memory \u003c= 0"
+            ]
+        }
+    ],
+    "global_scheduling_decisions": []
+}
