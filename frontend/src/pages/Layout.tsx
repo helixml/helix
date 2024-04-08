@@ -138,30 +138,26 @@ const Layout: FC = ({
           width: '100%',
         }}
       >
-        <List
-          disablePadding
-        >
-          <ListItem
-            disablePadding
-            onClick={ () => {
-              navigate('new')
-              account.setMobileMenuOpen(false)
-            }}
-          >
+        <List disablePadding>
+          <ListItem disablePadding>
             <ListItemButton
               sx={{
                 height: '68px',
-               }}
+              }}
+              onClick={ () => {
+                navigate('new')
+                account.setMobileMenuOpen(false)
+              }}
             >
               <ListItemText
-              sx={{
-                ml: 2,
-                p: 1,
-                fontWeight: 'heading',
-                '&:hover': {
-                  color: themeConfig.darkHighlight,
-                }
-              }}
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
                 primary="New Session"
               />
               <ListItemIcon>

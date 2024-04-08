@@ -174,8 +174,14 @@ func (auth *authMiddleware) enforceVerifyToken(next http.Handler) http.Handler {
 func (auth *authMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc {
 	return func(rw http.ResponseWriter, req *http.Request) {
 		maybeOwner, err := auth.maybeOwnerFromRequest(req)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusUnauthorized)
+		if err != nil || maybeOwner == nil {
+			errorMessage := ""
+			if err != nil {
+				errorMessage = err.Error()
+			} else {
+				errorMessage = "unauthorized"
+			}
+			http.Error(rw, errorMessage, http.StatusUnauthorized)
 			return
 		}
 		// successful api_key auth
