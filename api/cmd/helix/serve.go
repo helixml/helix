@@ -49,6 +49,8 @@ func newServeCmd() *cobra.Command {
 		log.Fatal().Err(err).Msg("failed to create serve options")
 	}
 
+	envHelpText := generateEnvHelpText(serveConfig, "")
+
 	serveCmd := &cobra.Command{
 		Use:     "serve",
 		Short:   "Start the helix api server.",
@@ -62,6 +64,8 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	serveCmd.Long += "\n\nEnvironment Variables:\n\n" + envHelpText
 
 	return serveCmd
 }
