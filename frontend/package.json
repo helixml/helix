@@ -9,7 +9,8 @@
     "tsc": "tsc -b tsconfig.json",
     "build-frontend": "vite build",
     "build-widget": "vite build --config vite-widget.config.ts",
-    "build": "yarn tsc && yarn build-frontend && yarn build-widget",
+    "build2": "yarn tsc && yarn build-frontend && yarn build-widget",
+    "build": "yarn tsc && yarn build-frontend",
     "preview": "vite preview"
   },
   "dependencies": {
