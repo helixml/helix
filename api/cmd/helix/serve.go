@@ -28,7 +28,6 @@ import (
 
 type ServeOptions struct {
 	JanitorOptions janitor.JanitorOptions
-	StoreOptions   store.StoreOptions
 	ServerOptions  server.ServerOptions
 	StripeOptions  stripe.StripeOptions
 
@@ -54,14 +53,6 @@ func NewServeOptions() (*ServeOptions, error) {
 	}
 
 	return &ServeOptions{
-		StoreOptions: store.StoreOptions{
-			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
-			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
-			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "helix"),
-			Username:    getDefaultServeOptionString("POSTGRES_USER", ""),
-			Password:    getDefaultServeOptionString("POSTGRES_PASSWORD", ""),
-			AutoMigrate: true,
-		},
 		ServerOptions: server.ServerOptions{
 			// TODO: unify the config by using the config pkg
 			// and then we can get rid of all those flags too
@@ -113,32 +104,6 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 	}
-
-	// StoreOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Host, "postgres-host", allOptions.StoreOptions.Host,
-		`The host to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.StoreOptions.Port, "postgres-port", allOptions.StoreOptions.Port,
-		`The port to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Database, "postgres-database", allOptions.StoreOptions.Database,
-		`The database to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Username, "postgres-username", allOptions.StoreOptions.Username,
-		`The username to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Password, "postgres-password", allOptions.StoreOptions.Password,
-		`The password to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().BoolVar(
-		&allOptions.StoreOptions.AutoMigrate, "postgres-auto-migrate", allOptions.StoreOptions.AutoMigrate,
-		`Should we automatically run the migrations?`,
-	)
 
 	// ServerOptions
 	serveCmd.PersistentFlags().StringVar(
@@ -287,7 +252,7 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 		return err
 	}
 
-	store, err := store.NewPostgresStore(options.StoreOptions)
+	store, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
 	}
