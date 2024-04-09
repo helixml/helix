@@ -3,6 +3,7 @@ package system
 import (
 	"archive/tar"
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -166,4 +167,28 @@ func ConcatenateFiles(outputFile string, inputFiles []string, delimiter string) 
 	}
 
 	return nil
+}
+
+func ReadTextFile(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	if stat.IsDir() {
+		return "", fmt.Errorf("expected a file, got a directory")
+	}
+
+	jsBytes, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsBytes), nil
 }

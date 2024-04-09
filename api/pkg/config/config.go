@@ -9,6 +9,7 @@ type ServerConfig struct {
 	Notifications      Notifications
 	Janitor            Janitor
 	Stripe             Stripe
+	Widget             Widget
 	SubscriptionQuotas SubscriptionQuotas
 }
 
@@ -53,12 +54,13 @@ type Tools struct {
 // Keycloak is used for authentication. You can find keycloak documentation
 // at https://www.keycloak.org/guides
 type Keycloak struct {
-	URL        string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
-	ClientID   string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
-	AdminRealm string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
-	Realm      string `envconfig:"KEYCLOAK_REALM" default:"helix"`
-	Username   string `envconfig:"KEYCLOAK_USER"`
-	Password   string `envconfig:"KEYCLOAK_PASSWORD"`
+	URL          string `envconfig:"KEYCLOAK_URL" default:"http://keycloak:8080/auth"`
+	ClientID     string `envconfig:"KEYCLOAK_CLIENT_ID" default:"api"`
+	ClientSecret string `envconfig:"KEYCLOAK_CLIENT_SECRET"` // If not set, will be looked up using admin API
+	AdminRealm   string `envconfig:"KEYCLOAK_ADMIN_REALM" default:"master"`
+	Realm        string `envconfig:"KEYCLOAK_REALM" default:"helix"`
+	Username     string `envconfig:"KEYCLOAK_USER"`
+	Password     string `envconfig:"KEYCLOAK_PASSWORD"`
 }
 
 // Notifications is used for sending notifications to users when certain events happen
@@ -99,6 +101,11 @@ type Stripe struct {
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY"`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY"`
+}
+
+type Widget struct {
+	Enabled  bool   `envconfig:"WIDGET_ENABLED" default:"true"` // Enable/disable the embedded widget
+	FilePath string `envconfig:"WIDGET_FILE_PATH" default:"/www/helix-embed.iife.js"`
 }
 
 type SubscriptionQuotas struct {
