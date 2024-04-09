@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 )
@@ -16,6 +18,7 @@ type ServerConfig struct {
 	DataPrepText  DataPrepText
 	Controller    Controller
 	FileStore     FileStore
+	Store         Store
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -154,4 +157,18 @@ type FileStore struct {
 	GCSKeyBase64 string              `envconfig:"FILESTORE_GCS_KEY_BASE64"`
 	GCSKeyFile   string              `envconfig:"FILESTORE_GCS_KEY_FILE"`
 	GCSBucket    string              `envconfig:"FILESTORE_GCS_BUCKET"`
+}
+
+type Store struct {
+	Host     string `envconfig:"POSTGRES_HOST"`
+	Port     int    `envconfig:"POSTGRES_PORT" default:"5432"`
+	Database string `envconfig:"POSTGRES_DATABASE" default:"helix"`
+	Username string `envconfig:"POSTGRES_USER"`
+	Password string `envconfig:"POSTGRES_PASSWORD"`
+
+	AutoMigrate     bool          `envconfig:"DATABASE_AUTO_MIGRATE" default:"true"`
+	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
+	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
+	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
+	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
 }

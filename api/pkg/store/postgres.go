@@ -24,11 +24,12 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type PostgresStore struct {
-	options          StoreOptions
+	cfg              config.Store
 	connectionString string
 	pgDb             *sql.DB
 	db               *goqu.Database
@@ -37,22 +38,22 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(
-	options StoreOptions,
+	cfg config.Store,
 ) (*PostgresStore, error) {
 
 	// Waiting for connection
-	gormDB, err := connect(context.Background(), options)
+	gormDB, err := connect(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		options.Username,
-		options.Password,
-		options.Host,
-		options.Port,
-		options.Database,
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.Database,
 	)
 	pgDb, err := sql.Open("postgres", connectionString)
 	if err != nil {
@@ -63,12 +64,12 @@ func NewPostgresStore(
 
 	store := &PostgresStore{
 		connectionString: connectionString,
-		options:          options,
+		cfg:              cfg,
 		pgDb:             pgDb,
 		db:               db,
 		gdb:              gormDB,
 	}
-	if options.AutoMigrate {
+	if cfg.AutoMigrate {
 		err = store.MigrateUp()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
@@ -660,7 +661,7 @@ const (
 	DatabaseTypePostgres = "postgres"
 )
 
-func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
+func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -692,7 +693,7 @@ func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
 			// }
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
-				options.Username, options.Password, options.Host, options.Port, options.Database, sslSettings)
+				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
 			dialector = postgres.Open(dsn)
 
 			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
