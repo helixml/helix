@@ -8,21 +8,13 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/gorilla/mux"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-type JanitorOptions struct {
-	AppURL                  string
-	SlackWebhookURL         string
-	SentryDSNApi            string
-	SentryDSNFrontend       string
-	GoogleAnalyticsFrontend string
-	IgnoreUsers             []string
-}
-
 type Janitor struct {
-	Options JanitorOptions
+	cfg config.Janitor
 	// don't log "created" then "updated" right after each other
 	recentlyCreatedSubscriptionMap   map[string]bool
 	recentlyCreatedSubscriptionMutex sync.Mutex
@@ -33,9 +25,9 @@ type Janitor struct {
 	seenErrorSessionMutex sync.Mutex
 }
 
-func NewJanitor(opts JanitorOptions) *Janitor {
+func NewJanitor(cfg config.Janitor) *Janitor {
 	return &Janitor{
-		Options:                        opts,
+		cfg:                            cfg,
 		recentlyCreatedSubscriptionMap: map[string]bool{},
 		seenErrorSessionMap:            map[string]bool{},
 	}
@@ -43,9 +35,9 @@ func NewJanitor(opts JanitorOptions) *Janitor {
 
 func (j *Janitor) Initialize() error {
 	var err error
-	if j.Options.SentryDSNApi != "" {
+	if j.cfg.SentryDsnAPI != "" {
 		err = sentry.Init(sentry.ClientOptions{
-			Dsn:              j.Options.SentryDSNApi,
+			Dsn:              j.cfg.SentryDsnAPI,
 			EnableTracing:    true,
 			TracesSampleRate: 1.0,
 		})
@@ -65,18 +57,18 @@ func (j *Janitor) Initialize() error {
 // allows the janitor to attach middleware to the router
 // before all the routes
 func (j *Janitor) InjectMiddleware(router *mux.Router) error {
-	if j.Options.SentryDSNApi != "" {
+	if j.cfg.SentryDsnAPI != "" {
 		router.Use(SentryMiddleware)
 	}
 	return nil
 }
 
 func (j *Janitor) getSessionURL(session *types.Session) string {
-	return fmt.Sprintf(`%s/session/%s`, j.Options.AppURL, session.ID)
+	return fmt.Sprintf(`%s/session/%s`, j.cfg.AppURL, session.ID)
 }
 
 func (j *Janitor) CaptureError(err error) error {
-	if j.Options.SentryDSNApi == "" {
+	if j.cfg.SentryDsnAPI == "" {
 		return nil
 	}
 	sentry.CaptureException(err)
@@ -84,15 +76,15 @@ func (j *Janitor) CaptureError(err error) error {
 }
 
 func (j *Janitor) SendMessage(userEmail string, message string) error {
-	if j.Options.SlackWebhookURL == "" {
+	if j.cfg.SlackWebhookURL == "" {
 		return nil
 	}
-	for _, ignoredUser := range j.Options.IgnoreUsers {
+	for _, ignoredUser := range j.cfg.SlackIgnoreUser {
 		if ignoredUser == userEmail {
 			return nil
 		}
 	}
-	return sendSlackNotification(j.Options.SlackWebhookURL, message)
+	return sendSlackNotification(j.cfg.SlackWebhookURL, message)
 }
 
 func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) error {
@@ -108,7 +100,7 @@ func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) er
 	if !ok {
 		j.seenErrorSessionMap[session.ID] = true
 		message := fmt.Sprintf("❌ there was a session error %s %s", j.getSessionURL(session), sessionErr.Error())
-		return sendSlackNotification(j.Options.SlackWebhookURL, message)
+		return sendSlackNotification(j.cfg.SlackWebhookURL, message)
 	} else {
 		return nil
 	}

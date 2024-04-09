@@ -52,7 +52,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 		FullName: "Foo Bar",
 	})
 
-	janitor := janitor.NewJanitor(janitor.JanitorOptions{})
+	janitor := janitor.NewJanitor(config.Janitor{})
 
 	suite.server = &HelixAPIServer{
 		Options: ServerOptions{Config: &config.ServerConfig{}},

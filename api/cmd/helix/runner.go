@@ -18,7 +18,7 @@ import (
 
 type RunnerOptions struct {
 	Runner  runner.RunnerOptions
-	Janitor janitor.JanitorOptions
+	Janitor config.Janitor
 	Server  runner.RunnerServerOptions
 }
 
@@ -44,8 +44,8 @@ func NewRunnerOptions() *RunnerOptions {
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
 			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 		},
-		Janitor: janitor.JanitorOptions{
-			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
+		Janitor: config.Janitor{
+			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -165,7 +165,7 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Janitor.SentryDSNApi, "janitor-sentry-dsn", allOptions.Janitor.SentryDSNApi,
+		&allOptions.Janitor.SentryDsnAPI, "janitor-sentry-dsn", allOptions.Janitor.SentryDsnAPI,
 		`The sentry DSN.`,
 	)
 
