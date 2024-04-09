@@ -485,6 +485,9 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// Cut the chunks to the pro tier limit
 				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks]
+
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
 			}
 		} else {
 			// Free tier
@@ -499,13 +502,15 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					)
 
 				// Get the progress bar to display
-				initialMessage = fmt.Sprintf("too many chunks to convert in free tier (%d), reducing to %d text chunks to question answer pairs",
+				initialMessage = fmt.Sprintf("too much data to process on the free tier (%d), reducing to %d text chunks. Upgrade your plan to process more text.",
 					len(chunksToProcess),
 					c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
 				)
 
 				// Cut the chunks to the free tier limit
 				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
 			}
 		}
 	}
