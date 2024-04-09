@@ -356,8 +356,8 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
-		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
+		SentryDSNFrontend:       apiServer.Options.Config.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend: apiServer.Options.Config.Janitor.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Options.EvalUserID,
 		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
 		ToolsEnabled: true,

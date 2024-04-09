@@ -27,9 +27,8 @@ import (
 )
 
 type ServeOptions struct {
-	JanitorOptions janitor.JanitorOptions
-	ServerOptions  server.ServerOptions
-	StripeOptions  stripe.StripeOptions
+	ServerOptions server.ServerOptions
+	StripeOptions stripe.StripeOptions
 
 	Cfg *config.ServerConfig
 
@@ -66,13 +65,6 @@ func NewServeOptions() (*ServeOptions, error) {
 			AdminIDs:       getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
 			EvalUserID:     getDefaultServeOptionString("EVAL_USER_ID", ""),
 			ToolsGlobalIDS: getDefaultServeOptionStringArray("TOOLS_GLOBAL_IDS", []string{}),
-		},
-		JanitorOptions: janitor.JanitorOptions{
-			SentryDSNApi:            serverConfig.Janitor.SentryDsnAPI,
-			SentryDSNFrontend:       serverConfig.Janitor.SentryDsnFrontend,
-			GoogleAnalyticsFrontend: serverConfig.Janitor.GoogleAnalyticsFrontend,
-			SlackWebhookURL:         serverConfig.Janitor.SlackWebhookURL,
-			IgnoreUsers:             serverConfig.Janitor.SlackIgnoreUser,
 		},
 		StripeOptions: stripe.StripeOptions{
 			SecretKey:            serverConfig.Stripe.SecretKey,
@@ -125,32 +117,6 @@ func newServeCmd() *cobra.Command {
 	)
 	serveCmd.PersistentFlags().StringArrayVar(
 		&allOptions.ServerOptions.AdminIDs, "admin-ids", allOptions.ServerOptions.AdminIDs,
-		`Keycloak admin IDs`,
-	)
-
-	// JanitorOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SentryDSNApi, "janitor-sentry-dsn-api", allOptions.JanitorOptions.SentryDSNApi,
-		`The api sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SentryDSNFrontend, "janitor-sentry-dsn-frontend", allOptions.JanitorOptions.SentryDSNFrontend,
-		`The frontend sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.GoogleAnalyticsFrontend, "janitor-google-analytics-frontend", allOptions.JanitorOptions.GoogleAnalyticsFrontend,
-		`The frontend sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
-		`The slack webhook URL to ping messages to.`,
-	)
-
-	serveCmd.PersistentFlags().StringArrayVar(
-		&allOptions.JanitorOptions.IgnoreUsers, "janitor-ignore-users", allOptions.JanitorOptions.IgnoreUsers,
 		`Keycloak admin IDs`,
 	)
 
@@ -271,8 +237,7 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
 
-	options.JanitorOptions.AppURL = options.ServerOptions.URL
-	janitor := janitor.NewJanitor(options.JanitorOptions)
+	janitor := janitor.NewJanitor(cfg.Janitor)
 	err = janitor.Initialize()
 	if err != nil {
 		return err

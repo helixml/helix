@@ -98,6 +98,7 @@ type EmailConfig struct {
 }
 
 type Janitor struct {
+	AppURL                  string   `envconfig:"APP_URL"`
 	SentryDsnAPI            string   `envconfig:"SENTRY_DSN_API"`
 	SentryDsnFrontend       string   `envconfig:"SENTRY_DSN_FRONTEND"`
 	GoogleAnalyticsFrontend string   `envconfig:"GOOGLE_ANALYTICS_FRONTEND"`
