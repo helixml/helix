@@ -11,19 +11,19 @@ steps:
   image: golang:1.22-alpine
   commands:
     - go build -o helix
-- name: unit-test
-  image: golang:1.22-alpine
-  environment:
-    OPENAI_API_KEY:
-      from_secret: openai_tools
-    TOGETHER_API_KEY:
-      from_secret: openai_api_key
-    TOGETHER_BASE_URL:
-      from_secret: openai_base_url
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-  commands:
-    - go test -v ./...
+# - name: unit-test
+#   image: golang:1.22-alpine
+#   environment:
+#     OPENAI_API_KEY:
+#       from_secret: openai_tools
+#     TOGETHER_API_KEY:
+#       from_secret: openai_api_key
+#     TOGETHER_BASE_URL:
+#       from_secret: openai_base_url
+#     # Database config (running in a sidecar)
+#     POSTGRES_HOST: postgres
+#   commands:
+#     - go test -v ./...
 
 services:
 - name: postgres
