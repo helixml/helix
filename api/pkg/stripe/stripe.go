@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stripe/stripe-go/v76"
 	portalsession "github.com/stripe/stripe-go/v76/billingportal/session"
@@ -19,40 +20,33 @@ import (
 
 type StripeEventHandler func(eventType types.SubscriptionEventType, user types.StripeUser) error
 
-type StripeOptions struct {
-	AppURL               string
-	SecretKey            string
-	WebhookSigningSecret string
-	PriceLookupKey       string
-}
-
 type Stripe struct {
-	Options      StripeOptions
+	Cfg          config.Stripe
 	eventHandler StripeEventHandler
 }
 
 func NewStripe(
-	opts StripeOptions,
+	cfg config.Stripe,
 	eventHandler StripeEventHandler,
 ) *Stripe {
-	if opts.SecretKey != "" {
-		stripe.Key = opts.SecretKey
+	if cfg.SecretKey != "" {
+		stripe.Key = cfg.SecretKey
 	}
 	return &Stripe{
-		Options:      opts,
+		Cfg:          cfg,
 		eventHandler: eventHandler,
 	}
 }
 
 func (s *Stripe) Enabled() bool {
-	return s.Options.SecretKey != "" && s.Options.WebhookSigningSecret != ""
+	return s.Cfg.SecretKey != "" && s.Cfg.WebhookSigningSecret != ""
 }
 
 func (s *Stripe) EnabledError() error {
-	if s.Options.SecretKey == "" {
+	if s.Cfg.SecretKey == "" {
 		return fmt.Errorf("stripe secret key is required")
 	}
-	if s.Options.WebhookSigningSecret == "" {
+	if s.Cfg.WebhookSigningSecret == "" {
 		return fmt.Errorf("stripe webhook signing secret is required")
 	}
 	return nil
@@ -60,7 +54,7 @@ func (s *Stripe) EnabledError() error {
 
 func (s *Stripe) getSubscriptionURL(id string) string {
 	testMode := ""
-	if strings.HasPrefix(s.Options.SecretKey, "sk_test_") {
+	if strings.HasPrefix(s.Cfg.SecretKey, "sk_test_") {
 		testMode = "/test"
 	}
 	return fmt.Sprintf("https://dashboard.stripe.com%s/subscriptions/%s", testMode, id)
@@ -76,7 +70,7 @@ func (s *Stripe) GetCheckoutSessionURL(
 	}
 	params := &stripe.PriceListParams{
 		LookupKeys: stripe.StringSlice([]string{
-			s.Options.PriceLookupKey,
+			s.Cfg.PriceLookupKey,
 		}),
 	}
 	priceResult := price.List(params)
@@ -102,8 +96,8 @@ func (s *Stripe) GetCheckoutSessionURL(
 			},
 		},
 		CustomerEmail: stripe.String(userEmail),
-		SuccessURL:    stripe.String(s.Options.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:     stripe.String(s.Options.AppURL + "/account?canceled=true"),
+		SuccessURL:    stripe.String(s.Cfg.AppURL + "/account?success=true&session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:     stripe.String(s.Cfg.AppURL + "/account?canceled=true"),
 	}
 
 	newSession, err := session.New(checkoutParams)
@@ -119,7 +113,7 @@ func (s *Stripe) GetPortalSessionURL(
 ) (string, error) {
 	params := &stripe.BillingPortalSessionParams{
 		Customer:  stripe.String(customerID),
-		ReturnURL: stripe.String(s.Options.AppURL + "/account"),
+		ReturnURL: stripe.String(s.Cfg.AppURL + "/account"),
 	}
 
 	ps, err := portalsession.New(params)
@@ -183,7 +177,7 @@ func (s *Stripe) ProcessWebhook(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	endpointSecret := s.Options.WebhookSigningSecret
+	endpointSecret := s.Cfg.WebhookSigningSecret
 	signatureHeader := req.Header.Get("Stripe-Signature")
 	event, err := webhook.ConstructEvent(payload, signatureHeader, endpointSecret)
 	if err != nil {

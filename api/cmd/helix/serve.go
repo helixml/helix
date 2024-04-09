@@ -26,22 +26,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type ServeOptions struct {
-	ServerOptions server.ServerOptions
-	StripeOptions stripe.StripeOptions
-
-	Cfg *config.ServerConfig
-
-	// NotifierCfg is used to configure the notifier which sends emails
-	// to users on finetuning progress
-	NotifierCfg *config.Notifications
-
-	// KeycloakCfg is used to configure the keycloak authenticator, which
-	// is used to get user information from the keycloak server
-	KeycloakCfg *config.Keycloak
-}
-
-func NewServeOptions() (*ServeOptions, error) {
+func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load server config: %v", err)
@@ -51,34 +36,15 @@ func NewServeOptions() (*ServeOptions, error) {
 		serverConfig.Controller.FilestorePresignSecret = system.GenerateUUID()
 	}
 
-	return &ServeOptions{
-		ServerOptions: server.ServerOptions{
-			// TODO: unify the config by using the config pkg
-			// and then we can get rid of all those flags too
-			Config:      &serverConfig,
-			URL:         getDefaultServeOptionString("SERVER_URL", ""),
-			Host:        getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port:        getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
-			FrontendURL: getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
-			// if this is defined it means runner auth is enabled
-			RunnerToken:    getDefaultServeOptionString("RUNNER_TOKEN", ""),
-			AdminIDs:       getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
-			EvalUserID:     getDefaultServeOptionString("EVAL_USER_ID", ""),
-			ToolsGlobalIDS: getDefaultServeOptionStringArray("TOOLS_GLOBAL_IDS", []string{}),
-		},
-		StripeOptions: stripe.StripeOptions{
-			SecretKey:            serverConfig.Stripe.SecretKey,
-			WebhookSigningSecret: serverConfig.Stripe.WebhookSigningSecret,
-			PriceLookupKey:       serverConfig.Stripe.PriceLookupKey,
-		},
-		Cfg:         &serverConfig,
-		KeycloakCfg: &serverConfig.Keycloak,
-		NotifierCfg: &serverConfig.Notifications,
-	}, nil
+	serverConfig.Janitor.AppURL = serverConfig.WebServer.URL
+	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
+	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
+
+	return &serverConfig, nil
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions, err := NewServeOptions()
+	serveConfig, err := NewServeConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create serve options")
 	}
@@ -89,7 +55,7 @@ func newServeCmd() *cobra.Command {
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			err := serve(cmd, allOptions, allOptions.Cfg)
+			err := serve(cmd, serveConfig)
 			if err != nil {
 				log.Fatal().Err(err).Msg("failed to run server")
 			}
@@ -97,51 +63,12 @@ func newServeCmd() *cobra.Command {
 		},
 	}
 
-	// ServerOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.URL, "server-url", allOptions.ServerOptions.URL,
-		`The URL the api server is listening on.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.Host, "server-host", allOptions.ServerOptions.Host,
-		`The host to bind the api server to.`,
-	)
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.ServerOptions.Port, "server-port", allOptions.ServerOptions.Port,
-		`The port to bind the api server to.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.RunnerToken, "runner-token", allOptions.ServerOptions.RunnerToken,
-		`The token for runner auth.`,
-	)
-	serveCmd.PersistentFlags().StringArrayVar(
-		&allOptions.ServerOptions.AdminIDs, "admin-ids", allOptions.ServerOptions.AdminIDs,
-		`Keycloak admin IDs`,
-	)
-
-	// StripeOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.SecretKey, "stripe-secret-key", allOptions.StripeOptions.SecretKey,
-		`The secret key for stripe.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.WebhookSigningSecret, "stripe-webhook-signing-secret", allOptions.StripeOptions.WebhookSigningSecret,
-		`The webhook signing secret for stripe.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.PriceLookupKey, "stripe-price-lookup-key", allOptions.StripeOptions.PriceLookupKey,
-		`The lookup key for the stripe price.`,
-	)
-
 	return serveCmd
 }
 
-func getFilestore(ctx context.Context, options *ServeOptions, cfg *config.ServerConfig) (filestore.FileStore, error) {
+func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.FileStore, error) {
 	var store filestore.FileStore
-	if options.ServerOptions.URL == "" {
+	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
 	if cfg.FileStore.Type == types.FileStoreTypeLocalFS {
@@ -155,7 +82,7 @@ func getFilestore(ctx context.Context, options *ServeOptions, cfg *config.Server
 				return nil, err
 			}
 		}
-		store = filestore.NewFileSystemStorage(cfg.FileStore.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL), cfg.Controller.FilestorePresignSecret)
+		store = filestore.NewFileSystemStorage(cfg.FileStore.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", cfg.WebServer.URL), cfg.Controller.FilestorePresignSecret)
 	} else if cfg.FileStore.Type == types.FileStoreTypeLocalGCS {
 		if cfg.FileStore.GCSKeyBase64 != "" {
 			keyfile, err := func() (string, error) {
@@ -201,7 +128,7 @@ func getFilestore(ctx context.Context, options *ServeOptions, cfg *config.Server
 	return store, nil
 }
 
-func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) error {
+func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
@@ -213,7 +140,7 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	fs, err := getFilestore(ctx, options, cfg)
+	fs, err := getFilestore(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -223,16 +150,16 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 		return err
 	}
 
-	if options.ServerOptions.RunnerToken == "" {
+	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(options.KeycloakCfg)
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak)
 	if err != nil {
 		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
 	}
 
-	notifier, err := notification.New(options.NotifierCfg, keycloakAuthenticator)
+	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
@@ -243,7 +170,7 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 		return err
 	}
 
-	planner, err := tools.NewChainStrategy(options.Cfg)
+	planner, err := tools.NewChainStrategy(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create tools planner: %v", err)
 	}
@@ -304,12 +231,6 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 		return questionGenerator, splitter, nil
 	}
 
-	if cfg.FileStore.Type == types.FileStoreTypeLocalFS {
-		options.ServerOptions.LocalFilestorePath = cfg.FileStore.LocalFSPath
-	}
-
-	// options.DataPrepTextOptions.Concurrency = options.ControllerOptions.DataPrepConcurrency
-
 	appController, err = controller.NewController(ctx, controllerOptions)
 	if err != nil {
 		return err
@@ -322,20 +243,19 @@ func serve(cmd *cobra.Command, options *ServeOptions, cfg *config.ServerConfig) 
 
 	go appController.StartLooping()
 
-	options.StripeOptions.AppURL = options.ServerOptions.URL
 	stripe := stripe.NewStripe(
-		options.StripeOptions,
+		cfg.Stripe,
 		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
 			return appController.HandleSubscriptionEvent(eventType, user)
 		},
 	)
 
-	server, err := server.NewServer(options.ServerOptions, store, keycloakAuthenticator, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}
 
-	log.Info().Msgf("Helix server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
+	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)

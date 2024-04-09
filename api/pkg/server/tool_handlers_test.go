@@ -55,7 +55,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 	janitor := janitor.NewJanitor(config.Janitor{})
 
 	suite.server = &HelixAPIServer{
-		Options: ServerOptions{Config: &config.ServerConfig{}},
+		Cfg:     &config.ServerConfig{},
 		pubsub:  suite.pubsub,
 		Store:   suite.store,
 		Janitor: janitor,

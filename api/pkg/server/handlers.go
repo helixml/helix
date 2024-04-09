@@ -347,8 +347,8 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 
 func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
-	if apiServer.Options.LocalFilestorePath != "" {
-		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
+	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
+		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, API_PREFIX)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
@@ -356,9 +356,9 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Options.Config.Janitor.SentryDsnFrontend,
-		GoogleAnalyticsFrontend: apiServer.Options.Config.Janitor.GoogleAnalyticsFrontend,
-		EvalUserID:              apiServer.Options.EvalUserID,
+		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
+		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
 		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
 		ToolsEnabled: true,
 	}, nil
@@ -666,7 +666,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}
 	// switch the target user to be the eval user
 	if cloneIntoEvalUser != "" {
-		reqContext.Owner = apiServer.Options.EvalUserID
+		reqContext.Owner = apiServer.Cfg.WebServer.EvalUserID
 	}
 	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
 		InteractionID: interaction.ID,
@@ -1010,10 +1010,10 @@ func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, re
 
 func (apiServer *HelixAPIServer) embedWidget(res http.ResponseWriter, req *http.Request) {
 	js, err := func() (string, error) {
-		if !apiServer.Options.Config.Widget.Enabled {
+		if !apiServer.Cfg.Widget.Enabled {
 			return "", fmt.Errorf("widget is not enabled")
 		}
-		rawJS, err := system.ReadTextFile(apiServer.Options.Config.Widget.FilePath)
+		rawJS, err := system.ReadTextFile(apiServer.Cfg.Widget.FilePath)
 		if err != nil {
 			return "", err
 		}

@@ -8,18 +8,19 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type authMiddleware struct {
 	authenticator auth.Authenticator
-	options       ServerOptions
+	cfg           config.WebServer
 	store         store.Store
 }
 
-func newMiddleware(authenticator auth.Authenticator, options ServerOptions, store store.Store) *authMiddleware {
-	return &authMiddleware{authenticator: authenticator, options: options, store: store}
+func newMiddleware(authenticator auth.Authenticator, cfg config.WebServer, store store.Store) *authMiddleware {
+	return &authMiddleware{authenticator: authenticator, cfg: cfg, store: store}
 }
 
 func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {

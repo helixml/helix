@@ -19,6 +19,7 @@ type ServerConfig struct {
 	Controller    Controller
 	FileStore     FileStore
 	Store         Store
+	WebServer     WebServer
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -98,7 +99,7 @@ type EmailConfig struct {
 }
 
 type Janitor struct {
-	AppURL                  string   `envconfig:"APP_URL"`
+	AppURL                  string
 	SentryDsnAPI            string   `envconfig:"SENTRY_DSN_API"`
 	SentryDsnFrontend       string   `envconfig:"SENTRY_DSN_FRONTEND"`
 	GoogleAnalyticsFrontend string   `envconfig:"GOOGLE_ANALYTICS_FRONTEND"`
@@ -107,6 +108,7 @@ type Janitor struct {
 }
 
 type Stripe struct {
+	AppURL               string
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY"`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY"`
@@ -172,4 +174,30 @@ type Store struct {
 	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
 	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
 	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
+}
+
+type WebServer struct {
+	URL  string `envconfig:"SERVER_URL"`
+	Host string `envconfig:"SERVER_HOST" default:"0.0.0.0"`
+	Port int    `envconfig:"SERVER_PORT" default:"80"`
+	// Can either be a URL to frontend or a path to static files
+	FrontendURL string `envconfig:"FRONTEND_URL" default:"http://frontend:8081"`
+
+	RunnerToken string `envconfig:"RUNNER_TOKEN"`
+	// a list of keycloak ids that are considered admins
+	// if the string '*' is included it means ALL users
+	AdminIDs []string `envconfig:"ADMIN_USER_IDS"`
+	// if this is specified then we provide the option to clone entire
+	// sessions into this user without having to logout and login
+	EvalUserID string `envconfig:"EVAL_USER_ID"`
+	// this is for when we are running localfs filesystem
+	// and we need to add a route to view files based on their path
+	// we are assuming all file storage is open right now
+	// so we just deep link to the object path and don't apply auth
+	// (this is so helix nodes can see files)
+	// later, we might add a token to the URLs
+	LocalFilestorePath string
+	// the list of tool ids that are allowed to be used by any user
+	// this is returned to the frontend as part of the /config route
+	ToolsGlobalIDS []string `envconfig:"TOOLS_GLOBAL_IDS"`
 }

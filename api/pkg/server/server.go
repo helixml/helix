@@ -51,7 +51,7 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Options        ServerOptions
+	Cfg            *config.ServerConfig
 	Store          store.Store
 	Stripe         *stripe.Stripe
 	Controller     *controller.Controller
@@ -64,29 +64,29 @@ type HelixAPIServer struct {
 }
 
 func NewServer(
-	options ServerOptions,
+	cfg *config.ServerConfig,
 	store store.Store,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 ) (*HelixAPIServer, error) {
-	if options.URL == "" {
+	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
 
-	if options.Host == "" {
+	if cfg.WebServer.Host == "" {
 		return nil, fmt.Errorf("server host is required")
 	}
 
-	if options.Port == 0 {
+	if cfg.WebServer.Port == 0 {
 		return nil, fmt.Errorf("server port is required")
 	}
 
-	if options.RunnerToken == "" {
+	if cfg.WebServer.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
 	}
-	runnerAuth, err := newRunnerAuth(options.RunnerToken)
+	runnerAuth, err := newRunnerAuth(cfg.WebServer.RunnerToken)
 	if err != nil {
 		return nil, err
 	}
@@ -97,14 +97,14 @@ func NewServer(
 	}
 
 	return &HelixAPIServer{
-		Options:        options,
+		Cfg:            cfg,
 		Store:          store,
 		Stripe:         stripe,
 		Controller:     controller,
 		Janitor:        janitor,
 		runnerAuth:     runnerAuth,
-		adminAuth:      newAdminAuth(options.AdminIDs),
-		authMiddleware: newMiddleware(authenticator, options, store),
+		adminAuth:      newAdminAuth(cfg.WebServer.AdminIDs),
+		authMiddleware: newMiddleware(authenticator, cfg.WebServer, store),
 		pubsub:         ps,
 	}, nil
 }
@@ -131,7 +131,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	)
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),
+		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
 		ReadTimeout:       time.Minute * 15,
 		ReadHeaderTimeout: time.Minute * 15,
@@ -207,9 +207,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods("DELETE")
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods("GET")
 
-	if apiServer.Options.LocalFilestorePath != "" {
+	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
-		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
+		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
 
 		// we handle our own auth from inside this function
 		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
@@ -308,7 +308,7 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	u, err := url.Parse(apiServer.Options.Config.Keycloak.URL)
+	u, err := url.Parse(apiServer.Cfg.Keycloak.URL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
 		return
@@ -322,15 +322,15 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-	if strings.HasPrefix(apiServer.Options.FrontendURL, "http://") || strings.HasPrefix(apiServer.Options.FrontendURL, "https://") {
+	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
 
 		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
-			apiServer.Options.FrontendURL,
+			apiServer.Cfg.WebServer.FrontendURL,
 		))
 	} else {
-		log.Info().Msgf("serving static UI files from %s", apiServer.Options.FrontendURL)
+		log.Info().Msgf("serving static UI files from %s", apiServer.Cfg.WebServer.FrontendURL)
 
-		fileSystem := http.Dir(apiServer.Options.FrontendURL)
+		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
 
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}
