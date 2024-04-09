@@ -178,6 +178,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
+		Config:    cfg,
 		Store:     store,
 		Filestore: fs,
 		Janitor:   janitor,
