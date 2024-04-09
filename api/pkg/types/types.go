@@ -40,10 +40,11 @@ type Interaction struct {
 	Status         string            `json:"status"`
 	Error          string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir        string                     `json:"lora_dir"`
-	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
-	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
-	RagResults     []SessionRagResult         `json:"rag_results"`
+	LoraDir         string                     `json:"lora_dir"`
+	DataPrepChunks  map[string][]DataPrepChunk `json:"data_prep_chunks"`
+	DataPrepStage   TextDataPrepStage          `json:"data_prep_stage"`
+	DataPrepLimited bool                       `json:"data_prep_limited"` // If true, the data prep is limited to a certain number of chunks due to quotas
+	RagResults      []SessionRagResult         `json:"rag_results"`
 }
 
 type InteractionMessage struct {
