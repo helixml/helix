@@ -31,7 +31,7 @@ func newGptScriptCmd() *cobra.Command {
 	return serveCmd
 }
 
-func gptscript(cmd *cobra.Command) error {
+func gptscript(_ *cobra.Command) error {
 
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
@@ -73,7 +73,7 @@ func gptscript(cmd *cobra.Command) error {
 	}
 
 	http.HandleFunc("/api/v1/run", runHandler)
-	
+
 	listen := "0.0.0.0:31380"
 	// start a gptscript server
 	log.Info().Msgf("helix gptscript server starting on %s", listen)

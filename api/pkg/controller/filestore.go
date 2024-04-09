@@ -55,7 +55,7 @@ func GetSessionResultsFolder(sessionID string) string {
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
 func (c *Controller) getFilestoreUserPrefix(ctx types.OwnerContext) (string, error) {
-	tmpl, err := template.New("user_path").Parse(c.Options.FilePrefixUser)
+	tmpl, err := template.New("user_path").Parse(c.Options.Config.Controller.FilePrefixUser)
 	if err != nil {
 		return "", err
 	}
@@ -75,11 +75,11 @@ func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(c.Options.FilePrefixGlobal, userPrefix, path), nil
+	return filepath.Join(c.Options.Config.Controller.FilePrefixGlobal, userPrefix, path), nil
 }
 
 func (c *Controller) VerifySignature(url string) bool {
-	return filestore.VerifySignature(url, c.Options.FilestorePresignSecret)
+	return filestore.VerifySignature(url, c.Options.Config.Controller.FilestorePresignSecret)
 }
 
 func (c *Controller) GetFilestoreSessionPath(ctx types.OwnerContext, sessionID string) (string, error) {
@@ -135,7 +135,7 @@ func (c *Controller) FilestoreConfig(ctx types.OwnerContext) (filestore.Filestor
 		return filestore.FilestoreConfig{}, err
 	}
 	return filestore.FilestoreConfig{
-		UserPrefix: filepath.Join(c.Options.FilePrefixGlobal, userPrefix),
+		UserPrefix: filepath.Join(c.Options.Config.Controller.FilePrefixGlobal, userPrefix),
 		Folders:    folders,
 	}, nil
 }
