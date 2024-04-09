@@ -1,6 +1,9 @@
 package config
 
-import "github.com/kelseyhightower/envconfig"
+import (
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/kelseyhightower/envconfig"
+)
 
 type ServerConfig struct {
 	Providers     Providers
@@ -10,6 +13,8 @@ type ServerConfig struct {
 	Janitor       Janitor
 	Stripe        Stripe
 	Widget        Widget
+	DataPrepText  DataPrepText
+	Controller    Controller
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -105,4 +110,39 @@ type Stripe struct {
 type Widget struct {
 	Enabled  bool   `envconfig:"WIDGET_ENABLED" default:"true"` // Enable/disable the embedded widget
 	FilePath string `envconfig:"WIDGET_FILE_PATH" default:"/www/helix-embed.iife.js"`
+}
+
+type DataPrepText struct {
+	Module            types.DataPrepModule `envconfig:"DATA_PREP_TEXT_MODULE" default:"dynamic"`
+	OverflowSize      int                  `envconfig:"DATA_PREP_TEXT_OVERFLOW_SIZE" default:"256"`
+	QuestionsPerChunk int                  `envconfig:"DATA_PREP_TEXT_QUESTIONS_PER_CHUNK" default:"30"`
+	Temperature       float32              `envconfig:"DATA_PREP_TEXT_TEMPERATURE" default:"0.5"`
+}
+
+type Controller struct {
+	FilestorePresignSecret string `envconfig:"FILESTORE_PRESIGN_SECRET"`
+	// this is an "env" prefix like "dev"
+	// the user prefix is handled inside the controller
+	// (see getFilestorePath)
+	FilePrefixGlobal string `envconfig:"FILE_PREFIX_GLOBAL" default:"dev"`
+	// this is a golang template that is used to prefix the user
+	// path in the filestore - it is passed Owner and OwnerType values
+	// write me an example FilePrefixUser as a go template
+	// e.g. "users/{{.Owner}}"
+	FilePrefixUser string `envconfig:"FILE_PREFIX_USER" default:"users/{{.Owner}}"`
+
+	// a static path used to denote what sub-folder job results live in
+	FilePrefixResults string `envconfig:"FILE_PREFIX_RESULTS" default:"results"`
+
+	// the URL we post documents to so we can get the text back from them
+	TextExtractionURL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract"`
+
+	// the URL we can post a chunk of text to for RAG indexing
+	RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk"`
+
+	// the URL we can post a prompt to to match RAG records
+	RAGQueryURL string `envconfig:"RAG_QUERY_URL" default:"http://llamaindex:5000/api/v1/rag/query"`
+
+	// how many scheduler decisions to buffer before we start dropping them
+	SchedulingDecisionBufferSize int `envconfig:"SCHEDULING_DECISION_BUFFER_SIZE" default:"10"`
 }
