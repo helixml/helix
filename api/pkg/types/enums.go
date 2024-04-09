@@ -238,3 +238,10 @@ func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule
 		}
 	}
 }
+
+type FileStoreType string
+
+const (
+	FileStoreTypeLocalFS  FileStoreType = "fs"
+	FileStoreTypeLocalGCS FileStoreType = "gcs"
+)

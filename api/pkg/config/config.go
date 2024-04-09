@@ -15,6 +15,7 @@ type ServerConfig struct {
 	Widget        Widget
 	DataPrepText  DataPrepText
 	Controller    Controller
+	FileStore     FileStore
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -145,4 +146,12 @@ type Controller struct {
 
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int `envconfig:"SCHEDULING_DECISION_BUFFER_SIZE" default:"10"`
+}
+
+type FileStore struct {
+	Type         types.FileStoreType `envconfig:"FILESTORE_TYPE" default:"fs"`
+	LocalFSPath  string              `envconfig:"FILESTORE_LOCALFS_PATH" default:"/tmp/helix/filestore"`
+	GCSKeyBase64 string              `envconfig:"FILESTORE_GCS_KEY_BASE64"`
+	GCSKeyFile   string              `envconfig:"FILESTORE_GCS_KEY_FILE"`
+	GCSBucket    string              `envconfig:"FILESTORE_GCS_BUCKET"`
 }
