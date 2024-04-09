@@ -1,6 +1,6 @@
 <div align="center">
 
-<img alt="logo" src="https://tryhelix.ai/assets/img/home/helix_hero.png" width="250px">
+<img alt="logo" src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" width="250px">
 
 <br/>
 <br/>
