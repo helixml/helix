@@ -455,6 +455,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return session, 0, nil
 	}
 
+	systemInteraction.DataPrepTotalChunks = len(chunksToProcess)
+
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
 
@@ -469,14 +471,6 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		if usermeta.Config.StripeSubscriptionActive {
 			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks {
 
-				log.Info().
-					Str("user_id", session.Owner).
-					Str("session_id", session.ID).
-					Msgf("chunks have been reduced to the pro tier limit of %d, total chunks before: %d",
-						c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
-						len(chunksToProcess),
-					)
-
 				// Get the progress bar to display
 				initialMessage = fmt.Sprintf("too many chunks to convert in pro tier (%d), reducing to %d text chunks to question answer pairs",
 					len(chunksToProcess),
@@ -488,18 +482,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// Marking the session as limited
 				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks
 			}
 		} else {
 			// Free tier
 			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks {
-
-				log.Info().
-					Str("user_id", session.Owner).
-					Str("session_id", session.ID).
-					Msgf("chunks have been reduced to the free tier limit of %d, total chunks before: %d",
-						c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
-						len(chunksToProcess),
-					)
 
 				// Get the progress bar to display
 				initialMessage = fmt.Sprintf("too much data to process on the free tier (%d), reducing to %d text chunks. Upgrade your plan to process more text.",
@@ -511,8 +498,21 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
 				// Marking the session as limited
 				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
 			}
 		}
+	}
+
+	if systemInteraction.DataPrepLimited {
+		log.Info().
+			Str("user_id", session.Owner).
+			Str("session_id", session.ID).
+			Int("limit", systemInteraction.DataPrepLimit).
+			Int("total_chunks", systemInteraction.DataPrepTotalChunks).
+			Msgf("chunks have been reduced to the tier limit of %d, total chunks before: %d",
+				c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				len(chunksToProcess),
+			)
 	}
 
 	systemInteraction.Status = initialMessage
