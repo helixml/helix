@@ -13,6 +13,11 @@ import Cell from '../widgets/Cell'
 import Markdown from './Markdown'
 
 import useAccount from '../../hooks/useAccount'
+import useRouter from '../../hooks/useRouter'
+
+import {
+  emitEvent,
+} from '../../utils/analytics'
 
 import {
   ISession,
@@ -43,9 +48,11 @@ export const InteractionInference: FC<{
   session,
   isShared,
   onRestart,
+  upgrade,
   isFromSystem,
 }) => {
   const account = useAccount()
+  const router = useRouter()
   const [ viewingError, setViewingError ] = useState(false)
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -99,6 +106,29 @@ export const InteractionInference: FC<{
                     onClick={ onRestart }
                   >
                     Retry
+                  </Button>
+                </Cell>
+              )
+            }
+            {
+              upgrade && (
+                <Cell
+                  sx={{
+                    ml: 2,
+                  }}
+                >
+                  <Button                    
+                    variant="contained"
+                    color="secondary"
+                    size="small"                    
+                    onClick={() => {
+                      emitEvent({
+                        name: 'queue_upgrade_clicked'
+                      })
+                      router.navigate('account')
+                    }}
+                  >
+                    Upgrade
                   </Button>
                 </Cell>
               )
