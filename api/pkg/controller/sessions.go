@@ -104,22 +104,12 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			}
 		}
 
-		var proUser bool
-
-		usermeta, err := c.Options.Store.GetUserMeta(context.Background(), req.Owner)
+		pro, err := c.isUserProTier(context.Background(), req.Owner)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				proUser = false
-			} else {
-				return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
-			}
-		} else {
-			if usermeta.Config.StripeSubscriptionActive {
-				proUser = true
-			}
+			return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
 		}
 
-		if proUser {
+		if pro {
 			// Pro plan
 			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxConcurrent {
 				return nil, fmt.Errorf(
@@ -164,6 +154,22 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	}
 
 	return sessionData, nil
+}
+
+func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, error) {
+	usermeta, err := c.Options.Store.GetUserMeta(ctx, owner)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if usermeta.Config.StripeSubscriptionActive {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
