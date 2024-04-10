@@ -209,3 +209,39 @@ var (
 	WarmupTextSessionID  = "warmup-text"
 	WarmupImageSessionID = "warmup-image"
 )
+
+type DataPrepModule string
+
+const (
+	DataPrepModule_None         DataPrepModule = ""
+	DataPrepModule_GPT3Point5   DataPrepModule = "gpt3.5"
+	DataPrepModule_GPT4         DataPrepModule = "gpt4"
+	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
+	DataPrepModule_Dynamic      DataPrepModule = "dynamic"
+)
+
+func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule, error) {
+	switch moduleName {
+	case string(DataPrepModule_GPT3Point5):
+		return DataPrepModule_GPT3Point5, nil
+	case string(DataPrepModule_GPT4):
+		return DataPrepModule_GPT4, nil
+	case string(DataPrepModule_HelixMistral):
+		return DataPrepModule_HelixMistral, nil
+	case string(DataPrepModule_Dynamic):
+		return DataPrepModule_Dynamic, nil
+	default:
+		if acceptEmpty && moduleName == string(DataPrepModule_None) {
+			return DataPrepModule_None, nil
+		} else {
+			return DataPrepModule_None, fmt.Errorf("invalid data prep module name: %s", moduleName)
+		}
+	}
+}
+
+type FileStoreType string
+
+const (
+	FileStoreTypeLocalFS  FileStoreType = "fs"
+	FileStoreTypeLocalGCS FileStoreType = "gcs"
+)

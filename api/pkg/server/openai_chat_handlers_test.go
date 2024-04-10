@@ -63,7 +63,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 			Options: controller.ControllerOptions{
 				Config:  cfg,
 				Store:   suite.store,
-				Janitor: janitor.NewJanitor(janitor.JanitorOptions{}),
+				Janitor: janitor.NewJanitor(config.Janitor{}),
 			},
 		},
 		adminAuth: &adminAuth{},
