@@ -142,6 +142,12 @@ export const router = createRouter(routes, {
 })
 
 router.usePlugin(browserPlugin())
+router.subscribe((state) => {
+  const win = (window as any)
+  if(win.viewPage) {
+    win.viewPage(state)
+  }
+})
 router.start()
 
 export function useApplicationRoute(): IApplicationRoute {
