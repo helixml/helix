@@ -81,6 +81,10 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			Owner: newSession.Owner,
 		})
 		if err != nil {
+			log.
+				Err(err).
+				Str("session_id", req.SessionID).
+				Msg("failed to get sessions")
 			return nil, fmt.Errorf("failed to get sessions: %w", err)
 		}
 
