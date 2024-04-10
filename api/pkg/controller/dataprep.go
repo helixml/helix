@@ -159,7 +159,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
 				system.ClientOptions{},
-				c.Options.TextExtractionURL,
+				c.Options.Config.Controller.TextExtractionURL,
 				convertDocumentsToChunksRequest{
 					URL: fileURL,
 				},
@@ -389,7 +389,7 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 func (c *Controller) indexChunkForRag(session *types.Session, interaction *types.Interaction, chunk *text.DataPrepTextSplitterChunk) error {
 	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
 		system.ClientOptions{},
-		c.Options.RAGIndexingURL,
+		c.Options.Config.Controller.RAGIndexingURL,
 		types.SessionRagIndexChunk{
 			SessionID:       session.ID,
 			InteractionID:   interaction.ID,
@@ -415,7 +415,7 @@ func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagRe
 	}
 	result, err := system.PostRequest[types.SessionRagQuery, []types.SessionRagResult](
 		system.ClientOptions{},
-		c.Options.RAGQueryURL,
+		c.Options.Config.Controller.RAGQueryURL,
 		types.SessionRagQuery{
 			Prompt:            userInteraction.Message,
 			SessionID:         session.ID,

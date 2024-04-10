@@ -196,7 +196,7 @@ func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID 
 
 	c.schedulingDecisions = append([]*types.GlobalSchedulingDecision{decision}, c.schedulingDecisions...)
 
-	if len(c.schedulingDecisions) > c.Options.SchedulingDecisionBufferSize {
+	if len(c.schedulingDecisions) > c.Options.Config.Controller.SchedulingDecisionBufferSize {
 		c.schedulingDecisions = c.schedulingDecisions[:len(c.schedulingDecisions)-1]
 	}
 }

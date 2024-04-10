@@ -21,40 +21,13 @@ import (
 )
 
 type ControllerOptions struct {
-	Config                 *config.ServerConfig
-	Store                  store.Store
-	Planner                tools.Planner
-	Filestore              filestore.FileStore
-	FilestorePresignSecret string
-	Janitor                *janitor.Janitor
-	DataPrepTextFactory    func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
-	// this is an "env" prefix like "dev"
-	// the user prefix is handled inside the controller
-	// (see getFilestorePath)
-	FilePrefixGlobal string
-	// this is a golang template that is used to prefix the user
-	// path in the filestore - it is passed Owner and OwnerType values
-	// write me an example FilePrefixUser as a go template
-	// e.g. "users/{{.Owner}}"
-	FilePrefixUser string
-
-	FilePrefixSessions string
-	// a static path used to denote what sub-folder job results live in
-	FilePrefixResults string
-
-	// the URL we post documents to so we can get the text back from them
-	TextExtractionURL string
-
-	// the URL we can post a chunk of text to for RAG indexing
-	RAGIndexingURL string
-
-	// the URL we can post a prompt to to match RAG records
-	RAGQueryURL string
-
-	// how many scheduler decisions to buffer before we start dropping them
-	SchedulingDecisionBufferSize int
-
-	Notifier notification.Notifier
+	Config              *config.ServerConfig
+	Store               store.Store
+	Planner             tools.Planner
+	Filestore           filestore.FileStore
+	Janitor             *janitor.Janitor
+	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
+	Notifier            notification.Notifier
 }
 
 type Controller struct {
@@ -99,7 +72,7 @@ func NewController(
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")
 	}
-	if options.TextExtractionURL == "" {
+	if options.Config.Controller.TextExtractionURL == "" {
 		return nil, fmt.Errorf("text extraction URL is required")
 	}
 	if options.Janitor == nil {

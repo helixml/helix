@@ -121,10 +121,6 @@ func runCLI(cmd *cobra.Command, options *RunOptions) error {
 
 	// fmt.Println("Using API key", options.ApiKey)
 
-	if err != nil {
-		fmt.Println("Error creating request:", err)
-		return err
-	}
 	// Set the Content-Type header to the writer's form data content type
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 

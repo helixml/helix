@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -27,7 +28,7 @@ func (suite *PostgresStoreTestSuite) SetupTest() {
 		host = "localhost"
 	}
 
-	store, err := NewPostgresStore(StoreOptions{
+	store, err := NewPostgresStore(config.Store{
 		Host:        host,
 		Port:        5432,
 		Username:    "postgres",
