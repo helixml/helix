@@ -240,7 +240,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                                 ml: 2,
                             }}
                         >
-                            "Login / Register"
+                            Login / Register
                         </Button>
                       )
                     }
