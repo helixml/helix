@@ -111,7 +111,8 @@ type Widget struct {
 type SubscriptionQuotas struct {
 	Enabled    bool `envconfig:"SUBSCRIPTION_QUOTAS_ENABLED" default:"true"`
 	Finetuning struct {
-		Free struct {
+		Strict bool `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_STRICT" default:"false"` // If set, will now allow any finetuning if the user is over quota
+		Free   struct {
 			MaxConcurrent int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CONCURRENT" default:"1"`
 			MaxChunks     int `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CHUNKS" default:"10"`
 		}
