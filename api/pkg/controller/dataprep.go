@@ -455,8 +455,104 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return session, 0, nil
 	}
 
+	systemInteraction.DataPrepTotalChunks = len(chunksToProcess)
+
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
+
+	// Validate quotas
+	if c.Options.Config.SubscriptionQuotas.Enabled {
+
+		pro, err := c.isUserProTier(context.Background(), session.Owner)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error getting user '%s' pro tier: %s", session.Owner, err.Error())
+		}
+
+		// Pro tier checking for the number of chunks
+		if pro {
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks {
+
+				if c.Options.Config.SubscriptionQuotas.Finetuning.Free.Strict {
+					// Pro plan limit
+					msg := fmt.Sprintf("Sorry, too much data to process on the premium tier 😅 (%d chunks), speak with us to process more text",
+						len(chunksToProcess))
+
+					systemInteraction.Status = msg
+					systemInteraction.Progress = 0
+					systemInteraction.State = types.InteractionStateError
+					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+
+					systemInteraction.DataPrepLimited = true
+					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					session = c.WriteInteraction(session, systemInteraction)
+					c.BroadcastProgress(session, 1, initialMessage)
+
+					return session, 0, fmt.Errorf(msg)
+				}
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("Sorry, too many chunks to convert in pro tier 😅, reducing to %d text chunks (from %d) to question answer pairs",
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+					len(chunksToProcess),
+				)
+
+				// Cut the chunks to the pro tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks]
+
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks
+			}
+		} else {
+			// Free tier
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks {
+				if c.Options.Config.SubscriptionQuotas.Finetuning.Free.Strict {
+
+					msg := fmt.Sprintf("Sorry, too much data to process on the free tier 😅 (resulted in %d chunks while the limit is %d), upgrade your plan to process more text",
+						len(chunksToProcess), c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks)
+
+					systemInteraction.Status = msg
+					systemInteraction.Progress = 0
+					systemInteraction.State = types.InteractionStateError
+					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+
+					systemInteraction.DataPrepLimited = true
+					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					session = c.WriteInteraction(session, systemInteraction)
+					c.BroadcastProgress(session, 1, initialMessage)
+
+					return session, 0, fmt.Errorf(msg)
+				}
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("Sorry, too much data to process on the free tier 😅 (%d), reducing to %d text chunks. Upgrade your plan to process more text.",
+					len(chunksToProcess),
+					c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				)
+
+				// Cut the chunks to the free tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+			}
+		}
+	}
+
+	if systemInteraction.DataPrepLimited {
+		log.Info().
+			Str("user_id", session.Owner).
+			Str("session_id", session.ID).
+			Int("limit", systemInteraction.DataPrepLimit).
+			Int("total_chunks", systemInteraction.DataPrepTotalChunks).
+			Msgf("chunks have been reduced to the tier limit of %d, total chunks before: %d",
+				c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				len(chunksToProcess),
+			)
+	}
+
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
 	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions

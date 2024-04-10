@@ -8,17 +8,18 @@ import (
 )
 
 type ServerConfig struct {
-	Providers     Providers
-	Tools         Tools
-	Keycloak      Keycloak
-	Notifications Notifications
-	Janitor       Janitor
-	Stripe        Stripe
-	DataPrepText  DataPrepText
-	Controller    Controller
-	FileStore     FileStore
-	Store         Store
-	WebServer     WebServer
+	Providers          Providers
+	Tools              Tools
+	Keycloak           Keycloak
+	Notifications      Notifications
+	Janitor            Janitor
+	Stripe             Stripe
+	DataPrepText       DataPrepText
+	Controller         Controller
+	FileStore          FileStore
+	Store              Store
+	WebServer          WebServer
+	SubscriptionQuotas SubscriptionQuotas
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -196,4 +197,20 @@ type WebServer struct {
 	// the list of tool ids that are allowed to be used by any user
 	// this is returned to the frontend as part of the /config route
 	ToolsGlobalIDS []string `envconfig:"TOOLS_GLOBAL_IDS" description:""`
+}
+
+type SubscriptionQuotas struct {
+	Enabled    bool `envconfig:"SUBSCRIPTION_QUOTAS_ENABLED" default:"true"`
+	Finetuning struct {
+		Free struct {
+			Strict        bool `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_STRICT" default:"true"` // If set, will now allow any finetuning if the user is over quota
+			MaxConcurrent int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CONCURRENT" default:"1"`
+			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_FREE_MAX_CHUNKS" default:"5"`
+		}
+		Pro struct {
+			Strict        bool `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_STRICT" default:"false"` // If set, will now allow any finetuning if the user is over quota
+			MaxConcurrent int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CONCURRENT" default:"3"`
+			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
+		}
+	}
 }
