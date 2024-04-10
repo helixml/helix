@@ -1007,34 +1007,3 @@ func (apiServer *HelixAPIServer) subscriptionManage(res http.ResponseWriter, req
 func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
 	apiServer.Stripe.ProcessWebhook(res, req)
 }
-
-func (apiServer *HelixAPIServer) embedWidget(res http.ResponseWriter, req *http.Request) {
-	js, err := func() (string, error) {
-		if !apiServer.Options.Config.Widget.Enabled {
-			return "", fmt.Errorf("widget is not enabled")
-		}
-		rawJS, err := system.ReadTextFile(apiServer.Options.Config.Widget.FilePath)
-		if err != nil {
-			return "", err
-		}
-		configJSON, err := json.Marshal(convertQueryParamsToNestedObject(req.URL.Query()))
-		if err != nil {
-			return "", err
-		}
-
-		return string(fmt.Sprintf(`
-%s
-
-HelixEmbed(%s)
-		`, rawJS, string(configJSON))), nil
-	}()
-
-	if err != nil {
-		log.Ctx(req.Context()).Error().Msgf("error getting JS: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	res.Header().Set("Content-Type", "application/javascript")
-	res.Write([]byte(js))
-}

@@ -49,7 +49,6 @@ services:
       - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
       - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
-      - WIDGET_FILE_PATH=${WIDGET_FILE_PATH:-/tmp/helix-embed.iife.js}
     # entrypoint: ${API_ENTRYPOINT:-/helix serve}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
