@@ -48,6 +48,7 @@ import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 import useSessionConfig from '../hooks/useSessionConfig'
+import useTracking from '../hooks/useTracking'
 
 import {
   ISessionMode,
@@ -67,6 +68,9 @@ const New: FC = () => {
     params,
     setParams,
   } = useRouter()
+  const {
+    emitEvent,
+  } = useTracking()
   const account = useAccount()
   const tools = useTools()
   const sessions = useSessions()
@@ -218,6 +222,10 @@ const New: FC = () => {
 
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
+    emitEvent({
+      name: 'inference',
+      session,
+    })
     sessions.addSesssion(session)
     // await bluebird.delay(300)
     navigate('session', {session_id: session.id})
@@ -251,6 +259,10 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
+      emitEvent({
+        name: 'finetune:text',
+        session,
+      })
       await sessions.loadSessions()
       // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
@@ -294,6 +306,10 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
+      emitEvent({
+        name: 'finetune:image',
+        session,
+      })
       await sessions.loadSessions()
       // XXX maybe this delay is why we don't subscribe fast enough to the
       // websocket
