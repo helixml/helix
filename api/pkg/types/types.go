@@ -502,6 +502,8 @@ type ServerConfigForFrontend struct {
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
 	ToolsEnabled            bool   `json:"tools_enabled"`
+	RudderStackWriteKey     string `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
 }
 
 type CreateSessionRequest struct {
