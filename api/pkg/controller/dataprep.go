@@ -472,9 +472,27 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		if pro {
 			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks {
 
+				if c.Options.Config.SubscriptionQuotas.Finetuning.Free.Strict {
+					// Pro plan limit
+					msg := fmt.Sprintf("Sorry, too much data to process on the premium tier 😅 (%d chunks), speak with us to process more text",
+						len(chunksToProcess))
+
+					systemInteraction.Status = msg
+					systemInteraction.Progress = 0
+					systemInteraction.State = types.InteractionStateError
+					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+
+					systemInteraction.DataPrepLimited = true
+					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					session = c.WriteInteraction(session, systemInteraction)
+					c.BroadcastProgress(session, 1, initialMessage)
+
+					return session, 0, fmt.Errorf(msg)
+				}
+
 				// Get the progress bar to display
 				initialMessage = fmt.Sprintf("Sorry, too many chunks to convert in pro tier 😅, reducing to %d text chunks (from %d) to question answer pairs",
-
 					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
 					len(chunksToProcess),
 				)
