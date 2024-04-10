@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -103,12 +104,22 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			}
 		}
 
+		var proUser bool
+
 		usermeta, err := c.Options.Store.GetUserMeta(context.Background(), req.Owner)
 		if err != nil {
-			return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
+			if errors.Is(err, store.ErrNotFound) {
+				proUser = false
+			} else {
+				return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
+			}
+		} else {
+			if usermeta.Config.StripeSubscriptionActive {
+				proUser = true
+			}
 		}
 
-		if usermeta.Config.StripeSubscriptionActive {
+		if proUser {
 			// Pro plan
 			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxConcurrent {
 				return nil, fmt.Errorf(
