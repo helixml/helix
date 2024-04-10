@@ -347,8 +347,8 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 
 func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
-	if apiServer.Options.LocalFilestorePath != "" {
-		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
+	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
+		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, API_PREFIX)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
@@ -356,9 +356,11 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
-		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
-		EvalUserID:              apiServer.Options.EvalUserID,
+		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
+		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
+		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
+		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
 		ToolsEnabled: true,
 	}, nil
@@ -380,9 +382,13 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Req
 	content := fmt.Sprintf(`
 window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
+window.RUDDERSTACK_WRITE_KEY = "%s"
+window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 `,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
+		config.RudderStackWriteKey,
+		config.RudderStackDataPlaneURL,
 	)
 	res.Write([]byte(content))
 }
@@ -666,7 +672,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}
 	// switch the target user to be the eval user
 	if cloneIntoEvalUser != "" {
-		reqContext.Owner = apiServer.Options.EvalUserID
+		reqContext.Owner = apiServer.Cfg.WebServer.EvalUserID
 	}
 	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
 		InteractionID: interaction.ID,
@@ -1006,35 +1012,4 @@ func (apiServer *HelixAPIServer) subscriptionManage(res http.ResponseWriter, req
 
 func (apiServer *HelixAPIServer) subscriptionWebhook(res http.ResponseWriter, req *http.Request) {
 	apiServer.Stripe.ProcessWebhook(res, req)
-}
-
-func (apiServer *HelixAPIServer) embedWidget(res http.ResponseWriter, req *http.Request) {
-	js, err := func() (string, error) {
-		if !apiServer.Options.Config.Widget.Enabled {
-			return "", fmt.Errorf("widget is not enabled")
-		}
-		rawJS, err := system.ReadTextFile(apiServer.Options.Config.Widget.FilePath)
-		if err != nil {
-			return "", err
-		}
-		configJSON, err := json.Marshal(convertQueryParamsToNestedObject(req.URL.Query()))
-		if err != nil {
-			return "", err
-		}
-
-		return string(fmt.Sprintf(`
-%s
-
-HelixEmbed(%s)
-		`, rawJS, string(configJSON))), nil
-	}()
-
-	if err != nil {
-		log.Ctx(req.Context()).Error().Msgf("error getting JS: %s", err.Error())
-		http.Error(res, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	res.Header().Set("Content-Type", "application/javascript")
-	res.Write([]byte(js))
 }

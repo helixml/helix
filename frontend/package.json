@@ -8,8 +8,6 @@
     "dev": "vite",
     "tsc": "tsc -b tsconfig.json",
     "build-frontend": "vite build",
-    "build-widget": "vite build --config vite-widget.config.ts",
-    "build2": "yarn tsc && yarn build-frontend && yarn build-widget",
     "build": "yarn tsc && yarn build-frontend",
     "preview": "vite preview"
   },
@@ -24,6 +22,7 @@
     "@mui/icons-material": "^5.3.1",
     "@mui/material": "^5.3.1",
     "@mui/styles": "^5.12.0",
+    "@rudderstack/analytics-js": "^3.0.3",
     "@sentry/browser": "^7.88.0",
     "@sentry/react": "^7.88.0",
     "@types/bluebird": "^3.5.36",
