@@ -359,6 +359,8 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
 		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
 		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
+		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
+		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
 		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
 		ToolsEnabled: true,
 	}, nil
@@ -380,9 +382,13 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Req
 	content := fmt.Sprintf(`
 window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
+window.RUDDERSTACK_WRITE_KEY = "%s"
+window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 `,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
+		config.RudderStackWriteKey,
+		config.RudderStackDataPlaneURL,
 	)
 	res.Write([]byte(content))
 }
