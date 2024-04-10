@@ -177,7 +177,6 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subrouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
-	subrouter.HandleFunc("/widget", apiServer.embedWidget).Methods("GET")
 
 	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
 	subrouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")

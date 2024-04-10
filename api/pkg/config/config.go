@@ -14,7 +14,6 @@ type ServerConfig struct {
 	Notifications Notifications
 	Janitor       Janitor
 	Stripe        Stripe
-	Widget        Widget
 	DataPrepText  DataPrepText
 	Controller    Controller
 	FileStore     FileStore
@@ -113,6 +112,7 @@ type Stripe struct {
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET" description:"The webhook signing secret for stripe."`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY" description:"The lookup key for the stripe price."`
 }
+<<<<<<< HEAD
 
 type Widget struct {
 	Enabled  bool   `envconfig:"WIDGET_ENABLED" default:"true"` // Enable/disable the embedded widget
@@ -201,3 +201,5 @@ type WebServer struct {
 	// this is returned to the frontend as part of the /config route
 	ToolsGlobalIDS []string `envconfig:"TOOLS_GLOBAL_IDS" description:""`
 }
+=======
+>>>>>>> main
