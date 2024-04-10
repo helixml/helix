@@ -9,7 +9,6 @@ type ServerConfig struct {
 	Notifications Notifications
 	Janitor       Janitor
 	Stripe        Stripe
-	Widget        Widget
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -100,9 +99,4 @@ type Stripe struct {
 	SecretKey            string `envconfig:"STRIPE_SECRET_KEY"`
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
 	PriceLookupKey       string `envconfig:"STRIPE_PRICE_LOOKUP_KEY"`
-}
-
-type Widget struct {
-	Enabled  bool   `envconfig:"WIDGET_ENABLED" default:"true"` // Enable/disable the embedded widget
-	FilePath string `envconfig:"WIDGET_FILE_PATH" default:"/www/helix-embed.iife.js"`
 }
