@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	reflect "reflect"
 	"strings"
@@ -240,6 +241,10 @@ func scanUserMetaRow(row Scanner) (*types.UserMeta, error) {
 		&config,
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+
 		return nil, err
 	}
 	err = json.Unmarshal(config, &user.Config)
