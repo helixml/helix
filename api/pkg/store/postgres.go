@@ -70,6 +70,7 @@ func NewPostgresStore(
 		db:               db,
 		gdb:              gormDB,
 	}
+
 	if cfg.AutoMigrate {
 		err = store.MigrateUp()
 		if err != nil {
@@ -86,7 +87,7 @@ func NewPostgresStore(
 }
 
 func (s *PostgresStore) autoMigrate() error {
-	err := s.gdb.WithContext(context.Background()).AutoMigrate(
+	err := s.gdb.WithContext(context.Background()).Debug().AutoMigrate(
 		&types.Tool{},
 		&types.SessionToolBinding{},
 	)
@@ -503,7 +504,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 	return d.GetSession(ctx, data.ID)
 }
 
-func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
+func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, apiKeyType types.APIKeyType) (string, error) {
 	// Generate a new API key
 	key, err := generateAPIKey()
 	if err != nil {
@@ -512,8 +513,8 @@ func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name
 
 	// Insert the new API key into the database
 	sqlStatement := `
-insert into api_key (owner, owner_type, key, name)
-values ($1, $2, $3, $4)
+insert into api_key (owner, owner_type, key, name, type)
+values ($1, $2, $3, $4, $5)
 returning key
 `
 	var id string
@@ -523,6 +524,7 @@ returning key
 		owner.OwnerType,
 		key,
 		name,
+		apiKeyType,
 	).Scan(&id)
 	if err != nil {
 		return "", err

@@ -245,3 +245,12 @@ const (
 	FileStoreTypeLocalFS  FileStoreType = "fs"
 	FileStoreTypeLocalGCS FileStoreType = "gcs"
 )
+
+type APIKeyType string
+
+const (
+	APIKeyType_None     APIKeyType = ""
+	APIKeyType_API      APIKeyType = "api"
+	APIKeyType_Frontend APIKeyType = "frontend"
+	APIKeyType_Github   APIKeyType = "github"
+)
