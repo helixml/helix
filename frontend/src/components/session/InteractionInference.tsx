@@ -39,6 +39,7 @@ export const InteractionInference: FC<{
   // if the session is shared then we don't enforce needing an access token to see the files
   isShared?: boolean,
   onRestart?: () => void,
+  upgrade?: boolean,
   isFromSystem?: boolean,
 }> = ({
   imageURLs = [],
@@ -92,7 +93,7 @@ export const InteractionInference: FC<{
               </Alert>
             </Cell>
             {
-              onRestart && (
+              !upgrade && onRestart && (
                 <Cell
                   sx={{
                     ml: 2,
