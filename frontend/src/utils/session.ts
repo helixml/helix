@@ -54,6 +54,8 @@ export const getSystemMessage = (message: string): IInteraction => {
     finished: true,
     data_prep_chunks: {},
     data_prep_stage: TEXT_DATA_PREP_STAGE_NONE,
+    data_prep_limited: false,
+    data_prep_limit: 0,
   }
 }
 
