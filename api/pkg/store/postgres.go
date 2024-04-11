@@ -89,7 +89,7 @@ func NewPostgresStore(
 func (s *PostgresStore) autoMigrate() error {
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.App{},
-		// &types.Tool{},
+		&types.Tool{},
 		&types.SessionToolBinding{},
 	)
 	if err != nil {
