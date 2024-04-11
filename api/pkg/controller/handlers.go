@@ -30,7 +30,7 @@ func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string
 	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, store.OwnerQuery{
 		Owner:     ctx.Owner,
 		OwnerType: ctx.OwnerType,
-	}, name)
+	}, name, types.APIKeyType_API)
 	if err != nil {
 		return "", err
 	}

@@ -51,7 +51,7 @@ func (mr *MockStoreMockRecorder) CheckAPIKey(ctx, apiKey interface{}) *gomock.Ca
 }
 
 // CreateAPIKey mocks base method.
-func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
+func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, apiKeyType types.APIKeyType) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, owner, name)
 	ret0, _ := ret[0].(string)

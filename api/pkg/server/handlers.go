@@ -969,6 +969,16 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 	if err != nil {
 		return nil, err
 	}
+	// only include the key if it's type is "api" or "frontend"
+	// this is to prevent the frontend from seeing the secret key
+	// which is only used for internal communication
+	filteredAPIKeys := []*types.ApiKey{}
+	for _, key := range apiKeys {
+		if key.Type == "api" || key.Type == "frontend" {
+			filteredAPIKeys = append(filteredAPIKeys, key)
+		}
+	}
+	apiKeys = filteredAPIKeys
 	return apiKeys, nil
 }
 

@@ -360,10 +360,11 @@ type SessionFilter struct {
 }
 
 type ApiKey struct {
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Key       string    `json:"key"`
-	Name      string    `json:"name"`
+	Owner     string     `json:"owner"`
+	OwnerType OwnerType  `json:"owner_type"`
+	Key       string     `json:"key"`
+	Name      string     `json:"name"`
+	Type      APIKeyType `json:"type"`
 }
 
 type OwnerContext struct {
