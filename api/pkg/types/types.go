@@ -199,11 +199,9 @@ type Session struct {
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
-	// the bot this session was spawned from
-	ParentBot string `json:"parent_bot"`
-	// the bot this sessions lora file was added to
-	ChildBot string          `json:"child_bot"`
-	Metadata SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
+	// the app this session was spawned from
+	ParentApp string          `json:"parent_app"`
+	Metadata  SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -726,7 +724,7 @@ type AppHelixConfig struct {
 	Description  string   `json:"description"`
 	Avatar       string   `json:"avatar"`
 	SystemPrompt string   `json:"system_prompt"`
-	Tools        []string `json:"tools"`
+	ActiveTools  []string `json:"active_tools"`
 }
 
 type AppGithubConfig struct {
@@ -739,6 +737,28 @@ type AppConfig struct {
 	Github *AppGithubConfig `json:"github"`
 }
 
+func (m AppConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *AppConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result AppConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (AppConfig) GormDataType() string {
+	return "json"
+}
+
 type App struct {
 	ID      string    `json:"id" gorm:"primaryKey"`
 	Created time.Time `json:"created"`
@@ -749,6 +769,6 @@ type App struct {
 	OwnerType   OwnerType `json:"owner_type"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
-	AppType     AppType   `json:"tool_type"`
+	AppType     AppType   `json:"app_type"`
 	Config      AppConfig `json:"config" gorm:"jsonb"`
 }

@@ -25,11 +25,6 @@ type GetSessionsQuery struct {
 	Limit         int             `json:"limit"`
 }
 
-type GetBotsQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
-}
-
 type ListToolsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`

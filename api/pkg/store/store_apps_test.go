@@ -127,7 +127,7 @@ func (suite *PostgresStoreTestSuite) TestDeleteApp() {
 	suite.NotEmpty(createdApp.ID)
 
 	// Delete it
-	err = suite.db.DeleteTool(suite.ctx, createdApp.ID)
+	err = suite.db.DeleteApp(suite.ctx, createdApp.ID)
 	suite.NoError(err)
 
 	// Now, listing all tools for the owner
