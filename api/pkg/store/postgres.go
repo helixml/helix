@@ -178,56 +178,6 @@ func getKeyValueIndexes(fields []string, offset int) string {
 	return fmt.Sprintf("%s", strings.Join(parts, ", "))
 }
 
-var BOT_FIELDS = []string{
-	"id",
-	"name",
-	"created",
-	"updated",
-	"owner",
-	"owner_type",
-	"config",
-}
-
-var BOT_FIELDS_STRING = strings.Join(BOT_FIELDS, ", ")
-
-func scanBotRow(row Scanner) (*types.Bot, error) {
-	bot := &types.Bot{}
-	var config []byte
-	err := row.Scan(
-		&bot.ID,
-		&bot.Name,
-		&bot.Created,
-		&bot.Updated,
-		&bot.Owner,
-		&bot.OwnerType,
-		&config,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(config, &bot.Config)
-	if err != nil {
-		return nil, err
-	}
-	return bot, nil
-}
-
-func getBotValues(bot *types.Bot) ([]interface{}, error) {
-	config, err := json.Marshal(bot.Config)
-	if err != nil {
-		return nil, err
-	}
-	return []interface{}{
-		bot.ID,
-		bot.Name,
-		bot.Created,
-		bot.Updated,
-		bot.Owner,
-		bot.OwnerType,
-		config,
-	}, nil
-}
-
 var USERMETA_FIELDS = []string{
 	"id",
 	"config",
@@ -267,21 +217,6 @@ func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
 	}, nil
 }
 
-func (d *PostgresStore) GetBot(
-	ctx context.Context,
-	botID string,
-) (*types.Bot, error) {
-	if botID == "" {
-		return nil, fmt.Errorf("botID cannot be empty")
-	}
-	row := d.pgDb.QueryRow(fmt.Sprintf(`
-		SELECT %s
-		FROM bot WHERE id = $1
-	`, BOT_FIELDS_STRING), botID)
-
-	return scanBotRow(row)
-}
-
 func (d *PostgresStore) GetUserMeta(
 	ctx context.Context,
 	userID string,
@@ -308,72 +243,6 @@ func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
 	return where
 }
 
-func (d *PostgresStore) GetBots(
-	ctx context.Context,
-	query GetBotsQuery,
-) ([]*types.Bot, error) {
-	where := goqu.Ex{}
-	if query.Owner != "" {
-		where["owner"] = query.Owner
-	}
-	if query.OwnerType != "" {
-		where["owner_type"] = query.OwnerType
-	}
-
-	sqlQuery := d.db.
-		From("bot").
-		Where(where).
-		Order(goqu.I("created").Desc())
-
-	sql, values, err := sqlQuery.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := d.pgDb.Query(sql, values...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	bots := []*types.Bot{}
-	for rows.Next() {
-		bot, err := scanBotRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		bots = append(bots, bot)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return bots, nil
-}
-
-func (d *PostgresStore) CreateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	values, err := getBotValues(&bot)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		INSERT INTO bot (
-			%s
-		) VALUES (
-			%s
-		)
-	`, BOT_FIELDS_STRING, getValueIndexes(BOT_FIELDS)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-	return &bot, nil
-}
-
 func (d *PostgresStore) CreateUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
@@ -394,31 +263,6 @@ func (d *PostgresStore) CreateUserMeta(
 		return nil, err
 	}
 	return &user, nil
-}
-
-func (d *PostgresStore) UpdateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	values, err := getBotValues(&bot)
-	if err != nil {
-		return nil, err
-	}
-
-	// prepend the ID to the values
-	values = append([]interface{}{bot.ID}, values...)
-
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		UPDATE bot SET
-			%s
-		WHERE id = $1
-	`, getKeyValueIndexes(BOT_FIELDS, 1)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &bot, nil
 }
 
 func (d *PostgresStore) UpdateUserMeta(
@@ -455,24 +299,6 @@ func (d *PostgresStore) EnsureUserMeta(
 	} else {
 		return d.UpdateUserMeta(ctx, user)
 	}
-}
-
-func (d *PostgresStore) DeleteBot(
-	ctx context.Context,
-	botID string,
-) (*types.Bot, error) {
-	deleted, err := d.GetBot(ctx, botID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(`
-		DELETE FROM bot WHERE id = $1
-	`, botID)
-	if err != nil {
-		return nil, err
-	}
-
-	return deleted, nil
 }
 
 func (d *PostgresStore) UpdateSessionMeta(
