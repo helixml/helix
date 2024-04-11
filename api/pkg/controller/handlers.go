@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -27,10 +28,14 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 }
 
 func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string, error) {
+	key, err := system.GenerateAPIKey()
+	if err != nil {
+		return "", err
+	}
 	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, store.OwnerQuery{
 		Owner:     ctx.Owner,
 		OwnerType: ctx.OwnerType,
-	}, name, types.APIKeyType_API)
+	}, name, key, types.APIKeyType_API)
 	if err != nil {
 		return "", err
 	}

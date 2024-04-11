@@ -43,6 +43,7 @@ func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.Requ
 		Admin:     apiServer.adminAuth.isUserAdmin(user.ID),
 		Email:     user.Email,
 		FullName:  user.FullName,
+		Token:     user.Token,
 	}
 }
 
