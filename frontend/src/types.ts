@@ -172,6 +172,8 @@ export interface IInteraction {
   lora_dir: string,
   data_prep_chunks: Record<string, IDataPrepChunk[]>,
   data_prep_stage: ITextDataPrepStage,
+  data_prep_limited: boolean,
+  data_prep_limit: number,
 }
 
 export interface ISessionOrigin {

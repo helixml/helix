@@ -127,7 +127,7 @@ export const Interaction: FC<{
             message={ displayMessage }
             error={ interaction?.error }
             isShared={ session.config.shared }
-            onRestart={ interaction.data_prep_limited ? false : onRestart }
+            onRestart={ onRestart }
             upgrade={ interaction.data_prep_limited }
             isFromSystem={interaction?.creator == SESSION_CREATOR_SYSTEM}
           />

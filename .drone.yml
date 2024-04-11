@@ -7,10 +7,11 @@ workspace:
   path: src/github.com/helix-ml/helix
 
 steps:
-- name: build
+- name: build-backend
   image: golang:1.22-alpine
   commands:
     - go build -o helix
+
 - name: unit-test
   image: golang:1.22-alpine
   environment:
@@ -24,6 +25,14 @@ steps:
     POSTGRES_HOST: postgres
   commands:
     - go test -v ./...
+
+- name: build-frontend
+  image: node:21-alpine
+  commands:
+    - cd frontend
+    - yarn install
+    - yarn build
+
 
 services:
 - name: postgres
