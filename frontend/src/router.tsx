@@ -11,8 +11,8 @@ import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
-import ObiMock from './pages/ObiMock'
-import ObiMockOne from './pages/ObiMockOne'
+import ImageFineTuneView from './pages/ImageFineTuneView'
+import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
 import ObiMockTwo from './pages/ObiMockTwo'
 import ObiMockThree from './pages/ObiMockThree'
 
@@ -153,24 +153,24 @@ const routes: IApplicationRoute[] = [
   },
   render: () => <Account />,
 }, {
-  name: 'obimock',
-  path: '/obimock',
+  name: 'imagefinetuneview',
+  path: '/imagefinetuneview',
   meta: {
     title: 'A Dogs Dinner',
     sidebar: true,
   },
   render: () => (
-      <ObiMock />
+      <ImageFineTuneView />
   ),
 }, {
-  name: 'obimockone',
-  path: '/obimockone',
+  name: 'imagefinetunemoreview',
+  path: '/imagefinetunemoreview',
   meta: {
     title: 'A Dogs Dinner',
     sidebar: true,
   },
   render: () => (
-      <ObiMockOne />
+      <ImageFineTuneMoreView />
   ),
 }, 
 {
