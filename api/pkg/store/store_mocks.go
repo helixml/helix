@@ -119,9 +119,9 @@ func (m *MockStore) CreateApp(ctx context.Context, app *types.App) (*types.App, 
 }
 
 // CreateApp indicates an expected call of CreateApp.
-func (mr *MockStoreMockRecorder) CreateApp(ctx, tool interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) CreateApp(ctx, app interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, app)
 }
 
 // CreateUserMeta mocks base method.
