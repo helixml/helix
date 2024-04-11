@@ -10,22 +10,9 @@ import CardMedia from '@mui/material/CardMedia';
 import IconButton from '@mui/material/IconButton';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
 import TextField from '@mui/material/TextField';
+import CloseIcon from '@mui/icons-material/Close';
 
-// this is an example of how to convert upstream api data
-// into the require format
-// interface ActualUploadedImage {
-//   ID: string,
-//   imageURL: string,
-//   comment: string,
-// }
 
-// const convertActualUploadedImage = (uploadedImage: UploadedImage): ActualUploadedImage => {
-//   return {
-//     ID: uploadedImage.id,
-//     imageURL: uploadedImage.url,
-//     comment: uploadedImage.description,
-//   };
-// }
 
 interface UploadedImage {
   id: string,
@@ -50,12 +37,12 @@ const IMAGE_DATA: UploadedImage[] = [{
   url: 'https://www.pixelstalk.net/wp-content/uploads/2016/08/Best-Nature-Full-HD-Images-For-Desktop.jpg',
   description: 'test image 4',
 }, {
-  id: '3',
+  id: '5',
   url: 'https://www.pixelstalk.net/wp-content/uploads/2016/07/Free-Amazing-Background-Images-Nature.jpg',
-  description: 'test image 3',
+  description: 'test image 5',
 }]
 
-const ObiMock: FC = () => {
+const ImageFineTuneView: FC = () => {
   const [ zoomedImage, setZoomedImage ] = useState<string>('');
 
   const currentDate = new Date();
@@ -120,7 +107,7 @@ const ObiMock: FC = () => {
             return (
               <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
                 <Card sx={{ position: 'relative', width: '100%', height: 250, backgroundColor: 'transparent', boxShadow: 'none', mt: 2 }}>
-                  <CardMedia component="img" height="200" image={image.url} alt={image.description} />
+                  <CardMedia component="img" sx={{  height: '100%', width: '100%', objectFit: 'cover', }} image={image.url} alt={image.description} />
                   <IconButton
                     sx={{
                       position: 'absolute',
@@ -174,26 +161,45 @@ const ObiMock: FC = () => {
           </Button>
         </Grid>
       </Grid>
-      {
-        // you will need a close button that has "setZoomedImage('')" as the onClick handler
-        zoomedImage && (
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            }}
-          >
-            <img src={ zoomedImage } />
-
-          </Box>
-        )
-      }
+        {
+          zoomedImage && (
+            <Box
+              sx={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                zIndex: 1300,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onClick={() => setZoomedImage('')} // Close the zoomed image when the background is clicked
+             >
+              <img 
+                src={zoomedImage} 
+                alt="Zoomed" 
+                onClick={(e) => e.stopPropagation()} // Prevent click from closing the image
+                style={{ maxWidth: '70%', maxHeight: '70%' }} 
+              />
+              <IconButton
+                sx={{
+                  position: 'fixed',
+                  top: 8,
+                  right: 8,
+                  color: 'white',
+                }}
+                onClick={() => setZoomedImage('')} // Close button handler
+               >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+          )
+        }
     </Container>
   );
 };
 
-export default ObiMock;
+export default ImageFineTuneView;
