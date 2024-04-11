@@ -285,6 +285,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.updateTool)).Methods("PUT")
 	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.deleteTool)).Methods("DELETE")
 
+	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods("GET")
+	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
+
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
 	// all these routes are secured via runner tokens
