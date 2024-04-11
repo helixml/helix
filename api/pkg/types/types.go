@@ -711,3 +711,44 @@ type SessionToolBinding struct {
 	Created   time.Time
 	Updated   time.Time
 }
+
+type AppType string
+
+const (
+	// this means the configuration for the app lives in the Helix database
+	AppTypeHelix AppType = "helix"
+	// this means the configuration for the app lives in a helix.yaml in a Github repository
+	AppTypeGithub AppType = "github"
+)
+
+type AppHelixConfig struct {
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Avatar       string   `json:"avatar"`
+	SystemPrompt string   `json:"system_prompt"`
+	Tools        []string `json:"tools"`
+}
+
+type AppGithubConfig struct {
+	Repo     string `json:"repo"`
+	FilePath string `json:"file_path"`
+}
+
+type AppConfig struct {
+	Helix  *AppHelixConfig  `json:"helix"`
+	Github *AppGithubConfig `json:"github"`
+}
+
+type App struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	AppType     AppType   `json:"tool_type"`
+	Config      AppConfig `json:"config" gorm:"jsonb"`
+}

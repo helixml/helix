@@ -36,6 +36,11 @@ type ListToolsQuery struct {
 	Global    bool            `json:"global"`
 }
 
+type ListAppsQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
@@ -47,13 +52,6 @@ type Store interface {
 	UpdateSession(ctx context.Context, session types.Session) (*types.Session, error)
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
-
-	// bots
-	GetBot(ctx context.Context, id string) (*types.Bot, error)
-	GetBots(ctx context.Context, query GetBotsQuery) ([]*types.Bot, error)
-	CreateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
-	UpdateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
-	DeleteBot(ctx context.Context, id string) (*types.Bot, error)
 
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
@@ -67,6 +65,7 @@ type Store interface {
 	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
 	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
 
+	// tools
 	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
@@ -76,6 +75,13 @@ type Store interface {
 	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
 	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
+
+	// apps
+	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
+	UpdateApp(ctx context.Context, tool *types.App) (*types.App, error)
+	GetApp(ctx context.Context, id string) (*types.App, error)
+	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
+	DeleteApp(ctx context.Context, id string) error
 }
 
 var ErrNotFound = errors.New("not found")

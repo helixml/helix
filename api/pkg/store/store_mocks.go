@@ -65,21 +65,6 @@ func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, owner, name)
 }
 
-// CreateBot mocks base method.
-func (m *MockStore) CreateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateBot", ctx, Bot)
-	ret0, _ := ret[0].(*types.Bot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateBot indicates an expected call of CreateBot.
-func (mr *MockStoreMockRecorder) CreateBot(ctx, Bot interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateBot", reflect.TypeOf((*MockStore)(nil).CreateBot), ctx, Bot)
-}
-
 // CreateSession mocks base method.
 func (m *MockStore) CreateSession(ctx context.Context, session types.Session) (*types.Session, error) {
 	m.ctrl.T.Helper()
@@ -124,6 +109,21 @@ func (mr *MockStoreMockRecorder) CreateTool(ctx, tool interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTool", reflect.TypeOf((*MockStore)(nil).CreateTool), ctx, tool)
 }
 
+// CreateApp mocks base method.
+func (m *MockStore) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateApp", ctx, app)
+	ret0, _ := ret[0].(*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateApp indicates an expected call of CreateApp.
+func (mr *MockStoreMockRecorder) CreateApp(ctx, tool interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
+}
+
 // CreateUserMeta mocks base method.
 func (m *MockStore) CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -151,21 +151,6 @@ func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
 func (mr *MockStoreMockRecorder) DeleteAPIKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAPIKey", reflect.TypeOf((*MockStore)(nil).DeleteAPIKey), ctx, apiKey)
-}
-
-// DeleteBot mocks base method.
-func (m *MockStore) DeleteBot(ctx context.Context, id string) (*types.Bot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteBot", ctx, id)
-	ret0, _ := ret[0].(*types.Bot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DeleteBot indicates an expected call of DeleteBot.
-func (mr *MockStoreMockRecorder) DeleteBot(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBot", reflect.TypeOf((*MockStore)(nil).DeleteBot), ctx, id)
 }
 
 // DeleteSession mocks base method.
@@ -211,6 +196,20 @@ func (mr *MockStoreMockRecorder) DeleteTool(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTool", reflect.TypeOf((*MockStore)(nil).DeleteTool), ctx, id)
 }
 
+// DeleteApp mocks base method.
+func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteApp", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteApp indicates an expected call of DeleteTool.
+func (mr *MockStoreMockRecorder) DeleteApp(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
+}
+
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -239,36 +238,6 @@ func (m *MockStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.
 func (mr *MockStoreMockRecorder) GetAPIKeys(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKeys", reflect.TypeOf((*MockStore)(nil).GetAPIKeys), ctx, query)
-}
-
-// GetBot mocks base method.
-func (m *MockStore) GetBot(ctx context.Context, id string) (*types.Bot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBot", ctx, id)
-	ret0, _ := ret[0].(*types.Bot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetBot indicates an expected call of GetBot.
-func (mr *MockStoreMockRecorder) GetBot(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBot", reflect.TypeOf((*MockStore)(nil).GetBot), ctx, id)
-}
-
-// GetBots mocks base method.
-func (m *MockStore) GetBots(ctx context.Context, query GetBotsQuery) ([]*types.Bot, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBots", ctx, query)
-	ret0, _ := ret[0].([]*types.Bot)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetBots indicates an expected call of GetBots.
-func (mr *MockStoreMockRecorder) GetBots(ctx, query interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBots", reflect.TypeOf((*MockStore)(nil).GetBots), ctx, query)
 }
 
 // GetSession mocks base method.
@@ -331,6 +300,21 @@ func (mr *MockStoreMockRecorder) GetTool(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTool", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
 }
 
+// GetApp mocks base method.
+func (m *MockStore) GetApp(ctx context.Context, id string) (*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApp", ctx, id)
+	ret0, _ := ret[0].(*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApp indicates an expected call of GetTool.
+func (mr *MockStoreMockRecorder) GetApp(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApp", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
+}
+
 // GetUserMeta mocks base method.
 func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -376,19 +360,19 @@ func (mr *MockStoreMockRecorder) ListTools(ctx, q interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTools", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
 }
 
-// UpdateBot mocks base method.
-func (m *MockStore) UpdateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error) {
+// ListTools mocks base method.
+func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateBot", ctx, Bot)
-	ret0, _ := ret[0].(*types.Bot)
+	ret := m.ctrl.Call(m, "ListApps", ctx, q)
+	ret0, _ := ret[0].([]*types.App)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// UpdateBot indicates an expected call of UpdateBot.
-func (mr *MockStoreMockRecorder) UpdateBot(ctx, Bot interface{}) *gomock.Call {
+// ListApps indicates an expected call of ListApps.
+func (mr *MockStoreMockRecorder) ListApps(ctx, q interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateBot", reflect.TypeOf((*MockStore)(nil).UpdateBot), ctx, Bot)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
 }
 
 // UpdateSession mocks base method.
@@ -436,6 +420,21 @@ func (mr *MockStoreMockRecorder) UpdateTool(ctx, tool interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTool", reflect.TypeOf((*MockStore)(nil).UpdateTool), ctx, tool)
 }
 
+// UpdateApp mocks base method.
+func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateApp", ctx, tool)
+	ret0, _ := ret[0].(*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateApp indicates an expected call of UpdateApp.
+func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
+}
+
 // UpdateUserMeta mocks base method.
 func (m *MockStore) UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -450,3 +449,6 @@ func (mr *MockStoreMockRecorder) UpdateUserMeta(ctx, UserMeta interface{}) *gomo
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserMeta", reflect.TypeOf((*MockStore)(nil).UpdateUserMeta), ctx, UserMeta)
 }
+
+// Compile-time interface check:
+var _ Store = (*MockStore)(nil)
