@@ -20,6 +20,7 @@ type ServerConfig struct {
 	Store              Store
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
+	GitHub             GitHub
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -213,4 +214,10 @@ type SubscriptionQuotas struct {
 			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
 		}
 	}
+}
+
+type GitHub struct {
+	Enabled      bool   `envconfig:"GITHUB_ENABLED" default:"true" description:"Enable github integration."`
+	ClientID     string `envconfig:"GITHUB_CLIENT_ID" description:"The github app client id."`
+	ClientSecret string `envconfig:"GITHUB_CLIENT_SECRET" description:"The github app client secret."`
 }

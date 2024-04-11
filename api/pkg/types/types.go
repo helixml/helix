@@ -374,6 +374,7 @@ type UserData struct {
 	ID       string
 	Email    string
 	FullName string
+	Token    string
 }
 
 type StripeUser struct {
@@ -406,6 +407,7 @@ type RequestContext struct {
 	OwnerType OwnerType
 	Email     string
 	FullName  string
+	Token     string
 }
 
 type UserStatus struct {

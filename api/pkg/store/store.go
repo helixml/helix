@@ -55,7 +55,7 @@ type Store interface {
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 
 	// api keys
-	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, apiKeyType types.APIKeyType) (string, error)
+	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error)
 	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
 	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
 	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)

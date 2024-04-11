@@ -51,7 +51,7 @@ func (mr *MockStoreMockRecorder) CheckAPIKey(ctx, apiKey interface{}) *gomock.Ca
 }
 
 // CreateAPIKey mocks base method.
-func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, apiKeyType types.APIKeyType) (string, error) {
+func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, owner, name)
 	ret0, _ := ret[0].(string)
@@ -60,7 +60,7 @@ func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name str
 }
 
 // CreateAPIKey indicates an expected call of CreateAPIKey.
-func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}, key interface{}, apiKeyType interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, owner, name)
 }

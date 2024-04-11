@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -331,13 +329,7 @@ func (d *PostgresStore) UpdateSessionMeta(
 	return d.GetSession(ctx, data.ID)
 }
 
-func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, apiKeyType types.APIKeyType) (string, error) {
-	// Generate a new API key
-	key, err := generateAPIKey()
-	if err != nil {
-		return "", err
-	}
-
+func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error) {
 	// Insert the new API key into the database
 	sqlStatement := `
 insert into api_key (owner, owner_type, key, name, type)
@@ -345,7 +337,7 @@ values ($1, $2, $3, $4, $5)
 returning key
 `
 	var id string
-	err = d.pgDb.QueryRow(
+	err := d.pgDb.QueryRow(
 		sqlStatement,
 		owner.Owner,
 		owner.OwnerType,
@@ -358,15 +350,6 @@ returning key
 	}
 
 	return id, nil
-}
-
-func generateAPIKey() (string, error) {
-	key := make([]byte, 32)
-	_, err := rand.Read(key)
-	if err != nil {
-		return "", err
-	}
-	return types.API_KEY_PREIX + base64.URLEncoding.EncodeToString(key), nil
 }
 
 func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
