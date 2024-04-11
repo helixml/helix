@@ -29,6 +29,7 @@ steps:
 - name: build-frontend
   image: node:21-alpine
   commands:
+    - cd frontend
     - yarn install
     - yarn build
 
