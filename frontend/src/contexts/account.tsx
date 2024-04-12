@@ -96,9 +96,6 @@ export const useAccountContext = (): IAccountContext => {
     apiKeys,
   ])
 
-  console.log('--------------------------------------------')
-  console.dir(token)
-
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
     if(!statusResult) return

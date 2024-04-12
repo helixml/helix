@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/google/go-github/github"
@@ -14,31 +14,56 @@ import (
 	github_oauth "golang.org/x/oauth2/github"
 )
 
-type GithubOAuthRedirect struct {
+type GithubStatus struct {
 	HasToken    bool   `json:"has_token"`
-	RedirectURL string `json:"no_token_redirect_url"`
+	RedirectURL string `json:"redirect_url"`
 }
 
 // do we already have the github token as an api key in the database?
-func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.RequestContext) (*oauth2.Token, error) {
+func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.RequestContext) (string, error) {
 	apiKeys, err := apiServer.Store.GetAPIKeys(userContext.Ctx, store.OwnerQuery{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	for _, apiKey := range apiKeys {
 		if apiKey.Type == types.APIKeyType_Github {
-			token := &oauth2.Token{}
-			err := json.Unmarshal([]byte(apiKey.Key), token)
-			if err != nil {
-				return nil, err
-			}
-			return token, nil
+			return apiKey.Key, nil
 		}
 	}
-	return nil, nil
+	return "", nil
+}
+
+func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.RequestContext, token string) error {
+	apiKeys, err := apiServer.Store.GetAPIKeys(userContext.Ctx, store.OwnerQuery{
+		Owner:     userContext.Owner,
+		OwnerType: userContext.OwnerType,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("apiKeys --------------------------------------\n")
+	spew.Dump(apiKeys)
+	for _, apiKey := range apiKeys {
+		if apiKey.Type == types.APIKeyType_Github {
+			err = apiServer.Store.DeleteAPIKey(userContext.Ctx, *apiKey)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	_, err = apiServer.Store.CreateAPIKey(userContext.Ctx, store.OwnerQuery{
+		Owner:     userContext.Owner,
+		OwnerType: userContext.OwnerType,
+	}, "github-oauth", token, types.APIKeyType_Github)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestContext, pageURL string) *oauth2.Config {
@@ -46,7 +71,6 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestC
 		ClientID:     apiServer.Cfg.GitHub.ClientID,
 		ClientSecret: apiServer.Cfg.GitHub.ClientSecret,
 		Scopes:       []string{"repo"},
-		// RedirectURL:  "http://localhost",
 		RedirectURL: fmt.Sprintf(
 			// we include their access token in the callback URL
 			// so it is authenticated
@@ -54,30 +78,34 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestC
 			apiServer.Cfg.WebServer.URL,
 			API_PREFIX,
 			userContext.Token,
-			pageURL,
+			url.QueryEscape(pageURL),
 		),
 		Endpoint: github_oauth.Endpoint,
 	}
 }
 
-// pass pageURL=https://app.tryhelix.ai/something to redirect to the app after
-func (apiServer *HelixAPIServer) getGithubOauthRedirect(req *http.Request) (*GithubOAuthRedirect, error) {
+func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http.Request) (*GithubStatus, error) {
 	if !apiServer.Cfg.GitHub.Enabled || apiServer.Cfg.GitHub.ClientID == "" || apiServer.Cfg.GitHub.ClientSecret == "" {
 		return nil, fmt.Errorf("github integration is not enabled")
 	}
+	pageURL := req.URL.Query().Get("pageURL")
+	if pageURL == "" {
+		return nil, fmt.Errorf("pageURL is required")
+	}
+
 	userContext := apiServer.getRequestContext(req)
 	databaseToken, err := apiServer.getGithubDatabaseToken(userContext)
 	if err != nil {
 		return nil, err
 	}
 
-	if databaseToken != nil {
-		return &GithubOAuthRedirect{
+	if databaseToken != "" {
+		return &GithubStatus{
 			HasToken: true,
 		}, nil
 	} else {
-		conf := apiServer.getGithubOauthConfig(userContext, req.URL.Query().Get("pageURL"))
-		return &GithubOAuthRedirect{
+		conf := apiServer.getGithubOauthConfig(userContext, pageURL)
+		return &GithubStatus{
 			HasToken:    false,
 			RedirectURL: conf.AuthCodeURL(userContext.Email, oauth2.AccessTypeOffline),
 		}, nil
@@ -85,37 +113,20 @@ func (apiServer *HelixAPIServer) getGithubOauthRedirect(req *http.Request) (*Git
 }
 
 func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http.Request) {
-	fmt.Printf("CALLBACK --------------------------------------\n")
 	userContext := apiServer.getRequestContext(req)
 	pageURL := req.URL.Query().Get("pageURL")
 	code := req.URL.Query().Get("code")
-	fmt.Printf("pageURL --------------------------------------\n")
-	spew.Dump(pageURL)
 	conf := apiServer.getGithubOauthConfig(userContext, pageURL)
-
 	token, err := conf.Exchange(context.Background(), code)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("error exchanging code for token: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
-
-	// json encode token
-	jsonToken, err := json.Marshal(token)
+	err = apiServer.setGithubDatabaseToken(userContext, token.AccessToken)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	_, err = apiServer.Store.CreateAPIKey(userContext.Ctx, store.OwnerQuery{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
-	}, "github-oauth", string(jsonToken), types.APIKeyType_Github)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// redirect the response to redirectURL
 	http.Redirect(w, req, pageURL, http.StatusFound)
 }
 
@@ -124,17 +135,13 @@ type GithubReposResponse struct {
 	Repos       []*github.Repository `json:"Repos"`
 }
 
-func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http.Request) (*GithubOAuthRedirect, error) {
-	return apiServer.getGithubOauthRedirect(req)
-}
-
 func (apiServer *HelixAPIServer) listGithubRepos(res http.ResponseWriter, req *http.Request) ([]*github.Repository, error) {
 	userContext := apiServer.getRequestContext(req)
 	databaseToken, err := apiServer.getGithubDatabaseToken(userContext)
 	if err != nil {
 		return nil, err
 	}
-	if databaseToken == nil {
+	if databaseToken == "" {
 		return nil, fmt.Errorf("no github token found")
 	}
 
@@ -142,7 +149,9 @@ func (apiServer *HelixAPIServer) listGithubRepos(res http.ResponseWriter, req *h
 	client := github.NewClient(oauth2.NewClient(
 		userContext.Ctx,
 		oauth2.StaticTokenSource(
-			databaseToken,
+			&oauth2.Token{
+				AccessToken: databaseToken,
+			},
 		),
 	))
 	repos := []*github.Repository{}

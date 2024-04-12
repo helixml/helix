@@ -480,3 +480,8 @@ export interface IApp {
   app_type: IAppType,
   config: IAppConfig,
 }
+
+export interface IGithubStatus {
+  has_token: boolean,
+  redirect_url: string,
+}

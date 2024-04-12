@@ -358,7 +358,8 @@ func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*ty
 select
 	key,
 	owner,
-	owner_type	
+	owner_type,
+	type
 from
 	api_key
 where
@@ -379,6 +380,7 @@ where
 			&apiKey.Key,
 			&apiKey.Owner,
 			&apiKey.OwnerType,
+			&apiKey.Type,
 		)
 		if err != nil {
 			return nil, err

@@ -1,14 +1,22 @@
 import React, { FC, useState } from 'react'
 import TextField from '@mui/material/TextField'
+import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
+import GitHubIcon from '@mui/icons-material/GitHub'
 
 import Window from '../widgets/Window'
 
+import {
+  IGithubStatus,
+} from '../../types'
+
 export const CreateAppWindow: FC<{
+  githubStatus: IGithubStatus,
   onCreate: (repo: string, filePath: string) => void,
   onCancel: () => void,
 }> = ({
+  githubStatus,
   onCreate,
   onCancel,
 }) => {
@@ -48,7 +56,32 @@ export const CreateAppWindow: FC<{
         >
           Create a new app by linking a github repo with a helix.yaml file to configure the app.
         </Typography>
-        
+
+        {
+          githubStatus.has_token && (
+            <>
+              Hello world
+            </>
+          )
+        }
+
+        {
+          githubStatus.redirect_url && (
+            <>
+              <Button
+                variant="contained"
+                color="secondary"
+                endIcon={<GitHubIcon />}
+                onClick={ () => {
+                  document.location = githubStatus.redirect_url
+                }}
+              >
+                Connect Github Account
+              </Button>
+            </>
+          ) 
+        }
+
         {/* <TextField
           sx={{
             mb: 2,

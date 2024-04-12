@@ -40,6 +40,15 @@ func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
 	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
 
+	if serverConfig.GitHub.Enabled {
+		if serverConfig.GitHub.ClientID == "" {
+			return nil, fmt.Errorf("github client id is required")
+		}
+		if serverConfig.GitHub.ClientSecret == "" {
+			return nil, fmt.Errorf("github client secret is required")
+		}
+	}
+
 	return &serverConfig, nil
 }
 
