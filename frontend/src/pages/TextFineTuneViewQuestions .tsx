@@ -13,7 +13,7 @@ import TextField from '@mui/material/TextField';
 
 
 
-const ObiMockThree: FC = () => {
+const TextFineTuneViewQuestions : FC = () => {
     return (
       <Container
         maxWidth="xl"
@@ -21,7 +21,7 @@ const ObiMockThree: FC = () => {
           mt: 12,
           height: 'calc(100% - 100px)',
         }}
-      >
+       >
         <Typography variant="h6" component="h2">
           Question
         </Typography>
@@ -69,4 +69,4 @@ const ObiMockThree: FC = () => {
     );
   };
   
-  export default ObiMockThree;
+  export default TextFineTuneViewQuestions ;

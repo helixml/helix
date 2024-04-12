@@ -12,7 +12,7 @@ import TextField from '@mui/material/TextField';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 
-const ObiMockTwo: FC = () => {
+const TextFineTuneUpdate: FC = () => {
 
   
   
@@ -119,4 +119,4 @@ const ObiMockTwo: FC = () => {
   );
 };
 
-export default ObiMockTwo;
+export default TextFineTuneUpdate;
