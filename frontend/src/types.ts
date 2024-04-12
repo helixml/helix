@@ -485,3 +485,7 @@ export interface IGithubStatus {
   has_token: boolean,
   redirect_url: string,
 }
+
+export interface IGithubRepo {
+  full_name: string,
+}

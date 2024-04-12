@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/go-github/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -44,8 +43,6 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.Reques
 	if err != nil {
 		return err
 	}
-	fmt.Printf("apiKeys --------------------------------------\n")
-	spew.Dump(apiKeys)
 	for _, apiKey := range apiKeys {
 		if apiKey.Type == types.APIKeyType_Github {
 			err = apiServer.Store.DeleteAPIKey(userContext.Ctx, *apiKey)
