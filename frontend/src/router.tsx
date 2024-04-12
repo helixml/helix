@@ -7,6 +7,7 @@ import Session from './pages/Session'
 import Account from './pages/Account'
 import Tools from './pages/Tools'
 import Tool from './pages/Tool'
+import Apps from './pages/Apps'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import Collection from './pages/Collection'
@@ -89,6 +90,16 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
     <Tools />
+  ),
+}, {
+  name: 'apps',
+  path: '/apps',
+  meta: {
+    title: 'Apps',
+    sidebar: true,
+  },
+  render: () => (
+    <Apps />
   ),
 }, {
   name: 'tool',

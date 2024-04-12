@@ -361,8 +361,8 @@ func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, err
 		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
 		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
 		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
-		// ToolsEnabled:            apiServer.Options.Config.Tools.Enabled,
-		ToolsEnabled: true,
+		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
+		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
 	}, nil
 }
 

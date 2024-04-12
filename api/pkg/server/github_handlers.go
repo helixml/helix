@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/go-github/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -45,6 +46,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestC
 		ClientID:     apiServer.Cfg.GitHub.ClientID,
 		ClientSecret: apiServer.Cfg.GitHub.ClientSecret,
 		Scopes:       []string{"repo"},
+		// RedirectURL:  "http://localhost",
 		RedirectURL: fmt.Sprintf(
 			// we include their access token in the callback URL
 			// so it is authenticated
@@ -83,9 +85,12 @@ func (apiServer *HelixAPIServer) getGithubOauthRedirect(req *http.Request) (*Git
 }
 
 func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http.Request) {
+	fmt.Printf("CALLBACK --------------------------------------\n")
 	userContext := apiServer.getRequestContext(req)
 	pageURL := req.URL.Query().Get("pageURL")
 	code := req.URL.Query().Get("code")
+	fmt.Printf("pageURL --------------------------------------\n")
+	spew.Dump(pageURL)
 	conf := apiServer.getGithubOauthConfig(userContext, pageURL)
 
 	token, err := conf.Exchange(context.Background(), code)
@@ -117,6 +122,10 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 type GithubReposResponse struct {
 	RedirectURL string               `json:"RedirectURL"`
 	Repos       []*github.Repository `json:"Repos"`
+}
+
+func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http.Request) (*GithubOAuthRedirect, error) {
+	return apiServer.getGithubOauthRedirect(req)
 }
 
 func (apiServer *HelixAPIServer) listGithubRepos(res http.ResponseWriter, req *http.Request) ([]*github.Repository, error) {
