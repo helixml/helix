@@ -51,6 +51,10 @@ export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_que
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
+export type IAppType = 'helix' | 'github'
+export const APP_TYPE_HELIX: IAppType = 'helix'
+export const APP_TYPE_GITHUB: IAppType = 'github'
+
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
@@ -254,6 +258,7 @@ export interface IServerConfig {
   google_analytics_frontend: string,
   eval_user_id: string,
   tools_enabled: boolean,
+  apps_enabled: boolean,
 }
 
 export interface IConversation {
@@ -444,4 +449,34 @@ export interface ITool {
   global: boolean,
   tool_type: IToolType,
   config: IToolConfig,
+}
+
+export interface IAppHelixConfig {
+  name: string,
+  description: string,
+  avatar: string,
+  system_prompt: string,
+  active_tools: string[],
+}
+
+export interface IAppGithubConfig {
+  repo: string,
+  file_path: string,
+}
+
+export interface IAppConfig {
+  helix?: IAppHelixConfig,
+  github?: IAppGithubConfig,
+}
+
+export interface IApp {
+  id: string,
+  created: Date,
+  updated: Date,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  app_type: IAppType,
+  config: IAppConfig,
 }

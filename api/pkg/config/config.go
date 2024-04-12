@@ -21,6 +21,7 @@ type ServerConfig struct {
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
 	GitHub             GitHub
+	Apps               Apps
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -217,7 +218,13 @@ type SubscriptionQuotas struct {
 }
 
 type GitHub struct {
-	Enabled      bool   `envconfig:"GITHUB_ENABLED" default:"true" description:"Enable github integration."`
-	ClientID     string `envconfig:"GITHUB_CLIENT_ID" description:"The github app client id."`
-	ClientSecret string `envconfig:"GITHUB_CLIENT_SECRET" description:"The github app client secret."`
+	Enabled      bool   `envconfig:"GITHUB_INTEGRATION_ENABLED" default:"true" description:"Enable github integration."`
+	ClientID     string `envconfig:"GITHUB_INTEGRATION_CLIENT_ID" description:"The github app client id."`
+	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
+}
+
+type Apps struct {
+	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true"` // Enable/disable apps for the server
+	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai"`
+	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"` // gpt-4-1106-preview
 }

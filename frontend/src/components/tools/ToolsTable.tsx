@@ -133,7 +133,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
               fontSize: '0.9em',
             }}
           >
-            { new Date(tool.created).toLocaleString() }
+            { new Date(tool.updated).toLocaleString() }
           </Box>
         ),
         details,

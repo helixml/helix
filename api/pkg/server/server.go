@@ -185,6 +185,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// the stripe library handles http management
 	subrouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
 
+	authRouter.HandleFunc("/github/status", system.DefaultWrapper(apiServer.githubStatus)).Methods("GET")
 	authRouter.HandleFunc("/github/callback", apiServer.githubCallback).Methods("GET")
 	authRouter.HandleFunc("/github/repos", system.DefaultWrapper(apiServer.listGithubRepos)).Methods("GET")
 	// authRouter.HandleFunc("/github/ecdsa-keypair", apiServer.githubEcdsaKeypair).Methods("POST")

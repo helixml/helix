@@ -44,6 +44,7 @@ export const AccountContext = createContext<IAccountContext>({
     google_analytics_frontend: '',
     eval_user_id: '',
     tools_enabled: true,
+    apps_enabled: true,
   },
   userConfig: {},
   apiKeys: [],
@@ -70,6 +71,7 @@ export const useAccountContext = (): IAccountContext => {
     google_analytics_frontend: '',
     eval_user_id: '',
     tools_enabled: true,
+    apps_enabled: true,
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
 
@@ -93,6 +95,9 @@ export const useAccountContext = (): IAccountContext => {
     user,
     apiKeys,
   ])
+
+  console.log('--------------------------------------------')
+  console.dir(token)
 
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')

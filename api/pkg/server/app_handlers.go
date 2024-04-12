@@ -21,7 +21,10 @@ import (
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
-	userApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
+	// Extract the "type" query parameter
+	queryType := r.URL.Query().Get("type")
+
+	allApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
 	})
@@ -29,7 +32,16 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return userApps, nil
+	// Filter apps based on the "type" query parameter
+	filteredApps := make([]*types.App, 0)
+	for _, app := range allApps {
+		if queryType != "" && app.AppType != types.AppType(queryType) {
+			continue
+		}
+		filteredApps = append(filteredApps, app)
+	}
+
+	return filteredApps, nil
 }
 
 // createTool godoc
