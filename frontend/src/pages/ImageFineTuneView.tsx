@@ -11,6 +11,7 @@ import IconButton from '@mui/material/IconButton';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
 import TextField from '@mui/material/TextField';
 import CloseIcon from '@mui/icons-material/Close';
+import BackgroundImageWrapper from './BackgroundImageWrapper';
 
 
 
@@ -56,16 +57,18 @@ const ImageFineTuneView: FC = () => {
 
   
   return (
+    <BackgroundImageWrapper>
     <Container
       maxWidth="xl"
       sx={{
+        display: 'flex', 
+        flexDirection: 'column', 
+        flexGrow: 1, 
+        minHeight: 'calc(100vh - 100px)', 
         mt: 12,
-        height: 'calc(100% - 100px)',
-       
-        
       }}
     >
-      <Box sx={{ display: 'flex', gap: '0.5rem' }}>
+      <Box sx={{ flexGrow: 0, display: 'flex', gap: '0.5rem' }}>
         <Button
           variant="contained"
           color="primary"
@@ -90,7 +93,7 @@ const ImageFineTuneView: FC = () => {
         </Typography>
       </Box>
       
-      <Box sx={{ mt: 2 }}>
+      <Box sx={{ flexGrow: 0, mt: 2 }}>
         <Typography className="interactionMessage" gutterBottom>
           Describe in as much detail as you can, what is present in each image. Try to describe:
         </Typography>
@@ -100,7 +103,7 @@ const ImageFineTuneView: FC = () => {
           <Typography component="li">The attributes of the image itself</Typography>
         </Box>
       </Box>
-      <Grid container spacing={2}>
+      <Grid container spacing={2} sx={{ flexGrow: 1, overflow: 'auto' }}>
         {/* Create 8 cards and text fields */}
         {
           IMAGE_DATA.map((image, index) => {
@@ -134,7 +137,7 @@ const ImageFineTuneView: FC = () => {
           })
         }
       </Grid>
-      <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2, mb: 2, }}>
+      <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ flexGrow: 0, mt: 2, mb: 2, }}>
         <Grid item xs={6}>
           <Button
             component="button"
@@ -199,6 +202,7 @@ const ImageFineTuneView: FC = () => {
           )
         }
     </Container>
+    </BackgroundImageWrapper>
   );
 };
 
