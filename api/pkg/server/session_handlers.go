@@ -75,6 +75,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			ModelName:        types.ModelName(startReq.Model),
 			Owner:            userContext.Owner,
 			OwnerType:        userContext.OwnerType,
+			LoraDir:          startReq.LoraDir,
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
 			ActiveTools:      startReq.Tools,

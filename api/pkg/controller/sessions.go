@@ -53,6 +53,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Type:          req.SessionType,
 		Mode:          req.SessionMode,
 		ParentSession: req.ParentSession,
+		LoraDir:       req.LoraDir,
 		Owner:         req.Owner,
 		OwnerType:     req.OwnerType,
 		Created:       time.Now(),
