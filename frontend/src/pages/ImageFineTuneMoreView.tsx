@@ -59,12 +59,9 @@ import { useTheme } from '@mui/material/styles';
         backgroundPosition: 'center 130%',
         backgroundRepeat: 'no-repeat',
         zIndex: -1, // Ensure the background is behind all other content
-        
-       
-        
       }}
-      >  
- <Grid container spacing={2}>
+    >
+      <Grid container spacing={2}>
         {IMAGE_DATA.map((image, index) => (
           <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
             <Card sx={{ position: 'relative', width: '100%', height: 250, backgroundColor: 'transparent', boxShadow: 'none', mt: 2 }}>
@@ -101,60 +98,60 @@ import { useTheme } from '@mui/material/styles';
       </Grid>
 
       {
-          zoomedImage && (
-            <Box
+        zoomedImage && (
+          <Box
+            sx={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              zIndex: 1300,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onClick={() => setZoomedImage('')} // Close the zoomed image when the background is clicked
+            >
+            <img 
+              src={zoomedImage} 
+              alt="Zoomed" 
+              onClick={(e) => e.stopPropagation()} // Prevent click from closing the image
+              style={{ maxWidth: '70%', maxHeight: '70%' }} 
+            />
+            <IconButton
               sx={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                zIndex: 1300,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                top: 8,
+                right: 8,
+                color: 'white',
               }}
-              onClick={() => setZoomedImage('')} // Close the zoomed image when the background is clicked
-             >
-              <img 
-                src={zoomedImage} 
-                alt="Zoomed" 
-                onClick={(e) => e.stopPropagation()} // Prevent click from closing the image
-                style={{ maxWidth: '70%', maxHeight: '70%' }} 
-              />
-              <IconButton
-                sx={{
-                  position: 'fixed',
-                  top: 8,
-                  right: 8,
-                  color: 'white',
-                }}
-                onClick={() => setZoomedImage('')} // Close button handler
-               >
-                <CloseIcon />
-              </IconButton>
-            </Box>
-          )
-        }
+              onClick={() => setZoomedImage('')} // Close button handler
+              >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        )
+      }
       
        
-     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', mt: 2, width: '100%',  }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', mt: 2, width: '100%',  }}>
         <Button
-            variant="contained"
-            color="primary"
-            size="small"
-            sx={{
-                textTransform: 'none',
-                bgcolor: '#F0BEB0',
-                color: 'black',
-                fontWeight: 800,
-                padding: '2px 8px',
-                minWidth: 'auto',
-                height: 'auto'
-              }}
-            >
-            AI
+          variant="contained"
+          color="primary"
+          size="small"
+          sx={{
+            textTransform: 'none',
+            bgcolor: '#F0BEB0',
+            color: 'black',
+            fontWeight: 800,
+            padding: '2px 8px',
+            minWidth: 'auto',
+            height: 'auto'
+          }}
+        >
+          AI
         </Button>
             <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
             Helix System

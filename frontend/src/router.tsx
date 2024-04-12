@@ -13,8 +13,8 @@ import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
 import ImageFineTuneView from './pages/ImageFineTuneView'
 import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
-import ObiMockTwo from './pages/ObiMockTwo'
-import ObiMockThree from './pages/ObiMockThree'
+import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
+import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions '
 
 
 import SessionBadgeKey from './components/session/SessionBadgeKey'
@@ -174,25 +174,25 @@ const routes: IApplicationRoute[] = [
   ),
 }, 
 {
-  name: 'obimocktwo',
-  path: '/obimocktwo',
+  name: 'textfinetuneupdate',
+  path: '/textfinetuneupdate',
   meta: {
     title: 'A Dogs Dinner',
     sidebar: true,
   },
   render: () => (
-      <ObiMockTwo />
+      <TextFineTuneUpdate />
   ),
 }, 
 {
-  name: 'obimockthree',
-  path: '/obimockthree',
+  name: 'textfinetuneviewquestions',
+  path: '/textfinetuneviewquestions',
   meta: {
     title: 'A Dogs Dinner',
     sidebar: true,
   },
   render: () => (
-      <ObiMockThree />
+      <TextFineTuneViewQuestions />
   ),
 }, 
 
