@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -55,6 +56,28 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	// Default to text
 	if startReq.Type == "" {
 		startReq.Type = types.SessionTypeText
+	}
+
+	if startReq.LoraDir != "" {
+		// Basic validation on the lora dir path, it should be something like
+		// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
+		ownerContext := types.OwnerContext{
+			Owner:     userContext.Owner,
+			OwnerType: userContext.OwnerType,
+		}
+		userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if !strings.HasPrefix(startReq.LoraDir, userPath) {
+			http.Error(rw,
+				fmt.Sprintf(
+					"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
+				http.StatusBadRequest)
+			return
+		}
 	}
 
 	var cfg *startSessionConfig
