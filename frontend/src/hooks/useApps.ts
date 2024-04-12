@@ -22,6 +22,8 @@ export const useApps = () => {
   const [ githubRepos, setGithubRepos ] = useState<IGithubRepo[]>([])
   const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
   const [ githubReposLoading, setGithubReposLoading ] = useState(false)
+  const [ connectError, setConnectError ] = useState('')
+  const [ connectLoading, setConectLoading ] = useState(false)
 
   const helixApps = useMemo(() => {
     return data.filter(app => app.app_type == APP_TYPE_HELIX)
@@ -64,6 +66,30 @@ export const useApps = () => {
   }, [
     githubStatus,
   ])
+
+  const createGithubApp = useCallback(async (
+    repo: string,
+  ): Promise<IApp | null> => {
+    setConnectError('')
+    setConectLoading(true)
+    const result = await api.post<Partial<IApp>, IApp>(`/api/v1/github/apps`, {
+      name: repo,
+      description: `github repo hosted at ${repo}`,
+      app_type: APP_TYPE_GITHUB,
+      config: {
+        github: {
+          repo,
+        }
+      },
+    }, {}, {
+      snackbar: true,
+      errorCapture: (e) => {
+        setConnectError(e)
+      }
+    })
+    setConectLoading(false)
+    return result
+  }, [])
 
   const createApp = useCallback(async (
     name: string,
@@ -115,11 +141,14 @@ export const useApps = () => {
     loadData,
     loadGithubStatus,
     loadGithubRepos,
+    createGithubApp,
     createApp,
     updateApp,
     deleteApp,
     githubRepos,
     githubReposLoading,
+    connectError,
+    connectLoading,
   }
 }
 

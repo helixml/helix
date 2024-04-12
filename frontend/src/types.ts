@@ -451,17 +451,21 @@ export interface ITool {
   config: IToolConfig,
 }
 
+export interface IAppHelixConfigGptScripts {
+  folder?: string,
+}
+
 export interface IAppHelixConfig {
-  name: string,
-  description: string,
-  avatar: string,
-  system_prompt: string,
-  active_tools: string[],
+  name?: string,
+  description?: string,
+  avatar?: string,
+  system_prompt?: string,
+  active_tools?: string[],
+  gpt_scripts?: string[],
 }
 
 export interface IAppGithubConfig {
   repo: string,
-  file_path: string,
 }
 
 export interface IAppConfig {

@@ -3,6 +3,7 @@ import TextField from '@mui/material/TextField'
 import CircularProgress from '@mui/material/CircularProgress'
 import FormControl from '@mui/material/FormControl'
 import Grid from '@mui/material/Grid'
+import Alert from '@mui/material/Alert'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
 import List from '@mui/material/List'
@@ -24,36 +25,28 @@ import {
   IGithubRepo,
 } from '../../types'
 
-export const CreateAppWindow: FC<{
+export const CreateAppWindow: FC<{  
   githubStatus: IGithubStatus,
   githubRepos: IGithubRepo[],
   githubReposLoading: boolean,
-  onCreate: (repo: string, filePath: string) => void,
+  connectLoading: boolean,
+  connectError?: string,
   onCancel: () => void,
   onLoadRepos: () => void,
+  onConnectRepo: (repo: string) => Promise<boolean>,
 }> = ({
   githubStatus,
   githubRepos,
   githubReposLoading,
-  onCreate,
+  connectError = '',
+  connectLoading,
   onCancel,
   onLoadRepos,
+  onConnectRepo,
 }) => {
-  const [ repo, setRepo ] = useState('')
-  const [ filePath, setFilePath ] = useState('')
-  const [ showErrors, setShowErrors ] = useState(false)
   const [ filterOrg, setFilterOrg ] = useState('any')
   const [ filterText, setFilterText ] = useState('')
   const [ activeRepo, setActiveRepo ] = useState<IGithubRepo>()
-
-  const submitValues = () => {
-    if(!repo || !filePath) {
-      setShowErrors(true)
-      return
-    }
-    setShowErrors(false)
-    onCreate(repo, filePath)
-  }
 
   const groups = useMemo(() => {
     const foundGroups: Record<string, boolean> = {}
@@ -125,6 +118,18 @@ export const CreateAppWindow: FC<{
         </Box>
 
         {
+          connectError && (
+            <Box
+              sx={{
+                flexGrow: 0,
+              }}
+            >
+              <Alert severity="error">{ connectError }</Alert>
+            </Box>
+          )
+        }
+
+        {
           githubStatus.has_token && (
             <>
               {
@@ -144,6 +149,43 @@ export const CreateAppWindow: FC<{
                       loading github repos...
                     </Typography>
                     <CircularProgress />
+                  </Box>
+                ) : 
+                activeRepo ? (
+                  <Box
+                    sx={{
+                      p: 2,
+                    }}
+                  >
+                    <Grid container spacing={ 2 }>
+                      <Grid item xs={ 12 }>
+                        <Typography gutterBottom variant="h6">
+                          { activeRepo }
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={ 12 }>
+                        <Button
+                          color="secondary"
+                          variant="outlined"
+                          size="small"
+                          onClick={ () => {
+                            setActiveRepo(undefined)
+                          }}
+                        >
+                          Change Repo
+                        </Button>
+                        &nbsp;
+                        <Button
+                          color="secondary"
+                          variant="contained"
+                          size="small"
+                          disabled={ connectLoading }
+                          onClick={ async () => onConnectRepo(activeRepo.full_name) }
+                        >
+                          Connect Repo
+                        </Button>
+                      </Grid>
+                    </Grid>
                   </Box>
                 ) : (
                   <>

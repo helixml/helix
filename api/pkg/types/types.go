@@ -723,16 +723,17 @@ const (
 )
 
 type AppHelixConfig struct {
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Avatar       string   `json:"avatar"`
-	SystemPrompt string   `json:"system_prompt"`
-	ActiveTools  []string `json:"active_tools"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	Avatar       string            `json:"avatar"`
+	SystemPrompt string            `json:"system_prompt"`
+	ActiveTools  []string          `json:"active_tools"`
+	Secrets      map[string]string `json:"secrets"`
 }
 
 type AppGithubConfig struct {
-	Repo     string `json:"repo"`
-	FilePath string `json:"file_path"`
+	Repo    string  `json:"repo"`
+	KeyPair KeyPair `json:"key_pair"`
 }
 
 type AppConfig struct {
@@ -774,4 +775,10 @@ type App struct {
 	Description string    `json:"description"`
 	AppType     AppType   `json:"app_type"`
 	Config      AppConfig `json:"config" gorm:"jsonb"`
+}
+
+type KeyPair struct {
+	Type       string
+	PrivateKey string
+	PublicKey  string
 }

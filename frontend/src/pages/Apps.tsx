@@ -32,16 +32,14 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateApp = useCallback(async () => {
-    const newApp = await apps.createApp('', '', APP_TYPE_GITHUB, {
-      
-    })
-    if(!newApp) return
-    removeParams(['add_app'])
+  const onConnectRepo = useCallback(async (repo: string) => {
+    const newApp = await apps.createGithubApp(repo)
+    if(!newApp) return false
     snackbar.success('app created')
     navigate('app', {
       app_id: newApp.id,
     })
+    return true
   }, [
     apps.createApp,
   ])
@@ -73,8 +71,9 @@ const Apps: FC = () => {
   useEffect(() => {
     if(!account.user) return
     if(!params.add_app) return
-    apps.loadGithubStatus(`${window.location.href}?add_app=true&snackbar_message=github%20connected`)
+    apps.loadGithubStatus(`${window.location.href}?add_app=true`)
   }, [
+    account.user,
     params.add_app,
   ])
 
@@ -137,9 +136,11 @@ const Apps: FC = () => {
             githubStatus={ apps.githubStatus }
             githubRepos={ apps.githubRepos}
             githubReposLoading={ apps.githubReposLoading }
-            onCreate={ onCreateApp }
+            onConnectRepo={ onConnectRepo }
             onCancel={ () => removeParams(['add_app']) }
             onLoadRepos={ apps.loadGithubRepos }
+            connectLoading= { apps.connectLoading }
+            connectError= { apps.connectError }
           />
         )
       }

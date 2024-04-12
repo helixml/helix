@@ -3,8 +3,10 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -73,6 +75,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	app.Owner = userContext.Owner
 	app.OwnerType = userContext.OwnerType
+	app.Config.Helix = &types.AppHelixConfig{
+		ActiveTools: []string{},
+		Secrets:     map[string]string{},
+	}
 
 	err = s.validateApp(&userContext, &app)
 	if err != nil {
@@ -83,6 +89,26 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	for _, a := range existingApps {
 		if a.Name == app.Name {
 			return nil, system.NewHTTPError400("tool (%s) with name %s already exists", a.ID, app.Name)
+		}
+	}
+
+	if app.AppType == types.AppTypeGithub {
+		client, err := s.getGithubClientFromRequest(r)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		githubApp, err := github.NewGithubApp(github.GithubAppOptions{
+			Config: s.Cfg.GitHub,
+			Client: client,
+			App:    &app,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		err = githubApp.Initialise()
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
 		}
 	}
 
@@ -182,6 +208,11 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
-func (s *HelixAPIServer) validateApp(_ *types.RequestContext, _ *types.App) error {
+func (s *HelixAPIServer) validateApp(_ *types.RequestContext, app *types.App) error {
+	if app.AppType == types.AppTypeGithub {
+		if app.Config.Github.Repo == "" {
+			return fmt.Errorf("github repo is required")
+		}
+	}
 	return nil
 }
