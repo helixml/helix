@@ -10,11 +10,13 @@ import CardMedia from '@mui/material/CardMedia';
 import IconButton from '@mui/material/IconButton';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
 import TextField from '@mui/material/TextField';
+import BackgroundImageWrapper from '../pages/BackgroundImageWrapper';
 
 
 
 const TextFineTuneViewQuestions : FC = () => {
     return (
+      <BackgroundImageWrapper>
       <Container
         maxWidth="xl"
         sx={{
@@ -66,6 +68,7 @@ const TextFineTuneViewQuestions : FC = () => {
           </Button>
         </Box>
       </Container>
+      </BackgroundImageWrapper>
     );
   };
   

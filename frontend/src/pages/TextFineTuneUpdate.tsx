@@ -10,6 +10,7 @@ import IconButton from '@mui/material/IconButton';
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
 import TextField from '@mui/material/TextField';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import BackgroundImageWrapper from './BackgroundImageWrapper';
 
 
 const TextFineTuneUpdate: FC = () => {
@@ -19,6 +20,7 @@ const TextFineTuneUpdate: FC = () => {
 
   
   return (
+    <BackgroundImageWrapper>
     <Container
       maxWidth="xl"
       sx={{
@@ -96,7 +98,7 @@ const TextFineTuneUpdate: FC = () => {
                 Clone
             </Button>
       </Box>
-      <Box sx={{ mt: 59 }}> 
+      <Box sx={{ mt: 58 }}> 
         <TextField
             fullWidth
             placeholder="Chat with Helix. (Shift + Enter to add new lines)"
@@ -110,12 +112,9 @@ const TextFineTuneUpdate: FC = () => {
             },
             }}
         />
-      </Box>
-     
-     
+      </Box>    
     </Container>
-
-    
+    </BackgroundImageWrapper>    
   );
 };
 

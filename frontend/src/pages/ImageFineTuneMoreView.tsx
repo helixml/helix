@@ -11,6 +11,7 @@ import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
 import TextField from '@mui/material/TextField';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
+import BackgroundImageWrapper from '../pages/BackgroundImageWrapper';
 import { useTheme } from '@mui/material/styles';
 
 
@@ -45,20 +46,12 @@ import { useTheme } from '@mui/material/styles';
 
   
   return (
+   <BackgroundImageWrapper>
     <Container
       maxWidth="xl"
       sx={{
         mt: 12,
         height: 'calc(100% - 100px)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
-        backgroundSize: '80%',
-        backgroundPosition: 'center 130%',
-        backgroundRepeat: 'no-repeat',
-        zIndex: -1, // Ensure the background is behind all other content
       }}
     >
       <Grid container spacing={2}>
@@ -193,7 +186,7 @@ import { useTheme } from '@mui/material/styles';
           Clone
         </Button>
       </Box>
-      <Box sx={{ mt: 10 }}> {/* Adjust the margin as needed */}
+      <Box sx={{ mt: 9 }}> {/* Adjust the margin as needed */}
         <TextField
             fullWidth
             placeholder="Describe what you want to see in an image. (Shift + Enter to add new lines)"
@@ -209,6 +202,7 @@ import { useTheme } from '@mui/material/styles';
         />
       </Box>
     </Container>
+    </BackgroundImageWrapper>
   );
 };
 
