@@ -5,6 +5,7 @@ import {
   IApp,
   IAppConfig,
   IAppType,
+  IGithubStatus,
   APP_TYPE_GITHUB,
   APP_TYPE_HELIX,
 } from '../types'
@@ -17,6 +18,7 @@ export const useApps = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<IApp[]>([])
+  const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
 
   const helixApps = useMemo(() => {
     return data.filter(app => app.app_type == APP_TYPE_HELIX)
@@ -36,6 +38,16 @@ export const useApps = () => {
     })
     if(!result) return
     setData(result)
+  }, [])
+
+  const loadGithubStatus = useCallback(async (pageURL: string) => {
+    const result = await api.get<IGithubStatus>(`/api/v1/github/status`, {
+      params: {
+        pageURL,
+      }
+    })
+    if(!result) return
+    setGithubStatus(result)
   }, [])
 
   const createApp = useCallback(async (
@@ -82,9 +94,11 @@ export const useApps = () => {
 
   return {
     data,
+    githubStatus,
     helixApps,
     githubApps,
     loadData,
+    loadGithubStatus,
     createApp,
     updateApp,
     deleteApp,

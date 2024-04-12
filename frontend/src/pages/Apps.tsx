@@ -3,7 +3,7 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
-import CreateToolWindow from '../components/tools/CreateToolWindow'
+import CreateAppWindow from '../components/apps/CreateAppWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
 import useLayout from '../hooks/useLayout'
@@ -24,10 +24,12 @@ const Apps: FC = () => {
   const layout = useLayout()
   const snackbar = useSnackbar()
   const {
+    params,
+    setParams,
+    removeParams,
     navigate,
   } = useRouter()
 
-  const [ addingApp, setAddingApp ] = useState(false)
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
   const onCreateApp = useCallback(async () => {
@@ -35,7 +37,7 @@ const Apps: FC = () => {
       
     })
     if(!newApp) return
-    setAddingApp(false)
+    removeParams(['add_app'])
     snackbar.success('app created')
     navigate('app', {
       app_id: newApp.id,
@@ -64,6 +66,7 @@ const Apps: FC = () => {
   useEffect(() => {
     if(!account.user) return
     apps.loadData()
+    apps.loadGithubStatus(`${window.location.href}?add_app=true&snackbar_message=github%20connected`)
   }, [
     account.user,
   ])
@@ -77,7 +80,7 @@ const Apps: FC = () => {
               color="secondary"
               endIcon={<AddIcon />}
               onClick={ () => {
-                // setAddingApiTool(true)
+                setParams({add_app: 'true'})
               }}
             >
               New App
@@ -89,6 +92,13 @@ const Apps: FC = () => {
 
     return () => layout.setToolbarRenderer(undefined)
   }, [])
+
+  useEffect(() => {
+    if(!params.snackbar_message) return
+    snackbar.success(params.snackbar_message)
+  }, [
+    params.snackbar_message,
+  ])
 
   if(!account.user) return null
 
@@ -108,10 +118,11 @@ const Apps: FC = () => {
         />
       </Container>
       {
-        addingApp && (
-          <CreateToolWindow
+        params.add_app && apps.githubStatus && (
+          <CreateAppWindow
+            githubStatus={ apps.githubStatus }
             onCreate={ onCreateApp }
-            onCancel={ () => setAddingApp(false) }
+            onCancel={ () => removeParams(['add_app']) }
           />
         )
       }

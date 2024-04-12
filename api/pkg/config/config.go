@@ -224,7 +224,7 @@ type GitHub struct {
 }
 
 type Apps struct {
-	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true"` // Enable/disable apps for the server
-	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai"`
-	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"` // gpt-4-1106-preview
+	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
+	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
+	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
