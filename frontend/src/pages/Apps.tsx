@@ -66,9 +66,23 @@ const Apps: FC = () => {
   useEffect(() => {
     if(!account.user) return
     apps.loadData()
-    apps.loadGithubStatus(`${window.location.href}?add_app=true&snackbar_message=github%20connected`)
   }, [
     account.user,
+  ])
+
+  useEffect(() => {
+    if(!account.user) return
+    if(!params.add_app) return
+    apps.loadGithubStatus(`${window.location.href}?add_app=true&snackbar_message=github%20connected`)
+  }, [
+    params.add_app,
+  ])
+
+  useEffect(() => {
+    if(!apps.githubStatus) return
+    apps.loadGithubRepos()
+  }, [
+    apps.githubStatus,
   ])
 
   useEffect(() => {
@@ -121,8 +135,11 @@ const Apps: FC = () => {
         params.add_app && apps.githubStatus && (
           <CreateAppWindow
             githubStatus={ apps.githubStatus }
+            githubRepos={ apps.githubRepos}
+            githubReposLoading={ apps.githubReposLoading }
             onCreate={ onCreateApp }
             onCancel={ () => removeParams(['add_app']) }
+            onLoadRepos={ apps.loadGithubRepos }
           />
         )
       }
