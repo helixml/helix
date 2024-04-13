@@ -522,6 +522,7 @@ type CreateSessionRequest struct {
 	TextFinetuneEnabled     bool
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
+	LoraDir                 string
 }
 
 type UpdateSessionRequest struct {
