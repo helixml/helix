@@ -78,6 +78,9 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 				http.StatusBadRequest)
 			return
 		}
+
+		// Enforcing model
+		startReq.Model = types.Model_Axolotl_Mistral7b.String()
 	}
 
 	var cfg *startSessionConfig
