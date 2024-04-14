@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/apps"
-	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -75,14 +74,12 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	app.Owner = userContext.Owner
 	app.OwnerType = userContext.OwnerType
-	app.Config.Helix = &types.AppHelixConfig{
-		ActiveTools: []string{},
-		Secrets:     map[string]string{},
-	}
 
-	err = apps.ValidateApp(&app)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
+	if app.Config.Helix == nil {
+		app.Config.Helix = &types.AppHelixConfig{
+			ActiveTools: []string{},
+			Secrets:     map[string]string{},
+		}
 	}
 
 	// Checking if the tool already exists
@@ -94,23 +91,30 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// if this is a github app - then initialise it
 	if app.AppType == types.AppTypeGithub {
+		if app.AppType == types.AppTypeGithub {
+			if app.Config.Github.Repo == "" {
+				return nil, system.NewHTTPError400("github repo is required")
+			}
+		}
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
-		githubApp, err := github.NewGithubApp(github.GithubAppOptions{
-			Config: s.Cfg.GitHub,
-			Client: client,
-			App:    &app,
+		githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
+			GithubConfig: s.Cfg.GitHub,
+			Client:       client,
+			App:          &app,
 		})
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		err = githubApp.Initialise()
+		newApp, err := githubApp.Create()
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
+
+		app = *newApp
 	}
 
 	// Creating the tool
@@ -135,22 +139,15 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
-	var app types.App
-	err := json.NewDecoder(r.Body).Decode(&app)
+	var appUpdate *types.App
+	err := json.NewDecoder(r.Body).Decode(appUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
 	}
 
 	id := getID(r)
 
-	app.ID = id
-
-	err = apps.ValidateApp(&app)
-	if err != nil {
-		return nil, system.NewHTTPError400(err.Error())
-	}
-
-	// Getting existing tool
+	// Getting existing app
 	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -159,15 +156,36 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != userContext.Owner {
+	if existing == nil {
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
-	app.Owner = existing.Owner
-	app.OwnerType = existing.OwnerType
+	if existing.Owner != userContext.Owner {
+		return nil, system.NewHTTPError403("you do not have permission to update this app")
+	}
+
+	if existing.AppType == types.AppTypeGithub {
+		client, err := s.getGithubClientFromRequest(r)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+		githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
+			GithubConfig: s.Cfg.GitHub,
+			Client:       client,
+			App:          existing,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		appUpdate, err = githubApp.Update()
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
 
 	// Updating the app
-	updated, err := s.Store.UpdateApp(r.Context(), &app)
+	updated, err := s.Store.UpdateApp(r.Context(), appUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
