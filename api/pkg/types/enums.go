@@ -104,7 +104,8 @@ const (
 type OwnerType string
 
 const (
-	OwnerTypeUser OwnerType = "user"
+	OwnerTypeUser   OwnerType = "user"
+	OwnerTypeSystem OwnerType = "system"
 )
 
 type PaymentType string
