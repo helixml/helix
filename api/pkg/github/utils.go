@@ -13,9 +13,7 @@ import (
 	crypto_ssh "golang.org/x/crypto/ssh"
 )
 
-const HELIX_DEPLOY_KEY_NAME = "helix-deploy-key"
-
-func cloneOrUpdateRepo(
+func CloneOrUpdateRepo(
 	repo string,
 	keypair types.KeyPair,
 	repoPath string,

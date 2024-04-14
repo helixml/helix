@@ -89,7 +89,21 @@ func (githubClient *GithubClient) AddWebhookToRepo(
 ) error {
 	active := true
 	json := "application/json"
-	_, _, err := githubClient.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
+
+	hooks, _, err := githubClient.client.Repositories.ListHooks(githubClient.ctx, owner, repo, nil)
+	if err != nil {
+		return err
+	}
+
+	for _, hook := range hooks {
+		if hook.Config.URL != nil && *hook.Config.URL == url {
+			// Hook already exists, no need to add it again
+			return nil
+		}
+	}
+
+	// Add the new hook
+	_, _, err = githubClient.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
 		Active: &active,
 		Name:   &name,
 		URL:    &url,

@@ -722,13 +722,25 @@ const (
 	AppTypeGithub AppType = "github"
 )
 
+type AppHelixConfigGPTScript struct {
+	Name     string `json:"name" yaml:"name"`
+	FilePath string `json:"file_path" yaml:"file_path"`
+	Content  string `json:"content" yaml:"content"`
+}
+
+type AppHelixConfigGPTScripts struct {
+	Folder  string                    `json:"folder" yaml:"folder"`
+	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
+}
+
 type AppHelixConfig struct {
-	Name         string            `json:"name" yaml:"name"`
-	Description  string            `json:"description" yaml:"description"`
-	Avatar       string            `json:"avatar" yaml:"avatar"`
-	SystemPrompt string            `json:"system_prompt" yaml:"system_prompt"`
-	ActiveTools  []string          `json:"active_tools" yaml:"active_tools"`
-	Secrets      map[string]string `json:"secrets" yaml:"secrets"`
+	Name         string                   `json:"name" yaml:"name"`
+	Description  string                   `json:"description" yaml:"description"`
+	Avatar       string                   `json:"avatar" yaml:"avatar"`
+	SystemPrompt string                   `json:"system_prompt" yaml:"system_prompt"`
+	ActiveTools  []string                 `json:"active_tools" yaml:"active_tools"`
+	Secrets      map[string]string        `json:"secrets" yaml:"secrets"`
+	GPTScripts   AppHelixConfigGPTScripts `json:"gptscripts" yaml:"gptscripts"`
 }
 
 type AppGithubConfig struct {

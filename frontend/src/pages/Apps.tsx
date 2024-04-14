@@ -35,7 +35,9 @@ const Apps: FC = () => {
   const onConnectRepo = useCallback(async (repo: string) => {
     const newApp = await apps.createGithubApp(repo)
     if(!newApp) return false
+    removeParams(['add_app'])
     snackbar.success('app created')
+    apps.loadData()
     navigate('app', {
       app_id: newApp.id,
     })
