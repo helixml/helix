@@ -2,12 +2,15 @@ package github
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"gopkg.in/yaml.v2"
 )
 
 type GithubAppOptions struct {
@@ -86,6 +89,39 @@ func (githubApp *GithubApp) Initialise() error {
 	}
 
 	return nil
+}
+
+func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
+	for _, filename := range HELIX_YAML_FILENAMES {
+		filepath := githubApp.Filepath(filename)
+		if _, err := os.Stat(filepath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			} else {
+				return nil, err
+			}
+		} else {
+			content, err := os.ReadFile(filepath)
+			if err != nil {
+				return nil, err
+			}
+			config := &types.AppHelixConfig{}
+			err = yaml.Unmarshal(content, config)
+			if err != nil {
+				return nil, err
+			}
+			return config, nil
+		}
+	}
+	return nil, fmt.Errorf("helix.yaml not found")
+}
+
+func (githubApp *GithubApp) Validate() error {
+	config, err := githubApp.GetConfig()
+	if err != nil {
+		return err
+	}
+	return apps.ValidateHelixConfig(config)
 }
 
 func (githubApp *GithubApp) Filepath(subpath string) string {
