@@ -289,6 +289,7 @@ WAIT:
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
+						Bool("stream", session.Metadata.Stream).
 						Msg("🟢 interaction processed")
 				}
 
@@ -479,7 +480,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		for {
 			response, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
-				log.Info().Msg("stream finished")
+				log.Info().Str("session_id", session.ID).Msg("stream finished")
 				// Signal the end of the stream
 				i.emitStreamDone(session)
 				// Send the last message containing full output
@@ -506,6 +507,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
+
+		log.Info().Str("session_id", session.ID).Msg("response received")
 
 		i.emitStreamDone(session)
 		// Send the last message containing full output
