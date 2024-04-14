@@ -289,6 +289,7 @@ WAIT:
 				} else {
 					log.Info().
 						Str("session_id", session.ID).
+						Bool("stream", session.Metadata.Stream).
 						Msg("🟢 interaction processed")
 				}
 
@@ -460,40 +461,59 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		}
 	}
 
-	// Adding current message
-	stream, err := i.client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
-		Model:    string(session.ModelName),
-		Stream:   true,
-		Messages: messages,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get response from inference API: %w", err)
-	}
-
-	defer stream.Close()
-
-	var buf string
-
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			log.Info().Msg("stream finished")
-			// Signal the end of the stream
-			i.emitStreamDone(session)
-			// Send the last message containing full output
-			i.responseProcessor(session, buf, true)
-			return nil
-		}
-
+	switch {
+	case session.Metadata.Stream:
+		// Adding current message
+		stream, err := i.client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
+			Model:    string(session.ModelName),
+			Stream:   true,
+			Messages: messages,
+		})
 		if err != nil {
-			log.Error().Err(err).Msg("stream error")
-			i.errorSession(session, err)
-			return err
+			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
 
-		buf += response.Choices[0].Delta.Content
+		defer stream.Close()
 
-		i.responseProcessor(session, response.Choices[0].Delta.Content, false)
+		var buf string
+
+		for {
+			response, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				log.Info().Str("session_id", session.ID).Msg("stream finished")
+				// Signal the end of the stream
+				i.emitStreamDone(session)
+				// Send the last message containing full output
+				i.responseProcessor(session, buf, true)
+				return nil
+			}
+
+			if err != nil {
+				log.Error().Err(err).Msg("stream error")
+				i.errorSession(session, err)
+				return err
+			}
+
+			buf += response.Choices[0].Delta.Content
+
+			i.responseProcessor(session, response.Choices[0].Delta.Content, false)
+		}
+	default:
+		// Non-streaming mode
+		response, err := i.client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
+			Model:    string(session.ModelName),
+			Messages: messages,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to get response from inference API: %w", err)
+		}
+
+		log.Info().Str("session_id", session.ID).Msg("response received")
+
+		i.emitStreamDone(session)
+		// Send the last message containing full output
+		i.responseProcessor(session, response.Choices[0].Message.Content, true)
+		return nil
 	}
 }
 

@@ -91,6 +91,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      types.SessionTypeText,
+		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
 		Owner:            userContext.Owner,
 		OwnerType:        userContext.OwnerType,
