@@ -463,7 +463,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	// Adding current message
 	stream, err := i.client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
 		Model:    string(session.ModelName),
-		Stream:   true,
+		Stream:   session.Metadata.Stream,
 		Messages: messages,
 	})
 	if err != nil {

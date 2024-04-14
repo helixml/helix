@@ -60,6 +60,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Updated:       time.Now(),
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
+			Stream:       true,
 			OriginalMode: req.SessionMode,
 			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
