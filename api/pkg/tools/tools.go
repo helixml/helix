@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -32,7 +33,7 @@ type ChainStrategy struct {
 	Local      bool // run locally for tests XXX security risk, never set this to true in production
 }
 
-func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, controller openai.Controller) (*ChainStrategy, error) {
 	var apiClient openai.Client
 
 	switch cfg.Tools.Provider {
@@ -60,6 +61,13 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			// gptscript server case
 			log.Info().Msg("no explicit tools provider LLM configured (gptscript server will still work if OPENAI_API_KEY is set)")
 		}
+	case config.ProviderHelix:
+		if controller != nil {
+			log.Info().Msg("using Helix provider for tools")
+
+			apiClient = openai.NewInternalHelixClient(cfg, ps, controller)
+		}
+
 	default:
 		log.Warn().Msg("no tools provider configured")
 	}
