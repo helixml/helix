@@ -19,7 +19,7 @@ export const useApps = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<IApp[]>([])
-  const [ githubRepos, setGithubRepos ] = useState<IGithubRepo[]>([])
+  const [ githubRepos, setGithubRepos ] = useState<string[]>([])
   const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
   const [ githubReposLoading, setGithubReposLoading ] = useState(false)
   const [ connectError, setConnectError ] = useState('')
@@ -60,8 +60,8 @@ export const useApps = () => {
       return
     }
     setGithubReposLoading(true)
-    const repos = await api.get<any>(`/api/v1/github/repos`)
-    setGithubRepos(repos)
+    const repos = await api.get<string[]>(`/api/v1/github/repos`)
+    setGithubRepos(repos || [])
     setGithubReposLoading(false)
   }, [
     githubStatus,
@@ -72,7 +72,7 @@ export const useApps = () => {
   ): Promise<IApp | null> => {
     setConnectError('')
     setConectLoading(true)
-    const result = await api.post<Partial<IApp>, IApp>(`/api/v1/github/apps`, {
+    const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
       name: repo,
       description: `github repo hosted at ${repo}`,
       app_type: APP_TYPE_GITHUB,
