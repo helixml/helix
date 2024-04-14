@@ -35,6 +35,7 @@ func LoadServerConfig() (ServerConfig, error) {
 type Providers struct {
 	OpenAI     OpenAI
 	TogetherAI TogetherAI
+	Helix      Helix
 }
 
 type OpenAI struct {
@@ -47,11 +48,16 @@ type TogetherAI struct {
 	BaseURL string `envconfig:"TOGETHER_BASE_URL" default:"https://api.together.xyz/v1"`
 }
 
+type Helix struct {
+	OwnerID string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+}
+
 type Provider string
 
 const (
 	ProviderOpenAI     Provider = "openai"
 	ProviderTogetherAI Provider = "togetherai"
+	ProviderHelix      Provider = "helix"
 )
 
 type Tools struct {
