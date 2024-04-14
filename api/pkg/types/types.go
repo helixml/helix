@@ -512,6 +512,7 @@ type CreateSessionRequest struct {
 	SessionMode             SessionMode
 	SessionType             SessionType
 	SystemPrompt            string // System message
+	Stream                  bool
 	ParentSession           string
 	ModelName               ModelName
 	Owner                   string
