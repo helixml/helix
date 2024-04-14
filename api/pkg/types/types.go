@@ -723,12 +723,12 @@ const (
 )
 
 type AppHelixConfig struct {
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Avatar       string            `json:"avatar"`
-	SystemPrompt string            `json:"system_prompt"`
-	ActiveTools  []string          `json:"active_tools"`
-	Secrets      map[string]string `json:"secrets"`
+	Name         string            `json:"name" yaml:"name"`
+	Description  string            `json:"description" yaml:"description"`
+	Avatar       string            `json:"avatar" yaml:"avatar"`
+	SystemPrompt string            `json:"system_prompt" yaml:"system_prompt"`
+	ActiveTools  []string          `json:"active_tools" yaml:"active_tools"`
+	Secrets      map[string]string `json:"secrets" yaml:"secrets"`
 }
 
 type AppGithubConfig struct {

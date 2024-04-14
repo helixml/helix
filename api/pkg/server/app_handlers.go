@@ -3,9 +3,9 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -80,7 +80,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		Secrets:     map[string]string{},
 	}
 
-	err = s.validateApp(&userContext, &app)
+	err = apps.ValidateApp(&app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -145,7 +145,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	app.ID = id
 
-	err = s.validateApp(&userContext, &app)
+	err = apps.ValidateApp(&app)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -207,13 +207,4 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	return existing, nil
-}
-
-func (s *HelixAPIServer) validateApp(_ *types.RequestContext, app *types.App) error {
-	if app.AppType == types.AppTypeGithub {
-		if app.Config.Github.Repo == "" {
-			return fmt.Errorf("github repo is required")
-		}
-	}
-	return nil
 }
