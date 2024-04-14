@@ -266,6 +266,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	createRequest := types.CreateSessionRequest{
 		SessionID:               sessionID,
 		SessionMode:             sessionMode,
+		Stream:                  true,
 		SessionType:             sessionType,
 		ModelName:               modelName,
 		Owner:                   reqContext.Owner,

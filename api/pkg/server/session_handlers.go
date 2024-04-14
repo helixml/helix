@@ -98,6 +98,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			SessionMode:      types.SessionModeInference,
 			SessionType:      startReq.Type,
 			SystemPrompt:     startReq.SystemPrompt,
+			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
 			Owner:            userContext.Owner,
 			OwnerType:        userContext.OwnerType,
