@@ -71,16 +71,12 @@ func (c *InternalHelixClient) CreateChatCompletion(ctx context.Context, request 
 		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to subscribe to session updates: %w", err)
 	}
 
-	fmt.Println("CREATING", sessionID)
-
 	// Start the session
 	err = c.startSession(ctx, &request, sessionID)
 	if err != nil {
 		log.Err(err).Msg("failed to start session")
 		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to start session: %w", err)
 	}
-
-	fmt.Println("CREATED, WAITING", sessionID, pubsub.GetSessionQueue(c.cfg.Providers.Helix.OwnerID, sessionID))
 
 	// Wait for response
 
@@ -92,8 +88,6 @@ func (c *InternalHelixClient) CreateChatCompletion(ctx context.Context, request 
 		_ = sub.Unsubscribe()
 		return
 	}
-
-	fmt.Println("GETTING RESPONSE", sessionID)
 
 	if updatedSession == nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("session update not received")
