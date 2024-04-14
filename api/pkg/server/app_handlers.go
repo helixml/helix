@@ -88,10 +88,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	// Checking if the tool already exists
 	for _, a := range existingApps {
 		if a.Name == app.Name {
-			return nil, system.NewHTTPError400("tool (%s) with name %s already exists", a.ID, app.Name)
+			return nil, system.NewHTTPError400("app (%s) with name %s already exists", a.ID, app.Name)
 		}
 	}
 
+	// if this is a github app - then initialise it
 	if app.AppType == types.AppTypeGithub {
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {

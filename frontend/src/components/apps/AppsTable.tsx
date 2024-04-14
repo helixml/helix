@@ -12,6 +12,7 @@ import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
+import GitHubIcon from '@mui/icons-material/GitHub'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -41,21 +42,28 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         id: app.id,
         _data: app,
         name: (
-          <a
-            style={{
-              textDecoration: 'none',
-              fontWeight: 'bold',
-              color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-            }}
-            href="#"
-            onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onEdit(app)
-            }}
-          >
-            { app.name }
-          </a>
+          <Row>
+            <Cell sx={{pr: 2,}}>
+              <GitHubIcon />
+            </Cell>
+            <Cell grow>
+              <a
+                style={{
+                  textDecoration: 'none',
+                  fontWeight: 'bold',
+                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                }}
+                href="#"
+                onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onEdit(app)
+                }}
+              >
+                { app.name }
+              </a>
+            </Cell>
+          </Row>
         ),
         type: app.app_type,
         details: app.description,

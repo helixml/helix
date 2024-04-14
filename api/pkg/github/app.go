@@ -55,15 +55,20 @@ func (githubApp *GithubApp) Initialise() error {
 	if err != nil {
 		return err
 	}
+	// generate a keypair - we clone with SSH so that private repos
+	// can also be connected
 	keyPair, err := system.GenerateEcdsaKeypair()
 	if err != nil {
 		return err
 	}
+	// assign the keypair to the config
 	githubApp.App.Config.Github.KeyPair = *keyPair
-	err = githubApp.Client.AddPublicKeyToRepo(githubApp.Owner, githubApp.Repo, keyPair.PublicKey, "helix-deploy-key")
+	// assign the public key to the repo
+	err = githubApp.Client.AddPublicKeyToRepo(githubApp.Owner, githubApp.Repo, keyPair.PublicKey, HELIX_DEPLOY_KEY_NAME)
 	if err != nil {
 		return err
 	}
+	// clone the repo locally
 	err = githubApp.Clone()
 	if err != nil {
 		return err
@@ -77,8 +82,11 @@ func (githubApp *GithubApp) Filepath(subpath string) string {
 
 func (githubApp *GithubApp) Clone() error {
 	return cloneOrUpdateRepo(
+		// the name of the repo
 		fmt.Sprintf("%s/%s", githubApp.Owner, githubApp.Repo),
+		// the keypair for this app repo
 		githubApp.App.Config.Github.KeyPair,
+		// return the folder in which we should clone the repo
 		githubApp.Filepath(""),
 	)
 }

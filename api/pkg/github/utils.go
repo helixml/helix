@@ -2,13 +2,18 @@ package github
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/helixml/helix/api/pkg/types"
+	crypto_ssh "golang.org/x/crypto/ssh"
 )
+
+const HELIX_DEPLOY_KEY_NAME = "helix-deploy-key"
 
 func cloneOrUpdateRepo(
 	repo string,
@@ -38,7 +43,12 @@ func cloneOrUpdateRepo(
 		return nil
 	} else if os.IsNotExist(err) {
 		// Directory does not exist, clone the repo.
-		_, err := git.PlainClone(repoPath, false, &git.CloneOptions{
+		parentDir := filepath.Dir(repoPath)
+		err := os.MkdirAll(parentDir, os.ModePerm)
+		if err != nil {
+			return fmt.Errorf("failed to create directory: %v", err)
+		}
+		_, err = git.PlainClone(repoPath, false, &git.CloneOptions{
 			URL:      fmt.Sprintf("git@github.com:%s.git", repo),
 			Progress: os.Stdout,
 			Auth:     makeAuth(keypair),
@@ -58,19 +68,10 @@ func makeAuth(keypair types.KeyPair) transport.AuthMethod {
 		fmt.Println("Failed to create signer:", err)
 		return nil
 	}
+	signer.HostKeyCallbackHelper = ssh.HostKeyCallbackHelper{
+		HostKeyCallback: func(hostname string, remote net.Addr, key crypto_ssh.PublicKey) error {
+			return nil
+		},
+	}
 	return signer
 }
-
-// func main() {
-// 	// Example usage:
-// 	keypair := Keypair{
-// 		PrivateKey: "YOUR_PRIVATE_KEY_HERE",
-// 		PublicKey:  "",
-// 	}
-// 	repoPath, err := CloneOrUpdateRepo("binocarlos/puta", keypair, "/path/to/base/folder")
-// 	if err != nil {
-// 		fmt.Println("Error:", err)
-// 		return
-// 	}
-// 	fmt.Println("Repository cloned or updated at:", repoPath)
-// }

@@ -221,7 +221,7 @@ type GitHub struct {
 	Enabled      bool   `envconfig:"GITHUB_INTEGRATION_ENABLED" default:"true" description:"Enable github integration."`
 	ClientID     string `envconfig:"GITHUB_INTEGRATION_CLIENT_ID" description:"The github app client id."`
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
-	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/tmp" description:"What folder do we use to clone github repos."`
+	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 }
 
 type Apps struct {

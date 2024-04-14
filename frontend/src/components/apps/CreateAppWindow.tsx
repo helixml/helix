@@ -27,7 +27,7 @@ import {
 
 export const CreateAppWindow: FC<{  
   githubStatus: IGithubStatus,
-  githubRepos: IGithubRepo[],
+  githubRepos: string[],
   githubReposLoading: boolean,
   connectLoading: boolean,
   connectError?: string,
@@ -46,12 +46,12 @@ export const CreateAppWindow: FC<{
 }) => {
   const [ filterOrg, setFilterOrg ] = useState('any')
   const [ filterText, setFilterText ] = useState('')
-  const [ activeRepo, setActiveRepo ] = useState<IGithubRepo>()
+  const [ activeRepo, setActiveRepo ] = useState('binocarlos/example-helix-app')
 
   const groups = useMemo(() => {
     const foundGroups: Record<string, boolean> = {}
     githubRepos.forEach(repo => {
-      const group = repo.full_name.split('/')[0]
+      const group = repo.split('/')[0]
       foundGroups[group] = true
     })
     return Object.keys(foundGroups)
@@ -63,17 +63,17 @@ export const CreateAppWindow: FC<{
     const seenRepos: Record<string, boolean> = {}
     return githubRepos
       .filter(repo => {
-        if (filterOrg !== 'any' && !repo.full_name.startsWith(filterOrg)) {
+        if (filterOrg !== 'any' && !repo.startsWith(filterOrg)) {
           return false
         }
-        if (filterText && !repo.full_name.includes(filterText)) {
+        if (filterText && !repo.includes(filterText)) {
           return false
         }
         return true
       })
-      .reduce<IGithubRepo[]>((all, repo) => {
-        if(seenRepos[repo.full_name]) return all
-        seenRepos[repo.full_name] = true
+      .reduce<string[]>((all, repo) => {
+        if(seenRepos[repo]) return all
+        seenRepos[repo] = true
         return all.concat([repo])
       }, [])
   }, [
@@ -157,35 +157,58 @@ export const CreateAppWindow: FC<{
                       p: 2,
                     }}
                   >
-                    <Grid container spacing={ 2 }>
-                      <Grid item xs={ 12 }>
-                        <Typography gutterBottom variant="h6">
-                          { activeRepo }
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={ 12 }>
-                        <Button
-                          color="secondary"
-                          variant="outlined"
-                          size="small"
-                          onClick={ () => {
-                            setActiveRepo(undefined)
+                    {
+                      connectLoading ? (
+                        <Box
+                          sx={{
+                            p: 2,
                           }}
                         >
-                          Change Repo
-                        </Button>
-                        &nbsp;
-                        <Button
-                          color="secondary"
-                          variant="contained"
-                          size="small"
-                          disabled={ connectLoading }
-                          onClick={ async () => onConnectRepo(activeRepo.full_name) }
-                        >
-                          Connect Repo
-                        </Button>
-                      </Grid>
-                    </Grid>
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              mt: 2,
+                              mb: 2,
+                            }}
+                          >
+                            connecting github repo: { activeRepo }
+                          </Typography>
+                          <CircularProgress />
+                        </Box>
+                      ) : (
+                        <Grid container spacing={ 2 }>
+                          <Grid item xs={ 12 }>
+                            <Typography gutterBottom variant="h6">
+                              { activeRepo }
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={ 12 }>
+                            <Button
+                              sx={{mr: 1}}
+                              color="secondary"
+                              variant="outlined"
+                              size="small"
+                              onClick={ () => {
+                                setActiveRepo('')
+                              }}
+                            >
+                              Change Repo
+                            </Button>
+                            &nbsp;
+                            <Button
+                              color="secondary"
+                              variant="contained"
+                              size="small"
+                              disabled={ connectLoading }
+                              onClick={ async () => onConnectRepo(activeRepo) }
+                            >
+                              Connect Repo
+                            </Button>
+                          </Grid>
+                        </Grid>
+                      )
+                    }
+                    
                   </Box>
                 ) : (
                   <>
@@ -264,7 +287,7 @@ export const CreateAppWindow: FC<{
                               <ListItem key={index} button onClick={ () => {
                                 setActiveRepo(repo)
                               }}>
-                                <ListItemText primary={ repo.full_name } />
+                                <ListItemText primary={ repo } />
                                 <ListItemSecondaryAction>
                                   <IconButton color="primary" component="span" onClick={ () => {
                                     setActiveRepo(repo)
