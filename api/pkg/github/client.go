@@ -3,7 +3,7 @@ package github
 import (
 	"context"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v61/github"
 	"golang.org/x/oauth2"
 )
 
@@ -76,6 +76,28 @@ func (githubClient *GithubClient) AddPublicKeyToRepo(
 	_, _, err := githubClient.client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
 		Key:   &publicKey,
 		Title: &keyTitle,
+	})
+	return err
+}
+
+func (githubClient *GithubClient) AddWebhookToRepo(
+	owner string,
+	repo string,
+	name string,
+	url string,
+	events []string,
+) error {
+	active := true
+	json := "application/json"
+	_, _, err := githubClient.client.Repositories.CreateHook(context.Background(), owner, repo, &github.Hook{
+		Active: &active,
+		Name:   &name,
+		URL:    &url,
+		Events: events,
+		Config: &github.HookConfig{
+			ContentType: &json,
+			URL:         &url,
+		},
 	})
 	return err
 }

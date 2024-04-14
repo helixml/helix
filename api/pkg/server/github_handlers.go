@@ -67,7 +67,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestC
 	return &oauth2.Config{
 		ClientID:     apiServer.Cfg.GitHub.ClientID,
 		ClientSecret: apiServer.Cfg.GitHub.ClientSecret,
-		Scopes:       []string{"repo"},
+		Scopes:       []string{"repo", "admin:repo_hook"},
 		RedirectURL: fmt.Sprintf(
 			// we include their access token in the callback URL
 			// so it is authenticated

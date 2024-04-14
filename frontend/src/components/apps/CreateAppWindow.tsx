@@ -178,8 +178,20 @@ export const CreateAppWindow: FC<{
                       ) : (
                         <Grid container spacing={ 2 }>
                           <Grid item xs={ 12 }>
-                            <Typography gutterBottom variant="h6">
+                            <Typography gutterBottom variant="h5">
                               { activeRepo }
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={ 12 }>
+                            <Typography gutterBottom variant="body1">
+                              If you click "Connect Repo" - we will:
+                              <ul>
+                                <li>Generate a key pair and upload the public key to the repo</li>
+                                <li>Create a new web-hook on the repo</li>
+                              </ul>
+                            </Typography>
+                            <Typography gutterBottom variant="body1">
+                              This means we will be able to read the contents of the repo and will be told when code changes.
                             </Typography>
                           </Grid>
                           <Grid item xs={ 12 }>

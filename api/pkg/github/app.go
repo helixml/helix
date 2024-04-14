@@ -73,6 +73,18 @@ func (githubApp *GithubApp) Initialise() error {
 	if err != nil {
 		return err
 	}
+
+	err = githubApp.Client.AddWebhookToRepo(
+		githubApp.Owner,
+		githubApp.Repo,
+		"helixwebhook",
+		fmt.Sprintf("%s?repo=%s", githubApp.Config.WebhookURL, githubApp.Name),
+		[]string{"push", "pull_request"},
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
