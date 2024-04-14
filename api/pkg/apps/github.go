@@ -85,6 +85,13 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, err
 	}
 
+	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
+	if err != nil {
+		return nil, err
+	}
+
+	app.Config.Github.Hash = commitHash
+
 	// add the webhook to the repo
 	err = githubApp.Client.AddWebhookToRepo(
 		githubApp.Owner,
@@ -228,8 +235,9 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 					return err
 				}
 				newScripts = append(newScripts, types.AppHelixConfigGPTScript{
-					Name:    strings.TrimSuffix(filepath.Base(path), ".gpt"),
-					Content: string(content),
+					Name:     strings.TrimSuffix(filepath.Base(path), ".gpt"),
+					FilePath: path,
+					Content:  string(content),
 				})
 			}
 			return nil
@@ -238,6 +246,8 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 		if err != nil {
 			return nil, err
 		}
+
+		config.GPTScripts.Scripts = newScripts
 	}
 
 	return config, nil

@@ -451,8 +451,22 @@ export interface ITool {
   config: IToolConfig,
 }
 
+
+export interface IKeyPair {
+	type: string,
+  privateKey: string,
+  publicKey: string,
+}
+
+export interface IAppHelixConfigGptScript {
+  name?: string,
+  file_path?: string,
+  content?: string,
+}
+
 export interface IAppHelixConfigGptScripts {
   folder?: string,
+  scripts?: IAppHelixConfigGptScript[],
 }
 
 export interface IAppHelixConfig {
@@ -461,11 +475,14 @@ export interface IAppHelixConfig {
   avatar?: string,
   system_prompt?: string,
   active_tools?: string[],
-  gpt_scripts?: string[],
+  secrets?: Record<string, string>,
+  gptscripts?: IAppHelixConfigGptScripts,
 }
 
 export interface IAppGithubConfig {
   repo: string,
+  hash: string,
+  key_pair?: IKeyPair,
 }
 
 export interface IAppConfig {
@@ -483,6 +500,13 @@ export interface IApp {
   description: string,
   app_type: IAppType,
   config: IAppConfig,
+}
+
+export interface IAppUpdate {
+  name: string,
+  description: string,
+  secrets: Record<string, string>,
+  active_tools: string[],
 }
 
 export interface IGithubStatus {

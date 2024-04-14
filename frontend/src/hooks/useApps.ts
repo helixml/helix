@@ -3,6 +3,7 @@ import useApi from '../hooks/useApi'
 
 import {
   IApp,
+  IAppUpdate,
   IAppConfig,
   IAppType,
   IGithubStatus,
@@ -79,6 +80,7 @@ export const useApps = () => {
       config: {
         github: {
           repo,
+          hash: '', 
         }
       },
     }, {}, {
@@ -112,8 +114,8 @@ export const useApps = () => {
     loadData,
   ])
 
-  const updateApp = useCallback(async (id: string, data: Partial<IApp>): Promise<IApp | undefined> => {
-    const result = await api.put<Partial<IApp>, IApp>(`/api/v1/apps/${id}`, data, {}, {
+  const updateApp = useCallback(async (id: string, data: IAppUpdate): Promise<IApp | undefined> => {
+    const result = await api.put<IAppUpdate, IApp>(`/api/v1/apps/${id}`, data, {}, {
       snackbar: true,
     })
     if(!result) return

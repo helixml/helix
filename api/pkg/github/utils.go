@@ -60,6 +60,29 @@ func CloneOrUpdateRepo(
 	}
 }
 
+func GetRepoHash(
+	repoPath string,
+) (string, error) {
+	if _, err := os.Stat(repoPath); err != nil {
+		return "", err
+	}
+	repository, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open existing repo: %v", err)
+	}
+	ref, err := repository.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %v", err)
+	}
+
+	commit, err := repository.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit object: %v", err)
+	}
+
+	return commit.Hash.String(), nil
+}
+
 func makeAuth(keypair types.KeyPair) transport.AuthMethod {
 	signer, err := ssh.NewPublicKeys("git", []byte(keypair.PrivateKey), keypair.PublicKey)
 	if err != nil {
