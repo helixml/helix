@@ -745,6 +745,7 @@ type AppHelixConfig struct {
 
 type AppGithubConfig struct {
 	Repo    string  `json:"repo"`
+	Hash    string  `json:"hash"`
 	KeyPair KeyPair `json:"key_pair"`
 }
 
@@ -793,4 +794,11 @@ type KeyPair struct {
 	Type       string
 	PrivateKey string
 	PublicKey  string
+}
+
+type AppUpdatePayload struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	ActiveTools []string          `json:"active_tools"`
+	Secrets     map[string]string `json:"secrets"`
 }

@@ -3,6 +3,7 @@ import { useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
 import Button from '@mui/material/Button'
@@ -14,10 +15,11 @@ import SendIcon from '@mui/icons-material/Send'
 import Window from '../components/widgets/Window'
 import StringMapEditor from '../components/widgets/StringMapEditor'
 import ClickLink from '../components/widgets/ClickLink'
-import ToolActionsGrid from '../components/datagrid/ToolActions'
+import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 
+import useApps from '../hooks/useApps'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
@@ -29,15 +31,18 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 
 import {
+  IApp,
+  IAppConfig,
+  IAppUpdate,
   ISession,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
 } from '../types'
 
-const Tool: FC = () => {
+const App: FC = () => {
   const account = useAccount()
-  const tools = useTools()
+  const apps = useApps()
   const layout = useLayout()
   const api = useApi()
   const snackbar = useSnackbar()
@@ -56,31 +61,25 @@ const Tool: FC = () => {
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
-  const [ url, setURL ] = useState('')
-  const [ gptScriptURL, setGptScriptURL ] = useState('')
-  const [ gptScript, setGptScript ] = useState('')
-  const [ global, setGlobal ] = useState(false)
-  const [ headers, setHeaders ] = useState<Record<string, string>>({})
-  const [ query, setQuery ] = useState<Record<string, string>>({})
+  const [ secrets, setSecrets ] = useState<Record<string, string>>({})
   const [ schema, setSchema ] = useState('')
   const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
 
-  const tool = useMemo(() => {
-    return tools.data.find((tool) => tool.id === params.tool_id)
+  const app = useMemo(() => {
+    return apps.data.find((app) => app.id === params.app_id)
   }, [
-    tools.data,
+    apps.data,
     params,
   ])
 
   const readOnly = useMemo(() => {
-    if(!tool) return true
-    if(!tool.global) return false
-    return isAdmin ? false : true
+    if(!app) return true
+    // if(app.config.github?.repo) return true
+    return false
   }, [
-    tool,
-    isAdmin,
+    app,
   ])
 
   const sessionID = useMemo(() => {
@@ -91,15 +90,14 @@ const Tool: FC = () => {
 
   // this is for inference in both modes
   const onInference = async () => {
-    if(!tool) return
+    if(!app) return
     session.setData(undefined)
     const formData = new FormData()
     
     formData.set('input', inputValue)
     formData.set('mode', SESSION_MODE_INFERENCE)
     formData.set('type', SESSION_TYPE_TEXT)
-    formData.set('active_tools', tool.id)
-    formData.set('parent_session', params.tool_id)
+    formData.set('parent_app', app.id)
 
     const newSessionData = await api.post('/api/v1/sessions', formData)
     if(!newSessionData) return
@@ -109,74 +107,38 @@ const Tool: FC = () => {
   }
 
   const validate = () => {
-    if(!name) return false
-    if(!description) return false
-    if(tool?.config.api) {
-      if(!url) return false
-      if(!schema) return false
-    } else if(tool?.config.gptscript) {
-      if(!gptScriptURL && !gptScript) return false
-    }
+    // if(!name) return false
+    // if(!description) return false
     return true
   }
 
   const onUpdate = useCallback(async () => {
-    if(!tool) return
+    if(!app) return
     if(!validate()) {
       setShowErrors(true)
       return
     }
     setShowErrors(false)
-    if(tool.config.api) {
-      const newConfig = Object.assign({}, tool.config.api, {
-        url,
-        schema,
-        headers,
-        query,
-      })
 
-      const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
-        name,
-        description,
-        global,
-        config: {
-          api: newConfig,
-        },
-      }))
+    const update: IAppUpdate = {
+      name,
+      description,
+      active_tools: [],
+      secrets,
+    }
 
-      if(!result) return
-      snackbar.success('Tool updated')
-      navigate('tools')
-    } else if(tool.config.gptscript) {
-      const newConfig = Object.assign({}, tool.config.gptscript, {
-        script: gptScript,
-        script_url: gptScriptURL,
-      })
+    const result = await apps.updateApp(params.app_id, update)
 
-      const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
-        name,
-        description,
-        global,
-        config: {
-          gptscript: newConfig,
-        },
-      }))
+    if(!result) return
 
-      if(!result) return
-      snackbar.success('Tool updated')
-      navigate('tools')
-    }    
+    snackbar.success('App updated')
+    navigate('apps')   
   }, [
-    tool,
+    app,
     name,
     description,
-    global,
-    url,
     schema,
-    headers,
-    query,
-    gptScript,
-    gptScriptURL
+    secrets,
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -192,28 +154,20 @@ const Tool: FC = () => {
 
   useEffect(() => {
     if(!account.user) return
-    tools.loadData()
+    apps.loadData()
   }, [
     account.user,
   ])
 
   useEffect(() => {
-    if(!tool) return
-    setName(tool.name)
-    setDescription(tool.description)
-    setGlobal(tool.global)
-    if(tool.config.api) {
-      setURL(tool.config.api.url)
-      setSchema(tool.config.api.schema)
-      setHeaders(tool.config.api.headers)
-      setQuery(tool.config.api.query)
-    } else if(tool.config.gptscript) {
-      setGptScriptURL(tool.config.gptscript.script_url || '')
-      setGptScript(tool.config.gptscript.script || '')
-    }
+    if(!app) return
+    setName(app.name)
+    setDescription(app.description)
+    setSchema(JSON.stringify(app.config, null, 4))
+    setSecrets(app.config.helix?.secrets || {})
     setHasLoaded(true)
   }, [
-    tool,
+    app,
   ])
 
   useWebsocket(sessionID, (parsedData) => {
@@ -238,7 +192,7 @@ const Tool: FC = () => {
             type="button"
             color="primary"
             variant="outlined"
-            onClick={ () => navigate('tools') }
+            onClick={ () => navigate('apps') }
           >
             Cancel
           </Button>
@@ -263,7 +217,7 @@ const Tool: FC = () => {
   ])
 
   if(!account.user) return null
-  if(!tool) return null
+  if(!app) return null
   if(!hasLoaded) return null
 
   return (
@@ -313,146 +267,50 @@ const Tool: FC = () => {
                 label="Description"
                 helperText="Enter a description of this tool (optional)"
               />
-              {
-                (account.admin || tool.global) && (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={global}
-                        disabled={readOnly}
-                        onChange={(e) => setGlobal(e.target.checked)}
-                      />
-                    }
-                    label="Global?"
-                  />
-                )
-              }
-              {
-                tool.config.api && (
-                  <>
-                    <Typography variant="h6" sx={{mb: 1}}>
-                      API Specification
-                    </Typography>
-                    <TextField
-                      sx={{
-                        mb: 3,
-                      }}
-                      error={ showErrors && !url }
-                      value={ url }
-                      onChange={(e) => setURL(e.target.value)}
-                      disabled={readOnly}
-                      fullWidth
-                      label="Endpoint URL"
-                      placeholder="Enter API URL"
-                      helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
-                    />
-                    <TextField
-                      error={ showErrors && !schema }
-                      value={ schema }
-                      onChange={(e) => setSchema(e.target.value)}
-                      disabled={readOnly}
-                      fullWidth
-                      multiline
-                      rows={10}
-                      label="OpenAPI (Swagger) schema"
-                      helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-                    />
-                    <Box
-                      sx={{
-                        textAlign: 'right',
-                        mb: 1,
-                      }}
-                    >
-                      <ClickLink
-                        onClick={ () => setShowBigSchema(true) }
-                      >
-                        expand schema
-                      </ClickLink>
-                    </Box>
-                    <Typography variant="h6" sx={{mb: 1}}>
-                      Authentication
-                    </Typography>
-                    <Box
-                      sx={{
-                        mb: 3,
-                      }}
-                    >
-                      <Typography variant="subtitle1" sx={{mb: 1}}>
-                        Headers
-                      </Typography>
-                      <StringMapEditor
-                        entityTitle="header"
-                        disabled={readOnly}
-                        data={ headers }
-                        onChange={ setHeaders }
-                      />
-                    </Box>
-                    <Box
-                      sx={{
-                        mb: 3,
-                      }}
-                    >
-                      <Typography variant="subtitle1" sx={{mb: 1}}>
-                        Query Params
-                      </Typography>
-                      <StringMapEditor
-                        entityTitle="query param"
-                        disabled={readOnly}
-                        data={ query }
-                        onChange={ setQuery }
-                      />
-                    </Box>
-                    {
-                      tool.config.api && (
-                        <Box
-                          sx={{
-                            mb: 3,
-                          }}
-                        >
-                          <Typography variant="h6" sx={{mb: 1}}>
-                            Actions
-                          </Typography>
-                          <ToolActionsGrid
-                            data={ tool.config.api.actions }
-                          />  
-                        </Box>
-                      )
-                    }
-                  </>
-                )
-              }
-              {
-                tool.config.gptscript && (
-                  <>
-                    <Typography variant="h6" sx={{mb: 1}}>
-                      GPTScript
-                    </Typography>
-                    <TextField
-                      sx={{
-                        mb: 3,
-                      }}
-                      error={ showErrors && !gptScriptURL && !gptScript }
-                      value={ gptScriptURL }
-                      onChange={(e) => setGptScriptURL(e.target.value)}
-                      disabled={readOnly}
-                      fullWidth
-                      label="Script URL"
-                      placeholder="Enter Script URL"
-                      helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
-                    />
-                    <TextField
-                      error={ showErrors && !gptScriptURL && !gptScript }
-                      value={ gptScript }
-                      onChange={(e) => setGptScript(e.target.value)}
-                      disabled={readOnly}
-                      fullWidth
-                      multiline
-                      rows={10}
-                      label="GPT Script"
-                    />
-                  </>
-                )
-              }
+              <Divider sx={{mt:4,mb:4}} />
+              <Typography variant="subtitle1" sx={{mb: 1}}>
+                Secrets
+              </Typography>
+              <StringMapEditor
+                entityTitle="header"
+                disabled={readOnly}
+                data={ secrets }
+                onChange={ setSecrets }
+              />
+              <Divider sx={{mt:4,mb:4}} />
+              <Typography variant="subtitle1" sx={{mb: 1}}>
+                GPT Scripts
+              </Typography>
+              <AppGptscriptsGrid
+                data={ app.config.helix?.gptscripts?.scripts || [] }
+              />  
+              <Divider sx={{mt:4,mb:4}} />
+              <Typography variant="h6" sx={{mb: 1}}>
+                App Configuration
+              </Typography>
+              <TextField
+                error={ showErrors && !schema }
+                value={ schema }
+                onChange={(e) => setSchema(e.target.value)}
+                disabled={true}
+                fullWidth
+                multiline
+                rows={10}
+                label="OpenAPI (Swagger) schema"
+                helperText={ showErrors && !schema ? "Please enter a schema" : "" }
+              />
+              <Box
+                sx={{
+                  textAlign: 'right',
+                  mb: 1,
+                }}
+              >
+                <ClickLink
+                  onClick={ () => setShowBigSchema(true) }
+                >
+                  expand schema
+                </ClickLink>
+              </Box>
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
               <Box
@@ -487,7 +345,8 @@ const Tool: FC = () => {
                   />
                   <Button
                     id="sendButton"
-                    variant='contained'
+                    variant="outlined"
+                    color="primary"
                     onClick={ onInference }
                     sx={{
                       color: themeConfig.darkText,
@@ -568,7 +427,8 @@ const Tool: FC = () => {
                 onChange={(e) => setSchema(e.target.value)}
                 fullWidth
                 multiline
-                label="OpenAPI (Swagger) schema"
+                disabled={true}
+                label="App Configuration"
                 helperText={showErrors && !schema ? "Please enter a schema" : ""}
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
@@ -580,4 +440,4 @@ const Tool: FC = () => {
   )
 }
 
-export default Tool
+export default App

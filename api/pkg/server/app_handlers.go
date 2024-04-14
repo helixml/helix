@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/store"
@@ -39,6 +40,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		if queryType != "" && app.AppType != types.AppType(queryType) {
 			continue
 		}
+		app.Config.Github.KeyPair.PrivateKey = ""
 		filteredApps = append(filteredApps, app)
 	}
 
@@ -74,6 +76,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	app.Owner = userContext.Owner
 	app.OwnerType = userContext.OwnerType
+	app.Updated = time.Now()
 
 	if app.Config.Helix == nil {
 		app.Config.Helix = &types.AppHelixConfig{
@@ -139,8 +142,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
-	var appUpdate *types.App
-	err := json.NewDecoder(r.Body).Decode(appUpdate)
+	var appUpdate types.AppUpdatePayload
+	err := json.NewDecoder(r.Body).Decode(&appUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
 	}
@@ -164,6 +167,11 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403("you do not have permission to update this app")
 	}
 
+	existing.Name = appUpdate.Name
+	existing.Description = appUpdate.Description
+	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
+	existing.Config.Helix.Secrets = appUpdate.Secrets
+
 	if existing.AppType == types.AppTypeGithub {
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
@@ -178,14 +186,16 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		appUpdate, err = githubApp.Update()
+		existing, err = githubApp.Update()
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
 	}
 
+	existing.Updated = time.Now()
+
 	// Updating the app
-	updated, err := s.Store.UpdateApp(r.Context(), appUpdate)
+	updated, err := s.Store.UpdateApp(r.Context(), existing)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

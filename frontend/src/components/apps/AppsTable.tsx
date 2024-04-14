@@ -66,7 +66,36 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           </Row>
         ),
         type: app.app_type,
-        details: app.description,
+        details: (
+          <>
+            <Box sx={{mb: 2}}>
+              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+                GPTScripts
+              </Typography>
+            </Box>
+            {
+              app.config.helix?.gptscripts?.scripts?.map((gptscript, index) => {
+                return (
+                  <Box key={index}>
+                    <Row>
+                      <Cell sx={{width:'50%'}}>
+                        <Chip color="secondary" size="small" label={gptscript.name} />
+                      </Cell>
+                      <Cell sx={{width:'50%'}}>
+                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                          {gptscript.content?.split('\n').filter(r => r)[0] || ''}
+                        </Typography>
+                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                          {gptscript.content?.split('\n').filter(r => r)[1] || ''}
+                        </Typography>
+                      </Cell>
+                    </Row>
+                  </Box>
+                )
+              })
+            }
+          </>
+        ),
         updated: (
           <Box
             sx={{
