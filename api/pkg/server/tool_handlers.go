@@ -185,18 +185,6 @@ func (s *HelixAPIServer) validateTool(_ *types.RequestContext, tool *types.Tool)
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 
-		// untrusted tools can run now in testfaster VMs
-
-		// if !userContext.Admin {
-		// 	return system.NewHTTPError403("only admin users can create gptscript tools")
-		// }
-
-		// this will actually be set as a testfaster secret!
-
-		// if s.Options.Config.Providers.OpenAI.APIKey == "" {
-		// 	return system.NewHTTPError400("OpenAI API key is required for GPTScript tools. Set OPENAI_API_KEY env variable for Helix controlplane")
-		// }
-
 		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
 			return system.NewHTTPError400("script or script URL is required for GPTScript tools")
 		}
@@ -241,7 +229,7 @@ func (s *HelixAPIServer) validateTool(_ *types.RequestContext, tool *types.Tool)
 
 		tool.Config.API.Actions = actions
 
-		_, err = s.Controller.Options.Planner.ValidateAndDefault(context.Background(), tool)
+		_, err = s.Controller.ToolsPlanner.ValidateAndDefault(context.Background(), tool)
 		if err != nil {
 			return system.NewHTTPError400("failed to validate and default tool, error: %s", err)
 		}
