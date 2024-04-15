@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/github"
@@ -135,11 +136,49 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, err
 	}
 
+	app.Config.Helix = config
+
+	return app, nil
+}
+
+// this is called when github is pushed
+func (githubApp *GithubApp) Update() (*types.App, error) {
+	app := githubApp.App
+
+	// update the code locally
+	err := githubApp.Clone()
+	if err != nil {
+		return nil, err
+	}
+
+	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
+	if err != nil {
+		return nil, err
+	}
+
+	app.Updated = time.Now()
+	app.Config.Github.Hash = commitHash
+
+	config, err := githubApp.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	if config == nil {
 		return nil, fmt.Errorf("helix.yaml not found in repo")
 	}
 
+	config, err = githubApp.processConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	app.Config.Helix = config
+
+	app, err = githubApp.UpdateApp(app)
+	if err != nil {
+		return nil, err
+	}
 
 	return app, nil
 }
@@ -161,10 +200,6 @@ func (githubApp *GithubApp) Filepath(subpath string) string {
 
 func (githubApp *GithubApp) RelativePath(fullpath string) string {
 	return strings.TrimPrefix(fullpath, githubApp.Filepath(""))
-}
-
-func (githubApp *GithubApp) Update() (*types.App, error) {
-	return githubApp.App, nil
 }
 
 func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {

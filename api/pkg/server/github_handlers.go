@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/rs/zerolog/log"
 
 	// github_sdk "github.com/google/go-github/v61/github"
 
 	github_api "github.com/google/go-github/v61/github"
+	"github.com/helixml/helix/api/pkg/apps"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,6 +24,32 @@ import (
 type GithubStatus struct {
 	HasToken    bool   `json:"has_token"`
 	RedirectURL string `json:"redirect_url"`
+}
+
+// given a loaded app record from our database
+// get the user context setup so we can have a fully connected
+// github client app - this is used from github webhooks
+// and client frontends where there is no user context from an auth token
+func (apiServer *HelixAPIServer) getGithubApp(app *types.App) (*apps.GithubApp, error) {
+	client, err := apiServer.getGithubClientFromUserContext(types.RequestContext{
+		Owner:     app.Owner,
+		OwnerType: app.OwnerType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
+		GithubConfig: apiServer.Cfg.GitHub,
+		Client:       client,
+		App:          app,
+		UpdateApp: func(app *types.App) (*types.App, error) {
+			return apiServer.Store.UpdateApp(context.Background(), app)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return githubApp, nil
 }
 
 func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Request) {
@@ -73,8 +99,27 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		fmt.Printf("evt --------------------------------------\n")
-		spew.Dump(evt)
+		// only accept pushes to master or main
+		if *evt.Ref != "refs/heads/master" && *evt.Ref != "refs/heads/main" {
+			log.Info().Msgf("ignoring push to branch: %s %s", *evt.Ref, *evt.Repo.HTMLURL)
+			return
+		}
+
+		log.Info().Msgf("github repo push: %+v", evt)
+
+		githubApp, err := apiServer.getGithubApp(app)
+		if err != nil {
+			log.Error().Msgf("error getting github app: %s", err.Error())
+			http.Error(w, fmt.Sprintf("error getting github app: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		_, err = githubApp.Update()
+		if err != nil {
+			log.Error().Msgf("error updating github app: %s", err.Error())
+			http.Error(w, fmt.Sprintf("error updating github app: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -191,7 +236,10 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 }
 
 func (apiServer *HelixAPIServer) getGithubClientFromRequest(req *http.Request) (*github.GithubClient, error) {
-	userContext := apiServer.getRequestContext(req)
+	return apiServer.getGithubClientFromUserContext(apiServer.getRequestContext(req))
+}
+
+func (apiServer *HelixAPIServer) getGithubClientFromUserContext(userContext types.RequestContext) (*github.GithubClient, error) {
 	databaseToken, err := apiServer.getGithubDatabaseToken(userContext)
 	if err != nil {
 		return nil, err

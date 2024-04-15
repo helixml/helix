@@ -149,7 +149,7 @@ const Apps: FC = () => {
       {
         deletingApp && (
           <DeleteConfirmWindow
-            title="this tool"
+            title="this app"
             onCancel={ () => setDeletingApp(undefined) }
             onSubmit={ onDeleteApp }
           />
