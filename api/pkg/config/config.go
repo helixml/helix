@@ -49,7 +49,8 @@ type TogetherAI struct {
 }
 
 type Helix struct {
-	OwnerID string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
+	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
 
 type Provider string
