@@ -53,12 +53,6 @@ const App: FC = () => {
     navigate,
   } = useRouter()
 
-  const isAdmin = account.admin
-  
-  const themeConfig = useThemeConfig()
-  const theme = useTheme()
-
-  const textFieldRef = useRef<HTMLTextAreaElement>()
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
@@ -291,6 +285,41 @@ const App: FC = () => {
                   data={ app.config.helix?.gptscript?.scripts || [] }
                 />
               </Box>
+            </Grid>
+            <Grid item xs={ 12 } md={ 6 }>
+              <Typography variant="h6" sx={{mb: 1}}>
+                Github
+              </Typography>
+              <TextField
+                sx={{
+                  mb: 3,
+                }}
+                value={ app.config.github?.repo }
+                disabled
+                fullWidth
+                label="Repo"
+                helperText="The repository this app is linked to"
+              />
+              <TextField
+                sx={{
+                  mb: 3,
+                }}
+                value={ app.config.github?.hash }
+                disabled
+                fullWidth
+                label="Hash"
+                helperText="The commit hash this app is linked to"
+              />
+              <TextField
+                sx={{
+                  mb: 3,
+                }}
+                value={ app.updated }
+                disabled
+                fullWidth
+                label="Updated"
+                helperText="The last time this app was updated"
+              />
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="h6" sx={{mb: 1}}>
                 App Configuration
@@ -319,9 +348,7 @@ const App: FC = () => {
                   expand
                 </JsonWindowLink>
               </Box>
-            </Grid>
-            <Grid item xs={ 12 } md={ 6 }>
-              <Box
+              {/* <Box
                 sx={{
                   mb: 3,
                 }}
@@ -407,7 +434,7 @@ const App: FC = () => {
                     </>
                   )
                 }
-              </Box>
+              </Box> */}
             </Grid>
           </Grid>
         </Box>
