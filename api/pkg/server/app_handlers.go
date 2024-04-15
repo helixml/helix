@@ -129,6 +129,15 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return created, nil
 }
 
+// what the user can change about a github app fromm the frontend
+type AppUpdatePayload struct {
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	ActiveTools    []string          `json:"active_tools"`
+	Secrets        map[string]string `json:"secrets"`
+	AllowedDomains []string          `json:"allowed_domains"`
+}
+
 // updateTool godoc
 // @Summary Update an existing app
 // @Description Update existing app
@@ -142,7 +151,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	userContext := s.getRequestContext(r)
 
-	var appUpdate types.AppUpdatePayload
+	var appUpdate AppUpdatePayload
 	err := json.NewDecoder(r.Body).Decode(&appUpdate)
 	if err != nil {
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
@@ -171,6 +180,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	existing.Description = appUpdate.Description
 	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
 	existing.Config.Helix.Secrets = appUpdate.Secrets
+	existing.Config.Helix.AllowedDomains = appUpdate.AllowedDomains
 
 	if existing.AppType == types.AppTypeGithub {
 		client, err := s.getGithubClientFromRequest(r)

@@ -19,6 +19,7 @@ import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import StringMapEditor from '../components/widgets/StringMapEditor'
+import StringArrayEditor from '../components/widgets/StringArrayEditor'
 import ClickLink from '../components/widgets/ClickLink'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
@@ -62,6 +63,7 @@ const App: FC = () => {
   const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
   const [ secrets, setSecrets ] = useState<Record<string, string>>({})
+  const [ allowedDomains, setAllowedDomains ] = useState<string[]>([])
   const [ schema, setSchema ] = useState('')
   const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
@@ -140,8 +142,8 @@ const App: FC = () => {
     const update: IAppUpdate = {
       name,
       description,
-      active_tools: [],
       secrets,
+      allowed_domains: allowedDomains,
     }
 
     const result = await apps.updateApp(params.app_id, update)
@@ -156,6 +158,7 @@ const App: FC = () => {
     description,
     schema,
     secrets,
+    allowedDomains,
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -188,6 +191,7 @@ const App: FC = () => {
     setDescription(app.description)
     setSchema(JSON.stringify(app.config, null, 4))
     setSecrets(app.config.helix?.secrets || {})
+    setAllowedDomains(app.config.helix?.allowed_domains || [])
     setHasLoaded(true)
   }, [
     app,
@@ -368,14 +372,30 @@ const App: FC = () => {
                 />
               </Box>
               <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1" sx={{mb: 1}}>
+              <Typography variant="subtitle1">
                 Environment Variables
               </Typography>
+              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                These will be available to your GPT Scripts as environment variables
+              </Typography>
               <StringMapEditor
-                entityTitle="header"
-                disabled={readOnly}
+                entityTitle="variable"
+                disabled={ readOnly }
                 data={ secrets }
                 onChange={ setSecrets }
+              />
+              <Divider sx={{mt:4,mb:4}} />
+              <Typography variant="subtitle1">
+                Allowed Domains
+              </Typography>
+              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+              </Typography>
+              <StringArrayEditor
+                entityTitle="domain"
+                disabled={ readOnly }
+                data={ allowedDomains }
+                onChange={ setAllowedDomains }
               />
               <Divider sx={{mt:4,mb:4}} />
               <Row>
