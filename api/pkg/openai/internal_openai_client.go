@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -41,10 +40,6 @@ func (c *InternalHelixClient) CreateChatCompletion(ctx context.Context, request 
 	var updatedSession *types.Session
 
 	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetSessionQueue(c.cfg.Providers.Helix.OwnerID, sessionID), func(payload []byte) error {
-
-		fmt.Println("EVENT")
-		spew.Dump(string(payload))
-
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -176,7 +171,7 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 		Stream:           req.Stream,
 		ModelName:        types.ModelName(req.Model),
 		Owner:            c.cfg.Providers.Helix.OwnerID,
-		OwnerType:        types.OwnerTypeUser,
+		OwnerType:        types.OwnerType(c.cfg.Providers.Helix.OwnerType),
 		UserInteractions: interactions,
 		Priority:         true, // TODO: maybe get from config
 		ActiveTools:      []string{},
