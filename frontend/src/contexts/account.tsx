@@ -31,6 +31,7 @@ export interface IAccountContext {
   setMobileMenuOpen: (val: boolean) => void,
   onLogin: () => void,
   onLogout: () => void,
+  loadApiKeys: (queryParams?: Record<string, string>) => void,
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -52,6 +53,7 @@ export const AccountContext = createContext<IAccountContext>({
   setMobileMenuOpen: () => {},
   onLogin: () => {},
   onLogout: () => {},
+  loadApiKeys: () => {},
 })
 
 export const useAccountContext = (): IAccountContext => {
@@ -110,8 +112,10 @@ export const useAccountContext = (): IAccountContext => {
     setServerConfig(configResult)
   }, [])
   
-  const loadApiKeys = useCallback(async () => {
-    const result = await api.get<IApiKey[]>('/api/v1/api_keys')
+  const loadApiKeys = useCallback(async (params: Record<string, string> = {}) => {
+    const result = await api.get<IApiKey[]>('/api/v1/api_keys', {
+      params,
+    })
     if(!result) return
     setApiKeys(result)
   }, [])
@@ -120,12 +124,10 @@ export const useAccountContext = (): IAccountContext => {
     await bluebird.all([
       loadStatus(),
       loadServerConfig(),
-      loadApiKeys(),
     ])
   }, [
     loadStatus,
     loadServerConfig,
-    loadApiKeys,
   ])
 
   const onLogin = useCallback(() => {
@@ -205,7 +207,7 @@ export const useAccountContext = (): IAccountContext => {
     user,
   ])
 
-  const contextValue = useMemo<IAccountContext>(() => ({
+  return {
     initialized,
     user,
     token,
@@ -218,22 +220,8 @@ export const useAccountContext = (): IAccountContext => {
     apiKeys,
     onLogin,
     onLogout,
-  }), [
-    initialized,
-    user,
-    token,
-    admin,
-    serverConfig,
-    userConfig,
-    mobileMenuOpen,
-    setMobileMenuOpen,
-    credits,
-    apiKeys,
-    onLogin,
-    onLogout,
-  ])
-
-  return contextValue
+    loadApiKeys,
+  }
 }
 
 export const AccountContextProvider: FC = ({ children }) => {

@@ -88,13 +88,17 @@ export interface IUserConfig {
   stripe_subscription_id?: string,
 }
 
-export type IOwnerType = 'user' | 'system' | 'org';
+export type IOwnerType = 'user' | 'system' | 'org'
+
+export type IApiKeyType = 'api' | 'github' | 'app'
 
 export interface IApiKey {
-  owner: string;
-  owner_type: string;
-  key: string;
-  name: string;
+  owner: string,
+  owner_type: string,
+  key: string,
+  name: string,
+  app_id: string,
+  type: IApiKeyType,
 }
 
 export interface IFileStoreBreadcrumb {

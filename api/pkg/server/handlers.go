@@ -956,12 +956,40 @@ func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, re
 }
 
 func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	newAPIKey := &types.APIKey{}
 	name := req.URL.Query().Get("name")
-	apiKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), name)
+
+	if name != "" {
+		// if we are using the query string route then don't try to deode the body
+		newAPIKey.Name = name
+		newAPIKey.Type = types.APIKeyType_API
+	} else {
+		// otherwise assume there is a key on the body
+		err := json.NewDecoder(req.Body).Decode(newAPIKey)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	createdKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), newAPIKey)
 	if err != nil {
 		return "", err
 	}
-	return apiKey, nil
+	return createdKey.Key, nil
+}
+
+func containsType(keyType string, typesParam string) bool {
+	if typesParam == "" {
+		return false
+	}
+
+	typesList := strings.Split(typesParam, ",")
+	for _, t := range typesList {
+		if t == keyType {
+			return true
+		}
+	}
+	return false
 }
 
 func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
@@ -969,14 +997,24 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 	if err != nil {
 		return nil, err
 	}
-	// only include the key if it's type is "api" or "frontend"
-	// this is to prevent the frontend from seeing the secret key
-	// which is only used for internal communication
+
+	typesParam := req.URL.Query().Get("types")
+	appIDParam := req.URL.Query().Get("app_id")
+
+	includeAllTypes := false
+	if typesParam == "all" {
+		includeAllTypes = true
+	}
+
 	filteredAPIKeys := []*types.APIKey{}
 	for _, key := range apiKeys {
-		if key.Type == "api" || key.Type == "frontend" {
-			filteredAPIKeys = append(filteredAPIKeys, key)
+		if !includeAllTypes && !containsType(string(key.Type), typesParam) {
+			continue
 		}
+		if appIDParam != "" && key.AppID != appIDParam {
+			continue
+		}
+		filteredAPIKeys = append(filteredAPIKeys, key)
 	}
 	apiKeys = filteredAPIKeys
 	return apiKeys, nil
@@ -988,7 +1026,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http
 	if err != nil {
 		return "", err
 	}
-	return "", nil
+	return apiKey, nil
 }
 
 func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.APIKey, error) {

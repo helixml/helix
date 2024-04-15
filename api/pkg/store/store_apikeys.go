@@ -42,10 +42,20 @@ func (s *PostgresStore) GetAPIKey(ctx context.Context, key string) (*types.APIKe
 
 func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListApiKeysQuery) ([]*types.APIKey, error) {
 	var apiKeys []*types.APIKey
-	err := s.gdb.WithContext(ctx).Where(&types.APIKey{
+	queryAPIKey := &types.APIKey{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
-	}).Find(&apiKeys).Error
+	}
+
+	if q.Type != "" {
+		queryAPIKey.Type = q.Type
+	}
+
+	if q.AppID != "" {
+		queryAPIKey.AppID = q.AppID
+	}
+
+	err := s.gdb.WithContext(ctx).Where(queryAPIKey).Find(&apiKeys).Error
 	if err != nil {
 		return nil, err
 	}

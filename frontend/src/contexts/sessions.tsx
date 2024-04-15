@@ -146,7 +146,7 @@ export const useSessionsContext = (): ISessionsContext => {
     page,
   ])
 
-  const contextValue = useMemo<ISessionsContext>(() => ({
+  return {
     initialized,
     loading,
     pagination,
@@ -157,20 +157,7 @@ export const useSessionsContext = (): ISessionsContext => {
     addSesssion,
     deleteSession,
     renameSession,
-  }), [
-    initialized,
-    loading,
-    pagination,
-    sessions,
-    hasMoreSessions,
-    advancePage,
-    loadSessions,
-    addSesssion,
-    deleteSession,
-    renameSession,
-  ])
-
-  return contextValue
+  }
 }
 
 export const SessionsContextProvider: FC = ({ children }) => {

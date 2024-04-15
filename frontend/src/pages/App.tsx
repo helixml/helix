@@ -11,12 +11,17 @@ import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import SendIcon from '@mui/icons-material/Send'
-import JsonWindowLink from '../components/widgets/JsonWindowLink'
+import AddCircleIcon from '@mui/icons-material/AddCircle'
 
+import JsonWindowLink from '../components/widgets/JsonWindowLink'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import StringMapEditor from '../components/widgets/StringMapEditor'
 import ClickLink from '../components/widgets/ClickLink'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
+import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 
@@ -61,6 +66,7 @@ const App: FC = () => {
   const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
+  const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
 
   const app = useMemo(() => {
     return apps.data.find((app) => app.id === params.app_id)
@@ -82,6 +88,22 @@ const App: FC = () => {
   }, [
     session.data,
   ])
+
+  const onAddAPIKey = async () => {
+    const res = await api.post('/api/v1/api_keys', {
+      name: `api key ${account.apiKeys.length + 1}`,
+      type: 'app',
+      app_id: params.app_id,
+    }, {}, {
+      snackbar: true,
+    })
+    if(!res) return
+    snackbar.success('API Key added')
+    account.loadApiKeys({
+      types: 'app',
+      app_id: params.app_id,
+    })
+  }
 
   // this is for inference in both modes
   const onInference = async () => {
@@ -149,8 +171,14 @@ const App: FC = () => {
 
   useEffect(() => {
     if(!account.user) return
+    if(!params.app_id) return
     apps.loadData()
+    account.loadApiKeys({
+      types: 'app',
+      app_id: params.app_id,
+    })
   }, [
+    params,
     account.user,
   ])
 
@@ -263,30 +291,6 @@ const App: FC = () => {
                 helperText="Enter a description of this tool (optional)"
               />
               <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1" sx={{mb: 1}}>
-                Secrets
-              </Typography>
-              <StringMapEditor
-                entityTitle="header"
-                disabled={readOnly}
-                data={ secrets }
-                onChange={ setSecrets }
-              />
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1" sx={{mb: 1}}>
-                GPT Scripts
-              </Typography>
-              <Box
-                sx={{
-                  maxHeight: '400px',
-                }}
-              >
-                <AppGptscriptsGrid
-                  data={ app.config.helix?.gptscript?.scripts || [] }
-                />
-              </Box>
-            </Grid>
-            <Grid item xs={ 12 } md={ 6 }>
               <Typography variant="h6" sx={{mb: 1}}>
                 Github
               </Typography>
@@ -348,6 +352,64 @@ const App: FC = () => {
                   expand
                 </JsonWindowLink>
               </Box>
+              
+            </Grid>
+            <Grid item xs={ 12 } md={ 6 }>
+              <Typography variant="subtitle1" sx={{mb: 1}}>
+                GPT Scripts
+              </Typography>
+              <Box
+                sx={{
+                  height: '300px'
+                }}
+              >
+                <AppGptscriptsGrid
+                  data={ app.config.helix?.gptscript?.scripts || [] }
+                />
+              </Box>
+              <Divider sx={{mt:4,mb:4}} />
+              <Typography variant="subtitle1" sx={{mb: 1}}>
+                Environment Variables
+              </Typography>
+              <StringMapEditor
+                entityTitle="header"
+                disabled={readOnly}
+                data={ secrets }
+                onChange={ setSecrets }
+              />
+              <Divider sx={{mt:4,mb:4}} />
+              <Row>
+                <Cell grow>
+                  <Typography variant="subtitle1" sx={{mb: 1}}>
+                    API Keys
+                  </Typography>
+                </Cell>
+                <Cell>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    endIcon={<AddCircleIcon />}
+                    onClick={ () => {
+                      onAddAPIKey()
+                    }}
+                  >
+                    Add API Key
+                  </Button>
+                </Cell>
+              </Row>
+              <Box
+                sx={{
+                  height: '300px'
+                }}
+              >
+                <AppAPIKeysDataGrid
+                  data={ account.apiKeys }
+                  onDeleteKey={ (key) => {
+                    setDeletingAPIKey(key)
+                  }}
+                />
+              </Box>
+              
               {/* <Box
                 sx={{
                   mb: 3,
@@ -469,6 +531,32 @@ const App: FC = () => {
               />
             </Box>
           </Window>
+        )
+      }
+      {
+        deletingAPIKey && (
+          <DeleteConfirmWindow
+            title="this API key"
+            onSubmit={async () => {
+              const res = await api.delete(`/api/v1/api_keys`, {
+                params: {
+                  key: deletingAPIKey,
+                },
+              }, {
+                snackbar: true,
+              })
+              if(!res) return
+              snackbar.success('API Key deleted')
+              account.loadApiKeys({
+                types: 'app',
+                app_id: params.app_id,
+              })
+              setDeletingAPIKey('')
+            }}
+            onCancel={() => {
+              setDeletingAPIKey('')
+            }}
+          />
         )
       }
     </>
