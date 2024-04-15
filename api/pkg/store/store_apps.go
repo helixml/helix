@@ -31,22 +31,22 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	return s.GetApp(ctx, app.ID)
 }
 
-func (s *PostgresStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App, error) {
-	if tool.ID == "" {
+func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.App, error) {
+	if app.ID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
 
-	if tool.Owner == "" {
+	if app.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
 
-	tool.Updated = time.Now()
+	app.Updated = time.Now()
 
-	err := s.gdb.WithContext(ctx).Save(&tool).Error
+	err := s.gdb.WithContext(ctx).Save(&app).Error
 	if err != nil {
 		return nil, err
 	}
-	return s.GetApp(ctx, tool.ID)
+	return s.GetApp(ctx, app.ID)
 }
 
 func (s *PostgresStore) GetApp(ctx context.Context, id string) (*types.App, error) {

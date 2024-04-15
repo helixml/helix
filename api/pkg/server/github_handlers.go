@@ -2,20 +2,80 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/rs/zerolog/log"
+
+	// github_sdk "github.com/google/go-github/v61/github"
+
+	github_api "github.com/google/go-github/v61/github"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"golang.org/x/oauth2"
 	github_oauth "golang.org/x/oauth2/github"
+	"gopkg.in/rjz/githubhook.v0"
 )
 
 type GithubStatus struct {
 	HasToken    bool   `json:"has_token"`
 	RedirectURL string `json:"redirect_url"`
+}
+
+func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Request) {
+	appID := r.URL.Query().Get("app_id")
+	if appID == "" {
+		log.Error().Msgf("github webhook app_id is required: %s", r.URL.String())
+		http.Error(w, "app_id is required", http.StatusBadRequest)
+		return
+	}
+
+	app, err := apiServer.Store.GetApp(r.Context(), appID)
+	if err != nil {
+		log.Error().Msgf("error loading app from ID: %s %s", appID, err.Error())
+		http.Error(w, fmt.Sprintf("error loading app: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	hook, err := githubhook.Parse([]byte(app.Config.Github.WebhookSecret), r)
+	if err != nil {
+		log.Error().Msgf("error parsing webhook: %s", err.Error())
+		http.Error(w, fmt.Sprintf("error parsing webhook: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	formValues, err := url.ParseQuery(string(hook.Payload))
+	if err != nil {
+		log.Error().Msgf("error parsing form URL encoded payload: %s", err.Error())
+		http.Error(w, fmt.Sprintf("error parsing form URL encoded payload: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	payload := formValues.Get("payload")
+
+	if payload == "" {
+		log.Error().Msgf("github webhook payload is required")
+		http.Error(w, "payload is required", http.StatusBadRequest)
+		return
+	}
+
+	switch hook.Event {
+
+	case "push":
+		evt := github_api.PushEvent{}
+		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
+			log.Error().Msgf("error parsing webhook: %s", err.Error())
+			http.Error(w, fmt.Sprintf("error parsing webhook: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("evt --------------------------------------\n")
+		spew.Dump(evt)
+	}
 }
 
 // do we already have the github token as an api key in the database?

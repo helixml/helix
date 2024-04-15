@@ -188,8 +188,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/github/status", system.DefaultWrapper(apiServer.githubStatus)).Methods("GET")
 	authRouter.HandleFunc("/github/callback", apiServer.githubCallback).Methods("GET")
 	authRouter.HandleFunc("/github/repos", system.DefaultWrapper(apiServer.listGithubRepos)).Methods("GET")
-	// authRouter.HandleFunc("/github/ecdsa-keypair", apiServer.githubEcdsaKeypair).Methods("POST")
-	// authRouter.HandleFunc("/github/deploykey", apiServer.githubDeployKey).Methods("POST")
+	subrouter.HandleFunc("/github/webhook", apiServer.githubWebhook).Methods("POST")
 
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 

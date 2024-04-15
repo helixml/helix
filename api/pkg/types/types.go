@@ -728,9 +728,10 @@ type AppHelixConfig struct {
 }
 
 type AppGithubConfig struct {
-	Repo    string  `json:"repo"`
-	Hash    string  `json:"hash"`
-	KeyPair KeyPair `json:"key_pair"`
+	Repo          string  `json:"repo"`
+	Hash          string  `json:"hash"`
+	KeyPair       KeyPair `json:"key_pair"`
+	WebhookSecret string  `json:"webhook_secret"`
 }
 
 type AppConfig struct {
