@@ -717,13 +717,14 @@ type AppHelixConfigGPTScripts struct {
 }
 
 type AppHelixConfig struct {
-	Name         string                   `json:"name" yaml:"name"`
-	Description  string                   `json:"description" yaml:"description"`
-	Avatar       string                   `json:"avatar" yaml:"avatar"`
-	SystemPrompt string                   `json:"system_prompt" yaml:"system_prompt"`
-	ActiveTools  []string                 `json:"active_tools" yaml:"active_tools"`
-	Secrets      map[string]string        `json:"secrets" yaml:"secrets"`
-	GPTScript    AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
+	Name           string                   `json:"name" yaml:"name"`
+	Description    string                   `json:"description" yaml:"description"`
+	Avatar         string                   `json:"avatar" yaml:"avatar"`
+	SystemPrompt   string                   `json:"system_prompt" yaml:"system_prompt"`
+	ActiveTools    []string                 `json:"active_tools" yaml:"active_tools"`
+	Secrets        map[string]string        `json:"secrets" yaml:"secrets"`
+	AllowedDomains []string                 `json:"allowed_domains" yaml:"allowed_domains"`
+	GPTScript      AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
 }
 
 type AppGithubConfig struct {
@@ -777,12 +778,4 @@ type KeyPair struct {
 	Type       string
 	PrivateKey string
 	PublicKey  string
-}
-
-// what the user can change about a github app fromm the frontend
-type AppUpdatePayload struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	ActiveTools []string          `json:"active_tools"`
-	Secrets     map[string]string `json:"secrets"`
 }

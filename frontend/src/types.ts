@@ -480,6 +480,7 @@ export interface IAppHelixConfig {
   system_prompt?: string,
   active_tools?: string[],
   secrets?: Record<string, string>,
+  allowed_domains?: string[],
   gptscript?: IAppHelixConfigGptScripts,
 }
 
@@ -510,7 +511,7 @@ export interface IAppUpdate {
   name: string,
   description: string,
   secrets: Record<string, string>,
-  active_tools: string[],
+  allowed_domains: string[],
 }
 
 export interface IGithubStatus {
