@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -142,6 +141,10 @@ func (githubApp *GithubApp) Filepath(subpath string) string {
 	return path.Join(githubApp.GithubConfig.RepoFolder, githubApp.Name, subpath)
 }
 
+func (githubApp *GithubApp) RelativePath(fullpath string) string {
+	return strings.TrimPrefix(fullpath, githubApp.Filepath(""))
+}
+
 func (githubApp *GithubApp) Update() (*types.App, error) {
 	return githubApp.App, nil
 }
@@ -180,13 +183,18 @@ func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
 }
 
 func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
-	if config.GPTScripts.Scripts == nil {
-		config.GPTScripts.Scripts = []types.AppHelixConfigGPTScript{}
+	if config.GPTScript.Scripts == nil {
+		config.GPTScript.Scripts = []types.AppHelixConfigGPTScript{}
+	}
+
+	if config.GPTScript.Files == nil {
+		config.GPTScript.Files = []string{}
 	}
 
 	newScripts := []types.AppHelixConfigGPTScript{}
 
-	for i, script := range config.GPTScripts.Scripts {
+	// scripts means you can configure the GPTScript contents inline with the helix.yaml
+	for i, script := range config.GPTScript.Scripts {
 		if script.Name == "" {
 			return nil, fmt.Errorf("gpt script %d has no name", i)
 		}
@@ -205,50 +213,30 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 
 			script.Content = string(content)
 		}
+		if script.Content == "" {
+			return nil, fmt.Errorf("gpt script %s has no content", script.Name)
+		}
 		newScripts = append(newScripts, script)
 	}
 
-	config.GPTScripts.Scripts = newScripts
+	expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), config.GPTScript.Files)
+	if err != nil {
+		return nil, err
+	}
 
-	if config.GPTScripts.Folder != "" {
-		newScripts = []types.AppHelixConfigGPTScript{}
-
-		if _, err := os.Stat(githubApp.Filepath(config.GPTScripts.Folder)); err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("gpt scripts folder not found: %s", config.GPTScripts.Folder)
-			}
-			return nil, err
-		}
-
-		// look into the folder and extract the files script content
-		err := filepath.Walk(githubApp.Filepath(config.GPTScripts.Folder), func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() {
-				// if path doesn't end with ".gpt" then dont add
-				if !strings.HasSuffix(path, ".gpt") {
-					return nil
-				}
-				content, err := os.ReadFile(path)
-				if err != nil {
-					return err
-				}
-				newScripts = append(newScripts, types.AppHelixConfigGPTScript{
-					Name:     strings.TrimSuffix(filepath.Base(path), ".gpt"),
-					FilePath: path,
-					Content:  string(content),
-				})
-			}
-			return nil
-		})
-
+	for _, filepath := range expandedFiles {
+		content, err := os.ReadFile(filepath)
 		if err != nil {
 			return nil, err
 		}
-
-		config.GPTScripts.Scripts = newScripts
+		newScripts = append(newScripts, types.AppHelixConfigGPTScript{
+			Name:     path.Base(filepath),
+			FilePath: githubApp.RelativePath(filepath),
+			Content:  string(content),
+		})
 	}
+
+	config.GPTScript.Scripts = newScripts
 
 	return config, nil
 }

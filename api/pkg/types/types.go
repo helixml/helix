@@ -729,7 +729,7 @@ type AppHelixConfigGPTScript struct {
 }
 
 type AppHelixConfigGPTScripts struct {
-	Folder  string                    `json:"folder" yaml:"folder"`
+	Files   []string                  `json:"files" yaml:"files"`
 	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
 }
 
@@ -740,7 +740,7 @@ type AppHelixConfig struct {
 	SystemPrompt string                   `json:"system_prompt" yaml:"system_prompt"`
 	ActiveTools  []string                 `json:"active_tools" yaml:"active_tools"`
 	Secrets      map[string]string        `json:"secrets" yaml:"secrets"`
-	GPTScripts   AppHelixConfigGPTScripts `json:"gptscripts" yaml:"gptscripts"`
+	GPTScript    AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
 }
 
 type AppGithubConfig struct {
