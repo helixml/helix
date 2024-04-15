@@ -102,7 +102,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
           }}
         >
           <CopyToClipboard
-            text={JSON.stringify(data, null, 4)}
+            text={typeof(data) == 'string' ? data : JSON.stringify(data, null, 4)}
             onCopy={() => {
               snackbar.success('Copied to clipboard')
             }}

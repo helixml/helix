@@ -53,7 +53,7 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
   userSelect = false,
   minHeight = 400,
   editable = false,
-  rowHeight = 56,
+  rowHeight,
   headerHeight = 40,
   loading,
   onDoubleClick,
@@ -149,8 +149,8 @@ const DataGrid: FC<React.PropsWithChildren<DataGridProps>> = ({
           onCellClick={onCellClick}
           onCellDoubleClick={(ev, props) => onDoubleClick && onDoubleClick(props.rowIndex)}
           headerHeight={headerHeight}
-          // minRowHeight={rowHeight}
-          // rowHeight={rowHeight}
+          minRowHeight={rowHeight}
+          rowHeight={rowHeight}
           style={gridStyle}
           showCellBorders={false}
           showHoverRows={false}

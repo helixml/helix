@@ -3,7 +3,7 @@ import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
-
+import JsonWindowLink from '../widgets/JsonWindowLink'
 import {
   IAppHelixConfigGptScript,
 } from '../../types'
@@ -44,6 +44,12 @@ const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
               <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
                 {data.content?.split('\n').filter(r => r)[1] || ''}
               </Typography>
+              <JsonWindowLink
+                sx={{textDecoration: 'underline'}}
+                data={data.content}
+              >
+                expand
+              </JsonWindowLink>
             </>
           )
         }
@@ -57,6 +63,7 @@ const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
       userSelect
       rows={ data }
       columns={ columns }
+      rowHeight={ 70 }
       loading={ false }
     />
   )
