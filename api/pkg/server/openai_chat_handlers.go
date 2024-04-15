@@ -310,10 +310,10 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	select {
 	case <-doneCh:
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 		// Continue with response
 	case <-req.Context().Done():
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 		return
 	}
 
