@@ -36,25 +36,25 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 }
 
 // CheckAPIKey mocks base method.
-func (m *MockStore) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
+func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckAPIKey", ctx, apiKey)
-	ret0, _ := ret[0].(*types.ApiKey)
+	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
+	ret0, _ := ret[0].(*types.APIKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CheckAPIKey indicates an expected call of CheckAPIKey.
-func (mr *MockStoreMockRecorder) CheckAPIKey(ctx, apiKey interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckAPIKey", reflect.TypeOf((*MockStore)(nil).CheckAPIKey), ctx, apiKey)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
 }
 
 // CreateAPIKey mocks base method.
-func (m *MockStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error) {
+func (m *MockStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, owner, name)
-	ret0, _ := ret[0].(string)
+	ret := m.ctrl.Call(m, "CreateAPIKey", ctx, apiKey)
+	ret0, _ := ret[0].(*types.APIKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -140,7 +140,7 @@ func (mr *MockStoreMockRecorder) CreateUserMeta(ctx, UserMeta interface{}) *gomo
 }
 
 // DeleteAPIKey mocks base method.
-func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error {
+func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAPIKey", ctx, apiKey)
 	ret0, _ := ret[0].(error)
@@ -226,18 +226,18 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta interface{}) *gomo
 }
 
 // GetAPIKeys mocks base method.
-func (m *MockStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
+func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAPIKeys", ctx, query)
-	ret0, _ := ret[0].([]*types.ApiKey)
+	ret := m.ctrl.Call(m, "ListAPIKeys", ctx, query)
+	ret0, _ := ret[0].([]*types.APIKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetAPIKeys indicates an expected call of GetAPIKeys.
-func (mr *MockStoreMockRecorder) GetAPIKeys(ctx, query interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) ListAPIKeys(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKeys", reflect.TypeOf((*MockStore)(nil).GetAPIKeys), ctx, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAPIKeys", reflect.TypeOf((*MockStore)(nil).ListAPIKeys), ctx, query)
 }
 
 // GetSession mocks base method.

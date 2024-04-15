@@ -25,6 +25,11 @@ type GetSessionsQuery struct {
 	Limit         int             `json:"limit"`
 }
 
+type ListApiKeysQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+}
+
 type ListToolsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
@@ -55,10 +60,10 @@ type Store interface {
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 
 	// api keys
-	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error)
-	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
-	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
-	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error)
+	GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error)
+	ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error)
+	DeleteAPIKey(ctx context.Context, apiKey string) error
 
 	// tools
 	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)

@@ -32,18 +32,21 @@ func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string
 	if err != nil {
 		return "", err
 	}
-	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, store.OwnerQuery{
+	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, &types.APIKey{
 		Owner:     ctx.Owner,
 		OwnerType: ctx.OwnerType,
-	}, name, key, types.APIKeyType_API)
+		Name:      name,
+		Key:       key,
+		Type:      types.APIKeyType_API,
+	})
 	if err != nil {
 		return "", err
 	}
-	return apiKey, nil
+	return apiKey.Key, nil
 }
 
-func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.ApiKey, error) {
-	apiKeys, err := c.Options.Store.GetAPIKeys(ctx.Ctx, store.OwnerQuery{
+func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, error) {
+	apiKeys, err := c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
 		Owner:     ctx.Owner,
 		OwnerType: ctx.OwnerType,
 	})
@@ -61,7 +64,7 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.ApiKey, erro
 }
 
 func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error {
-	fetchedApiKey, err := c.Options.Store.CheckAPIKey(ctx.Ctx, apiKey)
+	fetchedApiKey, err := c.Options.Store.GetAPIKey(ctx.Ctx, apiKey)
 	if err != nil {
 		return err
 	}
@@ -72,15 +75,15 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error
 	if fetchedApiKey.Owner != ctx.Owner || fetchedApiKey.OwnerType != ctx.OwnerType {
 		return errors.New("unauthorized")
 	}
-	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, *fetchedApiKey)
+	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, fetchedApiKey.Key)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	key, err := c.Options.Store.CheckAPIKey(ctx, apiKey)
+func (c *Controller) CheckAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
+	key, err := c.Options.Store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		return nil, err
 	}

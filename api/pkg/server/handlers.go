@@ -964,7 +964,7 @@ func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http
 	return apiKey, nil
 }
 
-func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
 	apiKeys, err := apiServer.Controller.GetAPIKeys(apiServer.getRequestContext(req))
 	if err != nil {
 		return nil, err
@@ -972,7 +972,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 	// only include the key if it's type is "api" or "frontend"
 	// this is to prevent the frontend from seeing the secret key
 	// which is only used for internal communication
-	filteredAPIKeys := []*types.ApiKey{}
+	filteredAPIKeys := []*types.APIKey{}
 	for _, key := range apiKeys {
 		if key.Type == "api" || key.Type == "frontend" {
 			filteredAPIKeys = append(filteredAPIKeys, key)
@@ -991,7 +991,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http
 	return "", nil
 }
 
-func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(apiServer.getRequestContext(req).Ctx, apiKey)
 	if err != nil {

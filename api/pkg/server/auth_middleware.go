@@ -23,7 +23,7 @@ func newMiddleware(authenticator auth.Authenticator, cfg config.WebServer, store
 	return &authMiddleware{authenticator: authenticator, cfg: cfg, store: store}
 }
 
-func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
+func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.APIKey, error) {
 	// in case the request is authenticated with an hl- token, rather than a
 	// keycloak JWT, return the owner. Returns nil if it's not an hl- token.
 	token := r.Header.Get("Authorization")
@@ -38,15 +38,16 @@ func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKe
 	}
 
 	if strings.HasPrefix(token, types.API_KEY_PREIX) {
-		if owner, err := auth.store.CheckAPIKey(r.Context(), token); err != nil {
-			return nil, fmt.Errorf("error checking API key: %s", err.Error())
-		} else if owner == nil {
-			// user claimed to provide hl- token, but it was invalid
-			return nil, fmt.Errorf("invalid API key")
-		} else {
-			return owner, nil
+		apiKey, err := auth.store.GetAPIKey(r.Context(), token)
+		if err != nil {
+			return nil, fmt.Errorf("error getting API key: %s", err.Error())
 		}
+		if apiKey == nil {
+			return nil, fmt.Errorf("error getting API key: no key found")
+		}
+		return apiKey, nil
 	}
+
 	// user didn't claim token was an lp token, so fallback to keycloak
 	return nil, nil
 }
