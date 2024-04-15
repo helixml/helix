@@ -7,12 +7,14 @@ import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Stack from '@mui/material/Stack'
 import Chip from '@mui/material/Chip'
+import GitHubIcon from '@mui/icons-material/GitHub'
+
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
-import GitHubIcon from '@mui/icons-material/GitHub'
+import JsonWindowLink from '../widgets/JsonWindowLink'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -88,6 +90,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                         <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
                           {gptscript.content?.split('\n').filter(r => r)[1] || ''}
                         </Typography>
+                        <JsonWindowLink
+                          sx={{textDecoration: 'underline'}}
+                          data={gptscript.content}
+                        >
+                          expand
+                        </JsonWindowLink>
                       </Cell>
                     </Row>
                   </Box>

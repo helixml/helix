@@ -11,6 +11,7 @@ import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import SendIcon from '@mui/icons-material/Send'
+import JsonWindowLink from '../components/widgets/JsonWindowLink'
 
 import Window from '../components/widgets/Window'
 import StringMapEditor from '../components/widgets/StringMapEditor'
@@ -281,9 +282,15 @@ const App: FC = () => {
               <Typography variant="subtitle1" sx={{mb: 1}}>
                 GPT Scripts
               </Typography>
-              <AppGptscriptsGrid
-                data={ app.config.helix?.gptscript?.scripts || [] }
-              />  
+              <Box
+                sx={{
+                  maxHeight: '400px',
+                }}
+              >
+                <AppGptscriptsGrid
+                  data={ app.config.helix?.gptscript?.scripts || [] }
+                />
+              </Box>
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="h6" sx={{mb: 1}}>
                 App Configuration
@@ -296,7 +303,7 @@ const App: FC = () => {
                 fullWidth
                 multiline
                 rows={10}
-                label="OpenAPI (Swagger) schema"
+                label="App Configuration"
                 helperText={ showErrors && !schema ? "Please enter a schema" : "" }
               />
               <Box
@@ -305,11 +312,12 @@ const App: FC = () => {
                   mb: 1,
                 }}
               >
-                <ClickLink
-                  onClick={ () => setShowBigSchema(true) }
+                <JsonWindowLink
+                  sx={{textDecoration: 'underline'}}
+                  data={schema}
                 >
-                  expand schema
-                </ClickLink>
+                  expand
+                </JsonWindowLink>
               </Box>
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
