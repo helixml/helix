@@ -38,7 +38,7 @@ func gptscript(_ *cobra.Command) error {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
 	}
-	c, err := tools.NewChainStrategy(&cfg)
+	c, err := tools.NewChainStrategy(&cfg, nil, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
 	}

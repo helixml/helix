@@ -63,10 +63,10 @@ func (suite *ToolsTestSuite) SetupTest() {
 			store: suite.store,
 		},
 		Controller: &controller.Controller{
+			ToolsPlanner: &tools.ChainStrategy{Local: true},
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,
-				Planner: &tools.ChainStrategy{Local: true},
 			},
 		},
 		adminAuth: &adminAuth{},
