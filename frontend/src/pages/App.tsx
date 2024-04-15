@@ -282,7 +282,7 @@ const App: FC = () => {
                 GPT Scripts
               </Typography>
               <AppGptscriptsGrid
-                data={ app.config.helix?.gptscripts?.scripts || [] }
+                data={ app.config.helix?.gptscript?.scripts || [] }
               />  
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="h6" sx={{mb: 1}}>

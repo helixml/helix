@@ -465,7 +465,7 @@ export interface IAppHelixConfigGptScript {
 }
 
 export interface IAppHelixConfigGptScripts {
-  folder?: string,
+  files?: string[],
   scripts?: IAppHelixConfigGptScript[],
 }
 
@@ -476,7 +476,7 @@ export interface IAppHelixConfig {
   system_prompt?: string,
   active_tools?: string[],
   secrets?: Record<string, string>,
-  gptscripts?: IAppHelixConfigGptScripts,
+  gptscript?: IAppHelixConfigGptScripts,
 }
 
 export interface IAppGithubConfig {

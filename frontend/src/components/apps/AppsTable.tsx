@@ -74,7 +74,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               </Typography>
             </Box>
             {
-              app.config.helix?.gptscripts?.scripts?.map((gptscript, index) => {
+              app.config.helix?.gptscript?.scripts?.map((gptscript, index) => {
                 return (
                   <Box key={index}>
                     <Row>
