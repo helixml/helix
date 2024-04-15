@@ -338,7 +338,7 @@ type APIKey struct {
 	Created   time.Time  `json:"created"`
 	Owner     string     `json:"owner"`
 	OwnerType OwnerType  `json:"owner_type"`
-	Key       string     `json:"key"`
+	Key       string     `json:"key" gorm:"primaryKey"`
 	Name      string     `json:"name"`
 	Type      APIKeyType `json:"type" gorm:"default:api"`
 	AppID     string     `json:"app_id"`

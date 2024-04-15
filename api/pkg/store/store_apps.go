@@ -13,7 +13,7 @@ import (
 
 func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
 	if app.ID == "" {
-		app.ID = system.GenerateToolID()
+		app.ID = system.GenerateAppID()
 	}
 
 	if app.Owner == "" {

@@ -249,8 +249,11 @@ const (
 type APIKeyType string
 
 const (
-	APIKeyType_None     APIKeyType = ""
-	APIKeyType_API      APIKeyType = "api"
-	APIKeyType_Frontend APIKeyType = "frontend"
-	APIKeyType_Github   APIKeyType = "github"
+	APIKeyType_None APIKeyType = ""
+	// generic access token for a user
+	APIKeyType_API APIKeyType = "api"
+	// a github oauth token
+	APIKeyType_Github APIKeyType = "github"
+	// a helix access token for a specific app
+	APIKeyType_App APIKeyType = "app"
 )

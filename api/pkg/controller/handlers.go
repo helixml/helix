@@ -27,22 +27,17 @@ func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, erro
 	}, nil
 }
 
-func (c *Controller) CreateAPIKey(ctx types.RequestContext, name string) (string, error) {
+func (c *Controller) CreateAPIKey(ctx types.RequestContext, apiKey *types.APIKey) (*types.APIKey, error) {
 	key, err := system.GenerateAPIKey()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	apiKey, err := c.Options.Store.CreateAPIKey(ctx.Ctx, &types.APIKey{
-		Owner:     ctx.Owner,
-		OwnerType: ctx.OwnerType,
-		Name:      name,
-		Key:       key,
-		Type:      types.APIKeyType_API,
-	})
-	if err != nil {
-		return "", err
-	}
-	return apiKey.Key, nil
+
+	apiKey.Key = key
+	apiKey.Owner = ctx.Owner
+	apiKey.OwnerType = ctx.OwnerType
+
+	return c.Options.Store.CreateAPIKey(ctx.Ctx, apiKey)
 }
 
 func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, error) {
@@ -54,7 +49,10 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 		return nil, err
 	}
 	if apiKeys == nil {
-		_, err := c.CreateAPIKey(ctx, "default")
+		_, err := c.CreateAPIKey(ctx, &types.APIKey{
+			Name: "default",
+			Type: types.APIKeyType_API,
+		})
 		if err != nil {
 			return nil, err
 		}

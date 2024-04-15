@@ -31,14 +31,11 @@ export const useSnackbarContext = (): ISnackbarContext => {
     }
     
   }, [])
-  const contextValue = useMemo<ISnackbarContext>(() => ({
+  
+  return {
     snackbar,
     setSnackbar,
-  }), [
-    snackbar,
-    setSnackbar,
-  ])
-  return contextValue
+  }
 }
 
 export const SnackbarContextProvider: FC = ({ children }) => {

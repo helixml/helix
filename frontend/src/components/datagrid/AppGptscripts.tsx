@@ -64,6 +64,7 @@ const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
       rows={ data }
       columns={ columns }
       rowHeight={ 70 }
+      minHeight={ 300 }
       loading={ false }
     />
   )
