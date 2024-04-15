@@ -41,6 +41,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 			continue
 		}
 		app.Config.Github.KeyPair.PrivateKey = ""
+		app.Config.Github.WebhookSecret = ""
 		filteredApps = append(filteredApps, app)
 	}
 
@@ -74,6 +75,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	app.ID = system.GenerateAppID()
 	app.Owner = userContext.Owner
 	app.OwnerType = userContext.OwnerType
 	app.Updated = time.Now()
@@ -92,6 +94,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
+	created, err := s.Store.CreateApp(r.Context(), &app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// if this is a github app - then initialise it
 	if app.AppType == types.AppTypeGithub {
 		if app.AppType == types.AppTypeGithub {
@@ -106,7 +113,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		githubApp, err := apps.NewGithubApp(apps.GithubAppOptions{
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
-			App:          &app,
+			App:          created,
+			UpdateApp: func(app *types.App) (*types.App, error) {
+				return s.Store.UpdateApp(r.Context(), app)
+			},
 		})
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -121,7 +131,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	// Creating the tool
-	created, err := s.Store.CreateApp(r.Context(), &app)
+	created, err = s.Store.UpdateApp(r.Context(), &app)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

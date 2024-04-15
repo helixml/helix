@@ -17,6 +17,7 @@ type GithubAppOptions struct {
 	GithubConfig config.GitHub
 	Client       *github.GithubClient
 	App          *types.App
+	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
 type GithubApp struct {
@@ -27,6 +28,7 @@ type GithubApp struct {
 	helixConfig  *types.AppHelixConfig
 	Client       *github.GithubClient
 	App          *types.App
+	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
 var HELIX_YAML_FILENAMES = []string{"helix.yaml", "helix.yml"}
@@ -35,7 +37,7 @@ var HELIX_DEPLOY_KEY_NAME = "helix-deploy-key"
 func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 	parts := strings.Split(options.App.Config.Github.Repo, "/")
 	if len(parts) != 2 {
-		return nil, system.NewHTTPError500("invalid repo name")
+		return nil, system.NewHTTPError400("invalid repo name")
 	}
 	return &GithubApp{
 		Name:         options.App.Config.Github.Repo,
@@ -44,6 +46,7 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 		GithubConfig: options.GithubConfig,
 		Client:       options.Client,
 		App:          options.App,
+		UpdateApp:    options.UpdateApp,
 	}, nil
 }
 
@@ -91,13 +94,28 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 
 	app.Config.Github.Hash = commitHash
 
+	webhookSigningSecret, err := system.GenerateAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	app.Config.Github.WebhookSecret = webhookSigningSecret
+
+	// we need to save the app at this point so when github tests the webhook
+	// we have saved the signing secret into the database
+	app, err = githubApp.UpdateApp(app)
+	if err != nil {
+		return nil, err
+	}
+
 	// add the webhook to the repo
 	err = githubApp.Client.AddWebhookToRepo(
 		githubApp.Owner,
 		githubApp.Repo,
 		"helixwebhook",
-		fmt.Sprintf("%s?repo=%s", githubApp.GithubConfig.WebhookURL, githubApp.Name),
+		fmt.Sprintf("%s?app_id=%s", githubApp.GithubConfig.WebhookURL, githubApp.App.ID),
 		[]string{"push", "pull_request"},
+		webhookSigningSecret,
 	)
 	if err != nil {
 		return nil, err

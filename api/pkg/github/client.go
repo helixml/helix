@@ -86,6 +86,7 @@ func (githubClient *GithubClient) AddWebhookToRepo(
 	name string,
 	url string,
 	events []string,
+	secret string,
 ) error {
 	active := true
 	json := "application/json"
@@ -111,6 +112,7 @@ func (githubClient *GithubClient) AddWebhookToRepo(
 		Config: &github.HookConfig{
 			ContentType: &json,
 			URL:         &url,
+			Secret:      &secret,
 		},
 	})
 	return err
