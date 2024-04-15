@@ -272,29 +272,6 @@ func (SessionMetadata) GormDataType() string {
 	return "json"
 }
 
-type BotSessions struct {
-	SessionID string `json:"session_id"`
-	Name      string `json:"name"`
-	PrePrompt string `json:"pre_prompt"`
-}
-
-type BotConfig struct {
-	Description string        `json:"description"`
-	Avatar      string        `json:"avatar"`
-	Sessions    []BotSessions `json:"sessions"`
-}
-
-// a bot can spawn new sessions from it's finetune dir
-type Bot struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Config    BotConfig `json:"config"`
-}
-
 // things we can change about a session that are not interaction related
 type SessionMetaUpdate struct {
 	ID   string `json:"id"`
@@ -357,12 +334,18 @@ type SessionFilter struct {
 	Older Duration `json:"older"`
 }
 
-type ApiKey struct {
+type APIKey struct {
+	Created   time.Time  `json:"created"`
 	Owner     string     `json:"owner"`
 	OwnerType OwnerType  `json:"owner_type"`
 	Key       string     `json:"key"`
 	Name      string     `json:"name"`
-	Type      APIKeyType `json:"type"`
+	Type      APIKeyType `json:"type" gorm:"default:api"`
+	AppID     string     `json:"app_id"`
+}
+
+func (APIKey) TableName() string {
+	return "api_key"
 }
 
 type OwnerContext struct {
@@ -796,6 +779,7 @@ type KeyPair struct {
 	PublicKey  string
 }
 
+// what the user can change about a github app fromm the frontend
 type AppUpdatePayload struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`

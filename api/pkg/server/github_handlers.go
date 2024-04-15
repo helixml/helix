@@ -20,7 +20,7 @@ type GithubStatus struct {
 
 // do we already have the github token as an api key in the database?
 func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.RequestContext) (string, error) {
-	apiKeys, err := apiServer.Store.GetAPIKeys(userContext.Ctx, store.OwnerQuery{
+	apiKeys, err := apiServer.Store.ListAPIKeys(userContext.Ctx, &store.ListApiKeysQuery{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
 	})
@@ -36,7 +36,7 @@ func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.Reques
 }
 
 func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.RequestContext, token string) error {
-	apiKeys, err := apiServer.Store.GetAPIKeys(userContext.Ctx, store.OwnerQuery{
+	apiKeys, err := apiServer.Store.ListAPIKeys(userContext.Ctx, &store.ListApiKeysQuery{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
 	})
@@ -45,16 +45,19 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.Reques
 	}
 	for _, apiKey := range apiKeys {
 		if apiKey.Type == types.APIKeyType_Github {
-			err = apiServer.Store.DeleteAPIKey(userContext.Ctx, *apiKey)
+			err = apiServer.Store.DeleteAPIKey(userContext.Ctx, apiKey.Key)
 			if err != nil {
 				return err
 			}
 		}
 	}
-	_, err = apiServer.Store.CreateAPIKey(userContext.Ctx, store.OwnerQuery{
+	_, err = apiServer.Store.CreateAPIKey(userContext.Ctx, &types.APIKey{
 		Owner:     userContext.Owner,
 		OwnerType: userContext.OwnerType,
-	}, "github-oauth", token, types.APIKeyType_Github)
+		Name:      "github-oauth",
+		Key:       token,
+		Type:      types.APIKeyType_Github,
+	})
 
 	if err != nil {
 		return err

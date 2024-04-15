@@ -87,6 +87,7 @@ func NewPostgresStore(
 func (s *PostgresStore) autoMigrate() error {
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.App{},
+		&types.APIKey{},
 		&types.Tool{},
 		&types.SessionToolBinding{},
 	)
@@ -95,6 +96,10 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.SessionToolBinding{}, types.Tool{}, "tool_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.APIKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -327,106 +332,6 @@ func (d *PostgresStore) UpdateSessionMeta(
 	}
 
 	return d.GetSession(ctx, data.ID)
-}
-
-func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string, key string, apiKeyType types.APIKeyType) (string, error) {
-	// Insert the new API key into the database
-	sqlStatement := `
-insert into api_key (owner, owner_type, key, name, type)
-values ($1, $2, $3, $4, $5)
-returning key
-`
-	var id string
-	err := d.pgDb.QueryRow(
-		sqlStatement,
-		owner.Owner,
-		owner.OwnerType,
-		key,
-		name,
-		apiKeyType,
-	).Scan(&id)
-	if err != nil {
-		return "", err
-	}
-
-	return id, nil
-}
-
-func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
-	var apiKeys []*types.ApiKey
-	sqlStatement := `
-select
-	key,
-	owner,
-	owner_type,
-	type
-from
-	api_key
-where
-	owner = $1 and owner_type = $2
-`
-	rows, err := d.pgDb.Query(
-		sqlStatement,
-		query.Owner,
-		query.OwnerType,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var apiKey types.ApiKey
-		err := rows.Scan(
-			&apiKey.Key,
-			&apiKey.Owner,
-			&apiKey.OwnerType,
-			&apiKey.Type,
-		)
-		if err != nil {
-			return nil, err
-		}
-		apiKeys = append(apiKeys, &apiKey)
-	}
-	err = rows.Err()
-	if err != nil {
-		return nil, err
-	}
-	return apiKeys, nil
-}
-
-func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error {
-	sqlStatement := `
-delete from api_key where key = $1 and owner = $2 and owner_type = $3
-`
-	_, err := d.pgDb.Exec(
-		sqlStatement,
-		apiKey.Key,
-		apiKey.Owner,
-		apiKey.OwnerType,
-	)
-	return err
-}
-
-func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	var key types.ApiKey
-	sqlStatement := `
-select
-	key, owner, owner_type
-from
-	api_key
-where
-	key = $1
-`
-	row := d.pgDb.QueryRow(sqlStatement, apiKey)
-	err := row.Scan(&key.Key, &key.Owner, &key.OwnerType)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// not an error, but not a valid api key either
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &key, nil
 }
 
 // Compile-time interface check:
