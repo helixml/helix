@@ -289,30 +289,32 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 // @Router /api/v1/apps/{id}/gptscript [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
-	// we have already authenticated but we load the api key to know what app it is for
-	userContext := s.getRequestContext(r)
+	// TODO: authenticate the referer based on app settings
+	addCorsHeaders(w)
+	if r.Method == "OPTIONS" {
+		return nil, nil
+	}
 
-	apiKey, err := s.Store.GetAPIKey(userContext.Ctx, userContext.Token)
+	apiKey, err := s.authMiddleware.maybeOwnerFromRequest(r)
 	if err != nil {
-		return nil, system.NewHTTPError403("no api key found")
+		return nil, system.NewHTTPError403("error loading api key")
 	}
-	if apiKey.AppID == "" {
+
+	if apiKey == nil {
 		return nil, system.NewHTTPError403("no api key found")
 	}
 
-	appRecord, err := s.Store.GetApp(userContext.Ctx, apiKey.AppID)
+	if apiKey.AppID == "" {
+		return nil, system.NewHTTPError403("no api key for app found")
+	}
+
+	appRecord, err := s.Store.GetApp(r.Context(), apiKey.AppID)
 	if err != nil {
 		if err == store.ErrNotFound {
 			return nil, system.NewHTTPError404("app not found")
 		} else {
 			return nil, system.NewHTTPError500(err.Error())
 		}
-	}
-
-	// TODO: authenticate the referer based on app settings
-	addCorsHeaders(w)
-	if r.Method == "OPTIONS" {
-		return nil, nil
 	}
 
 	// load the body of the request

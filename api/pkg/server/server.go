@@ -149,14 +149,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	}
 	router.Use(errorLoggingMiddleware)
 
-	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
+	subRouter := router.PathPrefix(API_PREFIX).Subrouter()
 
 	// auth router requires a valid token from keycloak
-	authRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	authRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 
-	maybeAuthRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	maybeAuthRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 
@@ -164,7 +164,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	maybeAuthRouter.Use(apiServer.authMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
-	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	runnerRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 	runnerRouter.Use(apiServer.runnerAuth.middleware)
@@ -174,21 +174,21 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		return true
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)
-	subrouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
+	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
-	subrouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
+	subRouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
+	subRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
-	subrouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
+	subRouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
 
 	authRouter.HandleFunc("/github/status", system.DefaultWrapper(apiServer.githubStatus)).Methods("GET")
 	authRouter.HandleFunc("/github/callback", apiServer.githubCallback).Methods("GET")
 	authRouter.HandleFunc("/github/repos", system.DefaultWrapper(apiServer.listGithubRepos)).Methods("GET")
-	subrouter.HandleFunc("/github/webhook", apiServer.githubWebhook).Methods("POST")
+	subRouter.HandleFunc("/github/webhook", apiServer.githubWebhook).Methods("POST")
 
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 
@@ -293,7 +293,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// this is so frontend devs don't need anything other than their access token
 	// and can auto-connect to this endpoint
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
-	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
+	subRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
@@ -314,7 +314,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	apiServer.router = router
 
-	return subrouter, nil
+	return subRouter, nil
 }
 
 func getID(r *http.Request) string {
