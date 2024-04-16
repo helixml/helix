@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -167,16 +168,21 @@ func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (strin
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
+	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run/script", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var result types.GptScriptResult
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode response body: %w", err)
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode response body: %w %s", err, string(body))
 	}
 
 	if result.Error != "" {
