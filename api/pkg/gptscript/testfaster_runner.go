@@ -185,10 +185,6 @@ func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*type
 		return nil, fmt.Errorf("failed to decode response body: %w %s", err, string(body))
 	}
 
-	if result.Error != "" {
-		return nil, fmt.Errorf("gptscript error: %s", result.Error)
-	}
-
 	return &result, nil
 }
 
@@ -231,10 +227,6 @@ func RunGPTAppTestfaster(ctx context.Context, app *types.GptScriptGithubApp) (*t
 	err = json.Unmarshal(body, &result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode response body: %w %s", err, string(body))
-	}
-
-	if result.Error != "" {
-		return nil, fmt.Errorf("gptscript error: %s", result.Error)
 	}
 
 	return &result, nil

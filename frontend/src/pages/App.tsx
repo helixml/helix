@@ -12,8 +12,11 @@ import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import SendIcon from '@mui/icons-material/Send'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
+import Alert from '@mui/material/Alert'
 
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
+import TextView from '../components/widgets/TextView'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
@@ -33,7 +36,7 @@ import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
-import useApi from '../hooks/useApi'
+import useApi, { getTokenHeaders } from '../hooks/useApi'
 import useLayout from '../hooks/useLayout'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
@@ -41,8 +44,11 @@ import useWebsocket from '../hooks/useWebsocket'
 import {
   IApp,
   IAppConfig,
+  IAppHelixConfigGptScript,
   IAppUpdate,
   ISession,
+  IGptScriptRequest,
+  IGptScriptResponse,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
@@ -71,6 +77,10 @@ const App: FC = () => {
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
+  const [ gptScript, setGptScript ] = useState<IAppHelixConfigGptScript>()
+  const [ gptScriptInput, setGptScriptInput ] = useState('')
+  const [ gptScriptError, setGptScriptError ] = useState('')
+  const [ gptScriptOutput, setGptScriptOutput ] = useState('')
 
   const app = useMemo(() => {
     return apps.data.find((app) => app.id === params.app_id)
@@ -131,6 +141,59 @@ const App: FC = () => {
     // if(!name) return false
     // if(!description) return false
     return true
+  }
+
+  const onRunScript = (script: IAppHelixConfigGptScript) => {
+    if(account.apiKeys.length == 0) {
+      snackbar.error('Please add an API key')
+      return
+    }
+    setGptScript(script)
+    setGptScriptInput('')
+    setGptScriptError('')
+    setGptScriptOutput('')
+  }
+
+  const onExecuteScript = async () => {
+    loading.setLoading(true)
+    setGptScriptError('')
+    setGptScriptOutput('')
+    try {
+      if(account.apiKeys.length == 0) {
+        snackbar.error('Please add an API key')
+        loading.setLoading(false)
+        return
+      }
+      if(!gptScript?.file_path) {
+        snackbar.error('No script file')
+        loading.setLoading(false)
+        return
+      }
+      const results = await api.post<IGptScriptRequest, IGptScriptResponse>('/api/v1/apps/script', {
+        file_path: gptScript?.file_path,
+        input: gptScriptInput,
+      }, {
+        headers: getTokenHeaders(account.apiKeys[0].key),
+      }, {
+        snackbar: true,
+      })
+      if(!results) {
+        snackbar.error('No result found')
+        setGptScriptError('No result found')
+        loading.setLoading(false)
+        return
+      }
+      if(results.error) {
+        setGptScriptError(results.error)
+      }
+      if(results.output) {
+        setGptScriptOutput(results.output)
+      }
+    } catch(e: any) {
+      snackbar.error('Error executing script: ' + e.toString())
+      setGptScriptError(e.toString())
+    }
+    loading.setLoading(false)
   }
 
   const onUpdate = useCallback(async () => {
@@ -375,6 +438,7 @@ const App: FC = () => {
               >
                 <AppGptscriptsGrid
                   data={ app.config.helix?.gptscript?.scripts || [] }
+                  onRunScript={ onRunScript }
                 />
               </Box>
               <Divider sx={{mt:4,mb:4}} />
@@ -556,6 +620,66 @@ const App: FC = () => {
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>
+          </Window>
+        )
+      }
+      {
+        gptScript && (
+          <Window
+            title="Run GPT Script"
+            fullHeight
+            size="lg"
+            open
+            withCancel
+            cancelTitle="Close"
+            onCancel={() => setGptScript(undefined)}
+          >
+            <Row>
+              <Typography variant="body1" sx={{mt: 2, mb: 2}}>
+                Enter your input and click "Run" to execute the script.
+              </Typography>
+            </Row>
+            <Row center sx={{p: 2}}>
+              <Cell sx={{mr: 2}}>
+                <TextField
+                  value={gptScriptInput}
+                  onChange={(e) => setGptScriptInput(e.target.value)}
+                  fullWidth
+                  label="Script Input (optional)"
+                  sx={{
+                    minWidth: '400px'
+                  }}
+                />
+              </Cell>
+              <Cell>
+                <Button
+                  sx={{width: '200px'}}
+                  variant="contained"
+                  color="primary"
+                  endIcon={ <PlayCircleOutlineIcon /> }
+                  onClick={ onExecuteScript }
+                >
+                  Run
+                </Button>
+              </Cell>
+            </Row>
+            
+            {
+              gptScriptError && (
+                <Row center sx={{p: 2}}>
+                  <Alert severity="error">{ gptScriptError }</Alert>
+                </Row>
+              )
+            }
+
+            {
+              gptScriptOutput && (
+                <Row center sx={{p: 2}}>
+                  <TextView data={ gptScriptOutput } scrolling />
+                </Row>
+              )
+            }
+            
           </Window>
         )
       }

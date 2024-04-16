@@ -55,7 +55,7 @@ func gptscript(_ *cobra.Command) error {
 		}
 
 		var script types.GptScript
-		result := types.GptScriptResponse{}
+		result := &types.GptScriptResponse{}
 		statusCode := http.StatusOK
 
 		err := json.NewDecoder(r.Body).Decode(&script)
@@ -67,13 +67,11 @@ func gptscript(_ *cobra.Command) error {
 		fmt.Printf("script --------------------------------------\n")
 		spew.Dump(script)
 
-		output, err := gptscript_runner.RunGPTScript(r.Context(), &script)
+		result, err = gptscript_runner.RunGPTScript(r.Context(), &script)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to run gptscript action")
 			result.Error = err.Error()
 			statusCode = http.StatusInternalServerError
-		} else {
-			result.Output = output
 		}
 		resp, err := json.Marshal(result)
 		if err != nil {
@@ -92,7 +90,7 @@ func gptscript(_ *cobra.Command) error {
 		}
 
 		var app types.GptScriptGithubApp
-		result := types.GptScriptResponse{}
+		result := &types.GptScriptResponse{}
 		statusCode := http.StatusOK
 
 		err := json.NewDecoder(r.Body).Decode(&app)
@@ -104,13 +102,11 @@ func gptscript(_ *cobra.Command) error {
 		fmt.Printf("app --------------------------------------\n")
 		spew.Dump(app)
 
-		output, err := gptscript_runner.RunGPTAppScript(r.Context(), &app)
+		result, err = gptscript_runner.RunGPTAppScript(r.Context(), &app)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to run gptscript app")
 			result.Error = err.Error()
 			statusCode = http.StatusInternalServerError
-		} else {
-			result.Output = output
 		}
 		resp, err := json.Marshal(result)
 		if err != nil {

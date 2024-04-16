@@ -463,9 +463,12 @@ export interface IKeyPair {
 }
 
 export interface IAppHelixConfigGptScript {
+  source?: string,
   name?: string,
   file_path?: string,
   content?: string,
+  input?: string,
+  env?: string[],
 }
 
 export interface IAppHelixConfigGptScripts {
@@ -521,4 +524,14 @@ export interface IGithubStatus {
 
 export interface IGithubRepo {
   full_name: string,
+}
+
+export interface IGptScriptRequest {
+  file_path: string,
+  input: string,
+}
+
+export interface IGptScriptResponse {
+  output: string,
+  error: string,
 }
