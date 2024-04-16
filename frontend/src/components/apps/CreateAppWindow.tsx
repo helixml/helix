@@ -46,7 +46,7 @@ export const CreateAppWindow: FC<{
 }) => {
   const [ filterOrg, setFilterOrg ] = useState('any')
   const [ filterText, setFilterText ] = useState('')
-  const [ activeRepo, setActiveRepo ] = useState('binocarlos/example-helix-app')
+  const [ activeRepo, setActiveRepo ] = useState('binocarlos/demo-recipes')
 
   const groups = useMemo(() => {
     const foundGroups: Record<string, boolean> = {}
@@ -183,7 +183,7 @@ export const CreateAppWindow: FC<{
                             </Typography>
                           </Grid>
                           <Grid item xs={ 12 }>
-                            <Typography gutterBottom variant="body1">
+                            <Typography gutterBottom variant="body1" component="div">
                               If you click "Connect Repo" - we will:
                               <ul>
                                 <li>Generate a key pair and upload the public key to the repo</li>

@@ -88,7 +88,6 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
-	// Checking if the tool already exists
 	for _, a := range existingApps {
 		if a.Name == app.Name {
 			return nil, system.NewHTTPError400("app (%s) with name %s already exists", a.ID, app.Name)
@@ -131,8 +130,16 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		app = *newApp
 	}
 
-	// Creating the tool
 	created, err = s.Store.UpdateApp(r.Context(), &app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	_, err = s.Controller.CreateAPIKey(userContext, &types.APIKey{
+		Name:  "api key 1",
+		Type:  types.APIKeyType_App,
+		AppID: created.ID,
+	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
