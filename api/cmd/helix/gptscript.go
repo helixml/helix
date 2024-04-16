@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 
 	"github.com/davecgh/go-spew/spew"
 	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
@@ -110,7 +111,71 @@ func gptscript(_ *cobra.Command) error {
 		w.WriteHeader(statusCode)
 	}
 
+	runDevelopmentHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req types.GptScriptRequest
+		result := &types.GptScriptResponse{}
+		statusCode := http.StatusOK
+
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		fmt.Printf("development script --------------------------------------\n")
+		spew.Dump(req)
+
+		// this points at the mounted local repo
+		repoDir := os.Getenv("REPO_DIR")
+		if repoDir == "" {
+			repoDir = "/repo"
+		}
+
+		req.FilePath = path.Join(repoDir, req.FilePath)
+
+		err = os.Chdir(path.Dir(req.FilePath))
+		if err != nil {
+			log.Error().Err(err).Msg("failed to chdir")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		script := types.GptScript{
+			FilePath: req.FilePath,
+			Input:    req.Input,
+		}
+
+		result, err = gptscript_runner.RunGPTScript(r.Context(), &script)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to run gptscript action")
+			result.Error = err.Error()
+			statusCode = http.StatusInternalServerError
+		}
+		resp, err := json.Marshal(result)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Write(resp)
+		w.WriteHeader(statusCode)
+	}
+
 	http.HandleFunc("/api/v1/run/script", runScriptHandler)
+	http.HandleFunc("/api/v1/run/development", runDevelopmentHandler)
 	http.HandleFunc("/api/v1/run/app", runAppHandler)
 
 	listenPort := os.Getenv("PORT")
