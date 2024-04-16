@@ -97,6 +97,22 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, err
 	}
 
+	config, err := githubApp.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	if config == nil {
+		return nil, fmt.Errorf("helix.yaml not found in repo")
+	}
+
+	config, err = githubApp.processConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	app.Config.Helix = config
+
 	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
 	if err != nil {
 		return nil, err
@@ -130,22 +146,6 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	config, err := githubApp.GetConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	if config == nil {
-		return nil, fmt.Errorf("helix.yaml not found in repo")
-	}
-
-	config, err = githubApp.processConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	app.Config.Helix = config
 
 	return app, nil
 }
@@ -245,6 +245,18 @@ func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
 }
 
 func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
+	if config.ActiveTools == nil {
+		config.ActiveTools = []string{}
+	}
+
+	if config.Secrets == nil {
+		config.Secrets = map[string]string{}
+	}
+
+	if config.AllowedDomains == nil {
+		config.AllowedDomains = []string{}
+	}
+
 	if config.GPTScript.Scripts == nil {
 		config.GPTScript.Scripts = []types.AppHelixConfigGPTScript{}
 	}
