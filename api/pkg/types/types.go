@@ -787,6 +787,8 @@ type GptScript struct {
 	Source string `json:"source"`
 	// if we have a file path then we use loader.Program
 	// and gptscript will sort out relative paths
+	// if this script is part of a github app
+	// it will be a relative path inside the repo
 	File string `json:"file"`
 	// if the script lives on a URL then we download it
 	URL string `json:"url"`
@@ -794,17 +796,13 @@ type GptScript struct {
 	Input string `json:"input"`
 	// this is the env passed into the program
 	Env []string `json:"env"`
-	// these are passed to the program runner
-	OpenAI_APIKey       string `json:"openai_api_key"`
-	OpenAI_BaseURL      string `json:"openai_base_url"`
-	OpenAI_DefaultModel string `json:"openai_default_model"`
 }
 
 // higher level "run a script inside this repo" request
 type GptScriptGithubApp struct {
-	Script GptScript `json:"script"`
-	Repo   string    `json:"repo"`
-	Commit string    `json:"commit"`
+	Script     GptScript `json:"script"`
+	Repo       string    `json:"repo"`
+	CommitHash string    `json:"commit"`
 	// we will need this to clone the repo (in the case of private repos)
 	KeyPair KeyPair `json:"key_pair"`
 }

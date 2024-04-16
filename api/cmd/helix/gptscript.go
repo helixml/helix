@@ -79,8 +79,42 @@ func gptscript(_ *cobra.Command) error {
 		w.WriteHeader(statusCode)
 	}
 
+	runAppHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var app types.GptScriptGithubApp
+		result := types.GptScriptResult{}
+		statusCode := http.StatusOK
+
+		err := json.NewDecoder(r.Body).Decode(&app)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		output, err := gptscript_runner.RunGPTAppScript(r.Context(), &app)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to run gptscript app")
+			result.Error = err.Error()
+			statusCode = http.StatusInternalServerError
+		} else {
+			result.Output = output
+		}
+		resp, err := json.Marshal(result)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Write(resp)
+		w.WriteHeader(statusCode)
+	}
+
 	http.HandleFunc("/api/v1/run/script", runScriptHandler)
-	// TODO: also run apps where we clone the github repo and run the app in the context of it's repo
+	http.HandleFunc("/api/v1/run/app", runAppHandler)
 
 	listen := "0.0.0.0:31380"
 	// start a gptscript server

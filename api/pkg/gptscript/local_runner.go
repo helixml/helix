@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gptscript-ai/gptscript/pkg/cache"
@@ -12,6 +15,7 @@ import (
 	"github.com/gptscript-ai/gptscript/pkg/monitor"
 	"github.com/gptscript-ai/gptscript/pkg/openai"
 	gptscript_types "github.com/gptscript-ai/gptscript/pkg/types"
+	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -21,14 +25,10 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (string, error) 
 	started := time.Now()
 
 	gptOpt := gptscript.Options{
-		Cache: cache.Options{},
-		OpenAI: openai.Options{
-			APIKey:       script.OpenAI_APIKey,
-			BaseURL:      script.OpenAI_BaseURL,
-			DefaultModel: script.OpenAI_DefaultModel,
-		},
+		Cache:   cache.Options{},
+		OpenAI:  openai.Options{},
 		Monitor: monitor.Options{},
-		Env:     script.Env,
+		Env:     os.Environ(),
 	}
 
 	gptScript, err := gptscript.New(&gptOpt)
@@ -87,4 +87,35 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (string, error) 
 		Msg("GPTScript done")
 
 	return result, nil
+}
+
+func RunGPTAppScript(ctx context.Context, app *types.GptScriptGithubApp) (string, error) {
+	tempDir, err := os.MkdirTemp("", "helix-app-*")
+	if err != nil {
+		return "", err
+	}
+	parts := strings.Split(app.Repo, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid repo name: %s", app.Repo)
+	}
+	err = github.CloneOrUpdateRepo(
+		// the name of the repo
+		fmt.Sprintf("%s/%s", parts[0], parts[1]),
+		// the keypair for this app repo
+		app.KeyPair,
+		// return the folder in which we should clone the repo
+		tempDir,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	err = github.CheckoutRepo(tempDir, app.CommitHash)
+	if err != nil {
+		return "", err
+	}
+
+	app.Script.File = path.Join(tempDir, app.Script.File)
+
+	return RunGPTScript(ctx, &app.Script)
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/helixml/helix/api/pkg/types"
@@ -58,6 +59,27 @@ func CloneOrUpdateRepo(
 	} else {
 		return fmt.Errorf("failed to check if repo exists: %v", err)
 	}
+}
+
+func CheckoutRepo(repoPath string, commitHash string) error {
+	repository, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to open existing repo: %v", err)
+	}
+
+	worktree, err := repository.Worktree()
+	if err != nil {
+		return fmt.Errorf("failed to get worktree: %v", err)
+	}
+
+	err = worktree.Checkout(&git.CheckoutOptions{
+		Hash: plumbing.NewHash(commitHash),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to checkout commit: %v", err)
+	}
+
+	return nil
 }
 
 func GetRepoHash(
