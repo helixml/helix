@@ -2,7 +2,9 @@ package helix
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/helixml/helix/api/pkg/config"
 	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
@@ -116,7 +118,14 @@ func gptscript(_ *cobra.Command) error {
 	http.HandleFunc("/api/v1/run/script", runScriptHandler)
 	http.HandleFunc("/api/v1/run/app", runAppHandler)
 
-	listen := "0.0.0.0:31380"
+	listenPort := os.Getenv("PORT")
+
+	if listenPort == "" {
+		listenPort = "31380"
+	}
+
+	listen := fmt.Sprintf("0.0.0.0:%s", listenPort)
+
 	// start a gptscript server
 	log.Info().Msgf("helix gptscript server starting on %s", listen)
 	err = http.ListenAndServe(listen, nil)

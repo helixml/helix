@@ -74,7 +74,21 @@ func getTestfasterAPIHandler() (*testfaster.HttpApiHandler, error) {
 	return apiHandler, nil
 }
 
-func getTestfasterCluster(apiHandler *testfaster.HttpApiHandler) (*TestFasterCluster, error) {
+func getTestfasterCluster() (*TestFasterCluster, error) {
+	// used for iterating on the gptscript server code without
+	// having to keep pushing new testfaster configs
+	// shold be of the form http://localhost:8080
+	// api paths are appended to this
+	if os.Getenv("HELIX_TESTFASTER_MOCK_VM_URL") != "" {
+		return &TestFasterCluster{
+			URL: os.Getenv("HELIX_TESTFASTER_MOCK_VM_URL"),
+		}, nil
+	}
+
+	apiHandler, err := getTestfasterAPIHandler()
+	if err != nil {
+		return nil, err
+	}
 	lease, err := apiHandler.Get(&testfaster.PoolRequest{
 		Config: testfaster.PoolConfig{
 			Name: "Helix GPTScript",
@@ -130,19 +144,21 @@ func getTestfasterCluster(apiHandler *testfaster.HttpApiHandler) (*TestFasterClu
 }
 
 func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (string, error) {
-	apiHandler, err := getTestfasterAPIHandler()
-	if err != nil {
-		return "", fmt.Errorf("failed to get testfaster api handler: %w", err)
-	}
-	cluster, err := getTestfasterCluster(apiHandler)
+	cluster, err := getTestfasterCluster()
 	if err != nil {
 		return "", fmt.Errorf("failed to get testfaster cluster: %w", err)
 	}
 
 	defer func() {
-		err := apiHandler.DeleteLease(cluster.PoolID, cluster.LeaseID)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to release testfaster lease")
+		if cluster.PoolID != "" && cluster.LeaseID != "" {
+			apiHandler, err := getTestfasterAPIHandler()
+			if err != nil {
+				log.Error().Err(err).Msg("failed to release testfaster lease")
+			}
+			err = apiHandler.DeleteLease(cluster.PoolID, cluster.LeaseID)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to release testfaster lease")
+			}
 		}
 	}()
 
