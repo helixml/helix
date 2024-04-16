@@ -63,8 +63,12 @@ const (
 
 type Tools struct {
 	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
-	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"`
-	Model    string   `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"` // gpt-4-1106-preview
+	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"helix"`
+	// Suggestions based on provider:
+	// - OpenAI: gpt-4-1106-preview
+	// - Together AI: mistralai/Mixtral-8x7B-Instruct-v0.1
+	// - Helix: adrienbrault/nous-hermes2pro:Q5_K_S
+	Model string `envconfig:"TOOLS_MODEL" default:"adrienbrault/nous-hermes2pro:Q5_K_S"`
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation
