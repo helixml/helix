@@ -27,8 +27,8 @@ func (c *ChainStrategy) RunRemoteGPTScriptAction(ctx context.Context, tool *type
 		return nil, fmt.Errorf("failed to run gptscript: %w", err)
 	}
 	return &RunActionResponse{
-		Message:    result,
-		RawMessage: result,
+		Message:    result.Output,
+		RawMessage: result.Output,
 	}, nil
 
 }
@@ -40,7 +40,6 @@ func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool
 	if err != nil {
 		return nil, fmt.Errorf("failed to run gptscript: %w", err)
 	}
-
 	return &RunActionResponse{
 		Message:    result,
 		RawMessage: result,

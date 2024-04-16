@@ -289,6 +289,12 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
+	// we know which app this is by the token that is used (which is linked to the app)
+	// this is so frontend devs don't need anything other than their access token
+	// and can auto-connect to this endpoint
+	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
+	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
+
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
 	// all these routes are secured via runner tokens
