@@ -66,6 +66,7 @@ type HelixAPIServer struct {
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
+	ps pubsub.PubSub,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
@@ -87,11 +88,6 @@ func NewServer(
 		return nil, fmt.Errorf("runner token is required")
 	}
 	runnerAuth, err := newRunnerAuth(cfg.WebServer.RunnerToken)
-	if err != nil {
-		return nil, err
-	}
-
-	ps, err := pubsub.New()
 	if err != nil {
 		return nil, err
 	}

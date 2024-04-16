@@ -53,12 +53,14 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Type:          req.SessionType,
 		Mode:          req.SessionMode,
 		ParentSession: req.ParentSession,
+		LoraDir:       req.LoraDir,
 		Owner:         req.Owner,
 		OwnerType:     req.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
+			Stream:       req.Stream,
 			OriginalMode: req.SessionMode,
 			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
@@ -555,7 +557,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
-	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, history, userInteraction.Message)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, tools, history, userInteraction.Message)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil

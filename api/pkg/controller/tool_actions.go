@@ -40,7 +40,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		history = history[:len(history)-2]
 	}
 
-	resp, err := c.Options.Planner.RunAction(ctx, tool, history, userInteraction.Message, action)
+	resp, err := c.ToolsPlanner.RunAction(ctx, tool, history, userInteraction.Message, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}

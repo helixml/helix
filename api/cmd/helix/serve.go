@@ -16,11 +16,11 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -179,6 +179,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	ps, err := pubsub.New()
+	if err != nil {
+		return err
+	}
+
 	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
@@ -199,20 +204,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	planner, err := tools.NewChainStrategy(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create tools planner: %v", err)
-	}
-
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
 		Config:    cfg,
 		Store:     store,
+		PubSub:    ps,
 		Filestore: fs,
 		Janitor:   janitor,
 		Notifier:  notifier,
-		Planner:   planner,
 	}
 
 	// a text.DataPrepText factory that runs jobs on ourselves
@@ -280,7 +280,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, keycloakAuthenticator, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, ps, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}

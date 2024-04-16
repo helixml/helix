@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -21,9 +22,10 @@ import (
 )
 
 type ControllerOptions struct {
-	Config              *config.ServerConfig
-	Store               store.Store
-	Planner             tools.Planner
+	Config *config.ServerConfig
+	Store  store.Store
+	PubSub pubsub.PubSub
+	// Planner             tools.Planner
 	Filestore           filestore.FileStore
 	Janitor             *janitor.Janitor
 	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
@@ -39,6 +41,8 @@ type Controller struct {
 
 	// this is used to READ events from runners
 	RunnerWebsocketEventChanReader chan *types.WebsocketEvent
+
+	ToolsPlanner tools.Planner
 
 	// the backlog of sessions that need a GPU
 	sessionQueue []*types.Session
@@ -94,6 +98,14 @@ func NewController(
 		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
 	}
+
+	planner, err := tools.NewChainStrategy(options.Config, options.PubSub, controller)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tools planner: %v", err)
+	}
+
+	controller.ToolsPlanner = planner
+
 	return controller, nil
 }
 
