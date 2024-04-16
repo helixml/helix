@@ -144,10 +144,10 @@ func getTestfasterCluster() (*TestFasterCluster, error) {
 	}, nil
 }
 
-func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (string, error) {
+func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
 	cluster, err := getTestfasterCluster()
 	if err != nil {
-		return "", fmt.Errorf("failed to get testfaster cluster: %w", err)
+		return nil, fmt.Errorf("failed to get testfaster cluster: %w", err)
 	}
 
 	defer func() {
@@ -165,29 +165,77 @@ func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (strin
 
 	reqBytes, err := json.Marshal(script)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run/script", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", fmt.Errorf("failed to send HTTP request: %w", err)
+		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	var result types.GptScriptResult
+	var result types.GptScriptResponse
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode response body: %w %s", err, string(body))
+		return nil, fmt.Errorf("failed to decode response body: %w %s", err, string(body))
 	}
 
 	if result.Error != "" {
-		return "", fmt.Errorf("gptscript error: %s", result.Error)
+		return nil, fmt.Errorf("gptscript error: %s", result.Error)
 	}
 
-	return result.Output, nil
+	return &result, nil
+}
+
+func RunGPTAppTestfaster(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	cluster, err := getTestfasterCluster()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get testfaster cluster: %w", err)
+	}
+
+	defer func() {
+		if cluster.PoolID != "" && cluster.LeaseID != "" {
+			apiHandler, err := getTestfasterAPIHandler()
+			if err != nil {
+				log.Error().Err(err).Msg("failed to release testfaster lease")
+			}
+			err = apiHandler.DeleteLease(cluster.PoolID, cluster.LeaseID)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to release testfaster lease")
+			}
+		}
+	}()
+
+	reqBytes, err := json.Marshal(app)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := http.Post(fmt.Sprintf("%s/api/v1/run/app", cluster.URL), "application/json", bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to send HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result types.GptScriptResponse
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	err = json.Unmarshal(body, &result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode response body: %w %s", err, string(body))
+	}
+
+	if result.Error != "" {
+		return nil, fmt.Errorf("gptscript error: %s", result.Error)
+	}
+
+	return &result, nil
 }

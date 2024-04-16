@@ -38,7 +38,16 @@ var HELIX_DEPLOY_KEY_NAME = "helix-deploy-key"
 func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 	parts := strings.Split(options.App.Config.Github.Repo, "/")
 	if len(parts) != 2 {
-		return nil, system.NewHTTPError400("invalid repo name")
+		return nil, fmt.Errorf("invalid repo name")
+	}
+	if options.Client == nil {
+		return nil, fmt.Errorf("Client is required")
+	}
+	if options.App == nil {
+		return nil, fmt.Errorf("App struct is required")
+	}
+	if options.UpdateApp == nil {
+		return nil, fmt.Errorf("UpdateApp function is required")
 	}
 	return &GithubApp{
 		Name:         options.App.Config.Github.Repo,

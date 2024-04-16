@@ -789,7 +789,7 @@ type GptScript struct {
 	// and gptscript will sort out relative paths
 	// if this script is part of a github app
 	// it will be a relative path inside the repo
-	File string `json:"file"`
+	Filepath string `json:"filepath"`
 	// if the script lives on a URL then we download it
 	URL string `json:"url"`
 	// the program inputs
@@ -807,7 +807,13 @@ type GptScriptGithubApp struct {
 	KeyPair KeyPair `json:"key_pair"`
 }
 
-type GptScriptResult struct {
+// for an app, run which script with what input?
+type GptScriptRequest struct {
+	Filepath string `json:"filepath"`
+	Input    string `json:"input"`
+}
+
+type GptScriptResponse struct {
 	Output string `json:"output"`
 	Error  string `json:"error"`
 }

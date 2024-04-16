@@ -162,7 +162,8 @@ func (auth *authMiddleware) verifyToken(next http.Handler, enforce bool) http.Ha
 		}
 		// successful api_key auth
 		r = r.WithContext(setRequestUser(r.Context(), types.UserData{
-			ID: maybeOwner.Owner,
+			ID:    maybeOwner.Owner,
+			Token: maybeOwner.Key,
 		}))
 		next.ServeHTTP(w, r)
 	}

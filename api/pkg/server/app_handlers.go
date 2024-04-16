@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -167,6 +168,18 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
 	}
 
+	if appUpdate.ActiveTools == nil {
+		appUpdate.ActiveTools = []string{}
+	}
+
+	if appUpdate.AllowedDomains == nil {
+		appUpdate.AllowedDomains = []string{}
+	}
+
+	if appUpdate.Secrets == nil {
+		appUpdate.Secrets = map[string]string{}
+	}
+
 	id := getID(r)
 
 	// Getting existing app
@@ -186,12 +199,6 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403("you do not have permission to update this app")
 	}
 
-	existing.Name = appUpdate.Name
-	existing.Description = appUpdate.Description
-	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
-	existing.Config.Helix.Secrets = appUpdate.Secrets
-	existing.Config.Helix.AllowedDomains = appUpdate.AllowedDomains
-
 	if existing.AppType == types.AppTypeGithub {
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
@@ -201,6 +208,9 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          existing,
+			UpdateApp: func(app *types.App) (*types.App, error) {
+				return s.Store.UpdateApp(r.Context(), app)
+			},
 		})
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -212,7 +222,12 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
+	existing.Name = appUpdate.Name
+	existing.Description = appUpdate.Description
 	existing.Updated = time.Now()
+	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
+	existing.Config.Helix.Secrets = appUpdate.Secrets
+	existing.Config.Helix.AllowedDomains = appUpdate.AllowedDomains
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), existing)
@@ -255,4 +270,71 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	return existing, nil
+}
+
+// createTool godoc
+// @Summary Run a GPT script inside a github app
+// @Description Run a GPT script inside a github app.
+// @Tags    apps
+
+// @Success 200 {object} types.GptScriptResult
+// @Param request    body types.GptScriptRequest true "Request body with script configuration.")
+// @Router /api/v1/apps/{id}/gptscript [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*types.GptScriptResponse, *system.HTTPError) {
+	// we have already authenticated but we load the api key to know what app it is for
+	userContext := s.getRequestContext(r)
+
+	apiKey, err := s.Store.GetAPIKey(userContext.Ctx, userContext.Token)
+	if err != nil {
+		return nil, system.NewHTTPError403("no api key found")
+	}
+	if apiKey.AppID == "" {
+		return nil, system.NewHTTPError403("no api key found")
+	}
+
+	appRecord, err := s.Store.GetApp(userContext.Ctx, apiKey.AppID)
+	if err != nil {
+		if err == store.ErrNotFound {
+			return nil, system.NewHTTPError404("app not found")
+		} else {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	}
+
+	// TODO: authenticate the referer based on app settings
+	addCorsHeaders(w)
+	if r.Method == "OPTIONS" {
+		return nil, nil
+	}
+
+	// load the body of the request
+	var req types.GptScriptRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+	}
+
+	envPairs := []string{}
+	for key, value := range appRecord.Config.Helix.Secrets {
+		envPairs = append(envPairs, key+"="+value)
+	}
+
+	app := &types.GptScriptGithubApp{
+		Script: types.GptScript{
+			Filepath: req.Filepath,
+			Input:    req.Input,
+			Env:      envPairs,
+		},
+		Repo:       appRecord.Config.Github.Repo,
+		CommitHash: appRecord.Config.Github.Hash,
+		KeyPair:    appRecord.Config.Github.KeyPair,
+	}
+
+	result, err := gptscript_runner.RunGPTAppTestfaster(r.Context(), app)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return result, nil
 }

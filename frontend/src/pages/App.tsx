@@ -28,6 +28,7 @@ import Interaction from '../components/session/Interaction'
 
 import useApps from '../hooks/useApps'
 import useTools from '../hooks/useTools'
+import useLoading from '../hooks/useLoading'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
@@ -48,6 +49,7 @@ import {
 } from '../types'
 
 const App: FC = () => {
+  const loading = useLoading()
   const account = useAccount()
   const apps = useApps()
   const layout = useLayout()
@@ -137,6 +139,7 @@ const App: FC = () => {
       setShowErrors(true)
       return
     }
+    loading.setLoading(true)
     setShowErrors(false)
 
     const update: IAppUpdate = {
@@ -147,8 +150,11 @@ const App: FC = () => {
     }
 
     const result = await apps.updateApp(params.app_id, update)
+    loading.setLoading(false)
 
-    if(!result) return
+    if(!result) {  
+      return
+    }
 
     snackbar.success('App updated')
     navigate('apps')   

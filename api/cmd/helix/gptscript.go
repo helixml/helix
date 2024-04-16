@@ -55,7 +55,7 @@ func gptscript(_ *cobra.Command) error {
 		}
 
 		var script types.GptScript
-		result := types.GptScriptResult{}
+		result := types.GptScriptResponse{}
 		statusCode := http.StatusOK
 
 		err := json.NewDecoder(r.Body).Decode(&script)
@@ -92,7 +92,7 @@ func gptscript(_ *cobra.Command) error {
 		}
 
 		var app types.GptScriptGithubApp
-		result := types.GptScriptResult{}
+		result := types.GptScriptResponse{}
 		statusCode := http.StatusOK
 
 		err := json.NewDecoder(r.Body).Decode(&app)
@@ -100,6 +100,9 @@ func gptscript(_ *cobra.Command) error {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		fmt.Printf("app --------------------------------------\n")
+		spew.Dump(app)
 
 		output, err := gptscript_runner.RunGPTAppScript(r.Context(), &app)
 		if err != nil {

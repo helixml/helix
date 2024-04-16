@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/gptscript-ai/gptscript/pkg/cache"
@@ -46,8 +45,8 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (string, error) 
 		if err != nil {
 			return "", fmt.Errorf("failed to load program from source: %w", err)
 		}
-	} else if script.File != "" {
-		prg, err = loader.Program(ctx, script.File, "")
+	} else if script.Filepath != "" {
+		prg, err = loader.Program(ctx, script.Filepath, "")
 		if err != nil {
 			return "", fmt.Errorf("failed to load program from file: %w", err)
 		}
@@ -79,7 +78,7 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (string, error) 
 
 	log.Info().
 		Str("script", script.Source).
-		Str("file", script.File).
+		Str("file", script.Filepath).
 		Str("url", script.URL).
 		Str("input", script.Input).
 		Str("result", result).
@@ -94,28 +93,27 @@ func RunGPTAppScript(ctx context.Context, app *types.GptScriptGithubApp) (string
 	if err != nil {
 		return "", err
 	}
-	parts := strings.Split(app.Repo, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid repo name: %s", app.Repo)
-	}
+	// we need the folder to not exist so that CloneOrUpdateRepo clones rather than tries to update
+	repoDir := path.Join(tempDir, "repo")
+
 	err = github.CloneOrUpdateRepo(
 		// the name of the repo
-		fmt.Sprintf("%s/%s", parts[0], parts[1]),
+		app.Repo,
 		// the keypair for this app repo
 		app.KeyPair,
 		// return the folder in which we should clone the repo
-		tempDir,
+		repoDir,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	err = github.CheckoutRepo(tempDir, app.CommitHash)
+	err = github.CheckoutRepo(repoDir, app.CommitHash)
 	if err != nil {
 		return "", err
 	}
 
-	app.Script.File = path.Join(tempDir, app.Script.File)
+	app.Script.Filepath = path.Join(repoDir, app.Script.Filepath)
 
 	return RunGPTScript(ctx, &app.Script)
 }
