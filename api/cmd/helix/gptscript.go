@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/types"
@@ -62,6 +63,9 @@ func gptscript(_ *cobra.Command) error {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+
+		fmt.Printf("script --------------------------------------\n")
+		spew.Dump(script)
 
 		output, err := gptscript_runner.RunGPTScript(r.Context(), &script)
 		if err != nil {
