@@ -5,7 +5,8 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/tools"
+	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -32,47 +33,54 @@ func newGptScriptCmd() *cobra.Command {
 }
 
 func gptscript(_ *cobra.Command) error {
-
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
 	}
-	c, err := tools.NewChainStrategy(&cfg)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
+
+	// this is populated by a testfaster secret which is written into /root/secrets and then hoisted
+	// as the environment file for the gptscript systemd service which runs this
+	if cfg.Providers.OpenAI.APIKey == "" {
+		log.Fatal().Msg("missing API key for OpenAI")
 	}
 
-	runHandler := func(w http.ResponseWriter, r *http.Request) {
+	runScriptHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
-		var req tools.GptScriptRunRequest
-		err := json.NewDecoder(r.Body).Decode(&req)
+		var script types.GptScript
+		result := types.GptScriptResult{}
+		statusCode := http.StatusOK
+
+		err := json.NewDecoder(r.Body).Decode(&script)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		// TODO: Handle the GptScriptRunRequest
-		resp, err := c.RunGPTScriptAction(
-			r.Context(),
-			req.Tool, req.History, req.CurrentMessage, req.Action,
-		)
+		output, err := gptscript_runner.RunGPTScript(r.Context(), &script)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to run gptscript action")
-			w.Write([]byte(err.Error()))
+			result.Error = err.Error()
+			statusCode = http.StatusInternalServerError
+		} else {
+			result.Output = output
+		}
+		resp, err := json.Marshal(result)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to encode response")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write([]byte(resp.Message))
-
-		w.WriteHeader(http.StatusOK)
+		w.Write(resp)
+		w.WriteHeader(statusCode)
 	}
 
-	http.HandleFunc("/api/v1/run", runHandler)
+	http.HandleFunc("/api/v1/run/script", runScriptHandler)
+	// TODO: also run apps where we clone the github repo and run the app in the context of it's repo
 
 	listen := "0.0.0.0:31380"
 	// start a gptscript server

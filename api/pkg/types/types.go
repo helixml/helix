@@ -780,3 +780,36 @@ type KeyPair struct {
 	PrivateKey string
 	PublicKey  string
 }
+
+// the low level "please run me a gptsript" request
+type GptScript struct {
+	// if the script is inline then we use loader.ProgramFromSource
+	Source string `json:"source"`
+	// if we have a file path then we use loader.Program
+	// and gptscript will sort out relative paths
+	File string `json:"file"`
+	// if the script lives on a URL then we download it
+	URL string `json:"url"`
+	// the program inputs
+	Input string `json:"input"`
+	// this is the env passed into the program
+	Env []string `json:"env"`
+	// these are passed to the program runner
+	OpenAI_APIKey       string `json:"openai_api_key"`
+	OpenAI_BaseURL      string `json:"openai_base_url"`
+	OpenAI_DefaultModel string `json:"openai_default_model"`
+}
+
+// higher level "run a script inside this repo" request
+type GptScriptGithubApp struct {
+	Script GptScript `json:"script"`
+	Repo   string    `json:"repo"`
+	Commit string    `json:"commit"`
+	// we will need this to clone the repo (in the case of private repos)
+	KeyPair KeyPair `json:"key_pair"`
+}
+
+type GptScriptResult struct {
+	Output string `json:"output"`
+	Error  string `json:"error"`
+}
