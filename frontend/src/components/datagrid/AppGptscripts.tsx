@@ -1,8 +1,11 @@
 import React, { FC, useMemo } from 'react'
 import DataGrid2, { IDataGrid2_Column } from './DataGrid'
 import Typography from '@mui/material/Typography'
+import Tooltip from '@mui/material/Tooltip'
+import IconButton from '@mui/material/IconButton'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import {
   IAppHelixConfigGptScript,
@@ -10,8 +13,10 @@ import {
 
 const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
   data: IAppHelixConfigGptScript[],
+  onRunScript: (script: IAppHelixConfigGptScript) => void,
 }>> = ({
   data,
+  onRunScript,
 }) => {
   const columns = useMemo<IDataGrid2_Column<IAppHelixConfigGptScript>[]>(() => {
     return [
@@ -54,8 +59,34 @@ const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
           )
         }
       },
+      {
+        name: 'actions',
+        header: '',
+        defaultWidth: 120,
+        sx: {
+          textAlign: 'right',
+        },
+        render: ({ data }) => {
+          return (
+            <Box sx={{
+              width: '100%',
+              textAlign: 'right',
+            }}>
+              <Tooltip title="Run Script">
+                <IconButton size="small" sx={{ml: 2}} onClick={() => {
+                  onRunScript(data)
+                }}>
+                  <PlayCircleOutlineIcon sx={{width: '32px', height: '32px'}} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )
+        }
+      },
     ]
-  }, [])
+  }, [
+    onRunScript,
+  ])
 
   return (
     <DataGrid2

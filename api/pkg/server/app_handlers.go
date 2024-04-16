@@ -329,7 +329,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	app := &types.GptScriptGithubApp{
 		Script: types.GptScript{
-			Filepath: req.Filepath,
+			FilePath: req.FilePath,
 			Input:    req.Input,
 			Env:      envPairs,
 		},
