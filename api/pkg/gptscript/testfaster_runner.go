@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	testfaster "github.com/helixml/helix/api/pkg/testfaster_client"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -26,7 +27,7 @@ const TestfasterPoolTimeoutHours = 1
 const osDockerfile = `# This dockerfile defines the base disk image for your VMs
 FROM quay.io/testfaster/kube-ubuntu
 # poor man's versioning
-ENV cache 2024-03-28c
+ENV cache 2024-04-16h
 # Some common dependencies for gptscript stuff
 RUN apt-get update && apt install -y unzip wget sqlite
 RUN wget https://storage.googleapis.com/helixml/helix && chmod +x helix && mv helix /usr/local/bin
@@ -35,8 +36,9 @@ RUN wget https://storage.googleapis.com/helixml/helix && chmod +x helix && mv he
 const bootstrapScript = `
 # This gets run after each individual VM starts up, so
 # start services you need in your tests here and they'll be
-# already running when you testctl get
+# already running when you testctl get the lease
 #!/bin/bash
+echo "cache 2024-04-16h"
 set -euo pipefail
 sed -i 's/^export //' /root/secrets
 mkdir -p /gptscript
@@ -120,6 +122,9 @@ func getTestfasterCluster() (*TestFasterCluster, error) {
 	}
 	var externalIP string
 	var port string
+
+	fmt.Printf("lease --------------------------------------\n")
+	spew.Dump(lease)
 	config := lease.Kubeconfig // not really a kubeconfig, don't be alarmed
 	lines := strings.Split(config, "\n")
 	for _, line := range lines {

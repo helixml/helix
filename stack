@@ -25,6 +25,11 @@ function build() {
   compose build
 }
 
+function static-compile() {
+  export CGO_ENABLED=0
+  go build -ldflags '-extldflags "-static"' -o helix .
+}
+
 function start() {
   if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     echo "Session $TMUX_SESSION already exists. Attaching..."
