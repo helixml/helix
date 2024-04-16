@@ -7,10 +7,8 @@ import (
 	"os"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/helixml/helix/api/pkg/config"
 	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -36,15 +34,9 @@ func newGptScriptCmd() *cobra.Command {
 }
 
 func gptscript(_ *cobra.Command) error {
-	var cfg config.ServerConfig
-	err := envconfig.Process("", &cfg)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
-	}
-
 	// this is populated by a testfaster secret which is written into /root/secrets and then hoisted
 	// as the environment file for the gptscript systemd service which runs this
-	if cfg.Providers.OpenAI.APIKey == "" {
+	if os.Getenv("OPENAI_API_KEY") == "" {
 		log.Fatal().Msg("missing API key for OpenAI")
 	}
 
@@ -131,7 +123,7 @@ func gptscript(_ *cobra.Command) error {
 
 	// start a gptscript server
 	log.Info().Msgf("helix gptscript server starting on %s", listen)
-	err = http.ListenAndServe(listen, nil)
+	err := http.ListenAndServe(listen, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to start helix-gptscript server")
 	}
