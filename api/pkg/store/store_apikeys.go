@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -52,7 +53,7 @@ func (s *PostgresStore) ListAPIKeys(ctx context.Context, q *ListApiKeysQuery) ([
 	}
 
 	if q.AppID != "" {
-		queryAPIKey.AppID = q.AppID
+		queryAPIKey.AppID = &sql.NullString{String: q.AppID, Valid: true}
 	}
 
 	err := s.gdb.WithContext(ctx).Where(queryAPIKey).Find(&apiKeys).Error

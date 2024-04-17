@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -138,7 +139,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	_, err = s.Controller.CreateAPIKey(userContext, &types.APIKey{
 		Name:  "api key 1",
 		Type:  types.APIKeyType_App,
-		AppID: created.ID,
+		AppID: &sql.NullString{String: created.ID, Valid: true},
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -304,11 +305,11 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError403("no api key found")
 	}
 
-	if apiKey.AppID == "" {
+	if !apiKey.AppID.Valid || apiKey.AppID.String == "" {
 		return nil, system.NewHTTPError403("no api key for app found")
 	}
 
-	appRecord, err := s.Store.GetApp(r.Context(), apiKey.AppID)
+	appRecord, err := s.Store.GetApp(r.Context(), apiKey.AppID.String)
 	if err != nil {
 		if err == store.ErrNotFound {
 			return nil, system.NewHTTPError404("app not found")

@@ -1012,7 +1012,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 		if !includeAllTypes && !containsType(string(key.Type), typesParam) {
 			continue
 		}
-		if appIDParam != "" && key.AppID != appIDParam {
+		if appIDParam != "" && (!key.AppID.Valid || key.AppID.String != appIDParam) {
 			continue
 		}
 		filteredAPIKeys = append(filteredAPIKeys, key)
