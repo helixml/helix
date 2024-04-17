@@ -46,7 +46,8 @@ export const CreateAppWindow: FC<{
 }) => {
   const [ filterOrg, setFilterOrg ] = useState('any')
   const [ filterText, setFilterText ] = useState('')
-  const [ activeRepo, setActiveRepo ] = useState('binocarlos/demo-recipes')
+  const [ activeRepo, setActiveRepo ] = useState('')
+  // const [ activeRepo, setActiveRepo ] = useState('helixml/demo-recipes')
 
   const groups = useMemo(() => {
     const foundGroups: Record<string, boolean> = {}
