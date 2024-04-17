@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -336,13 +337,13 @@ type SessionFilter struct {
 }
 
 type APIKey struct {
-	Created   time.Time  `json:"created"`
-	Owner     string     `json:"owner"`
-	OwnerType OwnerType  `json:"owner_type"`
-	Key       string     `json:"key" gorm:"primaryKey"`
-	Name      string     `json:"name"`
-	Type      APIKeyType `json:"type" gorm:"default:api"`
-	AppID     string     `json:"app_id"`
+	Created   time.Time       `json:"created"`
+	Owner     string          `json:"owner"`
+	OwnerType OwnerType       `json:"owner_type"`
+	Key       string          `json:"key" gorm:"primaryKey"`
+	Name      string          `json:"name"`
+	Type      APIKeyType      `json:"type" gorm:"default:api"`
+	AppID     *sql.NullString `json:"app_id"`
 }
 
 func (APIKey) TableName() string {
