@@ -113,6 +113,40 @@ depends_on:
 ---
 kind: pipeline
 type: docker
+name: build-gptscript_devserver
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-gptscript_devserver
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.gptscript_devserver    
+    auto_tag: true
+    repo: helixml/helix/gptscript_devserver
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
 name: build-llamaindex
 
 volumes:
