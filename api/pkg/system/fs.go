@@ -192,3 +192,33 @@ func ReadTextFile(filePath string) (string, error) {
 
 	return string(jsBytes), nil
 }
+
+// expandAndCheckFiles takes a base directory and a list of file paths which may include glob patterns.
+// It expands the glob patterns, checks if each file exists, and returns a list of valid file paths or an error if any file does not exist.
+func ExpandAndCheckFiles(baseDir string, filePaths []string) ([]string, error) {
+	var files []string
+	for _, pattern := range filePaths {
+		// Generate the full path for the glob pattern
+		fullPath := filepath.Join(baseDir, pattern)
+
+		// Expand the glob pattern
+		matches, err := filepath.Glob(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand glob pattern %q: %v", pattern, err)
+		}
+
+		// Check if glob pattern returned files
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("no files match the glob pattern %q", pattern)
+		}
+
+		for _, match := range matches {
+			// Check if the file exists
+			if _, err := os.Stat(match); os.IsNotExist(err) {
+				return nil, fmt.Errorf("file %q does not exist", match)
+			}
+			files = append(files, match)
+		}
+	}
+	return files, nil
+}

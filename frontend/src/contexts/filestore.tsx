@@ -229,7 +229,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     account.user,
   ])
 
-  const contextValue = useMemo<IFilestoreContext>(() => ({
+  return {
     loading,
     readonly,
     uploadProgress,
@@ -243,23 +243,7 @@ export const useFilestoreContext = (): IFilestoreContext => {
     createFolder,
     rename,
     del,
-  }), [
-    loading,
-    readonly,
-    uploadProgress,
-    files,
-    config,
-    path,
-    breadcrumbs,
-    setPath,
-    loadFiles,
-    upload,
-    createFolder,
-    rename,
-    del,
-  ])
-
-  return contextValue
+  }
 }
 
 export const FilestoreContextProvider: FC = ({ children }) => {

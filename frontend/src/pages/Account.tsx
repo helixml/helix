@@ -77,6 +77,17 @@ const Account: FC = () => {
     }
   }, [])
 
+  useEffect(() => {
+    if(!account.token) {
+      return
+    }
+    account.loadApiKeys({
+      types: 'api',
+    })
+  }, [
+    account.token,
+  ])
+
   if(!account.user) return null
   if(!account.apiKeys) return null
   // Get API key
@@ -114,7 +125,7 @@ const Account: FC = () => {
   }'`
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 12, height: 'calc(100% - 100px)' }}>
+    <Container maxWidth="lg" sx={{ mt: 12 }}>
       <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
           <Grid container spacing={2}>

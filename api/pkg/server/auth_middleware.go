@@ -23,7 +23,7 @@ func newMiddleware(authenticator auth.Authenticator, cfg config.WebServer, store
 	return &authMiddleware{authenticator: authenticator, cfg: cfg, store: store}
 }
 
-func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKey, error) {
+func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.APIKey, error) {
 	// in case the request is authenticated with an hl- token, rather than a
 	// keycloak JWT, return the owner. Returns nil if it's not an hl- token.
 	token := r.Header.Get("Authorization")
@@ -38,15 +38,16 @@ func (auth *authMiddleware) maybeOwnerFromRequest(r *http.Request) (*types.ApiKe
 	}
 
 	if strings.HasPrefix(token, types.API_KEY_PREIX) {
-		if owner, err := auth.store.CheckAPIKey(r.Context(), token); err != nil {
-			return nil, fmt.Errorf("error checking API key: %s", err.Error())
-		} else if owner == nil {
-			// user claimed to provide hl- token, but it was invalid
-			return nil, fmt.Errorf("invalid API key")
-		} else {
-			return owner, nil
+		apiKey, err := auth.store.GetAPIKey(r.Context(), token)
+		if err != nil {
+			return nil, fmt.Errorf("error getting API key: %s", err.Error())
 		}
+		if apiKey == nil {
+			return nil, fmt.Errorf("error getting API key: no key found")
+		}
+		return apiKey, nil
 	}
+
 	// user didn't claim token was an lp token, so fallback to keycloak
 	return nil, nil
 }
@@ -104,10 +105,12 @@ func getUserFromJWT(tok *jwt.Token) types.UserData {
 	uid := mc["sub"].(string)
 	email := mc["email"].(string)
 	name := mc["name"].(string)
+
 	return types.UserData{
 		ID:       uid,
 		Email:    email,
 		FullName: name,
+		Token:    tok.Raw,
 	}
 }
 
@@ -120,6 +123,7 @@ func setRequestUser(ctx context.Context, user types.UserData) context.Context {
 	ctx = context.WithValue(ctx, "userid", user.ID)
 	ctx = context.WithValue(ctx, "email", user.Email)
 	ctx = context.WithValue(ctx, "fullname", user.FullName)
+	ctx = context.WithValue(ctx, "token", user.Token)
 	return ctx
 }
 
@@ -127,10 +131,12 @@ func getRequestUser(req *http.Request) types.UserData {
 	id := req.Context().Value("userid")
 	email := req.Context().Value("email")
 	fullname := req.Context().Value("fullname")
+	token := req.Context().Value("token")
 	return types.UserData{
 		ID:       id.(string),
 		Email:    email.(string),
 		FullName: fullname.(string),
+		Token:    token.(string),
 	}
 }
 
@@ -156,7 +162,8 @@ func (auth *authMiddleware) verifyToken(next http.Handler, enforce bool) http.Ha
 		}
 		// successful api_key auth
 		r = r.WithContext(setRequestUser(r.Context(), types.UserData{
-			ID: maybeOwner.Owner,
+			ID:    maybeOwner.Owner,
+			Token: maybeOwner.Key,
 		}))
 		next.ServeHTTP(w, r)
 	}
@@ -187,7 +194,8 @@ func (auth *authMiddleware) apiKeyAuth(f http.HandlerFunc) http.HandlerFunc {
 		}
 		// successful api_key auth
 		req = req.WithContext(setRequestUser(req.Context(), types.UserData{
-			ID: maybeOwner.Owner,
+			ID:    maybeOwner.Owner,
+			Token: maybeOwner.Key,
 		}))
 		f.ServeHTTP(rw, req)
 	}

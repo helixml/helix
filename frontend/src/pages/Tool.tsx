@@ -491,12 +491,8 @@ const Tool: FC = () => {
                     onClick={ onInference }
                     sx={{
                       color: themeConfig.darkText,
-                      backgroundColor:theme.palette.mode === 'light' ? '#035268' : '#035268',
                       ml: 2,
                       mb: 3,
-                      '&:hover': {
-                        backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover
-                      }
                     }}
                     endIcon={<SendIcon />}
                   >

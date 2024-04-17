@@ -22,6 +22,7 @@ const API_MOUNT = ""
 export interface IApiOptions {
   snackbar?: boolean,
   loading?: boolean,
+  errorCapture?: (err: string) => void,
 }
 
 export const getTokenHeaders = (token: string) => {
@@ -45,6 +46,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       reportError(new Error(errorMessage))
       console.error(errorMessage)
+      options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -61,6 +63,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       reportError(new Error(errorMessage))
       console.error(errorMessage)
+      options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -77,6 +80,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       reportError(new Error(errorMessage))
       console.error(errorMessage)
+      options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null
@@ -93,6 +97,7 @@ export const useApi = () => {
       const errorMessage = extractErrorMessage(e)
       reportError(new Error(errorMessage))
       console.error(errorMessage)
+      options?.errorCapture?.(errorMessage)
       if(options?.snackbar !== false) snackbar.setSnackbar(errorMessage, 'error')
       if(options?.loading === true) loading.setLoading(false)
       return null

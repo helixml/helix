@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -26,6 +27,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func printStackTrace() {
+	// Allocate a buffer large enough to store the stack trace
+	buf := make([]byte, 1024)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		// Double the buffer size if the trace is larger than the current buffer
+		buf = make([]byte, len(buf)*2)
+	}
+	fmt.Printf("Stack trace:\n%s\n", buf)
+}
+
 func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
@@ -39,6 +55,15 @@ func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig.Janitor.AppURL = serverConfig.WebServer.URL
 	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
 	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
+
+	if serverConfig.GitHub.Enabled {
+		if serverConfig.GitHub.ClientID == "" {
+			return nil, fmt.Errorf("github client id is required")
+		}
+		if serverConfig.GitHub.ClientSecret == "" {
+			return nil, fmt.Errorf("github client secret is required")
+		}
+	}
 
 	return &serverConfig, nil
 }

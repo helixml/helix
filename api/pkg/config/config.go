@@ -20,6 +20,8 @@ type ServerConfig struct {
 	Store              Store
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
+	GitHub             GitHub
+	Apps               Apps
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -220,4 +222,18 @@ type SubscriptionQuotas struct {
 			MaxChunks     int  `envconfig:"SUBSCRIPTION_QUOTAS_FINETUNING_PRO_MAX_CHUNKS" default:"100"`
 		}
 	}
+}
+
+type GitHub struct {
+	Enabled      bool   `envconfig:"GITHUB_INTEGRATION_ENABLED" default:"false" description:"Enable github integration."`
+	ClientID     string `envconfig:"GITHUB_INTEGRATION_CLIENT_ID" description:"The github app client id."`
+	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
+	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
+	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+}
+
+type Apps struct {
+	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
+	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
+	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
