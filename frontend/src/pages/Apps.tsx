@@ -79,12 +79,12 @@ const Apps: FC = () => {
     params.add_app,
   ])
 
-  // useEffect(() => {
-  //   if(!apps.githubStatus) return
-  //   apps.loadGithubRepos()
-  // }, [
-  //   apps.githubStatus,
-  // ])
+  useEffect(() => {
+    if(!apps.githubStatus) return
+    apps.loadGithubRepos()
+  }, [
+    apps.githubStatus,
+  ])
 
   useEffect(() => {
     layout.setToolbarRenderer(() => () => {
