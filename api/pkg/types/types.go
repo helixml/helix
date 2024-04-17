@@ -200,11 +200,9 @@ type Session struct {
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
-	// the bot this session was spawned from
-	ParentBot string `json:"parent_bot"`
-	// the bot this sessions lora file was added to
-	ChildBot string          `json:"child_bot"`
-	Metadata SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
+	// the app this session was spawned from
+	ParentApp string          `json:"parent_app"`
+	Metadata  SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -275,29 +273,6 @@ func (SessionMetadata) GormDataType() string {
 	return "json"
 }
 
-type BotSessions struct {
-	SessionID string `json:"session_id"`
-	Name      string `json:"name"`
-	PrePrompt string `json:"pre_prompt"`
-}
-
-type BotConfig struct {
-	Description string        `json:"description"`
-	Avatar      string        `json:"avatar"`
-	Sessions    []BotSessions `json:"sessions"`
-}
-
-// a bot can spawn new sessions from it's finetune dir
-type Bot struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Config    BotConfig `json:"config"`
-}
-
 // things we can change about a session that are not interaction related
 type SessionMetaUpdate struct {
 	ID   string `json:"id"`
@@ -360,11 +335,18 @@ type SessionFilter struct {
 	Older Duration `json:"older"`
 }
 
-type ApiKey struct {
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Key       string    `json:"key"`
-	Name      string    `json:"name"`
+type APIKey struct {
+	Created   time.Time  `json:"created"`
+	Owner     string     `json:"owner"`
+	OwnerType OwnerType  `json:"owner_type"`
+	Key       string     `json:"key" gorm:"primaryKey"`
+	Name      string     `json:"name"`
+	Type      APIKeyType `json:"type" gorm:"default:api"`
+	AppID     string     `json:"app_id"`
+}
+
+func (APIKey) TableName() string {
+	return "api_key"
 }
 
 type OwnerContext struct {
@@ -376,6 +358,7 @@ type UserData struct {
 	ID       string
 	Email    string
 	FullName string
+	Token    string
 }
 
 type StripeUser struct {
@@ -408,6 +391,7 @@ type RequestContext struct {
 	OwnerType OwnerType
 	Email     string
 	FullName  string
+	Token     string
 }
 
 type UserStatus struct {
@@ -503,6 +487,7 @@ type ServerConfigForFrontend struct {
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
 	ToolsEnabled            bool   `json:"tools_enabled"`
+	AppsEnabled             bool   `json:"apps_enabled"`
 	RudderStackWriteKey     string `json:"rudderstack_write_key"`
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
 }
@@ -712,4 +697,126 @@ type SessionToolBinding struct {
 	ToolID    string `gorm:"primaryKey"`
 	Created   time.Time
 	Updated   time.Time
+}
+
+type AppType string
+
+const (
+	// this means the configuration for the app lives in the Helix database
+	AppTypeHelix AppType = "helix"
+	// this means the configuration for the app lives in a helix.yaml in a Github repository
+	AppTypeGithub AppType = "github"
+)
+
+type AppHelixConfigGPTScript struct {
+	Name     string `json:"name" yaml:"name"`
+	FilePath string `json:"file_path" yaml:"file_path"`
+	Content  string `json:"content" yaml:"content"`
+}
+
+type AppHelixConfigGPTScripts struct {
+	Files   []string                  `json:"files" yaml:"files"`
+	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
+}
+
+type AppHelixConfig struct {
+	Name           string                   `json:"name" yaml:"name"`
+	Description    string                   `json:"description" yaml:"description"`
+	Avatar         string                   `json:"avatar" yaml:"avatar"`
+	SystemPrompt   string                   `json:"system_prompt" yaml:"system_prompt"`
+	ActiveTools    []string                 `json:"active_tools" yaml:"active_tools"`
+	Secrets        map[string]string        `json:"secrets" yaml:"secrets"`
+	AllowedDomains []string                 `json:"allowed_domains" yaml:"allowed_domains"`
+	GPTScript      AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
+}
+
+type AppGithubConfig struct {
+	Repo          string  `json:"repo"`
+	Hash          string  `json:"hash"`
+	KeyPair       KeyPair `json:"key_pair"`
+	WebhookSecret string  `json:"webhook_secret"`
+}
+
+type AppConfig struct {
+	Helix  *AppHelixConfig  `json:"helix"`
+	Github *AppGithubConfig `json:"github"`
+}
+
+func (m AppConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *AppConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result AppConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (AppConfig) GormDataType() string {
+	return "json"
+}
+
+type App struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	AppType     AppType   `json:"app_type"`
+	Config      AppConfig `json:"config" gorm:"jsonb"`
+}
+
+type KeyPair struct {
+	Type       string
+	PrivateKey string
+	PublicKey  string
+}
+
+// the low level "please run me a gptsript" request
+type GptScript struct {
+	// if the script is inline then we use loader.ProgramFromSource
+	Source string `json:"source"`
+	// if we have a file path then we use loader.Program
+	// and gptscript will sort out relative paths
+	// if this script is part of a github app
+	// it will be a relative path inside the repo
+	FilePath string `json:"file_path"`
+	// if the script lives on a URL then we download it
+	URL string `json:"url"`
+	// the program inputs
+	Input string `json:"input"`
+	// this is the env passed into the program
+	Env []string `json:"env"`
+}
+
+// higher level "run a script inside this repo" request
+type GptScriptGithubApp struct {
+	Script     GptScript `json:"script"`
+	Repo       string    `json:"repo"`
+	CommitHash string    `json:"commit"`
+	// we will need this to clone the repo (in the case of private repos)
+	KeyPair KeyPair `json:"key_pair"`
+}
+
+// for an app, run which script with what input?
+type GptScriptRequest struct {
+	FilePath string `json:"file_path"`
+	Input    string `json:"input"`
+}
+
+type GptScriptResponse struct {
+	Output string `json:"output"`
+	Error  string `json:"error"`
 }

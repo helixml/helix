@@ -9,3 +9,5 @@ venv
 *.tar
 dist
 api/runs
+kubeconfig
+helix

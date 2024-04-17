@@ -269,7 +269,7 @@ func (r *Runner) startReportStateLoop() {
 	}
 }
 
-func (r *Runner) reportStateLoop(ctx context.Context) error {
+func (r *Runner) reportStateLoop(_ context.Context) error {
 	state, err := r.getState()
 	if err != nil {
 		return err
@@ -292,7 +292,7 @@ func GiB(bytes int64) float32 {
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(ctx context.Context, newSession *types.Session) error {
+func (r *Runner) checkForStaleModelInstances(_ context.Context, newSession *types.Session) error {
 	// calculate stale model instances
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
@@ -641,7 +641,7 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	return task, nil
 }
 
-func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) (*types.Session, error) {
+func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
 
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
@@ -659,7 +659,7 @@ func (r *Runner) getNextApiSession(ctx context.Context, queryParams url.Values) 
 		return nil, err
 	}
 
-	client := system.NewRetryClient()
+	client := system.NewRetryClient(3)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

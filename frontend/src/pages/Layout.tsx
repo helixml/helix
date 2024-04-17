@@ -27,6 +27,8 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ConstructionIcon from '@mui/icons-material/Construction'
+import AppsIcon from '@mui/icons-material/Apps'
+import AssistantIcon from '@mui/icons-material/Assistant'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -327,6 +329,20 @@ const Layout: FC = ({
                             <ConstructionIcon fontSize="small" />
                           </ListItemIcon> 
                           Tools
+                        </MenuItem>
+                      )
+                    }
+
+                    {
+                      account.serverConfig.apps_enabled && (
+                        <MenuItem onClick={ () => {
+                          handleCloseAccountMenu()
+                          navigate('apps')
+                        }}>
+                          <ListItemIcon>
+                            <AppsIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Apps
                         </MenuItem>
                       )
                     }

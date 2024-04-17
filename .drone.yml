@@ -8,12 +8,12 @@ workspace:
 
 steps:
 - name: build-backend
-  image: golang:1.22-alpine
+  image: golang:1.22.2-alpine3.19
   commands:
     - go build -o helix
 
 - name: unit-test
-  image: golang:1.22-alpine
+  image: golang:1.22.2-alpine3.19
   environment:
     OPENAI_API_KEY:
       from_secret: openai_tools

@@ -246,3 +246,15 @@ const (
 	FileStoreTypeLocalFS  FileStoreType = "fs"
 	FileStoreTypeLocalGCS FileStoreType = "gcs"
 )
+
+type APIKeyType string
+
+const (
+	APIKeyType_None APIKeyType = ""
+	// generic access token for a user
+	APIKeyType_API APIKeyType = "api"
+	// a github oauth token
+	APIKeyType_Github APIKeyType = "github"
+	// a helix access token for a specific app
+	APIKeyType_App APIKeyType = "app"
+)

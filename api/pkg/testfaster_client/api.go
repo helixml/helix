@@ -647,6 +647,14 @@ func (handler *HttpApiHandler) UpdateLease(update LeaseState) (*Lease, error) {
 	return updatedLease, nil
 }
 
+func (handler *HttpApiHandler) DeleteLease(poolID string, leaseID string) error {
+	err := handler.Request("DELETE", fmt.Sprintf("/api/v1/pools/%s/leases/%s", poolID, leaseID), "", "")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (handler *HttpApiHandler) PostData(url string, data interface{}) error {
 	return handler.Request(
 		"POST",

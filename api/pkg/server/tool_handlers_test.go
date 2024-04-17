@@ -90,7 +90,7 @@ func (suite *ToolsTestSuite) TestListTools() {
 
 	globalTools := []*types.Tool{}
 
-	suite.store.EXPECT().CheckAPIKey(gomock.Any(), "hl-API_KEY").Return(&types.ApiKey{
+	suite.store.EXPECT().GetAPIKey(gomock.Any(), "hl-API_KEY").Return(&types.APIKey{
 		Owner:     suite.userID,
 		OwnerType: types.OwnerTypeUser,
 	}, nil)
@@ -123,7 +123,7 @@ func (suite *ToolsTestSuite) TestListTools() {
 }
 
 func (suite *ToolsTestSuite) TestCreateTool() {
-	suite.store.EXPECT().CheckAPIKey(gomock.Any(), "hl-API_KEY").Return(&types.ApiKey{
+	suite.store.EXPECT().GetAPIKey(gomock.Any(), "hl-API_KEY").Return(&types.APIKey{
 		Owner:     suite.userID,
 		OwnerType: types.OwnerTypeUser,
 	}, nil)

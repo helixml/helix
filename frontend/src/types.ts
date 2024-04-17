@@ -51,6 +51,10 @@ export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_que
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
+export type IAppType = 'helix' | 'github'
+export const APP_TYPE_HELIX: IAppType = 'helix'
+export const APP_TYPE_GITHUB: IAppType = 'github'
+
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
@@ -84,13 +88,17 @@ export interface IUserConfig {
   stripe_subscription_id?: string,
 }
 
-export type IOwnerType = 'user' | 'system' | 'org';
+export type IOwnerType = 'user' | 'system' | 'org'
+
+export type IApiKeyType = 'api' | 'github' | 'app'
 
 export interface IApiKey {
-  owner: string;
-  owner_type: string;
-  key: string;
-  name: string;
+  owner: string,
+  owner_type: string,
+  key: string,
+  name: string,
+  app_id: string,
+  type: IApiKeyType,
 }
 
 export interface IFileStoreBreadcrumb {
@@ -254,6 +262,7 @@ export interface IServerConfig {
   google_analytics_frontend: string,
   eval_user_id: string,
   tools_enabled: boolean,
+  apps_enabled: boolean,
 }
 
 export interface IConversation {
@@ -444,4 +453,85 @@ export interface ITool {
   global: boolean,
   tool_type: IToolType,
   config: IToolConfig,
+}
+
+
+export interface IKeyPair {
+	type: string,
+  privateKey: string,
+  publicKey: string,
+}
+
+export interface IAppHelixConfigGptScript {
+  source?: string,
+  name?: string,
+  file_path?: string,
+  content?: string,
+  input?: string,
+  env?: string[],
+}
+
+export interface IAppHelixConfigGptScripts {
+  files?: string[],
+  scripts?: IAppHelixConfigGptScript[],
+}
+
+export interface IAppHelixConfig {
+  name?: string,
+  description?: string,
+  avatar?: string,
+  system_prompt?: string,
+  active_tools?: string[],
+  secrets?: Record<string, string>,
+  allowed_domains?: string[],
+  gptscript?: IAppHelixConfigGptScripts,
+}
+
+export interface IAppGithubConfig {
+  repo: string,
+  hash: string,
+  key_pair?: IKeyPair,
+}
+
+export interface IAppConfig {
+  helix?: IAppHelixConfig,
+  github?: IAppGithubConfig,
+}
+
+export interface IApp {
+  id: string,
+  created: Date,
+  updated: Date,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  app_type: IAppType,
+  config: IAppConfig,
+}
+
+export interface IAppUpdate {
+  name: string,
+  description: string,
+  secrets: Record<string, string>,
+  allowed_domains: string[],
+}
+
+export interface IGithubStatus {
+  has_token: boolean,
+  redirect_url: string,
+}
+
+export interface IGithubRepo {
+  full_name: string,
+}
+
+export interface IGptScriptRequest {
+  file_path: string,
+  input: string,
+}
+
+export interface IGptScriptResponse {
+  output: string,
+  error: string,
 }
