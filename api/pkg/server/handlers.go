@@ -198,17 +198,15 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		if sessionMode == types.SessionModeInference {
 			switch helixModel {
 			case "helix-4":
-				modelName = types.Model_Ollama_Mixtral
+				modelName = types.Model_Ollama_Llama3_70b
 			case "helix-3.5":
-				modelName = types.Model_Ollama_Mistral7b
+				modelName = types.Model_Ollama_Llama3_8b
 			case "helix-code":
 				modelName = types.Model_Ollama_CodeLlama
 			case "helix-json":
 				modelName = types.Model_Ollama_NousHermes2Pro
-			case "helix-large":
-				modelName = types.Model_Ollama_Qwen72b
 			default:
-				modelName = types.Model_Ollama_Mistral7b
+				modelName = types.Model_Ollama_Llama3_8b
 			}
 		} else {
 			// fine tuning doesn't work with ollama yet
