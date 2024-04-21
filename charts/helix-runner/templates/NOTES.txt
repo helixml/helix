@@ -1,0 +1,3 @@
+Check the runner pod logs. It will take some time until the runner is ready to accept jobs.
+
+Once ready, it should appear in your Helix dashboard here: {{ .Values.runner.host }}/dashboard 
