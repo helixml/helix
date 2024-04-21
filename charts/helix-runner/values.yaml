@@ -14,6 +14,17 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+runner:
+  # Your helix control-plane's URL
+  host: https://app.tryhelix.ai
+  token: oh-hallo
+  # Models to pull on start
+  models: mistral:7b-instruct,mixtral:instruct
+  # Available memory for the runner
+  memory: 24GB
+
+  shareProcessNamespace: true
+
 serviceAccount:
   # Specifies whether a service account should be created
   create: true
