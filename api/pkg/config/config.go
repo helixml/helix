@@ -66,7 +66,12 @@ const (
 type Tools struct {
 	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"`
-	Model    string   `envconfig:"TOOLS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1"` // gpt-4-1106-preview
+
+	// Suggestions based on provider:
+	// - OpenAI: gpt-4-1106-preview
+	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Helix: llama3:instruct or adrienbrault/nous-hermes2pro:Q5_K_S
+	Model string `envconfig:"TOOLS_MODEL" default:"llama3:instruct"`
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation
