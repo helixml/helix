@@ -71,7 +71,7 @@ type Tools struct {
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
 	// - Helix: llama3:instruct or adrienbrault/nous-hermes2pro:Q5_K_S
-	Model string `envconfig:"TOOLS_MODEL" default:"llama3:instruct"`
+	Model string `envconfig:"TOOLS_MODEL" default:"meta-llama/Llama-3-8b-chat-hf"`
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation
