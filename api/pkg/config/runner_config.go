@@ -33,7 +33,7 @@ type Runtimes struct {
 	}
 	Ollama struct {
 		Enabled      bool     `envconfig:"RUNTIME_OLLAMA_ENABLED" default:"true"`
-		WarmupModels []string `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"mistral:7b-instruct,mixtral:instruct,codellama:70b-instruct-q2_K,adrienbrault/nous-hermes2pro:Q5_K_S,qwen:72b-chat-q2_K"`
+		WarmupModels []string `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"llama3:instruct,mixtral:instruct,codellama:70b-instruct-q2_K,adrienbrault/nous-hermes2pro:Q5_K_S,qwen:72b-chat-q2_K"`
 		// Ollama instance can be kept for much longer as it automatically unloads
 		// the model from memory when it's not used
 		InstanceTTL time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"60s"`
