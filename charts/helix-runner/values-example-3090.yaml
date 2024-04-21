@@ -1,0 +1,18 @@
+# Specify how to connect to the Helix controlplane
+runner:
+  host: https://<host>
+  token: <token>
+  # Memory based on the available GPU memory. In this example
+  # 3090 has 24GB of memory
+  memory: 24GB
+
+# How many runners do you want to run?
+replicaCount: 1
+
+# Select your GPU count
+resources:
+  limits:
+    nvidia.com/gpu: 1
+
+nodeSelector:
+  nvidia.com/gpu.product: NVIDIA-GeForce-RTX-3090-Ti
