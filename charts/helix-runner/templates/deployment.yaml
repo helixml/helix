@@ -43,11 +43,15 @@ spec:
             - --api-token
             - {{ .Values.runner.token }}
             - --runner-id
-            - k8s-runner
+            - "$(POD_NAME)"
             - --memory
             - {{ .Values.runner.memory }}
             - --allow-multiple-copies
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: RUNTIME_AXOLOTL_ENABLED
               value: "true"
             - name: RUNTIME_AXOLOTL_WARMUP_MODELS
