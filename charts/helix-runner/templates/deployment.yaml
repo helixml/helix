@@ -36,10 +36,26 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
+          shareProcessNamespace: {{ .Values.runner.shareProcessNamespace }}
+          args:
+            - --api-host
+            - {{ .Values.runner.host }}
+            - --api-token
+            - {{ .Values.runner.token }}
+            - --runner-id
+            - k8s-runner
+            - --memory
+            - 24GB
+            - --allow-multiple-copies
+          env:
+            - name: RUNTIME_AXOLOTL_ENABLED
+              value: "true"
+            - name: RUNTIME_AXOLOTL_WARMUP_MODELS
+              value: "mistralai/Mistral-7B-Instruct-v0.1,stabilityai/stable-diffusion-xl-base-1.0"
+            - name: RUNTIME_OLLAMA_ENABLED
+              value: "true"
+            - name: RUNTIME_OLLAMA_WARMUP_MODELS
+              value: {{ .Values.runner.models }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
