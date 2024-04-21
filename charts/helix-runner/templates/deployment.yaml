@@ -45,7 +45,7 @@ spec:
             - --runner-id
             - k8s-runner
             - --memory
-            - 24GB
+            - {{ .Values.runner.memory }}
             - --allow-multiple-copies
           env:
             - name: RUNTIME_AXOLOTL_ENABLED
@@ -56,10 +56,6 @@ spec:
               value: "true"
             - name: RUNTIME_OLLAMA_WARMUP_MODELS
               value: {{ .Values.runner.models }}
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.volumeMounts }}
