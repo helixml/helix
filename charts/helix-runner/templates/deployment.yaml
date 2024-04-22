@@ -56,6 +56,8 @@ spec:
               value: "true"
             - name: RUNTIME_AXOLOTL_WARMUP_MODELS
               value: "mistralai/Mistral-7B-Instruct-v0.1,stabilityai/stable-diffusion-xl-base-1.0"
+            - name: HF_TOKEN
+              value: {{ .Values.runner.huggingfaceToken }}
             - name: RUNTIME_OLLAMA_ENABLED
               value: "true"
             - name: RUNTIME_OLLAMA_WARMUP_MODELS
