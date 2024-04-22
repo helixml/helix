@@ -19,7 +19,7 @@ runner:
   host: https://app.tryhelix.ai
   token: oh-hallo
   # Models to pull on start
-  models: mistral:7b-instruct,mixtral:instruct
+  models: mistral:7b-instruct,llama3:instruct,llama3:70b-instruct-q2_K,mixtral:instruct
   # Available memory for the runner
   memory: 24GB
   # IPC mode
