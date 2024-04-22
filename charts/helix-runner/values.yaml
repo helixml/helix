@@ -24,6 +24,9 @@ runner:
   memory: 24GB
   # IPC mode
   shareProcessNamespace: true
+  # huggingface token (for gated models, e.g. fine tuning mistral-7B, accept
+  # terms on https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1)
+  huggingfaceToken: ""
 
 resources: {}
   # limits:
