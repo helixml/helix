@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Nerzal/gocloak/v13"
 	jwt "github.com/golang-jwt/jwt/v5"
@@ -25,9 +26,10 @@ type KeycloakAuthenticator struct {
 func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
 	gck := gocloak.NewClient(cfg.URL)
 
-	log.Info().Str("keycloak_url", cfg.URL).Msg("connecting to keycloak")
+	log.Info().Str("keycloak_url", cfg.URL).Msg("connecting to keycloak...")
 
-	token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
+	// Retryable connect that waits for keycloak
+	token, err := connect(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +67,25 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 		cfg:     cfg,
 		gocloak: gck,
 	}, nil
+}
+
+func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	gck := gocloak.NewClient(cfg.URL)
+
+	for {
+		token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed getting admin token, retrying in 5 seconds....")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// OK
+		return token, nil
+	}
 }
 
 func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT, error) {

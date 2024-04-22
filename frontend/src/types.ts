@@ -35,10 +35,12 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct'
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b-instruct-q2_K'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b-instruct-q2_K'
 export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
