@@ -242,6 +242,12 @@ func (l *Mistral7bInstruct01) GetCommand(ctx context.Context, sessionFilter type
 			os.Getenv("CUDA_VISIBLE_DEVICES"),
 		))
 	}
+	if os.Getenv("HF_TOKEN") != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf(
+			"HF_TOKEN=%s",
+			os.Getenv("HF_TOKEN"),
+		))
+	}
 
 	return cmd, nil
 }
