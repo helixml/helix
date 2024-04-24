@@ -58,4 +58,4 @@ When configuring ingress, adjust both global.serverUrl to your domain name and k
 
 ## Connecting runners
 
-You can connect runners through [Docker](https://docs.helix.ml/helix/private-deployment/docker/), [Docker Compose](https://github.com/helixml/helix/blob/main/docker-compose.runner.yaml), [Synpse](https://cloud.synpse.net/templates?id=helix-runner), [Runpod](https://docs.helix.ml/helix/private-deployment/runpod/), [LambdaLabs](https://docs.helix.ml/helix/private-deployment/lambdalabs/) or Kubernetes chart (coming soon) 
+You can connect runners through [Docker](https://docs.helix.ml/helix/private-deployment/docker/), [Docker Compose](https://github.com/helixml/helix/blob/main/docker-compose.runner.yaml), [Synpse](https://cloud.synpse.net/templates?id=helix-runner), [Runpod](https://docs.helix.ml/helix/private-deployment/runpod/), [LambdaLabs](https://docs.helix.ml/helix/private-deployment/lambdalabs/) or [Kubernetes chart](../helix-runner) 
