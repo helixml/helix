@@ -138,7 +138,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
                     textAlign: 'center',
                   }}
                   variant="caption"
-                >
+                 >
                   Drag images here to upload
                 </Typography>
                 <Typography
