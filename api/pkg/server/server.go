@@ -12,6 +12,8 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/auth"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -24,13 +26,12 @@ import (
 const API_PREFIX = "/api/v1"
 
 type ServerOptions struct {
-	URL           string
-	Host          string
-	Port          int
-	FrontendURL   string // Can either be a URL to frontend or a path to static files
-	KeyCloakURL   string
-	KeyCloakToken string
-	RunnerToken   string
+	Config      *config.ServerConfig
+	URL         string
+	Host        string
+	Port        int
+	FrontendURL string // Can either be a URL to frontend or a path to static files
+	RunnerToken string
 	// a list of keycloak ids that are considered admins
 	// if the string '*' is included it means ALL users
 	AdminIDs []string
@@ -44,71 +45,63 @@ type ServerOptions struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
+	// the list of tool ids that are allowed to be used by any user
+	// this is returned to the frontend as part of the /config route
+	ToolsGlobalIDS []string
 }
 
 type HelixAPIServer struct {
-	Options            ServerOptions
-	Store              store.Store
-	Stripe             *stripe.Stripe
-	Controller         *controller.Controller
-	Janitor            *janitor.Janitor
-	runnerAuth         *runnerAuth
-	adminAuth          *adminAuth
-	keycloak           *keycloak
-	keyCloakMiddleware *keyCloakMiddleware
-	pubsub             pubsub.PubSub
-	// planner            tools.Planner
-	router *mux.Router
+	Cfg            *config.ServerConfig
+	Store          store.Store
+	Stripe         *stripe.Stripe
+	Controller     *controller.Controller
+	Janitor        *janitor.Janitor
+	runnerAuth     *runnerAuth
+	adminAuth      *adminAuth
+	authMiddleware *authMiddleware
+	pubsub         pubsub.PubSub
+	router         *mux.Router
 }
 
 func NewServer(
-	options ServerOptions,
+	cfg *config.ServerConfig,
 	store store.Store,
-	// planner tools.Planner,
+	ps pubsub.PubSub,
+	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 ) (*HelixAPIServer, error) {
-	if options.URL == "" {
+	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
-	if options.Host == "" {
+
+	if cfg.WebServer.Host == "" {
 		return nil, fmt.Errorf("server host is required")
 	}
-	if options.Port == 0 {
+
+	if cfg.WebServer.Port == 0 {
 		return nil, fmt.Errorf("server port is required")
 	}
-	if options.KeyCloakURL == "" {
-		return nil, fmt.Errorf("keycloak url is required")
-	}
-	if options.KeyCloakToken == "" {
-		return nil, fmt.Errorf("keycloak token is required")
-	}
-	if options.RunnerToken == "" {
+
+	if cfg.WebServer.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
 	}
-	runnerAuth, err := newRunnerAuth(options.RunnerToken)
+	runnerAuth, err := newRunnerAuth(cfg.WebServer.RunnerToken)
 	if err != nil {
 		return nil, err
 	}
 
-	ps, err := pubsub.New()
-	if err != nil {
-		return nil, err
-	}
-
-	keycloak := newKeycloak(options)
 	return &HelixAPIServer{
-		Options:            options,
-		Store:              store,
-		Stripe:             stripe,
-		Controller:         controller,
-		Janitor:            janitor,
-		runnerAuth:         runnerAuth,
-		adminAuth:          newAdminAuth(options.AdminIDs),
-		keycloak:           keycloak,
-		keyCloakMiddleware: newMiddleware(keycloak, options, store),
-		pubsub:             ps,
+		Cfg:            cfg,
+		Store:          store,
+		Stripe:         stripe,
+		Controller:     controller,
+		Janitor:        janitor,
+		runnerAuth:     runnerAuth,
+		adminAuth:      newAdminAuth(cfg.WebServer.AdminIDs),
+		authMiddleware: newMiddleware(authenticator, cfg.WebServer, store),
+		pubsub:         ps,
 	}, nil
 }
 
@@ -134,7 +127,7 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	)
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("%s:%d", apiServer.Options.Host, apiServer.Options.Port),
+		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
 		ReadTimeout:       time.Minute * 15,
 		ReadHeaderTimeout: time.Minute * 15,
@@ -144,31 +137,30 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
-func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Router, error) {
+func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
 		return nil, err
 	}
-	// router.Use(apiServer.corsMiddleware)
 	router.Use(errorLoggingMiddleware)
 
-	subrouter := router.PathPrefix(API_PREFIX).Subrouter()
+	subRouter := router.PathPrefix(API_PREFIX).Subrouter()
 
 	// auth router requires a valid token from keycloak
-	authRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	authRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 
-	maybeAuthRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	maybeAuthRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 
-	authRouter.Use(apiServer.keyCloakMiddleware.enforceVerifyToken)
-	maybeAuthRouter.Use(apiServer.keyCloakMiddleware.maybeVerifyToken)
+	authRouter.Use(apiServer.authMiddleware.enforceVerifyToken)
+	maybeAuthRouter.Use(apiServer.authMiddleware.maybeVerifyToken)
 
 	// runner router requires a valid runner token
-	runnerRouter := subrouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	runnerRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return true
 	}).Subrouter()
 	runnerRouter.Use(apiServer.runnerAuth.middleware)
@@ -178,16 +170,21 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 		return true
 	}).Subrouter()
 	adminRouter.Use(apiServer.adminAuth.middleware)
-	subrouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
+	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
 
-	subrouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
-	subrouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
+	subRouter.HandleFunc("/config/js", apiServer.configJS).Methods("GET")
+	subRouter.Handle("/swagger", apiServer.swaggerHandler()).Methods("GET")
 
 	// this is not authenticated because we use the webhook signing secret
 	// the stripe library handles http management
-	subrouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
+	subRouter.HandleFunc("/stripe/webhook", apiServer.subscriptionWebhook).Methods("POST")
+
+	authRouter.HandleFunc("/github/status", system.DefaultWrapper(apiServer.githubStatus)).Methods("GET")
+	authRouter.HandleFunc("/github/callback", apiServer.githubCallback).Methods("GET")
+	authRouter.HandleFunc("/github/repos", system.DefaultWrapper(apiServer.listGithubRepos)).Methods("GET")
+	subRouter.HandleFunc("/github/webhook", apiServer.githubWebhook).Methods("POST")
 
 	authRouter.HandleFunc("/status", system.DefaultWrapper(apiServer.status)).Methods("GET")
 
@@ -210,9 +207,9 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/api_keys", system.DefaultWrapper(apiServer.deleteAPIKey)).Methods("DELETE")
 	authRouter.HandleFunc("/api_keys/check", system.DefaultWrapper(apiServer.checkAPIKey)).Methods("GET")
 
-	if apiServer.Options.LocalFilestorePath != "" {
+	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
 		// disable directory listings
-		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Options.LocalFilestorePath)})
+		fileServer := http.FileServer(neuteredFileSystem{http.Dir(apiServer.Cfg.WebServer.LocalFilestorePath)})
 
 		// we handle our own auth from inside this function
 		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
@@ -255,7 +252,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	}
 
 	// OpenAI API compatible routes
-	router.HandleFunc("/v1/chat/completions", apiServer.keyCloakMiddleware.apiKeyAuth(apiServer.createChatCompletion)).Methods("POST")
+	router.HandleFunc("/v1/chat/completions", corsMiddleware(apiServer.authMiddleware.apiKeyAuth(apiServer.createChatCompletion))).Methods("POST", "OPTIONS")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
@@ -283,6 +280,17 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.updateTool)).Methods("PUT")
 	authRouter.HandleFunc("/tools/{id}", system.Wrapper(apiServer.deleteTool)).Methods("DELETE")
 
+	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods("GET")
+	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
+
+	// we know which app this is by the token that is used (which is linked to the app)
+	// this is so frontend devs don't need anything other than their access token
+	// and can auto-connect to this endpoint
+	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
+	subRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
+
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
 	// all these routes are secured via runner tokens
@@ -302,7 +310,7 @@ func (apiServer *HelixAPIServer) registerRoutes(ctx context.Context) (*mux.Route
 
 	apiServer.router = router
 
-	return subrouter, nil
+	return subRouter, nil
 }
 
 func getID(r *http.Request) string {
@@ -311,7 +319,7 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	u, err := url.Parse(apiServer.Options.KeyCloakURL)
+	u, err := url.Parse(apiServer.Cfg.Keycloak.URL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
 		return
@@ -325,15 +333,15 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
-	if strings.HasPrefix(apiServer.Options.FrontendURL, "http://") || strings.HasPrefix(apiServer.Options.FrontendURL, "https://") {
+	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
 
 		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(
-			apiServer.Options.FrontendURL,
+			apiServer.Cfg.WebServer.FrontendURL,
 		))
 	} else {
-		log.Info().Msgf("serving static UI files from %s", apiServer.Options.FrontendURL)
+		log.Info().Msgf("serving static UI files from %s", apiServer.Cfg.WebServer.FrontendURL)
 
-		fileSystem := http.Dir(apiServer.Options.FrontendURL)
+		fileSystem := http.Dir(apiServer.Cfg.WebServer.FrontendURL)
 
 		router.PathPrefix("/").Handler(spa.NewSPAFileServer(fileSystem))
 	}

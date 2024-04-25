@@ -5,11 +5,12 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -29,9 +30,10 @@ type ChainStrategy struct {
 	cfg        *config.ServerConfig
 	apiClient  openai.Client
 	httpClient *http.Client
+	Local      bool // run locally for tests XXX security risk, never set this to true in production
 }
 
-func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, controller openai.Controller) (*ChainStrategy, error) {
 	var apiClient openai.Client
 
 	switch cfg.Tools.Provider {
@@ -46,49 +48,31 @@ func NewChainStrategy(cfg *config.ServerConfig) (*ChainStrategy, error) {
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
 	case config.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey == "" {
-			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
+		if cfg.Providers.TogetherAI.APIKey != "" {
+
+			log.Info().
+				Str("base_url", cfg.Providers.TogetherAI.BaseURL).
+				Msg("using TogetherAI provider for tools")
+
+			apiClient = openai.New(
+				cfg.Providers.TogetherAI.APIKey,
+				cfg.Providers.TogetherAI.BaseURL)
+		} else {
+			// gptscript server case
+			log.Info().Msg("no explicit tools provider LLM configured (gptscript server will still work if OPENAI_API_KEY is set)")
+		}
+	case config.ProviderHelix:
+		if controller != nil {
+			log.Info().Msg("using Helix provider for tools")
+
+			apiClient = openai.NewInternalHelixClient(cfg, ps, controller)
 		}
 
-		log.Info().Msg("using TogetherAI provider for tools")
-
-		apiClient = openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
 	default:
 		log.Warn().Msg("no tools provider configured")
 	}
 
-	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 3
-	retryClient.RequestLogHook = func(_ retryablehttp.Logger, req *http.Request, attempt int) {
-		switch {
-		case req.Method == "POST":
-			log.Trace().
-				Str(req.Method, req.URL.String()).
-				Int("attempt", attempt).
-				Msgf("failed")
-		default:
-			// GET, PUT, DELETE, etc.
-			log.Trace().
-				Str(req.Method, req.URL.String()).
-				Int("attempt", attempt).
-				Msgf("")
-		}
-	}
-
-	retryClient.CheckRetry = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
-		if resp == nil {
-			return true, err
-		}
-		log.Trace().
-			Str(resp.Request.Method, resp.Request.URL.String()).
-			Int("code", resp.StatusCode).
-			Msgf("")
-		// don't retry for auth and bad request errors
-		return resp.StatusCode >= 500, nil
-	}
-
+	retryClient := system.NewRetryClient(3)
 	return &ChainStrategy{
 		cfg:        cfg,
 		apiClient:  apiClient,

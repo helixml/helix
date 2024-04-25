@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -126,7 +127,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	var completedCounter int64
 
-	// converting to text is quite fast but we don't have a scaling strategy for unstructured right now
+	// converting to text is quite fast but we don't have a scaling strategy for llamaindex right now
 	// so let's just have some control over large numbers of files in one session
 	err = system.ForEachConcurrently[string](
 		filesToConvert,
@@ -153,12 +154,12 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			}
 
 			// for local development - the file server hostname will not resolve
-			// from inside the unstructured container
+			// from inside the llamaindex container
 			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
 			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
 				system.ClientOptions{},
-				c.Options.TextExtractionURL,
+				c.Options.Config.Controller.TextExtractionURL,
 				convertDocumentsToChunksRequest{
 					URL: fileURL,
 				},
@@ -212,13 +213,8 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	return session, len(filesToConvert), nil
 }
 
-func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
+func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, error) {
 	userInteraction, err := data.GetUserInteraction(session)
-	if err != nil {
-		return nil, err
-	}
-
-	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -235,23 +231,48 @@ func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.Da
 		}
 	}
 
+	return filesToConvert, nil
+}
+
+func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
+	filesToConvert, err := c.getTextFilesToConvert(session)
+	if err != nil {
+		return nil, err
+	}
+
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+
 	_, splitter, err := c.Options.DataPrepTextFactory(session)
 	if err != nil {
 		return nil, err
 	}
 
-	documentGroupID := session.ID
+	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	newMeta := session.Metadata
+	newMeta.DocumentGroupID = documentGroupID
+	if newMeta.DocumentIDs == nil {
+		newMeta.DocumentIDs = map[string]string{}
+	}
+
 	// add all the files to the splitter so we know what chunks we have
-	for _, file := range filesToConvert {
-		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+	for _, filename := range filesToConvert {
+		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, filename)
 		if err != nil {
 			return nil, err
 		}
-		meta, err := splitter.AddDocument(file, fileContent, documentGroupID, session)
-		c.UpdateSessionMetadata(context.TODO(), session, meta)
+		documentID, err := splitter.AddDocument(filename, fileContent, documentGroupID)
 		if err != nil {
 			return nil, err
 		}
+		newMeta.DocumentIDs[filename] = documentID
+	}
+
+	_, err = c.UpdateSessionMetadata(context.TODO(), session, &newMeta)
+	if err != nil {
+		return nil, err
 	}
 
 	// Some qapair generators expand each chunk into N chunks so they can be run
@@ -271,6 +292,144 @@ func (c *Controller) getChunksToProcess(session *types.Session, dataprep text.Da
 	return chunksToProcess, nil
 }
 
+func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+	filesToConvert, err := c.getTextFilesToConvert(session)
+	if err != nil {
+		return nil, err
+	}
+
+	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+		ChunkSize: session.Metadata.RagSettings.ChunkSize,
+		Overflow:  session.Metadata.RagSettings.ChunkOverflow,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+
+	for _, file := range filesToConvert {
+		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
+		if err != nil {
+			return nil, err
+		}
+		_, err = splitter.AddDocument(file, fileContent, documentGroupID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return splitter.Chunks, nil
+}
+
+func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, int, error) {
+	systemInteraction, err := data.GetSystemInteraction(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	chunksToProcess, err := c.getRagChunksToProcess(session)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(chunksToProcess) == 0 {
+		return session, 0, nil
+	}
+
+	// get the progress bar to display
+	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
+	systemInteraction.Status = initialMessage
+	systemInteraction.Progress = 1
+	systemInteraction.DataPrepStage = types.TextDataPrepStageIndexRag
+	session = c.WriteInteraction(session, systemInteraction)
+	c.BroadcastProgress(session, 1, initialMessage)
+
+	var completedCounter int64
+	var errorCounter int64
+
+	for i, chunk := range chunksToProcess {
+		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
+
+		convertError := c.indexChunkForRag(session, systemInteraction, chunk)
+
+		if convertError != nil {
+			atomic.AddInt64(&errorCounter, 1)
+		} else {
+			atomic.AddInt64(&completedCounter, 1)
+		}
+
+		percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
+		message := fmt.Sprintf("%d total, %d indexed and %d errors", len(chunksToProcess), completedCounter, errorCounter)
+		c.BroadcastProgress(session, percentConverted, message)
+		systemInteraction.Status = message
+		systemInteraction.Progress = percentConverted
+		session = c.WriteInteraction(session, systemInteraction)
+
+		if convertError != nil {
+			log.Error().Msgf("🔴 rag index error %s", convertError.Error())
+		} else {
+			log.Info().Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
+		}
+
+	}
+
+	finishedMessage := fmt.Sprintf("indexed %d text chunks into vector database", len(chunksToProcess))
+
+	c.BroadcastProgress(session, 100, finishedMessage)
+
+	systemInteraction.Status = finishedMessage
+	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
+	systemInteraction.Progress = 0
+	session = c.WriteInteraction(session, systemInteraction)
+
+	return session, len(chunksToProcess), nil
+}
+
+func (c *Controller) indexChunkForRag(session *types.Session, interaction *types.Interaction, chunk *text.DataPrepTextSplitterChunk) error {
+	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
+		system.ClientOptions{},
+		c.Options.Config.Controller.RAGIndexingURL,
+		types.SessionRagIndexChunk{
+			SessionID:       session.ID,
+			InteractionID:   interaction.ID,
+			Filename:        chunk.Filename,
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// given a user prompt and an existing session id
+// let's load from the vector store
+func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagResult, error) {
+	userInteraction, err := data.GetUserInteraction(session)
+	if err != nil {
+		return nil, err
+	}
+	result, err := system.PostRequest[types.SessionRagQuery, []types.SessionRagResult](
+		system.ClientOptions{},
+		c.Options.Config.Controller.RAGQueryURL,
+		types.SessionRagQuery{
+			Prompt:            userInteraction.Message,
+			SessionID:         session.ID,
+			DistanceThreshold: session.Metadata.RagSettings.Threshold,
+			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
+			MaxResults:        session.Metadata.RagSettings.ResultsCount,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
@@ -287,7 +446,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	chunksToProcess, err := c.getChunksToProcess(session, dataprep)
+	chunksToProcess, err := c.getQAChunksToProcess(session, dataprep)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -296,8 +455,104 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return session, 0, nil
 	}
 
+	systemInteraction.DataPrepTotalChunks = len(chunksToProcess)
+
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
+
+	// Validate quotas
+	if c.Options.Config.SubscriptionQuotas.Enabled {
+
+		pro, err := c.isUserProTier(context.Background(), session.Owner)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error getting user '%s' pro tier: %s", session.Owner, err.Error())
+		}
+
+		// Pro tier checking for the number of chunks
+		if pro {
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks {
+
+				if c.Options.Config.SubscriptionQuotas.Finetuning.Free.Strict {
+					// Pro plan limit
+					msg := fmt.Sprintf("Sorry, too much data to process on the premium tier 😅 (%d chunks), speak with us to process more text",
+						len(chunksToProcess))
+
+					systemInteraction.Status = msg
+					systemInteraction.Progress = 0
+					systemInteraction.State = types.InteractionStateError
+					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+
+					systemInteraction.DataPrepLimited = true
+					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					session = c.WriteInteraction(session, systemInteraction)
+					c.BroadcastProgress(session, 1, initialMessage)
+
+					return session, 0, fmt.Errorf(msg)
+				}
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("Sorry, too many chunks to convert in pro tier 😅, reducing to %d text chunks (from %d) to question answer pairs",
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+					len(chunksToProcess),
+				)
+
+				// Cut the chunks to the pro tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks]
+
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks
+			}
+		} else {
+			// Free tier
+			if len(chunksToProcess) > c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks {
+				if c.Options.Config.SubscriptionQuotas.Finetuning.Free.Strict {
+
+					msg := fmt.Sprintf("Sorry, too much data to process on the free tier 😅 (resulted in %d chunks while the limit is %d), upgrade your plan to process more text",
+						len(chunksToProcess), c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks)
+
+					systemInteraction.Status = msg
+					systemInteraction.Progress = 0
+					systemInteraction.State = types.InteractionStateError
+					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+
+					systemInteraction.DataPrepLimited = true
+					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+
+					session = c.WriteInteraction(session, systemInteraction)
+					c.BroadcastProgress(session, 1, initialMessage)
+
+					return session, 0, fmt.Errorf(msg)
+				}
+
+				// Get the progress bar to display
+				initialMessage = fmt.Sprintf("Sorry, too much data to process on the free tier 😅 (%d), reducing to %d text chunks. Upgrade your plan to process more text.",
+					len(chunksToProcess),
+					c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				)
+
+				// Cut the chunks to the free tier limit
+				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
+				// Marking the session as limited
+				systemInteraction.DataPrepLimited = true
+				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+			}
+		}
+	}
+
+	if systemInteraction.DataPrepLimited {
+		log.Info().
+			Str("user_id", session.Owner).
+			Str("session_id", session.ID).
+			Int("limit", systemInteraction.DataPrepLimit).
+			Int("total_chunks", systemInteraction.DataPrepTotalChunks).
+			Msgf("chunks have been reduced to the tier limit of %d, total chunks before: %d",
+				c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
+				len(chunksToProcess),
+			)
+	}
+
 	systemInteraction.Status = initialMessage
 	systemInteraction.Progress = 1
 	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
@@ -410,10 +665,10 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		}
 	}
 
-	systemPrompt := fmt.Sprintf(
-		"You are an intelligent chatbot named Helix that has been fine-tuned on document(s) %s in document group %s. The document group contains %d document(s). The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.",
-		strings.Join(docIDs, ", "), docGroupID, len(docIDs),
-	)
+	systemPrompt, err := prompts.TextFinetuneSystemPrompt(docIDs, docGroupID)
+	if err != nil {
+		return nil, 0, err
+	}
 	session.Metadata.SystemPrompt = systemPrompt
 	c.WriteSession(session)
 

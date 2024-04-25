@@ -35,7 +35,7 @@ import Divider from '@mui/material/Divider';
 
 
 import {
-  buttonStates,
+  BUTTON_STATES,
 } from '../../types'
 
 import {
@@ -262,6 +262,24 @@ const [files, setFiles] = useState<CustomFile[]>(
             }}
           />
         </Cell>
+        <Cell
+          sx={{
+            width: '240px',
+            minWidth: '240px',
+          }}
+        >
+          <Button
+            sx={{
+              width: '100%',
+            }}
+            variant="contained"
+            color={ BUTTON_STATES.addUrlColor }
+            endIcon={<AddCircleIcon />}
+            onClick={ onAddURL }
+          >
+            { BUTTON_STATES.addUrlLabel }
+          </Button>
+        </Cell>
       </Row>
       <Typography
         sx={{
@@ -323,6 +341,26 @@ const [files, setFiles] = useState<CustomFile[]>(
             }}
           />
         </Cell>
+        <Cell
+          sx={{
+            flexGrow: 0,
+            width: '240px',
+            minWidth: '240px',
+          }}
+        >
+          <Button
+            sx={{
+              width: '100%',
+            }}
+            variant="contained"
+            color={ BUTTON_STATES.addTextColor }
+            endIcon={<AddCircleIcon />}
+            onClick={ onAddTextFile }
+          >
+            { BUTTON_STATES.addTextLabel }
+          </Button>
+        </Cell>
+        
       </Row>
       <Typography
         sx={{
@@ -400,6 +438,25 @@ const [files, setFiles] = useState<CustomFile[]>(
               multiple
             />
           </Cell>
+          <Cell
+            sx={{
+              flexGrow: 0,
+              width: '240px',
+              minWidth: '240px',
+            }}
+          >
+            <Button
+              sx={{
+                width: '100%',
+              }}
+              variant="contained"
+              color={ BUTTON_STATES.uploadFilesColor }
+              endIcon={<CloudUploadIcon />}
+            >
+              { BUTTON_STATES.uploadFilesLabel }
+            </Button>
+          </Cell>
+          
         </Row>
       </FileUpload>
 

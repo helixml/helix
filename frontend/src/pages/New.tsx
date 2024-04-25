@@ -1,5 +1,6 @@
-import React, { FC, useState, useCallback, useEffect, useRef } from 'react'
+import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { styled, useTheme } from '@mui/material/styles'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
@@ -7,12 +8,27 @@ import Typography from '@mui/material/Typography'
 import Grid from '@mui/material/Grid'
 import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Divider from '@mui/material/Divider'
+import Checkbox from '@mui/material/Checkbox'
+import InputLabel from '@mui/material/InputLabel'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
+import FormControl from '@mui/material/FormControl'
 import Switch from '@mui/material/Switch'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import SettingsIcon from '@mui/icons-material/Settings'
+import ConstructionIcon from '@mui/icons-material/Construction'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
 import IconButton from '@mui/material/IconButton'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
+import { SelectChangeEvent } from '@mui/material/Select'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
@@ -20,15 +36,20 @@ import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
 import Window from '../components/widgets/Window'
 import Disclaimer from '../components/widgets/Disclaimer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
+import useTools from '../hooks/useTools'
 import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
 import ButtonGroup from '@mui/material/ButtonGroup'
+import useSessionConfig from '../hooks/useSessionConfig'
+import useTracking from '../hooks/useTracking'
 
 import {
   ISessionMode,
@@ -37,6 +58,7 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  BUTTON_STATES,
 } from '../types'
 
 const New: FC = () => {
@@ -47,15 +69,21 @@ const New: FC = () => {
     params,
     setParams,
   } = useRouter()
+  const {
+    emitEvent,
+  } = useTracking()
   const account = useAccount()
+  const tools = useTools()
   const sessions = useSessions()
   const layout = useLayout()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
-
+  const sessionConfig = useSessionConfig()
+  
   const themeConfig = useThemeConfig()
   const theme = useTheme()
 
+  
   const [initialized, setInitialized] = useState(false)
   const [showLoginWindow, setShowLoginWindow] = useState(false)
   const [selectedTyped, setSelectedTyped] = useState<ISessionType>(SESSION_TYPE_TEXT);
@@ -69,6 +97,9 @@ const New: FC = () => {
     setSelectedTyped(SESSION_TYPE_IMAGE);
     setModel(mode as ISessionMode, SESSION_TYPE_IMAGE);
   };
+  const [showSessionSettings, setShowSessionSettings] = useState(false)
+  const [activeSettingsTab, setActiveSettingsTab] = useState(0)
+  
   const {
     mode = SESSION_MODE_INFERENCE,
     type = SESSION_TYPE_TEXT,
@@ -84,22 +115,40 @@ const New: FC = () => {
   const selectedMode = mode
   const selectedType = type
 
-  const examplePrompts = {
-    text: [
-      "Draft an elaborate weekly newsletter focusing on a specific [topic] tailored for a particular [company type], ensuring to cover all necessary updates and insights",
-      "Prepare a detailed pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
-      "Compose a comprehensive email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines in detail"
-    ],
-    image: [
-      "Design a cutting-edge modern logo for a VR tech company, incorporating a 3D shape, gradient colors, and embodying the futuristic vision of the brand",
-      "Create a sophisticated fashion logo that combines an elegant font, gradient colors, and a minimalist graphic to convey the brand's chic and modern identity",
-      "Capture a detailed macro shot of a caterpillar's eyes, focusing on the intricate patterns and colors to showcase the beauty of nature in detail"
-    ]
-  };
+  // Define the text prompts
+  const getTextPrompts = () => [
+    "Draft a weekly newsletter focusing on [a specific topic] tailored for a particular [company type], covering all necessary updates and insights",
+    "Prepare a pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines",
+    "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
+    "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
+    "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
+  ]
 
+  // Define the image prompts
+  const getImagePrompts = () => [
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color]",
+    "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
+    "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
+    "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
+    "Produce an infographic illustrating the growth of [topic] over the last decade, using [color palette] and engaging visuals",
+    "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
+  ]
+
+  // Use the useMediaQuery hook from Material UI to check if the device is in mobile view
+  const bigScreen = !useMediaQuery(theme.breakpoints.down('sm'))
+
+  // Define the example prompts, if it's not bigScreen, show two prompts in one column, otherwise show three in a single row
+  const examplePrompts = useMemo(() => ({
+    text: getTextPrompts().sort(() => Math.random() - 0.5).slice(0, bigScreen ? 3 : 2),
+    image: getImagePrompts().sort(() => Math.random() - 0.5).slice(0, bigScreen ? 3 : 2)
+  }), [bigScreen])
+
+  // Define the SampleContent component
   const SampleContent = () => {
     const handleClick = (content: string) => {
       inputs.setInputValue(content);
+      textFieldRef.current?.focus();
     };
 
     if (selectedMode == "finetune") {
@@ -115,7 +164,7 @@ const New: FC = () => {
           flexDirection: 'column',
         }}
       >
-        <Typography variant="body2" sx={{mb: 1}}>
+        <Typography variant="body2" sx={{mb: .5}}>
           Try an example
         </Typography>
         <Grid container spacing={2} sx={{mb: 2}}>
@@ -128,8 +177,10 @@ const New: FC = () => {
                   cursor: 'pointer',
                   border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder,
                   borderRadius: 1,
-                  padding: 1,
+                  padding: .5,
                   fontSize: 'small',
+                  lineHeight: 1.4,
+                  pb: 1,
                 }}
                 onClick={() => handleClick(prompt)}
               >
@@ -144,6 +195,14 @@ const New: FC = () => {
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     inputs.setInputValue(event.target.value)
+  }
+
+  const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    if(event.target.checked) {
+      sessionConfig.setActiveToolIDs(current => [ ...current, id ])
+    } else {
+      sessionConfig.setActiveToolIDs(current => current.filter(toolId => toolId !== id))
+    }
   }
 
   const proceedToLogin = async () => {
@@ -161,16 +220,26 @@ const New: FC = () => {
       setShowLoginWindow(true)
       return
     }
-    const formData = new FormData()
-    
+    let formData = new FormData()
+
     formData.set('input', inputs.inputValue)
     formData.set('mode', selectedMode)
     formData.set('type', selectedType)
 
+    if (params.model !== undefined) {
+      formData.set('helixModel', params.model);
+    }
+
+    formData = sessionConfig.setFormData(formData)
+
     const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
+    emitEvent({
+      name: 'inference',
+      session,
+    })
     sessions.addSesssion(session)
-    await bluebird.delay(300)
+    // await bluebird.delay(300)
     navigate('session', {session_id: session.id})
   }
 
@@ -187,7 +256,12 @@ const New: FC = () => {
     })
 
     try {
-      const formData = inputs.getFormData(selectedMode, selectedType)
+      let formData = new FormData()
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+      formData = inputs.setFormData(formData)
+      formData = sessionConfig.setFormData(formData)
+      
       formData.set('manuallyReviewQuestions', manuallyReviewQuestions ? 'yes' : '')
       
       const session = await api.post('/api/v1/sessions', formData, {
@@ -197,8 +271,12 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
-      sessions.loadSessions()
-      await bluebird.delay(300)
+      emitEvent({
+        name: 'finetune:text',
+        session,
+      })
+      await sessions.loadSessions()
+      // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
@@ -227,7 +305,12 @@ const New: FC = () => {
     })
 
     try {
-      const formData = inputs.getFormData(selectedMode, selectedType)
+      let formData = new FormData()
+      formData.set('mode', selectedMode)
+      formData.set('type', selectedType)
+      formData = inputs.setFormData(formData)
+      formData = sessionConfig.setFormData(formData)
+      
       const session = await api.post('/api/v1/sessions', formData, {
         onUploadProgress: inputs.uploadProgressHandler,
       })
@@ -235,8 +318,14 @@ const New: FC = () => {
         inputs.setUploadProgress(undefined)
         return
       }
-      sessions.loadSessions()
-      await bluebird.delay(300)
+      emitEvent({
+        name: 'finetune:image',
+        session,
+      })
+      await sessions.loadSessions()
+      // XXX maybe this delay is why we don't subscribe fast enough to the
+      // websocket
+      // await bluebird.delay(300)
       navigate('session', {session_id: session.id})
     } catch(e: any) {}
 
@@ -254,9 +343,9 @@ const New: FC = () => {
     }
   }
 
-  const handleModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newMode = event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE
-    setParams({ ...params, mode: newMode })
+  const handleModeChange = (event: SelectChangeEvent<{ value: unknown }>) => {
+    const newMode = event.target.value === SESSION_MODE_FINETUNE ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE;
+    setParams({ ...params, mode: newMode });
   }
 
   useEffect(() => {
@@ -267,134 +356,214 @@ const New: FC = () => {
   ])
 
   useEffect(() => {
+    if(!account.user) return
+    tools.loadData()
+  }, [
+    account.user,
+  ])
+
+  useEffect(() => {
     const loader = async () => {
       await inputs.loadFromLocalStorage()
       setInitialized(true)
     }
-    loader()  
+    loader()
   }, [])
 
+  // Define a state for the anchor element of the mode menu
+  const [modeMenuAnchorEl, setModeMenuAnchorEl] = useState<null | HTMLElement>(null)
+
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const handleModeMenuClick = (event: React.MouseEvent<HTMLElement>) => {
+    console.log("handleModeMenuClick called");
+    setModeMenuAnchorEl(event.currentTarget);
+    setModeMenuOpen(true);
+    console.log("modeMenuOpen:", true);
+  };
+  const handleModeMenuClose = () => {
+    setModeMenuAnchorEl(null)
+    setModeMenuOpen(false)
+  }
+
+  // Define a function to handle the click event on a mode menu item
+  const handleModeMenuItemClick = (event: React.MouseEvent<HTMLElement>, mode: ISessionMode) => {
+    setParams({ ...params, mode })
+    setModeMenuAnchorEl(null)
+  }
+
+  const modeMenuRef = useRef<HTMLElement>(null)
+
   useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
+    console.log(`Big screen: ${bigScreen}`);
+  }, [bigScreen]);
+
+  // Use an effect hook to set the toolbar renderer
+  useEffect(() => {
+    const renderToolbar = (bigScreen: boolean) => {
       return (
         <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-          <Typography
-            sx={{
-              color: params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-              fontWeight: params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal', // Adjusted for alternating font weight
-              mr: 2,
-              ml: 3,
-              textAlign: 'right',
-            }}
+          <IconButton
+            onClick={ () => setShowSessionSettings(true)}
           >
-              Create
-          </Typography>
-          <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-            <Switch
-              checked={params.mode === SESSION_MODE_FINETUNE}
-              onChange={handleModeChange}
-              name="modeSwitch"
-              size="medium"
-              sx={{
-                transform: 'scale(1.6)',
-                '& .MuiSwitch-thumb': {
+            <ConstructionIcon />
+          </IconButton>
+          {!bigScreen ? (
+            <>
+              <Typography
+                onClick={handleModeMenuClick}
+                ref={modeMenuRef}
+                className="inferenceTitle"
+                variant="h6"
+                color="inherit"
+                noWrap
+                sx={{
+                  flexGrow: 1,
+                  mx: 0,
+                  color: 'text.primary',
+                  borderRadius: '15px',
+                  padding: "3px",
+                  "&:hover": {
+                    backgroundColor: theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+                  },
+                }}
+              >
+                &nbsp;&nbsp;{params.mode === SESSION_MODE_FINETUNE ? 'Fine-tune' : 'Inference'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography
+                sx={{
+                  color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+                  fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
+                  mr: 2,
+                  ml: 3,
+                  textAlign: 'right',
+                }}
+              >
+                  Inference
+              </Typography>
+              <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                <Switch
+                  checked={params.mode === SESSION_MODE_FINETUNE}
+                  onChange={(event) => setParams({ ...params, mode: event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE })}
+                  name="modeSwitch"
+                  size="medium"
+                  sx={{
+                    transform: 'scale(1.6)',
+                    '& .MuiSwitch-thumb': {
                     scale: 0.4,
-                },
-              }}
-            />
-          </Box>
-          <Typography
-              sx={{
-                color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal', // Adjusted for alternating font weight
-                marginLeft: 2,
-                textAlign: 'left',
-              }}
-          >
-              Fine&nbsp;tune
-          </Typography>
+                    },
+                  }}
+                />
+              </Box>
+              <Typography
+                sx={{
+                  color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+                  fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
+                  marginLeft: 2,
+                  textAlign: 'left',
+                }}
+              >
+                Fine-tuning
+              </Typography>
+            </>
+          )}
         </Box>
       )
-    })
+    }
+    layout.setToolbarRenderer(() => renderToolbar)
 
+    // Cleanup function to remove the toolbar renderer when the component unmounts or bigScreen changes
     return () => layout.setToolbarRenderer(undefined)
-  }, [
-    params,
-  ])
-
+  }, [params, bigScreen, setShowSessionSettings, setParams])
+  
   if(!initialized) return null
 
   const CenteredMessage: FC = () => {
     return (
       <Box
         sx={{
-          textAlign: 'left', // Center the text inside the box
+          textAlign: 'left',
           zIndex: 2, // Ensure it's above other elements
           border: '1px solid' + theme.palette.mode === 'light' ? themeConfig.lightBorder : themeConfig.darkBorder, // Add a border
           borderRadius: 3, // Rounded corners
           padding: {
             xs: 2,
-            md: 5,
+            md: 4,
           },
           mt: {
             xs: 0,
-            md: 14,
+            md: 13,
           },
-          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#00008030'}`
+          backgroundColor: `${theme.palette.mode === 'light' ? '#ADD8E630' : '#000020A0'}`
         }}
       >
         <Typography
           variant="h4"
-          component="h1"gutterBottom
+          component="h1" gutterBottom
           sx={{
+            fontSize: {
+              xs: '1.1rem',
+              sm: '1.4rem',
+              md: '1.7rem',
+            },
             fontWeight: 800,
-            lineHeight: 0.9,
+            lineHeight: 0.8,
             scale: {
-              xs: 0.7,
+              xs: 0.6,
+              sm: 0.85,
               md: 1,
             },
           }}
         >
-          What do you want to create?
+          What do you want to do?
         </Typography>
         <Typography variant="subtitle1" sx={{ mt: 2 }}>
-          Use this button to change model type
+          You are in <strong>Inference</strong> mode:
+          <Box component="ul" sx={{pl:2, pr: 1, pt:1, mx: .5, my:0, lineHeight: 1.1 }}>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Generate new content based on your prompt</Box>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Click
+              <Button
+                variant="contained"
+                size="small"
+                sx={{
+                  bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                  ":hover": {
+                    bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Lighter on hover
+                  },
+                  color: 'black',
+                  mr: 2,
+                  borderRadius: 1,
+                  textTransform: 'none',
+                  fontSize: "medium",
+                  fontWeight: 800,
+                  pt: '1px',
+                  pb: '1px',
+                  m: 0.5,
+                  display: "inline-flex", // Changed from "inline" to "inline-flex" to align icon with text
+                  alignItems: "center", // Added to vertically center the text and icon
+                  justifyContent: "center", // Added to horizontally center the text and icon
+                }}
+                endIcon={<SwapHorizIcon />}
+                onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+              >
+                {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+              </Button>
+            to change type</Box>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Type a prompt into the box below and press enter to begin</Box>
+          </Box>
         </Typography>
-        <Button
-          variant="contained"
-          size="small"
-          sx={{
-            bgcolor: type == SESSION_TYPE_TEXT ? '#ffff00' : '#3bf959', // Green for image, Yellow for text
-            color: 'black',
-            mr: 2,
-            borderRadius: 1,
-            textTransform: 'none',
-            fontSize: "medium",
-            fontWeight: 800,
-            pt: '1px',
-            pb: '1px',
-            m: 0.5,
-          }}
-          endIcon={<SwapHorizIcon />}
-          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-        >
-          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-        </Button>
         <Typography
           variant="subtitle1"
           sx={{
-            lineHeight: 1.2,
+            lineHeight: 1.1,
           }}
         >
-          Type a prompt into the box below
-        </Typography>
-        <Typography
-          variant="subtitle1"
-          sx={{
-            lineHeight: 1.2,
-          }}
-        >
-          Press enter to begin
+          <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<br/>
+          <Box component="ul" sx={{pl:2, pr: 1, pt: 1, mx: .5, my:0, lineHeight: 1.1 }}>
+            <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Customize your own AI by training it on your own text or images</Box>
+          </Box>
         </Typography>
       </Box>
     )
@@ -494,6 +663,46 @@ const New: FC = () => {
           backgroundFilter: 'opacity(0.5)',
         }}
       >
+        <Menu
+          id="mode-menu"
+          open={Boolean(modeMenuOpen)}
+          onClose={handleModeMenuClose}
+          onClick={() => account.setMobileMenuOpen(false)}
+          anchorEl={modeMenuRef.current}
+          sx={{
+            marginTop:"50px",
+            zIndex: 9999,
+            }}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'left',
+          }}
+          transformOrigin={{
+            vertical: 'center',
+            horizontal: 'left',
+          }}
+        >
+          <MenuItem
+            key={SESSION_MODE_INFERENCE}
+            selected={params.mode === SESSION_MODE_INFERENCE}
+            onClick={(event) => {
+              handleModeMenuItemClick(event, SESSION_MODE_INFERENCE);
+              handleModeMenuClose();
+            }}
+          >
+            Inference
+          </MenuItem>
+          <MenuItem
+            key={SESSION_MODE_FINETUNE}
+            selected={params.mode === SESSION_MODE_FINETUNE}
+            onClick={(event) => {
+              handleModeMenuItemClick(event, SESSION_MODE_FINETUNE);
+              handleModeMenuClose();
+            }}
+          >
+            Fine-tune
+          </MenuItem>
+        </Menu>
         <Container maxWidth="lg">
           <Box
             sx={{
@@ -584,7 +793,7 @@ const New: FC = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
-               >
+              >
                 <TextField
                   id="textEntry"
                   fullWidth
@@ -604,9 +813,36 @@ const New: FC = () => {
                   multiline={true}
                   onKeyDown={handleKeyDown}
                   InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Button
+                          variant="contained"
+                          size="small"
+                          sx={{
+                            bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                            ":hover": {
+                              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                            },
+                            color: 'black',
+                            mr: 2,
+                            borderRadius: 1,
+                            textTransform: 'none',
+                            fontSize: "medium",
+                            fontWeight: 800,
+                            pt: '1px',
+                            pb: '1px',
+                          }}
+                          endIcon={<SwapHorizIcon />}
+                          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+                        >
+                          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+                        </Button>
+                      </InputAdornment>
+                    ),
                     endAdornment: (
                       <InputAdornment position="end">
                         <IconButton
+                          id="sendButton"
                           aria-label="send"
                           disabled={selectedMode == SESSION_MODE_FINETUNE}
                           onClick={onInference}
@@ -633,7 +869,6 @@ const New: FC = () => {
           </Box>
         )
       }
-      
 
       {
         inputs.uploadProgress && (
@@ -642,6 +877,7 @@ const New: FC = () => {
           />
         )
       }
+      
       {
         showLoginWindow && (
           <Window
@@ -662,15 +898,246 @@ const New: FC = () => {
               You can login with your Google account or with your email address.
             </Typography>
             <Typography>
-              We will keep what you've done here for you, so you can continue where you left off.
+              We will keep what you've done here for you, so you may continue where you left off.
             </Typography>
           </Window>
         )
       }
       
+      {
+        showSessionSettings && (
+          <Window
+            open
+            size="md"
+            title="Session Settings"
+            onCancel={ () => {
+              setShowSessionSettings(false)
+              setActiveSettingsTab(0)
+            }}
+            withCancel
+            cancelTitle="Close"
+          >
+            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
+                setActiveSettingsTab(newValue)
+              }}>
+                {
+                  account.serverConfig.tools_enabled && (
+                    <Tab label="Active Tools" />
+                  )
+                }
+                {
+                  selectedMode == SESSION_MODE_FINETUNE && account.admin && (
+                    <Tab label="Admin" />
+                  )
+                }
+              </Tabs>
+            </Box>
+            <Box>
+              {
+                account.serverConfig.tools_enabled && activeSettingsTab == 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Grid container spacing={3}>
+                      <Grid item xs={ 12 } md={ 6 }>
+                        <Typography variant="body1">Your Tools:</Typography>
+                        <Divider sx={{mt:2,mb:2}} />
+                        {
+                          tools.userTools.map((tool) => {
+                            return (
+                              <Box sx={{ mb: 2 }} key={tool.id}>
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox 
+                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                      onChange={(event) => {
+                                        handleToolsCheckboxChange(tool.id, event)
+                                      }}
+                                    />
+                                  }
+                                  label={(
+                                    <Box>
+                                      <Box>
+                                        <Typography variant="body1">{ tool.name }</Typography>
+                                      </Box>
+                                      <Box>
+                                        <Typography variant="caption">{ tool.description }</Typography>
+                                      </Box>
+                                    </Box> 
+                                  )}
+                                />
+                              </Box>
+                            )
+                          })
+                        }
+                      </Grid>
+                      <Grid item xs={ 12 } md={ 6 }>
+                        <Typography variant="body1">Global Tools:</Typography>
+                        <Divider sx={{mt:2,mb:2}} />
+                        {
+                          tools.globalTools.map((tool) => {
+                            return (
+                              <Box sx={{ mb: 2 }} key={tool.id}>
+                                <FormControlLabel
+                                  key={tool.id}
+                                  control={
+                                    <Checkbox 
+                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                      onChange={(event) => {
+                                        handleToolsCheckboxChange(tool.id, event)
+                                      }}
+                                    />
+                                  }
+                                  label={(
+                                    <Box>
+                                      <Box>
+                                        <Typography variant="body1">{ tool.name }</Typography>
+                                      </Box>
+                                      <Box>
+                                        <Typography variant="caption">{ tool.description }</Typography>
+                                      </Box>
+                                    </Box> 
+                                  )}
+                                />
+                              </Box>
+                            )
+                          })
+                        }
+                      </Grid>
+                    </Grid>
+                  </Box>
+                )
+              }
+
+              {
+                // TODO: we need a better way of handling dynamic tabs
+                activeSettingsTab == (account.serverConfig.tools_enabled ? 1 : 0) && (
+                  <Box sx={{ mt: 2 }}>
+                    {
+                      selectedMode == SESSION_MODE_FINETUNE && (
+                        <FormGroup row>
+                          <FormControlLabel
+                            control={
+                              <Checkbox 
+                                checked={sessionConfig.finetuneEnabled}
+                                onChange={(event) => {
+                                  sessionConfig.setFinetuneEnabled(event.target.checked)
+                                }}
+                              />
+                            }
+                            label="Finetune Enabled?"
+                          />
+                          {
+                            selectedType == SESSION_TYPE_TEXT && (
+                              <FormControlLabel
+                                control={
+                                  <Checkbox 
+                                    checked={sessionConfig.ragEnabled}
+                                    onChange={(event) => {
+                                      sessionConfig.setRagEnabled(event.target.checked)
+                                    }}
+                                  />
+                                }
+                                label="Rag Enabled?"
+                              />
+                            )
+                          }
+                        </FormGroup>
+                      )
+                    }
+                    {
+                      sessionConfig.ragEnabled && (
+                        <>
+                          <Divider sx={{mt:2,mb:2}} />
+                          <Typography variant="h6" gutterBottom sx={{mb: 2}}>RAG Settings</Typography>
+                          <Grid container spacing={3}>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <FormControl fullWidth>
+                                <InputLabel>Rag Distance Function</InputLabel>
+                                <Select
+                                  value={sessionConfig.ragDistanceFunction}
+                                  label="Rag Distance Function"
+                                  onChange={(e) => sessionConfig.setRagDistanceFunction(e.target.value as any)}
+                                >
+                                  <MenuItem value="l2">l2</MenuItem>
+                                  <MenuItem value="inner_product">inner_product</MenuItem>
+                                  <MenuItem value="cosine">cosine</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Threshold"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragThreshold }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagThreshold(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Results Count"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragResultsCount }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagResultsCount(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Chunk Size"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragChunkSize }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagChunkSize(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                            <Grid item xs={ 12 } md={ 4 }>
+                              <TextField
+                                fullWidth
+                                label="Rag Chunk Overflow"
+                                type="number"
+                                InputLabelProps={{
+                                  shrink: true,
+                                }}
+                                variant="standard"
+                                value={ sessionConfig.ragChunkOverflow }
+                                onChange={ (event) => {
+                                  sessionConfig.setRagChunkOverflow(event.target.value as any)
+                                }}
+                              />
+                            </Grid>
+                          </Grid>
+                        </>
+                      )
+                    }
+                  </Box>
+                )
+              }              
+            </Box>
+          </Window>
+        )
+      }
+
     </Box>
   )
-
 }
 
 export default New

@@ -14,7 +14,7 @@ import InteractionContainer from './InteractionContainer'
 import CropOriginalIcon from '@mui/icons-material/CropOriginal';
 
 import {
-  buttonStates,
+  BUTTON_STATES,
 } from '../../types'
 import { Drawer, List, ListItem, IconButton, ListItemIcon, ListItemText } from '@mui/material'
 
@@ -106,6 +106,16 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
         onlyImages
         onUpload={ onDropFiles }
       >
+        <Button
+          sx={{
+            width: '100%',
+          }}
+          variant="contained"
+          color={ BUTTON_STATES.uploadFilesColor }
+          endIcon={<CloudUploadIcon />}
+        >
+          { BUTTON_STATES.uploadFilesLabel }
+        </Button>
         <Box
           sx={{
             border: '1px solid #333',

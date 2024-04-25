@@ -1,73 +1,132 @@
 import React, { FC, useCallback, useEffect, useState } from 'react'
-import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
-import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
-import ToolsGrid from '../components/datagrid/Tools'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
-
+import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
+import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+import ToolsTable from '../components/tools/ToolsTable'
+import useLayout from '../hooks/useLayout'
+import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
-import { IAssistant, IOwnerType, IToolType, IToolConfig } from '../types'
 
-const MY_FIXTURE_ASSISTANTS: IAssistant[] = [
-  {
-    id: '1',
-    created: '2023-01-01T00:00:00Z',
-    updated: '2023-01-01T00:00:00Z',
-    owner: 'user123',
-    owner_type: 'user' as IOwnerType,
-    name: 'test1',
-    description: 'This is a test assistant',
-    tool_type: 'function' as IToolType,
-    config: {
-      api: {
-          url: '', // Provide the actual URL
-          schema: '', // Provide the actual schema
-          actions: [], // Provide the actual actions array
-          headers: {}, // Provide the actual headers object
-          query: {}, // Provide the actual query object
-      } // Do not cast here, let TypeScript infer the type
-  },
-}
-]
+import {
+  ITool,
+} from '../types'
 
 const Tools: FC = () => {
   const account = useAccount()
+  const tools = useTools()
+  const layout = useLayout()
   const snackbar = useSnackbar()
-  const { navigate } = useRouter()
+  const {
+    navigate,
+  } = useRouter()
 
-  const [addingTool, setAddingTool] = useState(false)
+  const [ addingTool, setAddingApiTool ] = useState(false)
+  const [ addingGptScriptTool, setAddingGptScriptTool ] = useState(false)
+  const [ deletingTool, setDeletingTool ] = useState<ITool>()
 
   const onCreateTool = useCallback(async (url: string, schema: string) => {
-    // Simulate tool creation using fixture data
-    const newTool = MY_FIXTURE_ASSISTANTS[0] // Replace with logic to select/create a fixture tool
-    setAddingTool(false)
-    snackbar.success('Tool created')
+    const newTool = await tools.createTool('', 'api', '', {
+      api: {
+        url,
+        schema,
+        actions: [],
+        headers: {},
+        query: {},
+      }
+    })
+    if(!newTool) return
+    setAddingApiTool(false)
+    snackbar.success('API tool created')
     navigate('tool', {
       tool_id: newTool.id,
     })
-  }, [navigate, snackbar])
+  }, [
+    tools.createTool,
+  ])
 
-  const onEditTool = useCallback((tool: IAssistant) => {
+  const onCreateGptScriptTool = useCallback(async (name: string, description: string, script: string) => {
+    console.log(name, description, script)
+    const newTool = await tools.createTool(name, 'gptscript', description, {
+      gptscript: {
+        script,        
+      }
+    })
+    if(!newTool) return
+    setAddingApiTool(false)
+    snackbar.success('GPTScript tool created')
+    navigate('tool', {
+      tool_id: newTool.id,
+    })
+  }, [
+    tools.createTool,
+  ])
+
+  const onEditTool = useCallback((tool: ITool) => {
     navigate('tool', {
       tool_id: tool.id,
     })
-  }, [navigate])
-
-  const onDeleteTool = useCallback((tool: IAssistant) => {
-    // Handle deletion using fixture data
   }, [])
 
-  useEffect(() => {
-    if (!account.user) return
-    // Load fixture data instead of API call
-  }, [account.user])
+  const onDeleteTool = useCallback(async () => {
+    if(!deletingTool) return
+    const result = await tools.deleteTool(deletingTool.id)
+    if(!result) return
+    setDeletingTool(undefined)
+    snackbar.success('Tool deleted')
+  }, [
+    deletingTool,
+  ])
 
-  if (!account.user) return null
+  useEffect(() => {
+    if(!account.user) return
+    tools.loadData()
+  }, [
+    account.user,
+  ])
+
+  useEffect(() => {
+    layout.setToolbarRenderer(() => () => {
+      return (
+        <div>
+          <Button
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            sx={{
+              mr: 2,
+            }}
+            onClick={ () => {
+              setAddingGptScriptTool(true)
+            }}
+            >
+              New GPTScript tool
+          </Button>
+
+          <Button
+              variant="contained"
+              color="secondary"
+              endIcon={<AddIcon />}
+              onClick={ () => {
+                setAddingApiTool(true)
+              }}
+            >
+              New API tool
+          </Button>
+        </div>
+        
+      )
+    })
+
+    return () => layout.setToolbarRenderer(undefined)
+  }, [])
+
+  if(!account.user) return null
 
   return (
     <>
@@ -78,53 +137,34 @@ const Tools: FC = () => {
           height: 'calc(100% - 100px)',
         }}
       >
-        <Box
-          sx={{
-            height: 'calc(100vh - 100px)',
-            width: '100%',
-            flexGrow: 1,
-          }}
-        >
-          <DataGridWithFilters
-            filters={
-              <Box
-                sx={{
-                  width: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                }}
-              >
-                <Button
-                  sx={{
-                    width: '100%',
-                  }}
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<AddIcon />}
-                  onClick={() => {
-                    setAddingTool(true)
-                  }}
-                >
-                  Create Tool
-                </Button>
-              </Box>
-            }
-            datagrid={
-              <ToolsGrid
-                data={MY_FIXTURE_ASSISTANTS}
-                onEdit={onEditTool}
-                onDelete={onDeleteTool}
-              />
-            }
-          />
-        </Box>
+        <ToolsTable
+          data={ tools.data }
+          onEdit={ onEditTool }
+          onDelete={ setDeletingTool }
+        />
       </Container>
       {
         addingTool && (
           <CreateToolWindow
-            onCreate={onCreateTool}
-            onCancel={() => setAddingTool(false)}
+            onCreate={ onCreateTool }
+            onCancel={ () => setAddingApiTool(false) }
+          />
+        )
+      }
+      {
+        addingGptScriptTool && (
+          <CreateGPTScriptToolWindow
+            onCreate={ onCreateGptScriptTool }
+            onCancel={ () => setAddingGptScriptTool(false) }
+          />
+        )
+      }
+      {
+        deletingTool && (
+          <DeleteConfirmWindow
+            title="this tool"
+            onCancel={ () => setDeletingTool(undefined) }
+            onSubmit={ onDeleteTool }
           />
         )
       }

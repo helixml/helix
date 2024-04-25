@@ -187,7 +187,7 @@ func DefaultWrapperWithConfig[T any](handler defaultWrapper[T], config WrapperCo
 			res.Header().Set("Content-Type", "application/json")
 			jsonError := json.NewEncoder(res).Encode(data)
 			if jsonError != nil {
-				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", err.Error())
+				log.Ctx(req.Context()).Error().Msgf("error for json encoding: %s", jsonError.Error())
 				http.Error(res, jsonError.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -255,7 +255,7 @@ func GetRequestBufferWithQuery(
 	path string,
 	queryParams url.Values,
 ) (*bytes.Buffer, error) {
-	client := NewRetryClient()
+	client := NewRetryClient(3)
 	parsedURL, err := url.Parse(URL(options, path))
 	if err != nil {
 		return nil, err
@@ -313,7 +313,7 @@ func PostRequestBuffer[ResultType any](
 	contentType string,
 ) (ResultType, error) {
 	var result ResultType
-	client := NewRetryClient()
+	client := NewRetryClient(3)
 	req, err := retryablehttp.NewRequest("POST", URL(options, path), data)
 	if err != nil {
 		return result, err
@@ -350,7 +350,7 @@ func PostRequestBuffer[ResultType any](
 	return result, nil
 }
 
-func NewRetryClient() *retryablehttp.Client {
+func NewRetryClient(retryMax int) *retryablehttp.Client {
 	retryClient := retryablehttp.NewClient()
 	retryClient.RetryMax = 5
 	retryClient.Logger = stdlog.New(io.Discard, "", stdlog.LstdFlags)

@@ -5,21 +5,6 @@ import (
 	"io"
 )
 
-type FileStoreType string
-
-const (
-	FileStoreTypeLocalFS  FileStoreType = "fs"
-	FileStoreTypeLocalGCS FileStoreType = "gcs"
-)
-
-type FileStoreOptions struct {
-	Type         FileStoreType
-	LocalFSPath  string
-	GCSKeyBase64 string
-	GCSKeyFile   string
-	GCSBucket    string
-}
-
 type FileStoreItem struct {
 	// timestamp
 	Created int64 `json:"created"`

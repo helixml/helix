@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 type DataPrepTextSplitterChunk struct {
@@ -38,18 +36,17 @@ func NewDataPrepSplitter(options DataPrepTextSplitterOptions) (*DataPrepTextSpli
 	}, nil
 }
 
-func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGroupID string, session *types.Session) (*types.SessionMetadata, error) {
+func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGroupID string) (string, error) {
 	// Calculate the SHA256 hash of the part
 	hash := sha256.Sum256([]byte(content))
 	hashString := hex.EncodeToString(hash[:])
 
 	parts, err := chunkWithOverflow(content, splitter.Options.ChunkSize, splitter.Options.Overflow)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	documentID := hashString[:10]
-	documentGroupID = strings.Replace(documentGroupID, "-", "", -1)[:10]
 	for i, part := range parts {
 		splitter.Chunks = append(splitter.Chunks, &DataPrepTextSplitterChunk{
 			Filename:        filename,
@@ -59,13 +56,8 @@ func (splitter *DataPrepTextSplitter) AddDocument(filename, content, documentGro
 			DocumentGroupID: documentGroupID,
 		})
 	}
-	newMeta := session.Metadata
-	newMeta.DocumentGroupID = documentGroupID
-	if newMeta.DocumentIDs == nil {
-		newMeta.DocumentIDs = map[string]string{}
-	}
-	newMeta.DocumentIDs[filename] = documentID
-	return &newMeta, nil
+
+	return documentID, nil
 }
 
 func chunkWithOverflow(str string, maxChunkSize, overflowSize int) ([]string, error) {

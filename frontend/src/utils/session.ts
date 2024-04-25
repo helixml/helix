@@ -14,6 +14,7 @@ import {
   SESSION_MODE_INFERENCE,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGES,
+  TEXT_DATA_PREP_DISPLAY_STAGES,
 } from '../types'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
@@ -22,6 +23,7 @@ const COLORS: Record<string, string> = {
   sdxl_inference: '#D183C9',
   sdxl_finetune: '#E3879E',
   mistral_inference: '#F4D35E',
+  text_inference: '#F4D35E', // Same as mistral inference
   mistral_finetune: '#EE964B',
 }
 
@@ -46,11 +48,14 @@ export const getSystemMessage = (message: string): IInteraction => {
     lora_dir: '',
     metadata: {},
     message,
+    display_message: '',
     progress: 0,
     files: [],
     finished: true,
     data_prep_chunks: {},
     data_prep_stage: TEXT_DATA_PREP_STAGE_NONE,
+    data_prep_limited: false,
+    data_prep_limit: 0,
   }
 }
 
@@ -82,6 +87,9 @@ export const hasFinishedFinetune = (session: ISession): boolean => {
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {
+  // If starts with 'ollama', return inference color
+  if(getModelName(modelName).indexOf('ollama') >= 0) return COLORS['text_inference']
+
   const key = `${getModelName(modelName)}_${mode}`
   return COLORS[key]
 }
@@ -89,6 +97,8 @@ export const getColor = (modelName: string, mode: ISessionMode): string => {
 export const getModelName = (model_name: string): string => {
   if(model_name.indexOf('stabilityai') >= 0) return 'sdxl'
   if(model_name.indexOf('mistralai') >= 0) return 'mistral'
+  // If has ':' in the name, it's Ollama model, need to split and keep the first part
+  if(model_name.indexOf(':') >= 0) return `ollama_${model_name.split(':')[0]}`
   return ''
 }
 
@@ -169,6 +179,10 @@ export const getTextDataPrepStageIndex = (stage: ITextDataPrepStage): number => 
   return TEXT_DATA_PREP_STAGES.indexOf(stage)
 }
 
+export const getTextDataPrepStageIndexDisplay = (stage: ITextDataPrepStage): number => {
+  return TEXT_DATA_PREP_DISPLAY_STAGES.indexOf(stage)
+}
+
 export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunkWithFilename[] => {
   return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
     const chunks = interaction.data_prep_chunks[filename]
@@ -209,7 +223,6 @@ export const replaceMessageText = (
   session: ISession,
   getFileURL: (filename: string) => string,
 ): string => {
-  message = message.trim().replace(/</g, '&lt;').replace(/\n/g, '<br/>')
   const document_ids = session.config.document_ids || {}
   const allNonTextFiles = session.interactions.reduce((acc: string[], interaction) => {
     return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true))

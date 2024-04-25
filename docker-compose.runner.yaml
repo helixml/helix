@@ -1,0 +1,23 @@
+version: '3'
+services:
+  runner:    
+    build:
+      context: .
+      dockerfile: Dockerfile.runner    
+    network_mode: "host"
+    volumes:      
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - RUNNER_ID=local-dev-runner
+      - API_HOST=http://localhost:80
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - MEMORY_STRING=12GB
+      - ALLOW_MULTIPLE_COPIES=true
+      - RUNNER_WARMUP_MODELS=mistral:7b-instruct # Ollama runner
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

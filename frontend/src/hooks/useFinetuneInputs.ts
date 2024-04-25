@@ -35,7 +35,7 @@ export interface IFinetuneInputs {
   setUploadProgress: (value: IFilestoreUploadProgress | undefined) => void,
   serializePage: () => Promise<void>,
   loadFromLocalStorage: () => Promise<void>,
-  getFormData: (mode: string, type: string) => FormData,
+  setFormData: (formData: FormData) => FormData,
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
   reset: () => Promise<void>,
 }
@@ -48,7 +48,7 @@ export const useFinetuneInputs = () => {
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
-
+  
   const serializePage = useCallback(async () => {
     const serializedFiles = await bluebird.map(files, async (file) => {
       const serializedFile = await serializeFile(file)
@@ -72,16 +72,13 @@ export const useFinetuneInputs = () => {
     inputValue,
   ])
 
-  const getFormData = useCallback((mode: string, type: string) => {
-    const formData = new FormData()
+  const setFormData = useCallback((formData: FormData) => {
     files.forEach((file) => {
       formData.append("files", file)
       if(labels[file.name]) {
         formData.set(file.name, labels[file.name])
       }
     })
-    formData.set('mode', mode)
-    formData.set('type', type)
     return formData
   }, [
     files,
@@ -139,7 +136,7 @@ export const useFinetuneInputs = () => {
     uploadProgress, setUploadProgress,
     serializePage,
     loadFromLocalStorage,
-    getFormData,
+    setFormData,
     uploadProgressHandler,
     reset,
   }

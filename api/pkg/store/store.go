@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -26,12 +25,20 @@ type GetSessionsQuery struct {
 	Limit         int             `json:"limit"`
 }
 
-type GetBotsQuery struct {
-	Owner     string          `json:"owner"`
-	OwnerType types.OwnerType `json:"owner_type"`
+type ListApiKeysQuery struct {
+	Owner     string           `json:"owner"`
+	OwnerType types.OwnerType  `json:"owner_type"`
+	Type      types.APIKeyType `json:"type"`
+	AppID     string           `json:"app_id"`
 }
 
 type ListToolsQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+	Global    bool            `json:"global"`
+}
+
+type ListAppsQuery struct {
 	Owner     string          `json:"owner"`
 	OwnerType types.OwnerType `json:"owner_type"`
 }
@@ -48,13 +55,6 @@ type Store interface {
 	UpdateSessionMeta(ctx context.Context, data types.SessionMetaUpdate) (*types.Session, error)
 	DeleteSession(ctx context.Context, id string) (*types.Session, error)
 
-	// bots
-	GetBot(ctx context.Context, id string) (*types.Bot, error)
-	GetBots(ctx context.Context, query GetBotsQuery) ([]*types.Bot, error)
-	CreateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
-	UpdateBot(ctx context.Context, Bot types.Bot) (*types.Bot, error)
-	DeleteBot(ctx context.Context, id string) (*types.Bot, error)
-
 	// usermeta
 	GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error)
 	CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
@@ -62,11 +62,12 @@ type Store interface {
 	EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error)
 
 	// api keys
-	CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error)
-	GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error)
-	DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error
-	CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error)
+	CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error)
+	GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error)
+	ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error)
+	DeleteAPIKey(ctx context.Context, apiKey string) error
 
+	// tools
 	CreateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	UpdateTool(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 	GetTool(ctx context.Context, id string) (*types.Tool, error)
@@ -76,20 +77,13 @@ type Store interface {
 	CreateSessionToolBinding(ctx context.Context, sessionID, toolID string) error
 	ListSessionTools(ctx context.Context, sessionID string) ([]*types.Tool, error)
 	DeleteSessionToolBinding(ctx context.Context, sessionID, toolID string) error
+
+	// apps
+	CreateApp(ctx context.Context, tool *types.App) (*types.App, error)
+	UpdateApp(ctx context.Context, tool *types.App) (*types.App, error)
+	GetApp(ctx context.Context, id string) (*types.App, error)
+	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
+	DeleteApp(ctx context.Context, id string) error
 }
 
 var ErrNotFound = errors.New("not found")
-
-type StoreOptions struct {
-	Host        string
-	Port        int
-	Database    string
-	Username    string
-	Password    string
-	AutoMigrate bool
-
-	MaxConns        int           `envconfig:"DATABASE_MAX_CONNS" default:"50"`
-	IdleConns       int           `envconfig:"DATABASE_IDLE_CONNS" default:"25"`
-	MaxConnLifetime time.Duration `envconfig:"DATABASE_MAX_CONN_LIFETIME" default:"1h"`
-	MaxConnIdleTime time.Duration `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"1m"`
-}

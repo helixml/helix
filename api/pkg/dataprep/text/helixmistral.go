@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -20,20 +21,20 @@ type DataPrepTextHelixMistralSessionGet func(id string) (*types.Session, error)
 // we try to do alpaca_chat.load_qa: question and answer for alpaca chat
 // {"question": "...", "answer": "..."}
 type DataPrepTextHelixMistral struct {
-	Options  DataPrepTextOptions
+	Cfg      config.DataPrepText
 	session  *types.Session
 	createFn DataPrepTextHelixMistralSessionCreate
 	getFn    DataPrepTextHelixMistralSessionGet
 }
 
 func NewDataPrepTextHelixMistral(
-	options DataPrepTextOptions,
+	cfg config.DataPrepText,
 	session *types.Session,
 	createFn DataPrepTextHelixMistralSessionCreate,
 	getFn DataPrepTextHelixMistralSessionGet,
 ) (*DataPrepTextHelixMistral, error) {
 	return &DataPrepTextHelixMistral{
-		Options:  options,
+		Cfg:      cfg,
 		session:  session,
 		createFn: createFn,
 		getFn:    getFn,
@@ -80,7 +81,7 @@ Do not number the questions or answers.
 
 %s
 
-	`, helixMistral.Options.QuestionsPerChunk, helixMistral.Options.QuestionsPerChunk, chunk)
+	`, helixMistral.Cfg.QuestionsPerChunk, helixMistral.Cfg.QuestionsPerChunk, chunk)
 
 	log.Debug().
 		Msgf("🔴 Mistral Question: %s", prompt)
@@ -89,7 +90,7 @@ Do not number the questions or answers.
 		SessionID:     system.GenerateUUID(),
 		SessionMode:   types.SessionModeInference,
 		SessionType:   types.SessionTypeText,
-		ModelName:     types.Model_Mistral7b,
+		ModelName:     types.Model_Axolotl_Mistral7b,
 		Owner:         helixMistral.session.Owner,
 		OwnerType:     helixMistral.session.OwnerType,
 		ParentSession: helixMistral.session.ID,

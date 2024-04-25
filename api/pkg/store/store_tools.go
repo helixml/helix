@@ -22,7 +22,7 @@ func (s *PostgresStore) CreateTool(ctx context.Context, tool *types.Tool) (*type
 
 	tool.Created = time.Now()
 
-	setDefaults(tool)
+	setToolDefaults(tool)
 
 	err := s.gdb.WithContext(ctx).Create(tool).Error
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *PostgresStore) GetTool(ctx context.Context, id string) (*types.Tool, er
 		return nil, err
 	}
 
-	setDefaults(&tool)
+	setToolDefaults(&tool)
 
 	return &tool, nil
 }
@@ -69,17 +69,18 @@ func (s *PostgresStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*ty
 	err := s.gdb.WithContext(ctx).Where(&types.Tool{
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
+		Global:    q.Global,
 	}).Find(&tools).Error
 	if err != nil {
 		return nil, err
 	}
 
-	setDefaults(tools...)
+	setToolDefaults(tools...)
 
 	return tools, nil
 }
 
-func setDefaults(tools ...*types.Tool) {
+func setToolDefaults(tools ...*types.Tool) {
 	for idx := range tools {
 		tool := tools[idx]
 		switch tool.ToolType {

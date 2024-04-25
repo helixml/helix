@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -15,113 +16,65 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
-type ServeOptions struct {
-	DataPrepTextOptions text.DataPrepTextOptions
-	ControllerOptions   controller.ControllerOptions
-	FilestoreOptions    filestore.FileStoreOptions
-	JanitorOptions      janitor.JanitorOptions
-	StoreOptions        store.StoreOptions
-	ServerOptions       server.ServerOptions
-	StripeOptions       stripe.StripeOptions
-
-	Cfg *config.ServerConfig
-
-	// NotifierCfg is used to configure the notifier which sends emails
-	// to users on finetuning progress
-	NotifierCfg *config.Notifications
-
-	// KeycloakCfg is used to configure the keycloak authenticator, which
-	// is used to get user information from the keycloak server
-	KeycloakCfg *config.Keycloak
+func printStackTrace() {
+	// Allocate a buffer large enough to store the stack trace
+	buf := make([]byte, 1024)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		// Double the buffer size if the trace is larger than the current buffer
+		buf = make([]byte, len(buf)*2)
+	}
+	fmt.Printf("Stack trace:\n%s\n", buf)
 }
 
-func NewServeOptions() (*ServeOptions, error) {
+func NewServeConfig() (*config.ServerConfig, error) {
 	serverConfig, err := config.LoadServerConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load server config: %v", err)
 	}
 
-	filestoreSignSecret := getDefaultServeOptionString("FILESTORE_PRESIGN_SECRET", system.GenerateUUID())
+	if serverConfig.Controller.FilestorePresignSecret == "" {
+		serverConfig.Controller.FilestorePresignSecret = system.GenerateUUID()
+	}
 
-	return &ServeOptions{
-		DataPrepTextOptions: text.DataPrepTextOptions{
-			// for concurrency of requests to openAI - look in the dataprep module
-			Module:       text.DataPrepModule(getDefaultServeOptionString("DATA_PREP_TEXT_MODULE", string(text.DataPrepModule_Dynamic))),
-			OverflowSize: getDefaultServeOptionInt("DATA_PREP_TEXT_OVERFLOW_SIZE", 256),
-			// we are exceeding openAI window size at > 30 questions
-			QuestionsPerChunk: getDefaultServeOptionInt("DATA_PREP_TEXT_QUESTIONS_PER_CHUNK", 30),
-			Temperature:       getDefaultServeOptionFloat("DATA_PREP_TEXT_TEMPERATURE", 0.5),
-		},
-		ControllerOptions: controller.ControllerOptions{
-			Config:                       &serverConfig,
-			FilestorePresignSecret:       filestoreSignSecret,
-			FilePrefixGlobal:             getDefaultServeOptionString("FILE_PREFIX_GLOBAL", "dev"),
-			FilePrefixUser:               getDefaultServeOptionString("FILE_PREFIX_USER", "users/{{.Owner}}"),
-			FilePrefixResults:            getDefaultServeOptionString("FILE_PREFIX_RESULTS", "results"),
-			TextExtractionURL:            getDefaultServeOptionString("TEXT_EXTRACTION_URL", "http://unstructured:5000/api/v1/extract"),
-			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 10),
-		},
-		FilestoreOptions: filestore.FileStoreOptions{
-			Type:         filestore.FileStoreType(getDefaultServeOptionString("FILESTORE_TYPE", "fs")),
-			LocalFSPath:  getDefaultServeOptionString("FILESTORE_LOCALFS_PATH", "/tmp/helix/filestore"),
-			GCSKeyBase64: getDefaultServeOptionString("FILESTORE_GCS_KEY_BASE64", ""),
-			GCSKeyFile:   getDefaultServeOptionString("FILESTORE_GCS_KEY_FILE", ""),
-			GCSBucket:    getDefaultServeOptionString("FILESTORE_GCS_BUCKET", ""),
-		},
-		StoreOptions: store.StoreOptions{
-			Host:        getDefaultServeOptionString("POSTGRES_HOST", ""),
-			Port:        getDefaultServeOptionInt("POSTGRES_PORT", 5432),
-			Database:    getDefaultServeOptionString("POSTGRES_DATABASE", "helix"),
-			Username:    getDefaultServeOptionString("POSTGRES_USER", ""),
-			Password:    getDefaultServeOptionString("POSTGRES_PASSWORD", ""),
-			AutoMigrate: true,
-		},
-		ServerOptions: server.ServerOptions{
-			URL:           getDefaultServeOptionString("SERVER_URL", ""),
-			Host:          getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
-			Port:          getDefaultServeOptionInt("SERVER_PORT", 80), //nolint:gomnd
-			FrontendURL:   getDefaultServeOptionString("FRONTEND_URL", "http://frontend:8081"),
-			KeyCloakURL:   getDefaultServeOptionString("KEYCLOAK_URL", ""),
-			KeyCloakToken: getDefaultServeOptionString("KEYCLOAK_TOKEN", ""),
-			// if this is defined it means runner auth is enabled
-			RunnerToken: getDefaultServeOptionString("RUNNER_TOKEN", ""),
-			AdminIDs:    getDefaultServeOptionStringArray("ADMIN_USER_IDS", []string{}),
-			EvalUserID:  getDefaultServeOptionString("EVAL_USER_ID", ""),
-		},
-		JanitorOptions: janitor.JanitorOptions{
-			SentryDSNApi:            serverConfig.Janitor.SentryDsnAPI,
-			SentryDSNFrontend:       serverConfig.Janitor.SentryDsnFrontend,
-			GoogleAnalyticsFrontend: serverConfig.Janitor.GoogleAnalyticsFrontend,
-			SlackWebhookURL:         serverConfig.Janitor.SlackWebhookURL,
-			IgnoreUsers:             serverConfig.Janitor.SlackIgnoreUser,
-		},
-		StripeOptions: stripe.StripeOptions{
-			SecretKey:            serverConfig.Stripe.SecretKey,
-			WebhookSigningSecret: serverConfig.Stripe.WebhookSigningSecret,
-			PriceLookupKey:       serverConfig.Stripe.PriceLookupKey,
-		},
-		Cfg:         &serverConfig,
-		KeycloakCfg: &serverConfig.Keycloak,
-		NotifierCfg: &serverConfig.Notifications,
-	}, nil
+	serverConfig.Janitor.AppURL = serverConfig.WebServer.URL
+	serverConfig.Stripe.AppURL = serverConfig.WebServer.URL
+	serverConfig.WebServer.LocalFilestorePath = serverConfig.FileStore.LocalFSPath
+
+	if serverConfig.GitHub.Enabled {
+		if serverConfig.GitHub.ClientID == "" {
+			return nil, fmt.Errorf("github client id is required")
+		}
+		if serverConfig.GitHub.ClientSecret == "" {
+			return nil, fmt.Errorf("github client secret is required")
+		}
+	}
+
+	return &serverConfig, nil
 }
 
 func newServeCmd() *cobra.Command {
-	allOptions, err := NewServeOptions()
+	serveConfig, err := NewServeConfig()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create serve options")
 	}
+
+	envHelpText := generateEnvHelpText(serveConfig, "")
 
 	serveCmd := &cobra.Command{
 		Use:     "serve",
@@ -129,201 +82,40 @@ func newServeCmd() *cobra.Command {
 		Long:    "Start the helix api server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd, allOptions)
+			err := serve(cmd, serveConfig)
+			if err != nil {
+				log.Fatal().Err(err).Msg("failed to run server")
+			}
+			return nil
 		},
 	}
 
-	var dataprepModule string
-	serveCmd.PersistentFlags().StringVar(
-		&dataprepModule, "dataprep-module", string(allOptions.DataPrepTextOptions.Module),
-		`Which module to use for text data prep`,
-	)
-	allOptions.DataPrepTextOptions.Module = text.DataPrepModule(dataprepModule)
-
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.DataPrepTextOptions.OverflowSize, "dataprep-overflow-size", allOptions.DataPrepTextOptions.OverflowSize,
-		`The overflow size for the text data prep`,
-	)
-
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.DataPrepTextOptions.QuestionsPerChunk, "dataprep-questions-per-chunk", allOptions.DataPrepTextOptions.QuestionsPerChunk,
-		`The questions per chunk for the text data prep`,
-	)
-
-	serveCmd.PersistentFlags().Float32Var(
-		&allOptions.DataPrepTextOptions.Temperature, "dataprep-temperature", allOptions.DataPrepTextOptions.Temperature,
-		`The temperature for the text data prep prompt`,
-	)
-
-	// ControllerOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ControllerOptions.FilePrefixGlobal, "file-prefix-global", allOptions.ControllerOptions.FilePrefixGlobal,
-		`The global prefix path for the filestore.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ControllerOptions.FilePrefixUser, "file-prefix-user", allOptions.ControllerOptions.FilePrefixUser,
-		`The go template that produces the prefix path for a user.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ControllerOptions.FilePrefixResults, "file-prefix-results", allOptions.ControllerOptions.FilePrefixResults,
-		`The go template that produces the prefix path for a user.`,
-	)
-
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.ControllerOptions.SchedulingDecisionBufferSize, "scheduling-decision-buffer-size", allOptions.ControllerOptions.SchedulingDecisionBufferSize,
-		`How many scheduling decisions to buffer before we start dropping them.`,
-	)
-
-	// FileStoreOptions
-	var filestoreType string
-	serveCmd.PersistentFlags().StringVar(
-		&filestoreType, "filestore-type", string(allOptions.FilestoreOptions.Type),
-		`What type of filestore should we use (fs | gcs).`,
-	)
-	allOptions.FilestoreOptions.Type = filestore.FileStoreType(filestoreType)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.FilestoreOptions.LocalFSPath, "filestore-localfs-path", allOptions.FilestoreOptions.LocalFSPath,
-		`The local path that is the root for the local fs filestore.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.FilestoreOptions.GCSKeyBase64, "filestore-gcs-key-base64", allOptions.FilestoreOptions.GCSKeyBase64,
-		`The base64 encoded service account json file for GCS.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.FilestoreOptions.GCSKeyFile, "filestore-gcs-key-file", allOptions.FilestoreOptions.GCSKeyFile,
-		`The local path to the service account json file for GCS.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.FilestoreOptions.GCSBucket, "filestore-gcs-bucket", allOptions.FilestoreOptions.GCSBucket,
-		`The bucket we are storing things in GCS.`,
-	)
-
-	// StoreOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Host, "postgres-host", allOptions.StoreOptions.Host,
-		`The host to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.StoreOptions.Port, "postgres-port", allOptions.StoreOptions.Port,
-		`The port to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Database, "postgres-database", allOptions.StoreOptions.Database,
-		`The database to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Username, "postgres-username", allOptions.StoreOptions.Username,
-		`The username to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StoreOptions.Password, "postgres-password", allOptions.StoreOptions.Password,
-		`The password to connect to the postgres server.`,
-	)
-	serveCmd.PersistentFlags().BoolVar(
-		&allOptions.StoreOptions.AutoMigrate, "postgres-auto-migrate", allOptions.StoreOptions.AutoMigrate,
-		`Should we automatically run the migrations?`,
-	)
-
-	// ServerOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.URL, "server-url", allOptions.ServerOptions.URL,
-		`The URL the api server is listening on.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.Host, "server-host", allOptions.ServerOptions.Host,
-		`The host to bind the api server to.`,
-	)
-	serveCmd.PersistentFlags().IntVar(
-		&allOptions.ServerOptions.Port, "server-port", allOptions.ServerOptions.Port,
-		`The port to bind the api server to.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.KeyCloakURL, "keycloak-url", allOptions.ServerOptions.KeyCloakURL,
-		`The url for the keycloak server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.KeyCloakToken, "keycloak-token", allOptions.ServerOptions.KeyCloakToken,
-		`The api token for the keycloak server.`,
-	)
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.ServerOptions.RunnerToken, "runner-token", allOptions.ServerOptions.RunnerToken,
-		`The token for runner auth.`,
-	)
-	serveCmd.PersistentFlags().StringArrayVar(
-		&allOptions.ServerOptions.AdminIDs, "admin-ids", allOptions.ServerOptions.AdminIDs,
-		`Keycloak admin IDs`,
-	)
-
-	// JanitorOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SentryDSNApi, "janitor-sentry-dsn-api", allOptions.JanitorOptions.SentryDSNApi,
-		`The api sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SentryDSNFrontend, "janitor-sentry-dsn-frontend", allOptions.JanitorOptions.SentryDSNFrontend,
-		`The frontend sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.GoogleAnalyticsFrontend, "janitor-google-analytics-frontend", allOptions.JanitorOptions.GoogleAnalyticsFrontend,
-		`The frontend sentry DSN.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.JanitorOptions.SlackWebhookURL, "janitor-slack-webhook", allOptions.JanitorOptions.SlackWebhookURL,
-		`The slack webhook URL to ping messages to.`,
-	)
-
-	serveCmd.PersistentFlags().StringArrayVar(
-		&allOptions.JanitorOptions.IgnoreUsers, "janitor-ignore-users", allOptions.JanitorOptions.IgnoreUsers,
-		`Keycloak admin IDs`,
-	)
-
-	// StripeOptions
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.SecretKey, "stripe-secret-key", allOptions.StripeOptions.SecretKey,
-		`The secret key for stripe.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.WebhookSigningSecret, "stripe-webhook-signing-secret", allOptions.StripeOptions.WebhookSigningSecret,
-		`The webhook signing secret for stripe.`,
-	)
-
-	serveCmd.PersistentFlags().StringVar(
-		&allOptions.StripeOptions.PriceLookupKey, "stripe-price-lookup-key", allOptions.StripeOptions.PriceLookupKey,
-		`The lookup key for the stripe price.`,
-	)
+	serveCmd.Long += "\n\nEnvironment Variables:\n\n" + envHelpText
 
 	return serveCmd
 }
 
-func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileStore, error) {
+func getFilestore(ctx context.Context, cfg *config.ServerConfig) (filestore.FileStore, error) {
 	var store filestore.FileStore
-	if options.ServerOptions.URL == "" {
+	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
 	}
-	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
-		if options.FilestoreOptions.LocalFSPath == "" {
+	if cfg.FileStore.Type == types.FileStoreTypeLocalFS {
+		if cfg.FileStore.LocalFSPath == "" {
 			return nil, fmt.Errorf("local fs path is required")
 		}
-		rootPath := filepath.Join(options.FilestoreOptions.LocalFSPath, options.ControllerOptions.FilePrefixGlobal)
+		rootPath := filepath.Join(cfg.FileStore.LocalFSPath, cfg.Controller.FilePrefixGlobal)
 		if _, err := os.Stat(rootPath); os.IsNotExist(err) {
 			err := os.MkdirAll(rootPath, 0755)
 			if err != nil {
 				return nil, err
 			}
 		}
-		store = filestore.NewFileSystemStorage(options.FilestoreOptions.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", options.ServerOptions.URL), options.ControllerOptions.FilestorePresignSecret)
-	} else if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalGCS {
-		if options.FilestoreOptions.GCSKeyBase64 != "" {
+		store = filestore.NewFileSystemStorage(cfg.FileStore.LocalFSPath, fmt.Sprintf("%s/api/v1/filestore/viewer", cfg.WebServer.URL), cfg.Controller.FilestorePresignSecret)
+	} else if cfg.FileStore.Type == types.FileStoreTypeLocalGCS {
+		if cfg.FileStore.GCSKeyBase64 != "" {
 			keyfile, err := func() (string, error) {
-				decoded, err := base64.StdEncoding.DecodeString(options.FilestoreOptions.GCSKeyBase64)
+				decoded, err := base64.StdEncoding.DecodeString(cfg.FileStore.GCSKeyBase64)
 				if err != nil {
 					return "", fmt.Errorf("failed to decode GCS key: %v", err)
 				}
@@ -340,32 +132,32 @@ func getFilestore(ctx context.Context, options *ServeOptions) (filestore.FileSto
 			if err != nil {
 				return nil, err
 			}
-			options.FilestoreOptions.GCSKeyFile = keyfile
+			cfg.FileStore.GCSKeyFile = keyfile
 		}
-		if options.FilestoreOptions.GCSKeyFile == "" {
+		if cfg.FileStore.GCSKeyFile == "" {
 			return nil, fmt.Errorf("gcs key is required")
 		}
-		if _, err := os.Stat(options.FilestoreOptions.GCSKeyFile); os.IsNotExist(err) {
+		if _, err := os.Stat(cfg.FileStore.GCSKeyFile); os.IsNotExist(err) {
 			return nil, fmt.Errorf("gcs key file does not exist")
 		}
-		gcs, err := filestore.NewGCSStorage(ctx, options.FilestoreOptions.GCSKeyFile, options.FilestoreOptions.GCSBucket)
+		gcs, err := filestore.NewGCSStorage(ctx, cfg.FileStore.GCSKeyFile, cfg.FileStore.GCSBucket)
 		if err != nil {
 			return nil, err
 		}
 		store = gcs
 	} else {
-		return nil, fmt.Errorf("unknown filestore type: %s", options.FilestoreOptions.Type)
+		return nil, fmt.Errorf("unknown filestore type: %s", cfg.FileStore.Type)
 	}
 	// let's make sure the global prefix folder exists
 	// from here on it will be user directories being created
-	_, err := store.CreateFolder(ctx, options.ControllerOptions.FilePrefixGlobal)
+	_, err := store.CreateFolder(ctx, cfg.Controller.FilePrefixGlobal)
 	if err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func serve(cmd *cobra.Command, options *ServeOptions) error {
+func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	system.SetupLogging()
 
 	// Cleanup manager ensures that resources are freed before exiting:
@@ -377,53 +169,55 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	fs, err := getFilestore(ctx, options)
+	fs, err := getFilestore(ctx, cfg)
 	if err != nil {
 		return err
 	}
 
-	store, err := store.NewPostgresStore(options.StoreOptions)
+	store, err := store.NewPostgresStore(cfg.Store)
 	if err != nil {
 		return err
 	}
 
-	if options.ServerOptions.RunnerToken == "" {
+	ps, err := pubsub.New()
+	if err != nil {
+		return err
+	}
+
+	if cfg.WebServer.RunnerToken == "" {
 		return fmt.Errorf("runner token is required")
 	}
 
-	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(options.KeycloakCfg)
+	keycloakAuthenticator, err := auth.NewKeycloakAuthenticator(&cfg.Keycloak)
 	if err != nil {
 		return fmt.Errorf("failed to create keycloak authenticator: %v", err)
 	}
 
-	notifier, err := notification.New(options.NotifierCfg, keycloakAuthenticator)
+	notifier, err := notification.New(&cfg.Notifications, keycloakAuthenticator)
 	if err != nil {
 		return fmt.Errorf("failed to create notifier: %v", err)
 	}
 
-	options.JanitorOptions.AppURL = options.ServerOptions.URL
-	janitor := janitor.NewJanitor(options.JanitorOptions)
+	janitor := janitor.NewJanitor(cfg.Janitor)
 	err = janitor.Initialize()
 	if err != nil {
 		return err
 	}
 
-	planner, err := tools.NewChainStrategy(options.Cfg)
-	if err != nil {
-		return fmt.Errorf("failed to create tools planner: %v", err)
-	}
-
 	var appController *controller.Controller
 
-	options.ControllerOptions.Store = store
-	options.ControllerOptions.Filestore = fs
-	options.ControllerOptions.Janitor = janitor
-	options.ControllerOptions.Notifier = notifier
-	options.ControllerOptions.Planner = planner
+	controllerOptions := controller.ControllerOptions{
+		Config:    cfg,
+		Store:     store,
+		PubSub:    ps,
+		Filestore: fs,
+		Janitor:   janitor,
+		Notifier:  notifier,
+	}
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
-	options.ControllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
+	controllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
 		if appController == nil {
 			return nil, nil, fmt.Errorf("app controller is not initialized")
 		}
@@ -433,10 +227,10 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 		// if we are using openai then let's do that
 		// otherwise - we use our own mistral plugin
-		if options.DataPrepTextOptions.Module == text.DataPrepModule_HelixMistral {
+		if cfg.DataPrepText.Module == types.DataPrepModule_HelixMistral {
 			// we give the mistal data prep module a way to run and read sessions
 			questionGenerator, err = text.NewDataPrepTextHelixMistral(
-				options.DataPrepTextOptions,
+				cfg.DataPrepText,
 				session,
 				func(req types.CreateSessionRequest) (*types.Session, error) {
 					return appController.CreateSession(types.RequestContext{}, req)
@@ -448,16 +242,16 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 			if err != nil {
 				return nil, nil, err
 			}
-		} else if options.DataPrepTextOptions.Module == text.DataPrepModule_Dynamic {
+		} else if cfg.DataPrepText.Module == types.DataPrepModule_Dynamic {
 			// empty values = use defaults
 			questionGenerator = text.NewDynamicDataPrep("", []string{})
 		} else {
-			return nil, nil, fmt.Errorf("unknown data prep module: %s", options.DataPrepTextOptions.Module)
+			return nil, nil, fmt.Errorf("unknown data prep module: %s", cfg.DataPrepText.Module)
 		}
 
 		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
 			ChunkSize: questionGenerator.GetChunkSize(),
-			Overflow:  options.DataPrepTextOptions.OverflowSize,
+			Overflow:  cfg.DataPrepText.OverflowSize,
 		})
 
 		if err != nil {
@@ -467,13 +261,7 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 		return questionGenerator, splitter, nil
 	}
 
-	if options.FilestoreOptions.Type == filestore.FileStoreTypeLocalFS {
-		options.ServerOptions.LocalFilestorePath = options.FilestoreOptions.LocalFSPath
-	}
-
-	// options.DataPrepTextOptions.Concurrency = options.ControllerOptions.DataPrepConcurrency
-
-	appController, err = controller.NewController(ctx, options.ControllerOptions)
+	appController, err = controller.NewController(ctx, controllerOptions)
 	if err != nil {
 		return err
 	}
@@ -485,20 +273,19 @@ func serve(cmd *cobra.Command, options *ServeOptions) error {
 
 	go appController.StartLooping()
 
-	options.StripeOptions.AppURL = options.ServerOptions.URL
 	stripe := stripe.NewStripe(
-		options.StripeOptions,
+		cfg.Stripe,
 		func(eventType types.SubscriptionEventType, user types.StripeUser) error {
 			return appController.HandleSubscriptionEvent(eventType, user)
 		},
 	)
 
-	server, err := server.NewServer(options.ServerOptions, store, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, ps, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}
 
-	log.Info().Msgf("Helix server listening on %s:%d", options.ServerOptions.Host, options.ServerOptions.Port)
+	log.Info().Msgf("Helix server listening on %s:%d", cfg.WebServer.Host, cfg.WebServer.Port)
 
 	go func() {
 		err := server.ListenAndServe(ctx, cm)

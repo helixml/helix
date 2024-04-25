@@ -1,0 +1,96 @@
+# Default values for helix-runner.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: europe-docker.pkg.dev/helixml/helix/runner
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+runner:
+  # Your helix control-plane's URL
+  host: https://app.tryhelix.ai
+  token: oh-hallo
+  # Models to pull on start
+  models: mistral:7b-instruct,llama3:instruct,llama3:70b-instruct-q2_K,mixtral:instruct
+  # Available memory for the runner
+  memory: 24GB
+  # IPC mode
+  shareProcessNamespace: true
+  # huggingface token (for gated models, e.g. fine tuning mistral-7B, accept
+  # terms on https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1)
+  huggingfaceToken: ""
+
+# Both node selectors and resources need to target
+resources:
+  limits:
+    nvidia.com/gpu: '1'
+  requests:
+    nvidia.com/gpu: '1'
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

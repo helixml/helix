@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/runner"
@@ -17,7 +18,7 @@ import (
 
 type RunnerOptions struct {
 	Runner  runner.RunnerOptions
-	Janitor janitor.JanitorOptions
+	Janitor config.Janitor
 	Server  runner.RunnerServerOptions
 }
 
@@ -29,10 +30,8 @@ func NewRunnerOptions() *RunnerOptions {
 			ApiToken:                     getDefaultServeOptionString("API_TOKEN", ""),
 			MemoryBytes:                  uint64(getDefaultServeOptionInt("MEMORY_BYTES", 0)),
 			MemoryString:                 getDefaultServeOptionString("MEMORY_STRING", ""),
-			ModelInstanceTimeoutSeconds:  getDefaultServeOptionInt("TIMEOUT_SECONDS", 10),
 			GetTaskDelayMilliseconds:     getDefaultServeOptionInt("GET_TASK_DELAY_MILLISECONDS", 100),
 			ReporStateDelaySeconds:       getDefaultServeOptionInt("REPORT_STATE_DELAY_SECONDS", 1),
-			LocalMode:                    getDefaultServeOptionBool("LOCAL_MODE", false),
 			Labels:                       getDefaultServeOptionMap("LABELS", map[string]string{}),
 			SchedulingDecisionBufferSize: getDefaultServeOptionInt("SCHEDULING_DECISION_BUFFER_SIZE", 100),
 			JobHistoryBufferSize:         getDefaultServeOptionInt("JOB_HISTORY_BUFFER_SIZE", 100),
@@ -43,13 +42,10 @@ func NewRunnerOptions() *RunnerOptions {
 			FilterMode:                   getDefaultServeOptionString("FILTER_MODE", ""),
 			AllowMultipleCopies:          getDefaultServeOptionBool("ALLOW_MULTIPLE_COPIES", false),
 			MaxModelInstances:            getDefaultServeOptionInt("MAX_MODEL_INSTANCES", 0),
-			WarmupModels: getDefaultServeOptionStringArray("RUNNER_WARMUP_MODELS", []string{
-				types.Model_Mistral7b.String(),
-				types.Model_SDXL.String(),
-			}),
+			CacheDir:                     getDefaultServeOptionString("CACHE_DIR", "/root/.cache/huggingface"), // TODO: change to maybe just /data
 		},
-		Janitor: janitor.JanitorOptions{
-			SentryDSNApi: getDefaultServeOptionString("SENTRY_DSN_API", ""),
+		Janitor: config.Janitor{
+			SentryDsnAPI: getDefaultServeOptionString("SENTRY_DSN_API", ""),
 		},
 		Server: runner.RunnerServerOptions{
 			Host: getDefaultServeOptionString("SERVER_HOST", "0.0.0.0"),
@@ -67,6 +63,14 @@ func newRunnerCmd() *cobra.Command {
 		Long:    "Start a helix runner.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+
+			runnerConfig, err := config.LoadRunnerConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load server config: %v", err)
+			}
+
+			allOptions.Runner.Config = &runnerConfig
+
 			return runnerCLI(cmd, allOptions)
 		},
 	}
@@ -97,23 +101,8 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.ModelInstanceTimeoutSeconds, "timeout-seconds", allOptions.Runner.ModelInstanceTimeoutSeconds,
-		`How many seconds without a task before we shutdown a running model instance`,
-	)
-
-	runnerCmd.PersistentFlags().IntVar(
 		&allOptions.Runner.GetTaskDelayMilliseconds, "get-task-delay-milliseconds", allOptions.Runner.GetTaskDelayMilliseconds,
 		`How many milliseconds do we wait between running the control loop (which asks for the next global session)`,
-	)
-
-	runnerCmd.PersistentFlags().IntVar(
-		&allOptions.Runner.ReporStateDelaySeconds, "report-state-delay-seconds", allOptions.Runner.ReporStateDelaySeconds,
-		`How many seconds do we wait between reporting our state to the api`,
-	)
-
-	runnerCmd.PersistentFlags().BoolVar(
-		&allOptions.Runner.LocalMode, "local-mode", allOptions.Runner.LocalMode,
-		`Are we running in local mode?`,
 	)
 
 	runnerCmd.PersistentFlags().StringToStringVar(
@@ -176,7 +165,7 @@ func newRunnerCmd() *cobra.Command {
 	)
 
 	runnerCmd.PersistentFlags().StringVar(
-		&allOptions.Janitor.SentryDSNApi, "janitor-sentry-dsn", allOptions.Janitor.SentryDSNApi,
+		&allOptions.Janitor.SentryDsnAPI, "janitor-sentry-dsn", allOptions.Janitor.SentryDsnAPI,
 		`The sentry DSN.`,
 	)
 
@@ -198,13 +187,27 @@ var ITX_B = &types.Interaction{
 }
 
 var WarmupSession_Model_Mistral7b = types.Session{
-	ID:           "warmup-text",
+	ID:           types.WarmupTextSessionID,
 	Name:         "warmup-text",
 	Created:      time.Now(),
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeText,
-	ModelName:    types.Model_Mistral7b,
+	ModelName:    types.Model_Axolotl_Mistral7b,
+	LoraDir:      "",
+	Interactions: []*types.Interaction{ITX_A, ITX_B},
+	Owner:        "warmup-user",
+	OwnerType:    "user",
+}
+
+var WarmupSession_Model_Ollama_Mistral7b = types.Session{
+	ID:           types.WarmupTextSessionID,
+	Name:         "warmup-text",
+	Created:      time.Now(),
+	Updated:      time.Now(),
+	Mode:         "inference",
+	Type:         types.SessionTypeText,
+	ModelName:    "mistral:7b-instruct",
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -212,13 +215,13 @@ var WarmupSession_Model_Mistral7b = types.Session{
 }
 
 var WarmupSession_Model_SDXL = types.Session{
-	ID:           "warmup-image",
+	ID:           types.WarmupImageSessionID,
 	Name:         "warmup-image",
 	Created:      time.Now(),
 	Updated:      time.Now(),
 	Mode:         "inference",
 	Type:         types.SessionTypeImage,
-	ModelName:    types.Model_SDXL,
+	ModelName:    types.Model_Cog_SDXL,
 	LoraDir:      "",
 	Interactions: []*types.Interaction{ITX_A, ITX_B},
 	Owner:        "warmup-user",
@@ -270,12 +273,30 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	useWarmupSessions := []types.Session{}
 	if !options.Runner.MockRunner {
-		for _, modelName := range options.Runner.WarmupModels {
-			switch {
-			case modelName == types.Model_Mistral7b.String():
-				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
-			case modelName == types.Model_SDXL.String():
-				useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
+		// Axolotl runtime warmup
+		if options.Runner.Config.Runtimes.Axolotl.Enabled {
+			for _, modelName := range options.Runner.Config.Runtimes.Axolotl.WarmupModels {
+				switch modelName {
+				case types.Model_Axolotl_Mistral7b.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
+					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Mistral7b)
+				case types.Model_Cog_SDXL.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
+					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_SDXL)
+				default:
+					log.Error().Msgf("Unknown warmup model %s", modelName)
+				}
+			}
+		}
+
+		// Ollama runtime warmup
+		if options.Runner.Config.Runtimes.Ollama.Enabled {
+			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
+				switch modelName {
+				case types.Model_Ollama_Mistral7b.String():
+					log.Info().Msgf("Adding warmup session for model %s", modelName)
+					useWarmupSessions = append(useWarmupSessions, WarmupSession_Model_Ollama_Mistral7b)
+				}
 			}
 		}
 	}

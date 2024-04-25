@@ -4,33 +4,6 @@ import (
 	"fmt"
 )
 
-type ModelName string
-
-func (m ModelName) String() string {
-	return string(m)
-}
-
-const (
-	Model_None      ModelName = ""
-	Model_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
-	Model_SDXL      ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
-)
-
-func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
-	switch modelName {
-	case string(Model_Mistral7b):
-		return Model_Mistral7b, nil
-	case string(Model_SDXL):
-		return Model_SDXL, nil
-	default:
-		if acceptEmpty && modelName == string(Model_None) {
-			return Model_None, nil
-		} else {
-			return Model_None, fmt.Errorf("invalid model name: %s", modelName)
-		}
-	}
-}
-
 type SessionOriginType string
 
 const (
@@ -131,7 +104,8 @@ const (
 type OwnerType string
 
 const (
-	OwnerTypeUser OwnerType = "user"
+	OwnerTypeUser   OwnerType = "user"
+	OwnerTypeSystem OwnerType = "system"
 )
 
 type PaymentType string
@@ -207,6 +181,7 @@ const (
 	TextDataPrepStageNone              TextDataPrepStage = ""
 	TextDataPrepStageEditFiles         TextDataPrepStage = "edit_files"
 	TextDataPrepStageExtractText       TextDataPrepStage = "extract_text"
+	TextDataPrepStageIndexRag          TextDataPrepStage = "index_rag"
 	TextDataPrepStageGenerateQuestions TextDataPrepStage = "generate_questions"
 	TextDataPrepStageEditQuestions     TextDataPrepStage = "edit_questions"
 	TextDataPrepStageFineTune          TextDataPrepStage = "finetune"
@@ -218,3 +193,68 @@ const API_KEY_PREIX = "hl-"
 // what will activate all users being admin users
 // this is a dev setting and should be applied to ADMIN_USER_IDS
 const ADMIN_ALL_USERS = "all"
+
+type InferenceRuntime string
+
+func (r InferenceRuntime) String() string {
+	return string(r)
+}
+
+const (
+	InferenceRuntimeAxolotl InferenceRuntime = "axolotl"
+	InferenceRuntimeOllama  InferenceRuntime = "ollama"
+	// TODO: vllm
+)
+
+var (
+	WarmupTextSessionID  = "warmup-text"
+	WarmupImageSessionID = "warmup-image"
+)
+
+type DataPrepModule string
+
+const (
+	DataPrepModule_None         DataPrepModule = ""
+	DataPrepModule_GPT3Point5   DataPrepModule = "gpt3.5"
+	DataPrepModule_GPT4         DataPrepModule = "gpt4"
+	DataPrepModule_HelixMistral DataPrepModule = "helix_mistral"
+	DataPrepModule_Dynamic      DataPrepModule = "dynamic"
+)
+
+func ValidateDataPrepModule(moduleName string, acceptEmpty bool) (DataPrepModule, error) {
+	switch moduleName {
+	case string(DataPrepModule_GPT3Point5):
+		return DataPrepModule_GPT3Point5, nil
+	case string(DataPrepModule_GPT4):
+		return DataPrepModule_GPT4, nil
+	case string(DataPrepModule_HelixMistral):
+		return DataPrepModule_HelixMistral, nil
+	case string(DataPrepModule_Dynamic):
+		return DataPrepModule_Dynamic, nil
+	default:
+		if acceptEmpty && moduleName == string(DataPrepModule_None) {
+			return DataPrepModule_None, nil
+		} else {
+			return DataPrepModule_None, fmt.Errorf("invalid data prep module name: %s", moduleName)
+		}
+	}
+}
+
+type FileStoreType string
+
+const (
+	FileStoreTypeLocalFS  FileStoreType = "fs"
+	FileStoreTypeLocalGCS FileStoreType = "gcs"
+)
+
+type APIKeyType string
+
+const (
+	APIKeyType_None APIKeyType = ""
+	// generic access token for a user
+	APIKeyType_API APIKeyType = "api"
+	// a github oauth token
+	APIKeyType_Github APIKeyType = "github"
+	// a helix access token for a specific app
+	APIKeyType_App APIKeyType = "app"
+)

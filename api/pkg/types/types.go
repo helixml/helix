@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -29,19 +30,25 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner   string            `json:"runner"`   // e.g. 0
-	Message  string            `json:"message"`  // e.g. Prove pythagoras
-	Progress int               `json:"progress"` // e.g. 0-100
-	Files    []string          `json:"files"`    // list of filepath paths
-	Finished bool              `json:"finished"` // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
-	Metadata map[string]string `json:"metadata"` // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
-	State    InteractionState  `json:"state"`
-	Status   string            `json:"status"`
-	Error    string            `json:"error"`
+	Runner         string            `json:"runner"`          // e.g. 0
+	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
+	Progress       int               `json:"progress"`        // e.g. 0-100
+	Files          []string          `json:"files"`           // list of filepath paths
+	Finished       bool              `json:"finished"`        // if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)
+	Metadata       map[string]string `json:"metadata"`        // different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend
+	State          InteractionState  `json:"state"`
+	Status         string            `json:"status"`
+	Error          string            `json:"error"`
 	// we hoist this from files so a single interaction knows that it "Created a finetune file"
-	LoraDir        string                     `json:"lora_dir"`
-	DataPrepChunks map[string][]DataPrepChunk `json:"data_prep_chunks"`
-	DataPrepStage  TextDataPrepStage          `json:"data_prep_stage"`
+	LoraDir             string                     `json:"lora_dir"`
+	DataPrepChunks      map[string][]DataPrepChunk `json:"data_prep_chunks"`
+	DataPrepStage       TextDataPrepStage          `json:"data_prep_stage"`
+	DataPrepLimited     bool                       `json:"data_prep_limited"` // If true, the data prep is limited to a certain number of chunks due to quotas
+	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
+	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
+
+	RagResults []SessionRagResult `json:"rag_results"`
 }
 
 type InteractionMessage struct {
@@ -53,6 +60,49 @@ type SessionOrigin struct {
 	Type                SessionOriginType `json:"type"`
 	ClonedSessionID     string            `json:"cloned_session_id"`
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
+}
+
+type SessionRagSettings struct {
+	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
+	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
+	ChunkSize        int     `json:"chunk_size"`        // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
+}
+
+// the data we send off to llamaindex to be indexed in the db
+type SessionRagIndexChunk struct {
+	SessionID       string `json:"session_id"`
+	InteractionID   string `json:"interaction_id"`
+	Filename        string `json:"filename"`
+	DocumentID      string `json:"document_id"`
+	DocumentGroupID string `json:"document_group_id"`
+	ContentOffset   int    `json:"content_offset"`
+	Content         string `json:"content"`
+}
+
+// the query we post to llamaindex to get results back from a user
+// prompt against a rag enabled session
+type SessionRagQuery struct {
+	Prompt            string  `json:"prompt"`
+	SessionID         string  `json:"session_id"`
+	DistanceThreshold float64 `json:"distance_threshold"`
+	DistanceFunction  string  `json:"distance_function"`
+	MaxResults        int     `json:"max_results"`
+}
+
+// the thing we load from llamaindex when we send the user prompt
+// there and it does a lookup
+type SessionRagResult struct {
+	ID              string  `json:"id"`
+	SessionID       string  `json:"session_id"`
+	InteractionID   string  `json:"interaction_id"`
+	DocumentID      string  `json:"document_id"`
+	DocumentGroupID string  `json:"document_group_id"`
+	Filename        string  `json:"filename"`
+	ContentOffset   int     `json:"content_offset"`
+	Content         string  `json:"content"`
+	Distance        float64 `json:"distance"`
 }
 
 // gives us a quick way to add settings
@@ -67,6 +117,7 @@ type SessionMetadata struct {
 	ManuallyReviewQuestions bool              `json:"manually_review_questions"`
 	SystemPrompt            string            `json:"system_prompt"`
 	HelixVersion            string            `json:"helix_version"`
+	Stream                  bool              `json:"stream"`
 	// Evals are cool. Scores are strings of floats so we can distinguish ""
 	// (not rated) from "0.0"
 	EvalRunId               string   `json:"eval_run_id"`
@@ -77,6 +128,15 @@ type SessionMetadata struct {
 	EvalAutomaticScore      string   `json:"eval_automatic_score"`
 	EvalAutomaticReason     string   `json:"eval_automatic_reason"`
 	EvalOriginalUserPrompts []string `json:"eval_original_user_prompts"`
+	// these settings control which features of a session we want to use
+	// even if we have a Lora file and RAG indexed prepared
+	// we might choose to not use them (this will help our eval framework know what works the best)
+	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
+	// and what the threshold for a "good" answer is
+	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
+	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
+	RagSettings         SessionRagSettings `json:"rag_settings"`
+	ActiveTools         []string           `json:"active_tools"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -141,11 +201,9 @@ type Session struct {
 	Created       time.Time `json:"created"`
 	Updated       time.Time `json:"updated"`
 	ParentSession string    `json:"parent_session"`
-	// the bot this session was spawned from
-	ParentBot string `json:"parent_bot"`
-	// the bot this sessions lora file was added to
-	ChildBot string          `json:"child_bot"`
-	Metadata SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
+	// the app this session was spawned from
+	ParentApp string          `json:"parent_app"`
+	Metadata  SessionMetadata `json:"config" gorm:"column:config;type:jsonb"` // named config for backward compat
 	// e.g. inference, finetune
 	Mode SessionMode `json:"mode"`
 	// e.g. text, image
@@ -216,29 +274,6 @@ func (SessionMetadata) GormDataType() string {
 	return "json"
 }
 
-type BotSessions struct {
-	SessionID string `json:"session_id"`
-	Name      string `json:"name"`
-	PrePrompt string `json:"pre_prompt"`
-}
-
-type BotConfig struct {
-	Description string        `json:"description"`
-	Avatar      string        `json:"avatar"`
-	Sessions    []BotSessions `json:"sessions"`
-}
-
-// a bot can spawn new sessions from it's finetune dir
-type Bot struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Config    BotConfig `json:"config"`
-}
-
 // things we can change about a session that are not interaction related
 type SessionMetaUpdate struct {
 	ID   string `json:"id"`
@@ -301,11 +336,18 @@ type SessionFilter struct {
 	Older Duration `json:"older"`
 }
 
-type ApiKey struct {
-	Owner     string    `json:"owner"`
-	OwnerType OwnerType `json:"owner_type"`
-	Key       string    `json:"key"`
-	Name      string    `json:"name"`
+type APIKey struct {
+	Created   time.Time       `json:"created"`
+	Owner     string          `json:"owner"`
+	OwnerType OwnerType       `json:"owner_type"`
+	Key       string          `json:"key" gorm:"primaryKey"`
+	Name      string          `json:"name"`
+	Type      APIKeyType      `json:"type" gorm:"default:api"`
+	AppID     *sql.NullString `json:"app_id"`
+}
+
+func (APIKey) TableName() string {
+	return "api_key"
 }
 
 type OwnerContext struct {
@@ -317,6 +359,7 @@ type UserData struct {
 	ID       string
 	Email    string
 	FullName string
+	Token    string
 }
 
 type StripeUser struct {
@@ -349,6 +392,7 @@ type RequestContext struct {
 	OwnerType OwnerType
 	Email     string
 	FullName  string
+	Token     string
 }
 
 type UserStatus struct {
@@ -443,6 +487,10 @@ type ServerConfigForFrontend struct {
 	SentryDSNFrontend       string `json:"sentry_dsn_frontend"`
 	GoogleAnalyticsFrontend string `json:"google_analytics_frontend"`
 	EvalUserID              string `json:"eval_user_id"`
+	ToolsEnabled            bool   `json:"tools_enabled"`
+	AppsEnabled             bool   `json:"apps_enabled"`
+	RudderStackWriteKey     string `json:"rudderstack_write_key"`
+	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
 }
 
 type CreateSessionRequest struct {
@@ -450,6 +498,7 @@ type CreateSessionRequest struct {
 	SessionMode             SessionMode
 	SessionType             SessionType
 	SystemPrompt            string // System message
+	Stream                  bool
 	ParentSession           string
 	ModelName               ModelName
 	Owner                   string
@@ -457,6 +506,11 @@ type CreateSessionRequest struct {
 	UserInteractions        []*Interaction
 	Priority                bool
 	ManuallyReviewQuestions bool
+	RagEnabled              bool
+	TextFinetuneEnabled     bool
+	RagSettings             SessionRagSettings
+	ActiveTools             []string
+	LoraDir                 string
 }
 
 type UpdateSessionRequest struct {
@@ -568,8 +622,8 @@ type Counter struct {
 type ToolType string
 
 const (
-	ToolTypeAPI      ToolType = "api"
-	ToolTypeFunction ToolType = "function"
+	ToolTypeAPI       ToolType = "api"
+	ToolTypeGPTScript ToolType = "gptscript"
 )
 
 type Tool struct {
@@ -583,13 +637,15 @@ type Tool struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
 	ToolType    ToolType  `json:"tool_type"`
+	Global      bool      `json:"global"`
 	// TODO: tool configuration
 	// such as OpenAPI spec, function code, etc.
 	Config ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
-	API *ToolApiConfig `json:"api"`
+	API       *ToolApiConfig       `json:"api"`
+	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -631,10 +687,137 @@ type ToolApiAction struct {
 	Path        string `json:"path"`
 }
 
+type ToolGPTScriptConfig struct {
+	Script    string `json:"script"`     // Program code
+	ScriptURL string `json:"script_url"` // URL to download the script
+}
+
 // SessionToolBinding used to add tools to sessions
 type SessionToolBinding struct {
 	SessionID string `gorm:"primaryKey;index"`
 	ToolID    string `gorm:"primaryKey"`
 	Created   time.Time
 	Updated   time.Time
+}
+
+type AppType string
+
+const (
+	// this means the configuration for the app lives in the Helix database
+	AppTypeHelix AppType = "helix"
+	// this means the configuration for the app lives in a helix.yaml in a Github repository
+	AppTypeGithub AppType = "github"
+)
+
+type AppHelixConfigGPTScript struct {
+	Name     string `json:"name" yaml:"name"`
+	FilePath string `json:"file_path" yaml:"file_path"`
+	Content  string `json:"content" yaml:"content"`
+}
+
+type AppHelixConfigGPTScripts struct {
+	Files   []string                  `json:"files" yaml:"files"`
+	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
+}
+
+type AppHelixConfig struct {
+	Name           string                   `json:"name" yaml:"name"`
+	Description    string                   `json:"description" yaml:"description"`
+	Avatar         string                   `json:"avatar" yaml:"avatar"`
+	SystemPrompt   string                   `json:"system_prompt" yaml:"system_prompt"`
+	ActiveTools    []string                 `json:"active_tools" yaml:"active_tools"`
+	Secrets        map[string]string        `json:"secrets" yaml:"secrets"`
+	AllowedDomains []string                 `json:"allowed_domains" yaml:"allowed_domains"`
+	GPTScript      AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
+}
+
+type AppGithubConfig struct {
+	Repo          string  `json:"repo"`
+	Hash          string  `json:"hash"`
+	KeyPair       KeyPair `json:"key_pair"`
+	WebhookSecret string  `json:"webhook_secret"`
+}
+
+type AppConfig struct {
+	Helix  *AppHelixConfig  `json:"helix"`
+	Github *AppGithubConfig `json:"github"`
+}
+
+func (m AppConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *AppConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result AppConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (AppConfig) GormDataType() string {
+	return "json"
+}
+
+type App struct {
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType   OwnerType `json:"owner_type"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	AppType     AppType   `json:"app_type"`
+	Config      AppConfig `json:"config" gorm:"jsonb"`
+}
+
+type KeyPair struct {
+	Type       string
+	PrivateKey string
+	PublicKey  string
+}
+
+// the low level "please run me a gptsript" request
+type GptScript struct {
+	// if the script is inline then we use loader.ProgramFromSource
+	Source string `json:"source"`
+	// if we have a file path then we use loader.Program
+	// and gptscript will sort out relative paths
+	// if this script is part of a github app
+	// it will be a relative path inside the repo
+	FilePath string `json:"file_path"`
+	// if the script lives on a URL then we download it
+	URL string `json:"url"`
+	// the program inputs
+	Input string `json:"input"`
+	// this is the env passed into the program
+	Env []string `json:"env"`
+}
+
+// higher level "run a script inside this repo" request
+type GptScriptGithubApp struct {
+	Script     GptScript `json:"script"`
+	Repo       string    `json:"repo"`
+	CommitHash string    `json:"commit"`
+	// we will need this to clone the repo (in the case of private repos)
+	KeyPair KeyPair `json:"key_pair"`
+}
+
+// for an app, run which script with what input?
+type GptScriptRequest struct {
+	FilePath string `json:"file_path"`
+	Input    string `json:"input"`
+}
+
+type GptScriptResponse struct {
+	Output string `json:"output"`
+	Error  string `json:"error"`
 }

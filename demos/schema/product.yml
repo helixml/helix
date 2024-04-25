@@ -1,0 +1,90 @@
+openapi: 3.0.0
+info:
+  title: Products API
+  version: 1.0.0
+paths:
+  /products/v1/list:
+    get:
+      summary: List all laptops and filter by min and max price, cpu type and ram size
+      operationId: listProducts
+      parameters:
+        - in: query
+          name: min_price
+          schema:
+            type: integer
+          required: false
+        - in: query
+          name: max_price
+          schema:
+            type: integer
+          required: false
+        - in: query
+          name: cpu
+          schema:
+            type: string
+          required: false
+        - in: query
+          name: ram
+          schema:
+            type: integer
+          required: false
+      responses:
+        '200':
+          description: An array of laptops each one with a price, cpu type and ram amount
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+
+  /products/v1/book:
+    post:
+      summary: Book a product by providing it's ID and customer email
+      operationId: bookProduct
+      parameters:
+        - in: query
+          name: product_id
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: customer_email
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Booking receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: integer
+        cpu:
+          type: string
+        ram:
+          type: integer
+        inventory:
+          type: integer
+
+    Receipt:
+      type: object
+      properties:
+        product_id:
+          type: string
+        customer_email:
+          type: string
