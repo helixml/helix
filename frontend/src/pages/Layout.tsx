@@ -27,6 +27,8 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ConstructionIcon from '@mui/icons-material/Construction'
+import AppsIcon from '@mui/icons-material/Apps'
+import AssistantIcon from '@mui/icons-material/Assistant'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -138,31 +140,27 @@ const Layout: FC = ({
           width: '100%',
         }}
       >
-        <List
-          disablePadding
-        >
-          <ListItem
-            disablePadding
-            onClick={ () => {
-              navigate('new')
-              account.setMobileMenuOpen(false)
-            }}
-          >
+        <List disablePadding>
+          <ListItem disablePadding>
             <ListItemButton
               sx={{
                 height: '68px',
-               }}
+              }}
+              onClick={ () => {
+                navigate('new')
+                account.setMobileMenuOpen(false)
+              }}
             >
               <ListItemText
-              sx={{
-                ml: 2,
-                p: 1,
-                fontWeight: 'bold',
-                '&:hover': {
-                  color: themeConfig.darkHighlight,
-                }
-              }}
-                 primary="New Session"
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
+                primary="New Session"
               />
               <ListItemIcon>
                 <AddIcon color="primary" />
@@ -309,30 +307,46 @@ const Layout: FC = ({
 
                     {
                       account.admin && (
-                        <>
-                          <MenuItem onClick={ () => {
-                            handleCloseAccountMenu()
-                            navigate('dashboard')
-                          }}>
-                            <ListItemIcon>
-                              <DashboardIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Dashboard
-                          </MenuItem>
-                        </>
+                        <MenuItem onClick={ () => {
+                          handleCloseAccountMenu()
+                          navigate('dashboard')
+                        }}>
+                          <ListItemIcon>
+                            <DashboardIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Dashboard
+                        </MenuItem>
                       )
                     }
 
-                    <MenuItem onClick={ () => {
-                      handleCloseAccountMenu()
-                      navigate('tools')
-                    }}>
-                      <ListItemIcon>
-                        <ConstructionIcon fontSize="small" />
-                      </ListItemIcon> 
-                      Tools
-                    </MenuItem>
+                    {
+                      account.serverConfig.tools_enabled && (
+                        <MenuItem onClick={ () => {
+                          handleCloseAccountMenu()
+                          navigate('tools')
+                        }}>
+                          <ListItemIcon>
+                            <ConstructionIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Tools
+                        </MenuItem>
+                      )
+                    }
 
+                    {
+                      account.serverConfig.apps_enabled && (
+                        <MenuItem onClick={ () => {
+                          handleCloseAccountMenu()
+                          navigate('apps')
+                        }}>
+                          <ListItemIcon>
+                            <AppsIcon fontSize="small" />
+                          </ListItemIcon> 
+                          Apps
+                        </MenuItem>
+                      )
+                    }
+                    
                     <MenuItem onClick={ () => {
                       handleCloseAccountMenu()
                       navigate('account')

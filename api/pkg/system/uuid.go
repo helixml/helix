@@ -11,6 +11,7 @@ import (
 const (
 	ToolPrefix    = "tool_"
 	SessionPrefix = "ses_"
+	AppPrefix     = "app_"
 )
 
 func GenerateUUID() string {
@@ -27,4 +28,8 @@ func GenerateToolID() string {
 
 func GenerateSessionID() string {
 	return fmt.Sprintf("%s%s", SessionPrefix, newID())
+}
+
+func GenerateAppID() string {
+	return fmt.Sprintf("%s%s", AppPrefix, newID())
 }

@@ -2,10 +2,9 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	reflect "reflect"
 	"strings"
@@ -24,11 +23,12 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type PostgresStore struct {
-	options          StoreOptions
+	cfg              config.Store
 	connectionString string
 	pgDb             *sql.DB
 	db               *goqu.Database
@@ -37,22 +37,22 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(
-	options StoreOptions,
+	cfg config.Store,
 ) (*PostgresStore, error) {
 
 	// Waiting for connection
-	gormDB, err := connect(context.Background(), options)
+	gormDB, err := connect(context.Background(), cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	connectionString := fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		options.Username,
-		options.Password,
-		options.Host,
-		options.Port,
-		options.Database,
+		cfg.Username,
+		cfg.Password,
+		cfg.Host,
+		cfg.Port,
+		cfg.Database,
 	)
 	pgDb, err := sql.Open("postgres", connectionString)
 	if err != nil {
@@ -63,12 +63,13 @@ func NewPostgresStore(
 
 	store := &PostgresStore{
 		connectionString: connectionString,
-		options:          options,
+		cfg:              cfg,
 		pgDb:             pgDb,
 		db:               db,
 		gdb:              gormDB,
 	}
-	if options.AutoMigrate {
+
+	if cfg.AutoMigrate {
 		err = store.MigrateUp()
 		if err != nil {
 			return nil, fmt.Errorf("there was an error doing the migration: %s", err.Error())
@@ -85,6 +86,8 @@ func NewPostgresStore(
 
 func (s *PostgresStore) autoMigrate() error {
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
+		&types.App{},
+		&types.APIKey{},
 		&types.Tool{},
 		&types.SessionToolBinding{},
 	)
@@ -93,6 +96,10 @@ func (s *PostgresStore) autoMigrate() error {
 	}
 
 	if err := createFK(s.gdb, types.SessionToolBinding{}, types.Tool{}, "tool_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
+	if err := createFK(s.gdb, types.APIKey{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
@@ -175,56 +182,6 @@ func getKeyValueIndexes(fields []string, offset int) string {
 	return fmt.Sprintf("%s", strings.Join(parts, ", "))
 }
 
-var BOT_FIELDS = []string{
-	"id",
-	"name",
-	"created",
-	"updated",
-	"owner",
-	"owner_type",
-	"config",
-}
-
-var BOT_FIELDS_STRING = strings.Join(BOT_FIELDS, ", ")
-
-func scanBotRow(row Scanner) (*types.Bot, error) {
-	bot := &types.Bot{}
-	var config []byte
-	err := row.Scan(
-		&bot.ID,
-		&bot.Name,
-		&bot.Created,
-		&bot.Updated,
-		&bot.Owner,
-		&bot.OwnerType,
-		&config,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(config, &bot.Config)
-	if err != nil {
-		return nil, err
-	}
-	return bot, nil
-}
-
-func getBotValues(bot *types.Bot) ([]interface{}, error) {
-	config, err := json.Marshal(bot.Config)
-	if err != nil {
-		return nil, err
-	}
-	return []interface{}{
-		bot.ID,
-		bot.Name,
-		bot.Created,
-		bot.Updated,
-		bot.Owner,
-		bot.OwnerType,
-		config,
-	}, nil
-}
-
 var USERMETA_FIELDS = []string{
 	"id",
 	"config",
@@ -240,6 +197,10 @@ func scanUserMetaRow(row Scanner) (*types.UserMeta, error) {
 		&config,
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+
 		return nil, err
 	}
 	err = json.Unmarshal(config, &user.Config)
@@ -258,21 +219,6 @@ func getUserMetaValues(user *types.UserMeta) ([]interface{}, error) {
 		user.ID,
 		config,
 	}, nil
-}
-
-func (d *PostgresStore) GetBot(
-	ctx context.Context,
-	botID string,
-) (*types.Bot, error) {
-	if botID == "" {
-		return nil, fmt.Errorf("botID cannot be empty")
-	}
-	row := d.pgDb.QueryRow(fmt.Sprintf(`
-		SELECT %s
-		FROM bot WHERE id = $1
-	`, BOT_FIELDS_STRING), botID)
-
-	return scanBotRow(row)
 }
 
 func (d *PostgresStore) GetUserMeta(
@@ -301,72 +247,6 @@ func (d *PostgresStore) getSessionsWhere(query GetSessionsQuery) goqu.Ex {
 	return where
 }
 
-func (d *PostgresStore) GetBots(
-	ctx context.Context,
-	query GetBotsQuery,
-) ([]*types.Bot, error) {
-	where := goqu.Ex{}
-	if query.Owner != "" {
-		where["owner"] = query.Owner
-	}
-	if query.OwnerType != "" {
-		where["owner_type"] = query.OwnerType
-	}
-
-	sqlQuery := d.db.
-		From("bot").
-		Where(where).
-		Order(goqu.I("created").Desc())
-
-	sql, values, err := sqlQuery.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := d.pgDb.Query(sql, values...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	bots := []*types.Bot{}
-	for rows.Next() {
-		bot, err := scanBotRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		bots = append(bots, bot)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return bots, nil
-}
-
-func (d *PostgresStore) CreateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	values, err := getBotValues(&bot)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		INSERT INTO bot (
-			%s
-		) VALUES (
-			%s
-		)
-	`, BOT_FIELDS_STRING, getValueIndexes(BOT_FIELDS)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-	return &bot, nil
-}
-
 func (d *PostgresStore) CreateUserMeta(
 	ctx context.Context,
 	user types.UserMeta,
@@ -387,31 +267,6 @@ func (d *PostgresStore) CreateUserMeta(
 		return nil, err
 	}
 	return &user, nil
-}
-
-func (d *PostgresStore) UpdateBot(
-	ctx context.Context,
-	bot types.Bot,
-) (*types.Bot, error) {
-	values, err := getBotValues(&bot)
-	if err != nil {
-		return nil, err
-	}
-
-	// prepend the ID to the values
-	values = append([]interface{}{bot.ID}, values...)
-
-	_, err = d.pgDb.Exec(fmt.Sprintf(`
-		UPDATE bot SET
-			%s
-		WHERE id = $1
-	`, getKeyValueIndexes(BOT_FIELDS, 1)), values...)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &bot, nil
 }
 
 func (d *PostgresStore) UpdateUserMeta(
@@ -450,24 +305,6 @@ func (d *PostgresStore) EnsureUserMeta(
 	}
 }
 
-func (d *PostgresStore) DeleteBot(
-	ctx context.Context,
-	botID string,
-) (*types.Bot, error) {
-	deleted, err := d.GetBot(ctx, botID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = d.pgDb.Exec(`
-		DELETE FROM bot WHERE id = $1
-	`, botID)
-	if err != nil {
-		return nil, err
-	}
-
-	return deleted, nil
-}
-
 func (d *PostgresStore) UpdateSessionMeta(
 	ctx context.Context,
 	data types.SessionMetaUpdate,
@@ -495,118 +332,6 @@ func (d *PostgresStore) UpdateSessionMeta(
 	}
 
 	return d.GetSession(ctx, data.ID)
-}
-
-func (d *PostgresStore) CreateAPIKey(ctx context.Context, owner OwnerQuery, name string) (string, error) {
-	// Generate a new API key
-	key, err := generateAPIKey()
-	if err != nil {
-		return "", err
-	}
-
-	// Insert the new API key into the database
-	sqlStatement := `
-insert into api_key (owner, owner_type, key, name)
-values ($1, $2, $3, $4)
-returning key
-`
-	var id string
-	err = d.pgDb.QueryRow(
-		sqlStatement,
-		owner.Owner,
-		owner.OwnerType,
-		key,
-		name,
-	).Scan(&id)
-	if err != nil {
-		return "", err
-	}
-
-	return id, nil
-}
-
-func generateAPIKey() (string, error) {
-	key := make([]byte, 32)
-	_, err := rand.Read(key)
-	if err != nil {
-		return "", err
-	}
-	return types.API_KEY_PREIX + base64.URLEncoding.EncodeToString(key), nil
-}
-
-func (d *PostgresStore) GetAPIKeys(ctx context.Context, query OwnerQuery) ([]*types.ApiKey, error) {
-	var apiKeys []*types.ApiKey
-	sqlStatement := `
-select
-	key,
-	owner,
-	owner_type	
-from
-	api_key
-where
-	owner = $1 and owner_type = $2
-`
-	rows, err := d.pgDb.Query(
-		sqlStatement,
-		query.Owner,
-		query.OwnerType,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var apiKey types.ApiKey
-		err := rows.Scan(
-			&apiKey.Key,
-			&apiKey.Owner,
-			&apiKey.OwnerType,
-		)
-		if err != nil {
-			return nil, err
-		}
-		apiKeys = append(apiKeys, &apiKey)
-	}
-	err = rows.Err()
-	if err != nil {
-		return nil, err
-	}
-	return apiKeys, nil
-}
-
-func (d *PostgresStore) DeleteAPIKey(ctx context.Context, apiKey types.ApiKey) error {
-	sqlStatement := `
-delete from api_key where key = $1 and owner = $2 and owner_type = $3
-`
-	_, err := d.pgDb.Exec(
-		sqlStatement,
-		apiKey.Key,
-		apiKey.Owner,
-		apiKey.OwnerType,
-	)
-	return err
-}
-
-func (d *PostgresStore) CheckAPIKey(ctx context.Context, apiKey string) (*types.ApiKey, error) {
-	var key types.ApiKey
-	sqlStatement := `
-select
-	key, owner, owner_type
-from
-	api_key
-where
-	key = $1
-`
-	row := d.pgDb.QueryRow(sqlStatement, apiKey)
-	err := row.Scan(&key.Key, &key.Owner, &key.OwnerType)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// not an error, but not a valid api key either
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &key, nil
 }
 
 // Compile-time interface check:
@@ -660,7 +385,7 @@ const (
 	DatabaseTypePostgres = "postgres"
 )
 
-func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
+func connect(ctx context.Context, cfg config.Store) (*gorm.DB, error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -692,7 +417,7 @@ func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
 			// }
 
 			dsn := fmt.Sprintf("user=%s password=%s host=%s port=%d dbname=%s %s",
-				options.Username, options.Password, options.Host, options.Port, options.Database, sslSettings)
+				cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, sslSettings)
 			dialector = postgres.Open(dsn)
 
 			log.Info().Str("dsn", dsn).Msg("sql store connecting to DB")
@@ -714,6 +439,8 @@ func connect(ctx context.Context, options StoreOptions) (*gorm.DB, error) {
 			sqlDB.SetMaxOpenConns(25) // TODO: maybe subtract what pool uses
 			sqlDB.SetConnMaxIdleTime(time.Hour)
 			sqlDB.SetConnMaxLifetime(time.Minute)
+
+			log.Info().Str("dsn", dsn).Msg("sql store connected")
 
 			// success
 			return db, nil

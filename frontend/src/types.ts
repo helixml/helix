@@ -1,3 +1,4 @@
+// TODO: it sucks that there are constants defined in types
 export type ISessionCreator = 'system' | 'user'
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 export const SESSION_CREATOR_USER: ISessionCreator = 'user'
@@ -34,26 +35,44 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0'
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b-instruct-q2_K'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b-instruct-q2_K'
+export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
 
-export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
+export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
 export const TEXT_DATA_PREP_STAGE_EDIT_FILES: ITextDataPrepStage = 'edit_files'
 export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage = 'extract_text'
+export const TEXT_DATA_PREP_STAGE_INDEX_RAG: ITextDataPrepStage = 'index_rag'
 export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage = 'generate_questions'
 export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_questions'
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
+export type IAppType = 'helix' | 'github'
+export const APP_TYPE_HELIX: IAppType = 'helix'
+export const APP_TYPE_GITHUB: IAppType = 'github'
+
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
+  TEXT_DATA_PREP_STAGE_INDEX_RAG,
   TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
   TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
   TEXT_DATA_PREP_STAGE_FINETUNE,
   TEXT_DATA_PREP_STAGE_COMPLETE,
+]
+
+export const TEXT_DATA_PREP_DISPLAY_STAGES: ITextDataPrepStage[] = [
+  TEXT_DATA_PREP_STAGE_EXTRACT_TEXT,
+  TEXT_DATA_PREP_STAGE_INDEX_RAG,
+  TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
+  TEXT_DATA_PREP_STAGE_FINETUNE,
 ]
 
 export const SESSION_PAGINATION_PAGE_LIMIT = 30
@@ -71,13 +90,17 @@ export interface IUserConfig {
   stripe_subscription_id?: string,
 }
 
-export type IOwnerType = 'user' | 'system' | 'org';
+export type IOwnerType = 'user' | 'system' | 'org'
+
+export type IApiKeyType = 'api' | 'github' | 'app'
 
 export interface IApiKey {
-  owner: string;
-  owner_type: string;
-  key: string;
-  name: string;
+  owner: string,
+  owner_type: string,
+  key: string,
+  name: string,
+  app_id: string,
+  type: IApiKeyType,
 }
 
 export interface IFileStoreBreadcrumb {
@@ -148,6 +171,7 @@ export interface IInteraction {
   mode: ISessionMode,
   runner: string,
   message: string,
+  display_message: string,
   progress: number,
   files: string[],
   finished: boolean,
@@ -158,6 +182,8 @@ export interface IInteraction {
   lora_dir: string,
   data_prep_chunks: Record<string, IDataPrepChunk[]>,
   data_prep_stage: ITextDataPrepStage,
+  data_prep_limited: boolean,
+  data_prep_limit: number,
 }
 
 export interface ISessionOrigin {
@@ -234,7 +260,11 @@ export interface IWebsocketEvent {
 export interface IServerConfig {
   filestore_prefix: string,
   stripe_enabled: boolean,
+  sentry_dsn_frontend: string,
+  google_analytics_frontend: string,
   eval_user_id: string,
+  tools_enabled: boolean,
+  apps_enabled: boolean,
 }
 
 export interface IConversation {
@@ -370,7 +400,7 @@ export interface IButtonStates {
   uploadFilesLabel: string,
 }
 
-export const buttonStates: IButtonStates = {
+export const BUTTON_STATES: IButtonStates = {
   addUrlColor: 'primary',
   addUrlLabel: 'Add URL',
   addTextColor: 'primary',
@@ -387,7 +417,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'function'
+export type IToolType = 'api' | 'gptscript'
 
 export interface IToolApiAction {
   name: string,
@@ -404,8 +434,14 @@ export interface IToolApiConfig {
   query: Record<string, string>,
 }
 
+export interface IToolGptScriptConfig {
+  script?: string,
+  script_url?: string, // If script lives on a remote server, specify the URL
+}
+
 export interface IToolConfig {
-  api: IToolApiConfig,
+  api?: IToolApiConfig,
+  gptscript?: IToolGptScriptConfig,
 }
 
 export interface ITool {
@@ -416,18 +452,87 @@ export interface ITool {
   owner_type: IOwnerType,
   name: string,
   description: string,
+  global: boolean,
   tool_type: IToolType,
   config: IToolConfig,
 }
 
-export interface IAssistant {
+export interface IKeyPair {
+	type: string,
+  privateKey: string,
+  publicKey: string,
+}
+
+export interface IAppHelixConfigGptScript {
+  source?: string,
+  name?: string,
+  file_path?: string,
+  content?: string,
+  input?: string,
+  env?: string[],
+}
+
+export interface IAppHelixConfigGptScripts {
+  files?: string[],
+  scripts?: IAppHelixConfigGptScript[],
+}
+
+export interface IAppHelixConfig {
+  name?: string,
+  description?: string,
+  avatar?: string,
+  system_prompt?: string,
+  active_tools?: string[],
+  secrets?: Record<string, string>,
+  allowed_domains?: string[],
+  gptscript?: IAppHelixConfigGptScripts,
+}
+
+export interface IAppGithubConfig {
+  repo: string,
+  hash: string,
+  key_pair?: IKeyPair,
+}
+
+export interface IAppConfig {
+  helix?: IAppHelixConfig,
+  github?: IAppGithubConfig,
+}
+
+export interface IApp {
   id: string,
-  created: string,
-  updated: string,
+  created: Date,
+  updated: Date,
   owner: string,
   owner_type: IOwnerType,
   name: string,
   description: string,
-  tool_type: IToolType,
-  config: IToolConfig,
+  app_type: IAppType,
+  config: IAppConfig,
+}
+
+export interface IAppUpdate {
+  name: string,
+  description: string,
+  secrets: Record<string, string>,
+  allowed_domains: string[],
+}
+
+export interface IGithubStatus {
+  has_token: boolean,
+  redirect_url: string,
+}
+
+export interface IGithubRepo {
+  full_name: string,
+}
+
+export interface IGptScriptRequest {
+  file_path: string,
+  input: string,
+}
+
+export interface IGptScriptResponse {
+  output: string,
+  error: string,
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -117,6 +116,60 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRagSettings, error) {
+	var err error
+	ragDistanceFunction := req.FormValue("rag_distance_function")
+	if ragDistanceFunction == "" {
+		ragDistanceFunction = "cosine"
+	}
+
+	ragThresholdStr := req.FormValue("rag_threshold")
+	ragThreshold := 0.2 // Default value if ragThreshold is not provided or conversion fails
+	if ragThresholdStr != "" {
+		ragThreshold, err = strconv.ParseFloat(ragThresholdStr, 32)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragResultsCountStr := req.FormValue("rag_results_count")
+	ragResultsCount := 3 // Default value if resultsCount is not provided or conversion fails
+	if ragResultsCountStr != "" {
+		ragResultsCount, err = strconv.Atoi(ragResultsCountStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragChunkSizeStr := req.FormValue("rag_chunk_size")
+	ragChunkSize := 1024 // Default value if chunkSize is not provided or conversion fails
+	if ragChunkSizeStr != "" {
+		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
+	ragChunkOverflow := 20 // Default value if chunkOverflow is not provided or conversion fails
+	if ragChunkOverflowStr != "" {
+		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	settings := &types.SessionRagSettings{
+		DistanceFunction: ragDistanceFunction,
+		Threshold:        ragThreshold,
+		ResultsCount:     ragResultsCount,
+		ChunkSize:        ragChunkSize,
+		ChunkOverflow:    ragChunkOverflow,
+	}
+
+	return settings, nil
+}
+
 func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	reqContext := apiServer.getRequestContext(req)
 
@@ -136,9 +189,31 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, err
 	}
 
-	modelName, err := model.GetModelNameForSession(sessionType)
-	if err != nil {
-		return nil, err
+	helixModel := req.FormValue("helixModel")
+
+	var modelName types.ModelName
+	switch sessionType {
+	case types.SessionTypeText:
+		// switch based on user toggle e.g. GPT-3.5 vs GPT-4
+		if sessionMode == types.SessionModeInference {
+			switch helixModel {
+			case "helix-4":
+				modelName = types.Model_Ollama_Llama3_70b
+			case "helix-3.5":
+				modelName = types.Model_Ollama_Llama3_8b
+			case "helix-code":
+				modelName = types.Model_Ollama_CodeLlama
+			case "helix-json":
+				modelName = types.Model_Ollama_NousHermes2Pro
+			default:
+				modelName = types.Model_Ollama_Llama3_8b
+			}
+		} else {
+			// fine tuning doesn't work with ollama yet
+			modelName = types.Model_Axolotl_Mistral7b
+		}
+	case types.SessionTypeImage:
+		modelName = types.Model_Cog_SDXL
 	}
 
 	sessionID := system.GenerateUUID()
@@ -157,18 +232,54 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	if err != nil {
 		return nil, err
 	}
-	sessionData, err := apiServer.Controller.CreateSession(userContext, types.CreateSessionRequest{
+
+	ragSettings, err := apiServer.getSessionRagSettings(req)
+	if err != nil {
+		return nil, err
+	}
+
+	activeTools := []string{}
+	for _, tool := range strings.Split(req.FormValue("active_tools"), ",") {
+		if tool != "" {
+			activeTools = append(activeTools, tool)
+		}
+	}
+
+	finetuneEnable := false
+	finetuneString := req.FormValue("text_finetune_enabled")
+
+	ragEnable := false
+	ragString := req.FormValue("rag_enabled")
+
+	if sessionMode == types.SessionModeFinetune {
+		if finetuneString == "yes" || finetuneString == "" {
+			finetuneEnable = true
+		}
+
+		if ragString == "yes" {
+			ragEnable = true
+		}
+	}
+
+	createRequest := types.CreateSessionRequest{
 		SessionID:               sessionID,
 		SessionMode:             sessionMode,
+		Stream:                  true,
 		SessionType:             sessionType,
 		ModelName:               modelName,
 		Owner:                   reqContext.Owner,
 		OwnerType:               reqContext.OwnerType,
 		UserInteractions:        []*types.Interaction{userInteraction},
 		Priority:                status.Config.StripeSubscriptionActive,
-		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
 		ParentSession:           req.FormValue("parent_session"),
-	})
+		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
+		RagEnabled:              ragEnable,
+		TextFinetuneEnabled:     finetuneEnable,
+		RagSettings:             *ragSettings,
+		ActiveTools:             activeTools,
+	}
+
+	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start session")
 		return nil, err
@@ -235,17 +346,22 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 
 func (apiServer *HelixAPIServer) getConfig() (types.ServerConfigForFrontend, error) {
 	filestorePrefix := ""
-	if apiServer.Options.LocalFilestorePath != "" {
-		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Options.URL, API_PREFIX)
+	if apiServer.Cfg.WebServer.LocalFilestorePath != "" {
+		filestorePrefix = fmt.Sprintf("%s%s/filestore/viewer", apiServer.Cfg.WebServer.URL, API_PREFIX)
 	} else {
 		return types.ServerConfigForFrontend{}, system.NewHTTPError500("we currently only support local filestore")
 	}
+
 	return types.ServerConfigForFrontend{
 		FilestorePrefix:         filestorePrefix,
 		StripeEnabled:           apiServer.Stripe.Enabled(),
-		SentryDSNFrontend:       apiServer.Janitor.Options.SentryDSNFrontend,
-		GoogleAnalyticsFrontend: apiServer.Janitor.Options.GoogleAnalyticsFrontend,
-		EvalUserID:              apiServer.Options.EvalUserID,
+		SentryDSNFrontend:       apiServer.Cfg.Janitor.SentryDsnFrontend,
+		GoogleAnalyticsFrontend: apiServer.Cfg.Janitor.GoogleAnalyticsFrontend,
+		EvalUserID:              apiServer.Cfg.WebServer.EvalUserID,
+		RudderStackWriteKey:     apiServer.Cfg.Janitor.RudderStackWriteKey,
+		RudderStackDataPlaneURL: apiServer.Cfg.Janitor.RudderStackDataPlaneURL,
+		ToolsEnabled:            apiServer.Cfg.Tools.Enabled,
+		AppsEnabled:             apiServer.Cfg.Apps.Enabled,
 	}, nil
 }
 
@@ -265,9 +381,13 @@ func (apiServer *HelixAPIServer) configJS(res http.ResponseWriter, req *http.Req
 	content := fmt.Sprintf(`
 window.HELIX_SENTRY_DSN = "%s"
 window.HELIX_GOOGLE_ANALYTICS = "%s"
+window.RUDDERSTACK_WRITE_KEY = "%s"
+window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 `,
 		config.SentryDSNFrontend,
 		config.GoogleAnalyticsFrontend,
+		config.RudderStackWriteKey,
+		config.RudderStackDataPlaneURL,
 	)
 	res.Write([]byte(content))
 }
@@ -551,7 +671,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}
 	// switch the target user to be the eval user
 	if cloneIntoEvalUser != "" {
-		reqContext.Owner = apiServer.Options.EvalUserID
+		reqContext.Owner = apiServer.Cfg.WebServer.EvalUserID
 	}
 	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
 		InteractionID: interaction.ID,
@@ -738,18 +858,33 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 	if ok && len(rejectPairs) > 0 {
 		for _, rejectPair := range rejectPairs {
 			triple := strings.Split(rejectPair, ":")
-			if len(triple) != 3 {
+			var rejectModelName types.ModelName
+			var rejectModelMode types.SessionMode
+			var rejectLoraDir string
+			var err error
+			if len(triple) == 4 {
+				rejectModelName, err = types.ValidateModelName(triple[0]+":"+triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[2], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[3]
+			} else if len(triple) == 3 {
+				rejectModelName, err = types.ValidateModelName(triple[0], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectModelMode, err = types.ValidateSessionMode(triple[1], false)
+				if err != nil {
+					return nil, err
+				}
+				rejectLoraDir = triple[2]
+			} else {
 				return nil, fmt.Errorf("invalid reject pair: %s", rejectPair)
 			}
-			rejectModelName, err := types.ValidateModelName(triple[0], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectModelMode, err := types.ValidateSessionMode(triple[1], false)
-			if err != nil {
-				return nil, err
-			}
-			rejectLoraDir := triple[2]
 			reject = append(reject, types.SessionFilterModel{
 				ModelName: rejectModelName,
 				Mode:      rejectModelMode,
@@ -797,11 +932,12 @@ func (apiServer *HelixAPIServer) handleRunnerResponse(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	taskResponse, err = apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
+	resp, err := apiServer.Controller.HandleRunnerResponse(req.Context(), taskResponse)
 	if err != nil {
+		log.Error().Err(err).Str("session_id", taskResponse.SessionID).Msg("failed to handle runner response")
 		return nil, err
 	}
-	return taskResponse, nil
+	return resp, nil
 }
 
 func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, req *http.Request) (*types.RunnerState, error) {
@@ -819,19 +955,67 @@ func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, re
 }
 
 func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
+	newAPIKey := &types.APIKey{}
 	name := req.URL.Query().Get("name")
-	apiKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), name)
+
+	if name != "" {
+		// if we are using the query string route then don't try to deode the body
+		newAPIKey.Name = name
+		newAPIKey.Type = types.APIKeyType_API
+	} else {
+		// otherwise assume there is a key on the body
+		err := json.NewDecoder(req.Body).Decode(newAPIKey)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	createdKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), newAPIKey)
 	if err != nil {
 		return "", err
 	}
-	return apiKey, nil
+	return createdKey.Key, nil
 }
 
-func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.ApiKey, error) {
+func containsType(keyType string, typesParam string) bool {
+	if typesParam == "" {
+		return false
+	}
+
+	typesList := strings.Split(typesParam, ",")
+	for _, t := range typesList {
+		if t == keyType {
+			return true
+		}
+	}
+	return false
+}
+
+func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
 	apiKeys, err := apiServer.Controller.GetAPIKeys(apiServer.getRequestContext(req))
 	if err != nil {
 		return nil, err
 	}
+
+	typesParam := req.URL.Query().Get("types")
+	appIDParam := req.URL.Query().Get("app_id")
+
+	includeAllTypes := false
+	if typesParam == "all" {
+		includeAllTypes = true
+	}
+
+	filteredAPIKeys := []*types.APIKey{}
+	for _, key := range apiKeys {
+		if !includeAllTypes && !containsType(string(key.Type), typesParam) {
+			continue
+		}
+		if appIDParam != "" && (!key.AppID.Valid || key.AppID.String != appIDParam) {
+			continue
+		}
+		filteredAPIKeys = append(filteredAPIKeys, key)
+	}
+	apiKeys = filteredAPIKeys
 	return apiKeys, nil
 }
 
@@ -841,10 +1025,10 @@ func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http
 	if err != nil {
 		return "", err
 	}
-	return "", nil
+	return apiKey, nil
 }
 
-func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.ApiKey, error) {
+func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
 	apiKey := req.URL.Query().Get("key")
 	key, err := apiServer.Controller.CheckAPIKey(apiServer.getRequestContext(req).Ctx, apiKey)
 	if err != nil {

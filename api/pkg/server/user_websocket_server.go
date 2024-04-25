@@ -63,7 +63,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		userID, err := apiServer.keyCloakMiddleware.userIDFromRequestBothModes(r)
+		userID, err := apiServer.authMiddleware.userIDFromRequestBothModes(r)
 		if err != nil {
 			log.Error().Msgf("Error getting user id: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -73,7 +73,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 		sessionID := r.URL.Query().Get("session_id")
 		if sessionID == "" {
 			log.Error().Msgf("No session_id supplied")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "No session_id supplied", http.StatusInternalServerError)
 			return
 		}
 

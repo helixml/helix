@@ -1,0 +1,25 @@
+# Backend build
+FROM golang:1.22 AS go-build-env
+WORKDIR /app
+
+# <- COPY go.mod and go.sum files to the workspace
+COPY go.mod .
+COPY go.sum .
+
+RUN go mod download
+
+# COPY the source code as the last step
+COPY api ./api
+COPY .git /.git
+
+WORKDIR /app/api
+
+# Build the Go app
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+
+FROM alpine:3.17
+RUN apk --update add ca-certificates bash openssh unzip wget sqlite
+
+COPY --from=go-build-env /helix /helix
+
+ENTRYPOINT ["/helix", "gptscript"]

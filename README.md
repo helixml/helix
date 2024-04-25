@@ -1,6 +1,6 @@
 <div align="center">
 
-<img alt="logo" src="https://tryhelix.ai/assets/img/home/helix_hero.png" width="250px">
+<img alt="logo" src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" width="250px">
 
 <br/>
 <br/>
@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://app.tryhelix.ai/">SaaS</a> •
   <a href="https://docs.helix.ml/docs/controlplane">Private Deployment</a> •
-  <a href="https://docs.helix.ml/docs/overview">Docs</a> •  
+  <a href="https://docs.helix.ml/docs/overview">Docs</a> •
   <a href="https://discord.gg/VJftd844GE">Discord</a>
 </p>
 
@@ -38,6 +38,11 @@ Create an `.env` file with settings based on the example values and edit it:
 cp .env.example-prod .env
 ```
 
+Ensure keycloak realm settings are up to date with your .env file
+```
+./update-realm-settings.sh
+```
+
 To start the services:
 
 ```
@@ -45,6 +50,8 @@ docker-compose up -d
 ```
 
 The dashboard will be available on `http://localhost`.
+
+Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 
 ## License
 

@@ -7,13 +7,16 @@ workspace:
   path: src/github.com/helix-ml/helix
 
 steps:
-- name: build
-  image: golang:1.20-alpine
+- name: build-backend
+  image: golang:1.22.2-alpine3.19
   commands:
     - go build -o helix
+
 - name: unit-test
-  image: golang:1.20-alpine
+  image: golang:1.22.2-alpine3.19
   environment:
+    OPENAI_API_KEY:
+      from_secret: openai_tools
     TOGETHER_API_KEY:
       from_secret: openai_api_key
     TOGETHER_BASE_URL:
@@ -22,6 +25,14 @@ steps:
     POSTGRES_HOST: postgres
   commands:
     - go test -v ./...
+
+- name: build-frontend
+  image: node:21-alpine
+  commands:
+    - cd frontend
+    - yarn install
+    - yarn build
+
 
 services:
 - name: postgres
@@ -102,7 +113,7 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-unstructured
+name: build-gptscript_devserver
 
 volumes:
   - name: dockersocket
@@ -110,14 +121,82 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-unstructured
+- name: publish-gptscript_devserver
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: unstructured/Dockerfile
-    context: unstructured
+    dockerfile: Dockerfile.gptscript_devserver    
     auto_tag: true
-    repo: helixml/helix/unstructured
+    repo: helixml/helix/gptscript_devserver
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
+name: build-llamaindex
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-llamaindex
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: llamaindex/Dockerfile
+    context: llamaindex
+    auto_tag: true
+    repo: helixml/helix/llamaindex
+    location: europe
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
+name: build-demos
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-demos
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.demos
+    auto_tag: true
+    repo: helixml/helix/demos
     location: europe
     json_key:
       from_secret: gar_json_key_b64

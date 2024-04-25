@@ -7,9 +7,10 @@ import Session from './pages/Session'
 import Account from './pages/Account'
 import Tools from './pages/Tools'
 import Tool from './pages/Tool'
+import Apps from './pages/Apps'
+import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
-import CreationCollection from './pages/CreateCollection'
 import Collection from './pages/Collection'
 import ImageFineTuneView from './pages/ImageFineTuneView'
 import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
@@ -17,7 +18,6 @@ import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
 import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions '
 
 
-import SessionBadgeKey from './components/session/SessionBadgeKey'
 import CollectionTitle from './components/collection/CollectionTitle'
 import SessionTitle from './components/session/SessionTitle'
 
@@ -109,6 +109,16 @@ const routes: IApplicationRoute[] = [
     <Tools />
   ),
 }, {
+  name: 'apps',
+  path: '/apps',
+  meta: {
+    title: 'Apps',
+    sidebar: true,
+  },
+  render: () => (
+    <Apps />
+  ),
+}, {
   name: 'tool',
   path: '/tool/:tool_id',
   meta: {
@@ -117,6 +127,16 @@ const routes: IApplicationRoute[] = [
   },
   render: () => (
     <Tool />
+  ),
+}, {
+  name: 'app',
+  path: '/app/:app_id',
+  meta: {
+    title: 'Edit App',
+    sidebar: false,
+  },
+  render: () => (
+    <App />
   ),
 }, {
   name: 'session',
@@ -204,6 +224,12 @@ export const router = createRouter(routes, {
 })
 
 router.usePlugin(browserPlugin())
+router.subscribe((state) => {
+  const win = (window as any)
+  if(win.viewPage) {
+    win.viewPage(state)
+  }
+})
 router.start()
 
 export function useApplicationRoute(): IApplicationRoute {

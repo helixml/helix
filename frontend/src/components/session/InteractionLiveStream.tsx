@@ -5,6 +5,7 @@ import Progress from '../widgets/Progress'
 import WaitingInQueue from './WaitingInQueue'
 import LoadingSpinner from '../widgets/LoadingSpinner'
 import useLiveInteraction from '../../hooks/useLiveInteraction'
+import Markdown from './Markdown'
 
 import useAccount from '../../hooks/useAccount'
 
@@ -62,6 +63,29 @@ export const InteractionLiveStream: FC<{
   }
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
+
+  // TODO: get the nice blinking cursor to work nicely with the markdown module
+  const sourceTextWithBlinkingCursor =  `
+${replaceMessageText(message, session, getFileURL)}
+<style>
+  .blinker-class {
+    animation: blink 1s linear infinite;
+  }
+
+  @keyframes blink {
+    25% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0;
+    }
+    75% {
+      opacity: 0.5;
+    }
+  }
+</style>
+<span style="color: yellow; font-weight:bold;" class="blinker-class">┃</span>
+`
   
   return (
     <>
@@ -73,24 +97,9 @@ export const InteractionLiveStream: FC<{
       {
         message && (
           <div>
-            <Typography dangerouslySetInnerHTML={{__html: replaceMessageText(message, session, getFileURL) + `
-              <style>
-                .blinker-class {
-                  animation: blink 1s linear infinite;
-                }
-
-                @keyframes blink {
-                  25% {
-                    opacity: 0.5;
-                  }
-                  50% {
-                    opacity: 0;
-                  }
-                  75% {
-                    opacity: 0.5;
-                  }
-                }
-              </style><span style="color: yellow; font-weight:bold;" class="blinker-class">┃</span>`}}></Typography>
+            <Markdown
+              text={ replaceMessageText(message, session, getFileURL) }
+            />
           </div>
         )
       }

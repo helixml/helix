@@ -1,6 +1,9 @@
-import React, { FC, ReactNode } from 'react';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
+import React, { useCallback, ReactNode, FC } from 'react'
+import Dialog from '@mui/material/Dialog'
+import Button from '@mui/material/Button'
+import Box from '@mui/material/Box'
+import useTheme from '@mui/material/styles/useTheme'
+import useThemeConfig from '../../hooks/useThemeConfig'
 
 export interface WindowProps {
   leftButtons?: ReactNode;
@@ -52,20 +55,27 @@ const Window: FC<WindowProps> = ({
     }
   };
 
-  return (
-    <Box
-    sx={{
-      position: 'fixed', // fixed to cover the whole screen
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%',
-      zIndex: 2000,
-      display: 'flex',
-      justifyContent: 'flex-end', // Align the content box to the right
-      backgroundColor: '#070714'
+  const theme = useTheme()
+  const themeConfig = useThemeConfig()
 
-    }}
+  return (
+    <Dialog
+      open={ open }
+      onClose={ handleCancel }
+      fullWidth
+      maxWidth={ size }
+      sx={{
+        '& .MuiDialog-paper': {
+          backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          ...(fullHeight && {
+            height: '100%',
+          }),
+          ...(noScroll && {
+            overflowX: 'hidden!important',
+            overflowY: 'hidden!important',
+          }),
+        },
+      }}
     >
       <Box
         sx={{
@@ -120,7 +130,7 @@ const Window: FC<WindowProps> = ({
           </Box>
         )}
       </Box>
-    </Box>
+    </Dialog>
   );
 };
 

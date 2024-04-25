@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -39,6 +41,11 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
 	}
 
+	activeTools := req.ActiveTools
+	if activeTools == nil {
+		activeTools = []string{}
+	}
+
 	newSession := types.Session{
 		ID:            req.SessionID,
 		Name:          system.GenerateAmusingName(),
@@ -46,12 +53,14 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Type:          req.SessionType,
 		Mode:          req.SessionMode,
 		ParentSession: req.ParentSession,
+		LoraDir:       req.LoraDir,
 		Owner:         req.Owner,
 		OwnerType:     req.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
+			Stream:       req.Stream,
 			OriginalMode: req.SessionMode,
 			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
@@ -60,7 +69,67 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 			Priority:                req.Priority,
 			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
 			HelixVersion:            data.GetHelixVersion(),
+			RagEnabled:              req.RagEnabled,
+			TextFinetuneEnabled:     req.TextFinetuneEnabled,
+			RagSettings:             req.RagSettings,
+			ActiveTools:             activeTools,
 		},
+	}
+
+	if c.Options.Config.SubscriptionQuotas.Enabled && newSession.Mode == types.SessionModeFinetune {
+		// Check for max concurrent finetuning sessions
+		var currentlyRunningFinetuneSessions int
+
+		sessions, err := c.Options.Store.GetSessions(ctx.Ctx, store.GetSessionsQuery{
+			Owner: newSession.Owner,
+		})
+		if err != nil {
+			log.
+				Err(err).
+				Str("session_id", req.SessionID).
+				Msg("failed to get sessions")
+			return nil, fmt.Errorf("failed to get sessions: %w", err)
+		}
+
+		for _, session := range sessions {
+			if session.Mode == types.SessionModeFinetune {
+				// Check if the last interaction is still running
+				lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+				if err != nil {
+					log.Error().Err(err).Msgf("failed to get last system interaction for session: %s", session.ID)
+					continue
+				}
+
+				if lastInteraction.State == types.InteractionStateWaiting {
+					currentlyRunningFinetuneSessions++
+				}
+			}
+		}
+
+		pro, err := c.isUserProTier(context.Background(), req.Owner)
+		if err != nil {
+			return nil, fmt.Errorf("error getting user '%s' meta: %s", req.Owner, err.Error())
+		}
+
+		if pro {
+			// Pro plan
+			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxConcurrent {
+				return nil, fmt.Errorf(
+					"you have reached the maximum number of concurrent finetuning sessions (%d/%d) allowed for your subscription plan",
+					currentlyRunningFinetuneSessions,
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+				)
+			}
+		} else {
+			// Free plan
+			if currentlyRunningFinetuneSessions >= c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxConcurrent {
+				return nil, fmt.Errorf(
+					"you have reached the maximum number of concurrent finetuning sessions (%d/%d) allowed for your subscription plan, upgrade to increase your limits",
+					currentlyRunningFinetuneSessions,
+					c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks,
+				)
+			}
+		}
 	}
 
 	// create session in database
@@ -87,6 +156,22 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 	}
 
 	return sessionData, nil
+}
+
+func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, error) {
+	usermeta, err := c.Options.Store.GetUserMeta(ctx, owner)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if usermeta.Config.StripeSubscriptionActive {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
@@ -312,8 +397,10 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 // for the user - so, we return nil here with no error which
 // TODO: this should be adding jobs to a queue
 func (c *Controller) PrepareSession(session *types.Session) (*types.Session, error) {
+	var convertedTextDocuments int
+	var err error
+
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
-		var err error
 		// Check if this is actionable
 		session, err = c.checkForActions(session)
 		if err != nil {
@@ -326,39 +413,102 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 	// here we need to turn all of the uploaded files into text files
 	// so we ping our handy python server that will do that for us
 	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeFinetune {
-		session, convertedTextDocuments, err := c.convertDocumentsToText(session)
-		if err != nil {
-			return nil, err
-		}
-		session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
-		if err != nil {
-			return nil, err
-		}
 
-		// if we have checked the ManuallyReviewQuestions setting
-		// then we DON'T want the session in the queue yet
-		// the user has to confirm the questions are correct
-		// or there might have been errors that we want to give the user
-		// a chance to decide what to do
-		if session.Metadata.ManuallyReviewQuestions {
-			if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
-				return nil, nil
+		// if either rag or finetuning is enabled then we need to convert the files to text
+		if session.Metadata.TextFinetuneEnabled || session.Metadata.RagEnabled {
+			session, convertedTextDocuments, err = c.convertDocumentsToText(session)
+			if err != nil {
+				return nil, err
 			}
 		}
 
-		// if there are any errors in the data prep then we should not auto-progress
-		// and give the user the choice
-		qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
-		if err != nil {
-			return nil, err
-		}
-		if qaPairErrorCount > 0 {
-			return nil, nil
+		// we put this behind a feature flag because then we can have fine-tune only sessions
+		if session.Metadata.RagEnabled {
+			session, _, err = c.indexChunksForRag(session)
+			if err != nil {
+				return nil, err
+			}
+
+			// if we are NOT doing fine tuning then we need to mark this as finshed
+			if !session.Metadata.TextFinetuneEnabled {
+				session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+					systemInteraction.Finished = true
+					systemInteraction.Progress = 0
+					systemInteraction.Message = ""
+					systemInteraction.Status = "We have indexed all of your documents now you can ask questions..."
+					systemInteraction.State = types.InteractionStateComplete
+					systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
+					systemInteraction.Files = []string{}
+					return systemInteraction, nil
+				})
+
+				// we need to switch to inference mode now so the user can ask questions
+				session.Mode = types.SessionModeInference
+
+				if err != nil {
+					return nil, err
+				}
+
+				c.WriteSession(session)
+				c.BroadcastProgress(session, 0, "")
+			}
 		}
 
-		// otherwise lets kick off the fine tune
-		c.BeginFineTune(session)
+		// we put this behind a feature flag because then we can have RAG only sessions
+		if session.Metadata.TextFinetuneEnabled {
+			session, questionChunksGenerated, err := c.convertChunksToQuestions(session)
+			if err != nil {
+				return nil, err
+			}
+
+			// if we have checked the ManuallyReviewQuestions setting
+			// then we DON'T want the session in the queue yet
+			// the user has to confirm the questions are correct
+			// or there might have been errors that we want to give the user
+			// a chance to decide what to do
+			if session.Metadata.ManuallyReviewQuestions {
+				if convertedTextDocuments > 0 || questionChunksGenerated > 0 {
+					return nil, nil
+				}
+			}
+
+			// if there are any errors in the data prep then we should not auto-progress
+			// and give the user the choice
+			qaPairErrorCount, err := c.convertChunksToQuestionsErrorCount(session)
+			if err != nil {
+				return nil, err
+			}
+			if qaPairErrorCount > 0 {
+				return nil, nil
+			}
+
+			// otherwise lets kick off the fine tune
+			c.BeginFineTune(session)
+		}
+
 		return nil, nil
+	} else if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+		// we need to check if we are doing RAG and if yes, we need to augment the prompt
+		// with the results from the RAGStore
+		if session.Metadata.RagEnabled {
+			ragResults, err := c.getRAGResults(session)
+			if err != nil {
+				return nil, err
+			}
+			session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
+				userInteraction.DisplayMessage = userInteraction.Message
+				injectedUserPrompt, err := prompts.RAGInferencePrompt(userInteraction.Message, ragResults)
+				if err != nil {
+					return nil, err
+				}
+				userInteraction.Message = injectedUserPrompt
+				return userInteraction, nil
+			})
+			session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+				systemInteraction.RagResults = ragResults
+				return systemInteraction, nil
+			})
+		}
 	}
 
 	return session, nil
@@ -372,12 +522,22 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	ctx := context.Background()
 
-	tools, err := c.Options.Store.ListTools(ctx, &store.ListToolsQuery{
-		Owner:     session.Owner,
-		OwnerType: session.OwnerType,
-	})
-	if err != nil {
-		return nil, err
+	tools := []*types.Tool{}
+	for _, id := range session.Metadata.ActiveTools {
+		tool, err := c.Options.Store.GetTool(context.Background(), id)
+		// we might have stale tool ids in our metadata
+		// so let's not error here
+		if err != nil {
+			log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
+			continue
+		}
+
+		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
+		if !tool.Global && tool.Owner != session.Owner {
+			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
+		}
+
+		tools = append(tools, tool)
 	}
 
 	if len(tools) == 0 {
@@ -397,15 +557,15 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
-	isActionable, err := c.Options.Planner.IsActionable(ctx, tools, history, userInteraction.Message)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, tools, history, userInteraction.Message)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to evaluate of the message is actionable")
-		return nil, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
+		return session, nil
 	}
 
 	log.Info().
 		Str("api", isActionable.Api).
-		Str("actionable", isActionable.NeedsApi).
+		Str("actionable", isActionable.NeedsTool).
 		Str("justification", isActionable.Justification).
 		Str("message", userInteraction.Message).
 		Msg("checked for actionable")

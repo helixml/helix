@@ -7,13 +7,15 @@ import (
 )
 
 func GetModel(modelName types.ModelName) (Model, error) {
-	if modelName == types.Model_Mistral7b {
-		return &Mistral7bInstruct01{}, nil
-	} else if modelName == types.Model_SDXL {
-		return &CogSDXL{}, nil
-	} else {
+	models, err := GetModels()
+	if err != nil {
+		return nil, err
+	}
+	model, ok := models[modelName]
+	if !ok {
 		return nil, fmt.Errorf("no model for model name %s", modelName)
 	}
+	return model, nil
 }
 
 // rather then keep processing model names from sessions into instances of the model struct
@@ -21,18 +23,20 @@ func GetModel(modelName types.ModelName) (Model, error) {
 // this gives us an in memory cache of model instances we can quickly lookup from
 func GetModels() (map[types.ModelName]Model, error) {
 	models := map[types.ModelName]Model{}
-	models[types.Model_Mistral7b] = &Mistral7bInstruct01{}
-	models[types.Model_SDXL] = &CogSDXL{}
-	return models, nil
-}
+	models[types.Model_Axolotl_Mistral7b] = &Mistral7bInstruct01{}
+	models[types.Model_Cog_SDXL] = &CogSDXL{}
 
-func GetModelNameForSession(sessionType types.SessionType) (types.ModelName, error) {
-	if sessionType == types.SessionTypeImage {
-		return types.Model_SDXL, nil
-	} else if sessionType == types.SessionTypeText {
-		return types.Model_Mistral7b, nil
-	}
-	return types.Model_None, fmt.Errorf("no model for session type %s", sessionType)
+	// Ollama
+	models[types.Model_Ollama_Mistral7b] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), MB*6440)
+	models[types.Model_Ollama_Mixtral] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), GB*24)
+	models[types.Model_Ollama_CodeLlama] = NewOllamaGenericText(types.Model_Ollama_CodeLlama.String(), GB*24)
+	models[types.Model_Ollama_NousHermes2Pro] = NewOllamaGenericText(types.Model_Ollama_NousHermes2Pro.String(), MB*6440)
+
+	// Llama3
+	models[types.Model_Ollama_Llama3_8b] = NewOllamaGenericText(types.Model_Ollama_Llama3_8b.String(), MB*5349)
+	models[types.Model_Ollama_Llama3_70b] = NewOllamaGenericText(types.Model_Ollama_Llama3_70b.String(), GB*24)
+
+	return models, nil
 }
 
 func GetLowestMemoryRequirement() (uint64, error) {

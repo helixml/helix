@@ -10,8 +10,7 @@ export const ThemeContext = React.createContext({
 
 export const ThemeProviderWrapper: FC = ({ children }) => {
   const themeConfig = useThemeConfig()
-  const prefersDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const [mode, setMode] = useState<PaletteMode>(prefersDarkMode ? 'dark' : 'light')
+  const [mode, setMode] = useState<PaletteMode>('dark')
   const theme = useMemo(() => {
     return createTheme({
       palette: {

@@ -91,11 +91,13 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      types.SessionTypeText,
+		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
 		Owner:            userContext.Owner,
 		OwnerType:        userContext.OwnerType,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
+		ActiveTools:      []string{},
 	}
 
 	startReq := &startSessionConfig{
@@ -205,7 +207,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 	// we can have race-conditions on very fast responses
 	// from the runner
 	err = startReq.start()
-	// _, err = apiServer.Controller.CreateSession(userContext, *session)
+
 	if err != nil {
 		system.NewHTTPError500("failed to start session: %s", err)
 		return
@@ -280,6 +282,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 		if event.Session.Interactions[len(event.Session.Interactions)-1].State == types.InteractionStateComplete {
 			// We are done
 			updatedSession = event.Session
+
 			close(doneCh)
 			return nil
 		}
@@ -288,7 +291,9 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 		return nil
 	})
 	if err != nil {
-		system.NewHTTPError500("failed to subscribe to session updates: %s", err)
+		log.Err(err).Msg("failed to subscribe to session updates")
+
+		http.Error(res, fmt.Sprintf("failed to subscribe to session updates: %s", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -297,16 +302,18 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 	// from the runner
 	err = startReq.start()
 	if err != nil {
-		system.NewHTTPError500("failed to start session: %s", err)
+		log.Err(err).Msg("failed to start session")
+
+		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	select {
 	case <-doneCh:
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 		// Continue with response
 	case <-req.Context().Done():
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 		return
 	}
 
