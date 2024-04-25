@@ -180,54 +180,39 @@ const [files, setFiles] = useState<CustomFile[]>(
 
   return (
     <Box
-    sx={{
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'space-between', // Distributes space between items
-      height: '100vh', // Use the full height of the viewport
-      overflow: 'hidden', // Hide the overflow
-      width: '100%',
-      p: 2, // Consider reducing padding if necessary
-      boxSizing: 'border-box', // Include padding and border in the element's total width and height
-    }}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        flexGrow: 1,
+        minHeight: '100vh',
+        overflow: 'hidden',
+      }}
      >
-      
-      {
-        showSystemInteraction && (
-          <Box
-            sx={{
-              mt: 1,
-              mb: 3,
-              width: '100%',
-              
-              
-            }}
-          >
-           
-              <Typography  sx={{
-       fontWeight: 'bold', 
-       
-        }}className="interactionMessage">
-                Add URLs, paste some text or upload some files you want your model to learn from:
-              </Typography>
-          
-          </Box>
-        )
-       }
-    <Typography
-            sx={{
-            
+      {showSystemInteraction && (
+        <Box
+          sx={{
+            mt: 1,
+            mb: 3,
+            width: '100%',
+          }}
+        >
+          <Typography sx={{ fontWeight: 'bold' }} className="interactionMessage">
+            Add URLs, paste some text or upload some files you want your model to learn from:
+          </Typography>
+        </Box>
+      )}
+      <Typography
+        sx={{
           width: '100%',
           pb: 1,
-          fontSize: '1rem', // Example size, adjust as needed
-          fontWeight: 'bold', 
+          fontSize: '1rem',
+          fontWeight: 'bold',
         }}
       >
-      Links
-  </Typography>
+        Links
+      </Typography>
       <Row
         sx={{
-          
           mb: 0,
           mt: 1,
           alignItems: 'flex-start',
@@ -237,19 +222,17 @@ const [files, setFiles] = useState<CustomFile[]>(
             md: 'row'
           }
         }}
-       >
-   
+      >
         <Cell
           sx={{
             width: '100%',
             flexGrow: 1,
             pr: 0.5,
             pb: 0.5,
-            display: 'flex', 
+            display: 'flex',
             alignItems: 'flex-start',
           }}
         >
-          
           <TextField
             fullWidth
             label="Type or paste a link (eg https://google.com)"
@@ -261,10 +244,9 @@ const [files, setFiles] = useState<CustomFile[]>(
               pb: 1,
               backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
               borderRadius: 0,
-              
             }}
             InputProps={{
-              style: { borderRadius: 0 }, 
+              style: { borderRadius: 0 },
               endAdornment: (
                 <IconButton
                   onClick={onAddURL}
@@ -272,10 +254,9 @@ const [files, setFiles] = useState<CustomFile[]>(
                     marginLeft: 'auto',
                     height: '40px',
                     backgroundColor: 'transparent',
-                   
                   }}
                 >
-                  <AddIcon sx={{  color: '#ffff00' }} />
+                  <AddIcon sx={{ color: '#ffff00' }} />
                 </IconButton>
               ),
             }}
@@ -283,321 +264,296 @@ const [files, setFiles] = useState<CustomFile[]>(
         </Cell>
       </Row>
       <Typography
-    sx={{
-      width: '100%',
-      pb: 1,
-      fontSize: '1rem', // Example size, adjust as needed
-      fontWeight: 'bold', 
-    }}
-    >
-    Text
-    </Typography>
+        sx={{
+          width: '100%',
+          pb: 1,
+          fontSize: '1rem',
+          fontWeight: 'bold',
+        }}
+      >
+        Text
+      </Typography>
       <Row
-  sx={{
-    mt: 1,
-    mb: 2,
-    alignItems: 'flex-start',
-    flexDirection: {
-      xs: 'column',
-      sm: 'column',
-      md: 'row'
-    }
-  }}
->
-  <Cell
-    sx={{
-      width: '100%',
-      pb: 1,
-      flexGrow: 1,
-      pr: 0,
-      alignItems: 'flex-start',
-    }}
-  >
-    <TextField
-      sx={{
-        height: '100px',
-        maxHeight: '100px',
-        pb: 1,
-        backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
-       
-      }}
-      fullWidth
-      label="paste some text here"
-      value={manualTextFile}
-      multiline
-      rows={3}
-      onChange={(e) => {
-        setManualTextFile(e.target.value)
-      }}
-      InputProps={{
-        style: { borderRadius: 0 }, 
-        endAdornment: (
-          <IconButton
-            onClick={onAddTextFile}
+        sx={{
+          mt: 1,
+          mb: 2,
+          alignItems: 'flex-start',
+          flexDirection: {
+            xs: 'column',
+            sm: 'column',
+            md: 'row'
+          }
+        }}
+      >
+        <Cell
+          sx={{
+            width: '100%',
+            pb: 1,
+            flexGrow: 1,
+            pr: 0,
+            alignItems: 'flex-start',
+          }}
+        >
+          <TextField
             sx={{
-              height: '40px',
-              backgroundColor: 'transparent',
-             
+              height: '100px',
+              maxHeight: '100px',
+              pb: 1,
+              backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+            }}
+            fullWidth
+            label="paste some text here"
+            value={manualTextFile}
+            multiline
+            rows={3}
+            onChange={(e) => setManualTextFile(e.target.value)}
+            InputProps={{
+              style: { borderRadius: 0 },
+              endAdornment: (
+                <IconButton
+                  onClick={onAddTextFile}
+                  sx={{
+                    height: '40px',
+                    backgroundColor: 'transparent',
+                  }}
+                >
+                  <AddIcon sx={{ color: '#ffff00' }} />
+                </IconButton>
+              ),
+            }}
+          />
+        </Cell>
+      </Row>
+      <Typography
+        sx={{
+          width: '100%',
+          pb: 2,
+          fontSize: '1rem',
+          fontWeight: 'bold',
+        }}
+      >
+        Files
+      </Typography>
+     
+      <FileUpload
+        sx={{
+          width: '100%',
+        }}
+        onlyDocuments
+        onUpload={onDropFiles}
+      >
+        <Row
+          sx={{
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: {
+              xs: 'column',
+              sm: 'column',
+              md: 'row'
+            }
+          }}
+        >
+          <Cell
+            sx={{
+              width: '100%',
+              flexGrow: 1,
+              pr: 0,
+              pb: 1,
+              textAlign: 'center',
             }}
           >
-            <AddIcon sx={{  color: '#ffff00' }} />
-          </IconButton>
-        ),
-      }}
-    />
-  </Cell>
-</Row>
-
-<Typography
-    sx={{
-      width: '100%',
-      pb: 2,
-      fontSize: '1rem', // Example size, adjust as needed
-      fontWeight: 'bold', 
-    }}
-  >
-  Files
-  </Typography>
-
-<FileUpload
-  sx={{
-    width: '100%',
-  }}
-  onlyDocuments
-  onUpload={onDropFiles}
->
-  
-  <Row
-    sx={{
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexDirection: {
-        xs: 'column',
-        sm: 'column',
-        md: 'row'
-      }
-    }}
-  >
-    <Cell
-      sx={{
-        width: '100%',
-        flexGrow: 1,
-        pr: 0,
-        pb: 1,
-        textAlign: 'center',
-      }}
-    >
-      <Box
-        sx={{
-          border: '1px solid #333333',
-          borderRadius: 0,
-          p: 2,
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '120px',
-          minHeight: '120px',
-          cursor: 'pointer',
-          backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
-          
-        }}
-        onClick={handleManualUploadClick} // Use the function to trigger file input click
-      >
-        <Typography
-          sx={{
-            color: '#bbb',
-           
-           
-          }}
-        >
-          Drag files here to upload or
-        </Typography>
-        <Typography
-          sx={{
-            color: '#bbb',
-            textDecoration: 'underline',
-            cursor: 'pointer',
-            ml: 2,
-          }}
-          onClick={handleManualUploadClick} // Use the function to trigger file input click
-        >
-          upload manually
-        </Typography>
-      </Box>
-      <input
-    type="file"
-    ref={fileInputRef}
-    style={{ display: 'none' }}
-    onChange={handleFileInputChange}
-    multiple
-  />
-    </Cell>
-  </Row>
-</FileUpload>
-
-<Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-  
-</Box>
-
+            <Box
+              sx={{
+                border: '1px solid #333333',
+                borderRadius: 0,
+                p: 2,
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '120px',
+                minHeight: '120px',
+                cursor: 'pointer',
+                backgroundColor: `${theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor}80`,
+              }}
+              onClick={handleManualUploadClick}
+            >
+              <Typography
+                sx={{
+                  color: '#bbb',
+                  cursor: 'pointer',
+                }}
+                onClick={handleManualUploadClick}
+               >
+                Drag files here to upload 
+                <span
+                  style={{textDecoration: 'underline',}}>
+                  (or upload manually)
+                </span>
+              </Typography>
+            </Box>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              onChange={handleFileInputChange}
+              multiple
+            />
+          </Cell>
+        </Row>
+      </FileUpload>
 
       <Box
         sx={{
+          flexGrow: 1,
+          overflow: 'auto',
           mt: 2,
           mb: 2,
         }}
-      >
+       >
         <Grid container spacing={3} direction="row" justifyContent="flex-start">
-          {
-            files.length > 0 && files.map((customFile, index) =>{
-              const IconComponent = customFile.type === 'url' ? LinkIcon : TextFieldsIcon;
-              return (
-                <Grid item xs={12} md={2} key={customFile.file.name}>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'flex-start',
-                      color: '#999'
-                    }}
-                  >
-                    <IconComponent sx={{ mr: 1 }} />
-                    <Caption sx={{ maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {customFile.file.name}
-                    </Caption>
-                    {/* <Caption>
-                      ({prettyBytes(customFile.file.size)})
-                    </Caption> */}
-                  </Box>
-                </Grid>
-              )
-            })
-              
-          }
+          {files.length > 0 && files.map((customFile, index) => {
+            const IconComponent = customFile.type === 'url' ? LinkIcon : TextFieldsIcon;
+            return (
+              <Grid item xs={12} md={2} key={customFile.file.name}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    color: '#999'
+                  }}
+                >
+                  <IconComponent sx={{ mr: 1 }} />
+                  <Caption sx={{ maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {customFile.file.name}
+                  </Caption>
+                </Box>
+              </Grid>
+            );
+          })}
         </Grid>
       </Box>
-     
-      <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 10, mb: 2 }}>
-  <Grid item xs={6}>
-    {files.length > 0 && (
-      <Typography sx={{ display: 'inline-flex', textAlign: 'left'}}>
-        {files.length} file{files.length !== 1 ? 's' : ''} added.
-        <Link
-        component="button"
-        onClick={() => setDrawerOpen(true)}
-        sx={{ ml: 0.5, textDecoration: 'underline',  color: '#ffff00',}}
-      >
-        View or edit files
-      </Link>
-      </Typography>
-    )}
-  </Grid>
-  <Grid item xs={6} sx={{ display: 'flex', justifyContent: 'flex-end',  }}>
-    {files.length > 0 && showButton && onDone && (
-      <Button
-        sx={{
-          bgcolor: '#ffff00', 
-          color: 'black', 
-          borderRadius: 1,
-          fontSize: "medium",
-          fontWeight: 800,
-          textTransform: 'none', 
-        }}
-        variant="contained"
-        onClick={() => onDone(manuallyReviewQuestions)}
-      >
-        Continue
-      </Button>
-    )}
-  </Grid>
-</Grid>
-<Drawer
+
+      <Box  sx={{flexGrow: 0, }}>
+         <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ flexGrow: 0, mt: 10, mb: 2 }}>
+          <Grid item xs={6}>
+            {files.length > 0 && (
+              <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
+                {files.length} file{files.length !== 1 ? 's' : ''} added.
+                <Link
+                  component="button"
+                  onClick={() => setDrawerOpen(true)}
+                  sx={{ ml: 0.5, textDecoration: 'underline', color: '#ffff00' }}
+                 >
+                  View or edit files
+                </Link>
+              </Typography>
+            )}
+          </Grid>
+          <Grid item xs={6} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {files.length > 0 && showButton && onDone && (
+              <Button
+                sx={{
+                  bgcolor: '#ffff00',
+                  color: 'black',
+                  borderRadius: 1,
+                  fontSize: "medium",
+                  fontWeight: 800,
+                  textTransform: 'none',
+                }}
+                variant="contained"
+                onClick={() => onDone(manuallyReviewQuestions)}
+               >
+                Continue
+              </Button>
+            )}
+          </Grid>
+         </Grid>
+       </Box>
+
+    <Drawer
       anchor="right"
       open={drawerOpen}
       onClose={() => setDrawerOpen(false)}
       sx={{
         '& .MuiDrawer-paper': {
-          backgroundColor: '#070714', 
-        // Assuming each file item is 48px tall
-          // overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
+          backgroundColor: '#070714',
+          overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
         },
       }}
-    >
-    <Box
-        sx={{
-          width: 506, // or you can use a percentage like '50vw' for 50% of the viewport width
-          maxWidth: '100%', // Ensure it doesn't exceed the viewport width
-        }}
-        role="presentation"
-      >
+     >
       <Box
         sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '8px 16px',
-          borderBottom: '1px solid #e0e0e0', // optional border for visual separation
+          width: '50vh', 
+          maxWidth: '100%', 
         }}
-      >
-        <Typography variant="h6">
-          Browse files ({files.length})
-        </Typography>
-        <IconButton onClick={() => setDrawerOpen(false)}>
-          <CloseIcon /> {/* Make sure to import CloseIcon from @mui/icons-material */}
-        </IconButton>
+        role="presentation"
+        >
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '8px 16px',
+            borderBottom: '1px solid #e0e0e0', // optional border for visual separation
+          }}
+         >
+          <Typography variant="h6">
+            Browse files ({files.length})
+          </Typography>
+          <IconButton onClick={() => setDrawerOpen(false)}>
+            <CloseIcon /> 
+          </IconButton>
+        </Box>
+
+        {/* Drawer content: List of links, text, and files */}
+        <List>
+          {files.map((customFile, index) => (
+            <React.Fragment key={customFile.file.name}>
+              <ListItem
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+                secondaryAction={
+                  <Box sx={{ display: 'flex' }}>
+                    {/* Download Icon */}
+                    <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
+                      <FileDownloadIcon />
+                    </IconButton>
+                    {/* Delete Icon */}
+                    <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+                }
+              >
+                <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
+                  {customFile.type === 'url' && <LinkIcon />}
+                  {customFile.type === 'text' && <TextFieldsIcon />}
+                </ListItemIcon>
+                <ListItemText
+                  primary={customFile.type === 'text' ? customFile.content : customFile.file.name}
+                  sx={{
+                    mr: 4,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                 />
+               </ListItem>
+              {index < files.length - 1 && (
+                <Divider sx={{ my: 0 }} /> 
+              )}
+            </React.Fragment>
+          ))}
+        </List>
       </Box>
-
-      
-      
-
-    {/* Drawer content: List of links, text, and files */}
-    <List>
-      {files.map((customFile, index) => ( // Ensure 'customFile' is used as the parameter name here
-      <React.Fragment key={customFile.file.name}>
-      <ListItem
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          
-       
-     }} secondaryAction={
-      <Box sx={{ display: 'flex' }}>
-            {/* Download Icon */}
-            <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
-              <FileDownloadIcon />
-            </IconButton>
-            {/* Delete Icon */}
-            <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
-              <DeleteIcon />
-            </IconButton>
-          </Box>
-        }>
-          <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
-            {customFile.type === 'url' && <LinkIcon />}
-            {customFile.type === 'text' && <TextFieldsIcon />}
-          </ListItemIcon>
-          <ListItemText primary={customFile.type === 'text' ? customFile.content : customFile.file.name} sx={{ mr: 4,  whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        
-      
-        }} />
-        </ListItem>
-        {index < files.length - 1 && (
-            <Divider sx={{   my: 0 }} /> // Explicitly set the color for visibility
-          )}
-        </React.Fragment>
-      ))}
-    </List>
-
-
+    </Drawer>
   </Box>
-</Drawer>
-</Box>
-  )
-      }
+      )}
 
-
-export default FineTuneTextInputs
+export default FineTuneTextInputs;
