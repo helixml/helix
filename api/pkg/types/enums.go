@@ -65,6 +65,39 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
+type DatasetType string
+
+const (
+	DatasetTypeNone DatasetType = ""
+	// a folder with some files inside
+	DatasetTypeFolder DatasetType = "folder"
+	// a datastore with vectors
+	DatasetTypeRAG DatasetType = "rag"
+	// a collection of JSON files ready for fine tuning
+	DatasetTypeQAPairs DatasetType = "qapairs"
+	// the output of a finetune
+	DatasetTypeLora DatasetType = "lora"
+)
+
+func ValidateDatasetType(datasetType string, acceptEmpty bool) (DatasetType, error) {
+	switch datasetType {
+	case string(DatasetTypeFolder):
+		return DatasetTypeFolder, nil
+	case string(DatasetTypeRAG):
+		return DatasetTypeRAG, nil
+	case string(DatasetTypeQAPairs):
+		return DatasetTypeQAPairs, nil
+	case string(DatasetTypeLora):
+		return DatasetTypeLora, nil
+	default:
+		if acceptEmpty && datasetType == string(DatasetTypeNone) {
+			return DatasetTypeNone, nil
+		} else {
+			return DatasetTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
+		}
+	}
+}
+
 type CloneInteractionMode string
 
 const (
