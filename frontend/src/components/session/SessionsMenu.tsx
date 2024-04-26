@@ -15,7 +15,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ImageIcon from '@mui/icons-material/Image'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
-import DescriptionIcon from '@mui/icons-material/Description'
+import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import PermMediaIcon from '@mui/icons-material/PermMedia'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
@@ -119,7 +119,7 @@ export const SessionsMenu: FC<{
                 >
                   <ListItemIcon>
                     { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
-                    { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DescriptionIcon color="primary" /> }
+                    { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DeveloperBoardIcon color="primary" /> }
                     { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
                     { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
                   </ListItemIcon>
