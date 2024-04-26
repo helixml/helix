@@ -17,15 +17,13 @@ import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
 import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
 import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions'
 
-import SessionTitle from './components/session/SessionTitle'
-
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
 
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
-  getTitle?: () => JSX.Element,
+  getToolbar?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
@@ -44,7 +42,8 @@ const routes: IApplicationRoute[] = [
   path: '/',
   meta: {
     title: 'The start of something beautiful',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
       <New />
@@ -54,7 +53,8 @@ const routes: IApplicationRoute[] = [
   path: '/create',
   meta: {
     title: 'The start of something beautiful',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
       <Create />
@@ -64,7 +64,8 @@ const routes: IApplicationRoute[] = [
   path: '/files',
   meta: {
     title: 'Files',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <FilestoreContextProvider>
@@ -76,7 +77,8 @@ const routes: IApplicationRoute[] = [
   path: '/tools',
   meta: {
     title: 'Tools',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <Tools />
@@ -86,7 +88,8 @@ const routes: IApplicationRoute[] = [
   path: '/apps',
   meta: {
     title: 'Apps',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <Apps />
@@ -96,7 +99,8 @@ const routes: IApplicationRoute[] = [
   path: '/tool/:tool_id',
   meta: {
     title: 'Edit Tool',
-    sidebar: false,
+    drawer: false,
+    topbar: true,
   },
   render: () => (
     <Tool />
@@ -106,7 +110,8 @@ const routes: IApplicationRoute[] = [
   path: '/app/:app_id',
   meta: {
     title: 'Edit App',
-    sidebar: false,
+    drawer: false,
+    topbar: true,
   },
   render: () => (
     <App />
@@ -116,12 +121,8 @@ const routes: IApplicationRoute[] = [
   path: '/session/:session_id',
   meta: {
     title: 'Session',
-    sidebar: true,
-  },
-  getTitle: () => {
-    return (
-      <SessionTitle />
-    )
+    drawer: true,
+    topbar: false,
   },
   render: () => (
     <Session />
@@ -131,7 +132,8 @@ const routes: IApplicationRoute[] = [
   path: '/dashboard',
   meta: {
     title: 'Dashboard',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
     background: '#ffffff'
   },
   render: () => (
@@ -142,7 +144,8 @@ const routes: IApplicationRoute[] = [
   path: '/account',
   meta: {
     title: 'Account',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => <Account />,
 }, {
@@ -150,7 +153,8 @@ const routes: IApplicationRoute[] = [
   path: '/imagefinetuneview',
   meta: {
     title: 'A Dogs Dinner',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <ImageFineTuneView />
@@ -160,7 +164,8 @@ const routes: IApplicationRoute[] = [
   path: '/imagefinetunemoreview',
   meta: {
     title: 'A Dogs Dinner',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <ImageFineTuneMoreView />
@@ -171,7 +176,8 @@ const routes: IApplicationRoute[] = [
   path: '/textfinetuneupdate',
   meta: {
     title: 'A Dogs Dinner',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
       <TextFineTuneUpdate />
@@ -182,14 +188,13 @@ const routes: IApplicationRoute[] = [
   path: '/textfinetuneviewquestions',
   meta: {
     title: 'A Dogs Dinner',
-    sidebar: true,
+    drawer: true,
+    topbar: true,
   },
   render: () => (
     <TextFineTuneViewQuestions />
   ),
-}, 
-
-NOT_FOUND_ROUTE]
+}, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
   defaultRoute: 'notfound',

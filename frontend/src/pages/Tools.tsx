@@ -134,7 +134,7 @@ const Tools: FC = () => {
         maxWidth="xl"
         sx={{
           mt: 12,
-          height: 'calc(100% - 100px)',
+          height: 'calc(100%)',
         }}
       >
         <ToolsTable
