@@ -1,19 +1,17 @@
-import React, { FC, useState } from 'react';
-import Typography from '@mui/material/Typography';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Grid from '@mui/material/Grid';
-import Paper from '@mui/material/Paper';
-import Button from '@mui/material/Button';
-import Card from '@mui/material/Card';
-import CardMedia from '@mui/material/CardMedia';
-import IconButton from '@mui/material/IconButton';
-import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
-import TextField from '@mui/material/TextField';
-import CloseIcon from '@mui/icons-material/Close';
-import BackgroundImageWrapper from './BackgroundImageWrapper';
-
-
+import React, { FC, useState } from 'react'
+import Typography from '@mui/material/Typography'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import Grid from '@mui/material/Grid'
+import Paper from '@mui/material/Paper'
+import Button from '@mui/material/Button'
+import Card from '@mui/material/Card'
+import CardMedia from '@mui/material/CardMedia'
+import IconButton from '@mui/material/IconButton'
+import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap'
+import TextField from '@mui/material/TextField'
+import CloseIcon from '@mui/icons-material/Close'
+import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
 
 interface UploadedImage {
   id: string,
@@ -44,16 +42,16 @@ const IMAGE_DATA: UploadedImage[] = [{
 }]
 
 const ImageFineTuneView: FC = () => {
-  const [ zoomedImage, setZoomedImage ] = useState<string>('');
+  const [ zoomedImage, setZoomedImage ] = useState<string>('')
 
-  const currentDate = new Date();
+  const currentDate = new Date()
   const formattedDate = currentDate.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  })
 
   
   return (
@@ -203,7 +201,7 @@ const ImageFineTuneView: FC = () => {
         }
     </Container>
     </BackgroundImageWrapper>
-  );
-};
+  )
+}
 
-export default ImageFineTuneView;
+export default ImageFineTuneView

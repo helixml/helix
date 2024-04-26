@@ -30,6 +30,7 @@ import Tab from '@mui/material/Tab'
 import { SelectChangeEvent } from '@mui/material/Select'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 
+import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
 import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
 import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
 import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
@@ -577,22 +578,7 @@ const New: FC = () => {
   const shouldShowModeTabs = isFineTuneMode && !isOnImageFineTuneSecondStep
 
   return (
-    <Box
-      className="helix-new"
-      sx={{
-        width: '100%',
-        height: 'calc(100% - 100px)',
-        mt: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
-        backgroundSize: '80%',
-        backgroundPosition: 'center 130%',
-        backgroundRepeat: 'no-repeat',
-      }}
-    >
+    <BackgroundImageWrapper>
       
       {shouldShowModeTabs && (
         <Box sx={{ display: 'flex', width: '93%' }}>
@@ -1135,8 +1121,7 @@ const New: FC = () => {
           </Window>
         )
       }
-
-    </Box>
+    </BackgroundImageWrapper>
   )
 }
 

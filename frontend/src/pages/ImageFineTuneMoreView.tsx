@@ -1,48 +1,49 @@
-import React, { FC, useState } from 'react';
-import Typography from '@mui/material/Typography';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Grid from '@mui/material/Grid';
-import Button from '@mui/material/Button';
-import Card from '@mui/material/Card';
-import CardMedia from '@mui/material/CardMedia';
-import IconButton from '@mui/material/IconButton';
-import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap';
-import TextField from '@mui/material/TextField';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import CloseIcon from '@mui/icons-material/Close';
-import BackgroundImageWrapper from '../pages/BackgroundImageWrapper';
-import { useTheme } from '@mui/material/styles';
+import React, { FC, useState } from 'react'
+import Typography from '@mui/material/Typography'
+import Box from '@mui/material/Box'
+import Container from '@mui/material/Container'
+import Grid from '@mui/material/Grid'
+import Button from '@mui/material/Button'
+import Card from '@mui/material/Card'
+import CardMedia from '@mui/material/CardMedia'
+import IconButton from '@mui/material/IconButton'
+import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap'
+import TextField from '@mui/material/TextField'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import CloseIcon from '@mui/icons-material/Close'
+import { useTheme } from '@mui/material/styles'
+
+import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
 
 
-  interface UploadedImage {
-    id: string,
-    url: string,
-    description: string,
-  }
+interface UploadedImage {
+  id: string,
+  url: string,
+  description: string,
+}
   
-  // Define the IMAGE_DATA array
-  const IMAGE_DATA: UploadedImage[] = [{
-    id: '1',
-    url: 'https://www.pixelstalk.net/wp-content/uploads/2016/07/Free-Amazing-Background-Images-Nature.jpg',
-    description: 'test image 1',
-  }, {
-    id: '2',
-    url: 'https://www.pixelstalk.net/wp-content/uploads/2016/08/Best-Nature-Full-HD-Images-For-Desktop.jpg',
-    description: 'test image 2',
-  }, {
-    id: '3',
-    url: 'https://www.pixelstalk.net/wp-content/uploads/2016/07/Free-Amazing-Background-Images-Nature.jpg',
-    description: 'test image 3',
-  }, {
-    id: '4',
-    url: 'https://www.pixelstalk.net/wp-content/uploads/2016/08/Best-Nature-Full-HD-Images-For-Desktop.jpg',
-    description: 'test image 4',
-  },
-];
-  const ImageFineTuneMoreView: FC = () => {
-  const [ zoomedImage, setZoomedImage ] = useState<string>('');
-  const theme = useTheme();
+// Define the IMAGE_DATA array
+const IMAGE_DATA: UploadedImage[] = [{
+  id: '1',
+  url: 'https://www.pixelstalk.net/wp-content/uploads/2016/07/Free-Amazing-Background-Images-Nature.jpg',
+  description: 'test image 1',
+}, {
+  id: '2',
+  url: 'https://www.pixelstalk.net/wp-content/uploads/2016/08/Best-Nature-Full-HD-Images-For-Desktop.jpg',
+  description: 'test image 2',
+}, {
+  id: '3',
+  url: 'https://www.pixelstalk.net/wp-content/uploads/2016/07/Free-Amazing-Background-Images-Nature.jpg',
+  description: 'test image 3',
+}, {
+  id: '4',
+  url: 'https://www.pixelstalk.net/wp-content/uploads/2016/08/Best-Nature-Full-HD-Images-For-Desktop.jpg',
+  description: 'test image 4',
+}]
+
+const ImageFineTuneMoreView: FC = () => {
+  const [ zoomedImage, setZoomedImage ] = useState<string>('')
+  const theme = useTheme()
 
   
   return (
@@ -203,7 +204,7 @@ import { useTheme } from '@mui/material/styles';
       </Box>
     </Container>
     </BackgroundImageWrapper>
-  );
-};
+  )
+}
 
-export default ImageFineTuneMoreView;
+export default ImageFineTuneMoreView

@@ -11,14 +11,12 @@ import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
-import Collection from './pages/Collection'
+import Create from './pages/Create'
 import ImageFineTuneView from './pages/ImageFineTuneView'
 import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
 import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
-import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions '
+import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions'
 
-
-import CollectionTitle from './components/collection/CollectionTitle'
 import SessionTitle from './components/session/SessionTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -41,7 +39,7 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 }
 
 const routes: IApplicationRoute[] = [
-  {
+{
   name: 'new',
   path: '/',
   meta: {
@@ -52,29 +50,14 @@ const routes: IApplicationRoute[] = [
       <New />
   ),
 }, {
-  name: 'create-collection',
-  path: '/create-collection',
+  name: 'create',
+  path: '/create',
   meta: {
-    title: 'Create Collection',
+    title: 'The start of something beautiful',
     sidebar: true,
   },
   render: () => (
-      <New />
-  ),
-}, {
-  name: 'collection',
-  path: '/collection',
-  meta: {
-    title: 'Collection',
-    sidebar: true,
-  },
-  getTitle: () => {
-    return (
-      <CollectionTitle />
-    )
-  },
-  render: () => (
-      <Collection />
+      <Create />
   ),
 }, {
   name: 'files',
@@ -141,7 +124,7 @@ const routes: IApplicationRoute[] = [
     )
   },
   render: () => (
-      <Session />
+    <Session />
   ),
 }, {
   name: 'dashboard',
@@ -152,7 +135,7 @@ const routes: IApplicationRoute[] = [
     background: '#ffffff'
   },
   render: () => (
-      <Dashboard />
+    <Dashboard />
   ),
 }, {
   name: 'account',
@@ -170,7 +153,7 @@ const routes: IApplicationRoute[] = [
     sidebar: true,
   },
   render: () => (
-      <ImageFineTuneView />
+    <ImageFineTuneView />
   ),
 }, {
   name: 'imagefinetunemoreview',
@@ -180,7 +163,7 @@ const routes: IApplicationRoute[] = [
     sidebar: true,
   },
   render: () => (
-      <ImageFineTuneMoreView />
+    <ImageFineTuneMoreView />
   ),
 }, 
 {
@@ -202,7 +185,7 @@ const routes: IApplicationRoute[] = [
     sidebar: true,
   },
   render: () => (
-      <TextFineTuneViewQuestions />
+    <TextFineTuneViewQuestions />
   ),
 }, 
 

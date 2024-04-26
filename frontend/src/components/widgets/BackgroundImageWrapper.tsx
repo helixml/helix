@@ -1,13 +1,13 @@
-import React, { FC, ReactNode } from 'react';
-import { useTheme } from '@mui/material/styles';
-import Box from '@mui/material/Box';
+import React, { FC, ReactNode } from 'react'
+import { useTheme } from '@mui/material/styles'
+import Box from '@mui/material/Box'
 
 interface BackgroundImageWrapperProps {
-  children: ReactNode;
+  children: ReactNode
 }
 
 const BackgroundImageWrapper: FC<BackgroundImageWrapperProps> = ({ children }) => {
-  const theme = useTheme();
+  const theme = useTheme()
 
   return (
     <Box
@@ -28,7 +28,7 @@ const BackgroundImageWrapper: FC<BackgroundImageWrapperProps> = ({ children }) =
     >
       {children}
     </Box>
-  );
-};
+  )
+}
 
-export default BackgroundImageWrapper;
+export default BackgroundImageWrapper
