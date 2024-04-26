@@ -23,7 +23,6 @@ import Files from './pages/Files'
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
-  getToolbar?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
@@ -41,7 +40,7 @@ const routes: IApplicationRoute[] = [
   name: 'new',
   path: '/',
   meta: {
-    title: 'The start of something beautiful',
+    title: '',
     drawer: true,
     topbar: true,
   },
@@ -52,7 +51,7 @@ const routes: IApplicationRoute[] = [
   name: 'create',
   path: '/create',
   meta: {
-    title: 'The start of something beautiful',
+    title: '',
     drawer: true,
     topbar: true,
   },

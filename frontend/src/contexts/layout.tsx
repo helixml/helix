@@ -1,22 +1,22 @@
 import React, { FC, ReactNode, createContext, useState } from 'react'
 
-export type ILayoutToolbarRenderer = (bigScreen: boolean) => ReactNode
+export type ILayoutToolbarRenderer = () => ReactNode
 
 export interface ILayoutContext {
-  toolbarRenderer?: ILayoutToolbarRenderer,
-  setToolbarRenderer: (renderer?: ILayoutToolbarRenderer) => void,
+  toolbarContent?: ReactNode,
+  setToolbarContent: (node?: ReactNode) => void,
 }
 
 export const LayoutContext = createContext<ILayoutContext>({
-  setToolbarRenderer: () => {}
+  setToolbarContent: () => {}
 })
 
 export const useLayoutContext = (): ILayoutContext => {
-  const [ toolbarRenderer, setToolbarRenderer ] = useState<ILayoutToolbarRenderer>()
+  const [ toolbarContent, setToolbarContent ] = useState<ReactNode>()
   
   return {
-    toolbarRenderer,
-    setToolbarRenderer,
+    toolbarContent,
+    setToolbarContent,
   }
 }
 

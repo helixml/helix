@@ -398,86 +398,85 @@ const New: FC = () => {
     console.log(`Big screen: ${bigScreen}`);
   }, [bigScreen]);
 
+  const toolbar = (
+    <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+      <IconButton
+        onClick={ () => setShowSessionSettings(true)}
+      >
+        <ConstructionIcon />
+      </IconButton>
+      {!bigScreen ? (
+        <>
+          <Typography
+            onClick={handleModeMenuClick}
+            ref={modeMenuRef}
+            className="inferenceTitle"
+            variant="h6"
+            color="inherit"
+            noWrap
+            sx={{
+              flexGrow: 1,
+              mx: 0,
+              color: 'text.primary',
+              borderRadius: '15px',
+              padding: "3px",
+              "&:hover": {
+                backgroundColor: theme.palette.mode === 'light' ? "#efefef" : "#13132b",
+              },
+            }}
+          >
+            &nbsp;&nbsp;{params.mode === SESSION_MODE_FINETUNE ? 'Fine-tune' : 'Inference'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+          </Typography>
+        </>
+      ) : (
+        <>
+          <Typography
+            sx={{
+              color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
+              mr: 2,
+              ml: 3,
+              textAlign: 'right',
+            }}
+          >
+              Inference
+          </Typography>
+          <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+            <Switch
+              checked={params.mode === SESSION_MODE_FINETUNE}
+              onChange={(event) => setParams({ ...params, mode: event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE })}
+              name="modeSwitch"
+              size="medium"
+              sx={{
+                transform: 'scale(1.6)',
+                '& .MuiSwitch-thumb': {
+                scale: 0.4,
+                },
+              }}
+            />
+          </Box>
+          <Typography
+            sx={{
+              color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+              fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
+              marginLeft: 2,
+              textAlign: 'left',
+            }}
+          >
+            Fine-tuning
+          </Typography>
+        </>
+      )}
+    </Box>
+  )
+
   // Use an effect hook to set the toolbar renderer
   useEffect(() => {
-    const renderToolbar = (bigScreen: boolean) => {
-      return (
-        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton
-            onClick={ () => setShowSessionSettings(true)}
-          >
-            <ConstructionIcon />
-          </IconButton>
-          {!bigScreen ? (
-            <>
-              <Typography
-                onClick={handleModeMenuClick}
-                ref={modeMenuRef}
-                className="inferenceTitle"
-                variant="h6"
-                color="inherit"
-                noWrap
-                sx={{
-                  flexGrow: 1,
-                  mx: 0,
-                  color: 'text.primary',
-                  borderRadius: '15px',
-                  padding: "3px",
-                  "&:hover": {
-                    backgroundColor: theme.palette.mode === 'light' ? "#efefef" : "#13132b",
-                  },
-                }}
-              >
-                &nbsp;&nbsp;{params.mode === SESSION_MODE_FINETUNE ? 'Fine-tune' : 'Inference'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
-              </Typography>
-            </>
-          ) : (
-            <>
-              <Typography
-                sx={{
-                  color: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-                  fontWeight: params.mode === undefined || params.mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
-                  mr: 2,
-                  ml: 3,
-                  textAlign: 'right',
-                }}
-              >
-                  Inference
-              </Typography>
-              <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-                <Switch
-                  checked={params.mode === SESSION_MODE_FINETUNE}
-                  onChange={(event) => setParams({ ...params, mode: event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE })}
-                  name="modeSwitch"
-                  size="medium"
-                  sx={{
-                    transform: 'scale(1.6)',
-                    '& .MuiSwitch-thumb': {
-                    scale: 0.4,
-                    },
-                  }}
-                />
-              </Box>
-              <Typography
-                sx={{
-                  color: params.mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-                  fontWeight: params.mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
-                  marginLeft: 2,
-                  textAlign: 'left',
-                }}
-              >
-                Fine-tuning
-              </Typography>
-            </>
-          )}
-        </Box>
-      )
-    }
-    layout.setToolbarRenderer(() => renderToolbar)
+    layout.setToolbarContent(toolbar)
 
     // Cleanup function to remove the toolbar renderer when the component unmounts or bigScreen changes
-    return () => layout.setToolbarRenderer(undefined)
-  }, [params, bigScreen, setShowSessionSettings, setParams])
+    return () => layout.setToolbarContent()
+  }, [toolbar])
   
   if(!initialized) return null
 

@@ -61,14 +61,12 @@ const Cell: FC<{
 
   if(end) {
     useSx.justifyContent = 'flex-end'
+    useSx.textAlign = 'right'
   }
 
   return (
     <Box
-      sx={ Object.assign({}, sx, {
-        flexGrow: useFlexGrow,
-        justifyContent: useJustifyContent,
-      }) }
+      sx={ useSx }
     >
       { children }
     </Box>

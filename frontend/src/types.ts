@@ -536,3 +536,15 @@ export interface IGptScriptResponse {
   output: string,
   error: string,
 }
+
+export type IRagDistanceFunction = 'l2' | 'inner_product' | 'cosine'
+export interface ICreateSessionConfig {
+  activeToolIDs: string[],
+  finetuneEnabled: boolean,
+  ragEnabled: boolean,
+  ragDistanceFunction: IRagDistanceFunction, 
+  ragThreshold: number,
+  ragResultsCount: number,
+  ragChunkSize: number,
+  ragChunkOverflow: number,
+}
