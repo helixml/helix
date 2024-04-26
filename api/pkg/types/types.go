@@ -822,21 +822,21 @@ type GptScriptResponse struct {
 	Error  string `json:"error"`
 }
 
-type DatasetConfig struct {
+type EntityConfig struct {
 	FilestorePath string `json:"filestore_path"`
 }
 
-func (m DatasetConfig) Value() (driver.Value, error) {
+func (m EntityConfig) Value() (driver.Value, error) {
 	j, err := json.Marshal(m)
 	return j, err
 }
 
-func (t *DatasetConfig) Scan(src interface{}) error {
+func (t *EntityConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
 		return errors.New("type assertion .([]byte) failed.")
 	}
-	var result DatasetConfig
+	var result EntityConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
@@ -844,20 +844,20 @@ func (t *DatasetConfig) Scan(src interface{}) error {
 	return nil
 }
 
-func (DatasetConfig) GormDataType() string {
+func (EntityConfig) GormDataType() string {
 	return "json"
 }
 
-type Dataset struct {
-	ID      string      `json:"id" gorm:"primaryKey"`
-	Created time.Time   `json:"created"`
-	Updated time.Time   `json:"updated"`
-	Name    string      `json:"name"`
-	Type    DatasetType `json:"type"`
+type Entity struct {
+	ID      string     `json:"id" gorm:"primaryKey"`
+	Created time.Time  `json:"created"`
+	Updated time.Time  `json:"updated"`
+	Name    string     `json:"name"`
+	Type    EntityType `json:"type"`
 	// some datasets are parents to others for example
 	// a folder of files can be the source of a RAG dataset
 	// or a qapairs dataset - a qapairs dataset can be the source
 	// of a lora dataset.
-	ParentDataset string        `json:"parent_dataset"`
-	Config        DatasetConfig `json:"config" gorm:"jsonb"`
+	ParentEntity string       `json:"parent_entity"`
+	Config       EntityConfig `json:"config" gorm:"jsonb"`
 }
