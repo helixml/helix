@@ -457,7 +457,6 @@ export interface ITool {
   config: IToolConfig,
 }
 
-
 export interface IKeyPair {
 	type: string,
   privateKey: string,

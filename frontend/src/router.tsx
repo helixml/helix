@@ -12,6 +12,11 @@ import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
 import Collection from './pages/Collection'
+import ImageFineTuneView from './pages/ImageFineTuneView'
+import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
+import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
+import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions '
+
 
 import CollectionTitle from './components/collection/CollectionTitle'
 import SessionTitle from './components/session/SessionTitle'
@@ -35,11 +40,12 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <div>Page Not Found</div>,
 }
 
-const routes: IApplicationRoute[] = [{
+const routes: IApplicationRoute[] = [
+  {
   name: 'new',
   path: '/',
   meta: {
-    title: 'New Session',
+    title: 'The start of something beautiful',
     sidebar: true,
   },
   render: () => (
@@ -156,7 +162,51 @@ const routes: IApplicationRoute[] = [{
     sidebar: true,
   },
   render: () => <Account />,
-}, NOT_FOUND_ROUTE]
+}, {
+  name: 'imagefinetuneview',
+  path: '/imagefinetuneview',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <ImageFineTuneView />
+  ),
+}, {
+  name: 'imagefinetunemoreview',
+  path: '/imagefinetunemoreview',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <ImageFineTuneMoreView />
+  ),
+}, 
+{
+  name: 'textfinetuneupdate',
+  path: '/textfinetuneupdate',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <TextFineTuneUpdate />
+  ),
+}, 
+{
+  name: 'textfinetuneviewquestions',
+  path: '/textfinetuneviewquestions',
+  meta: {
+    title: 'A Dogs Dinner',
+    sidebar: true,
+  },
+  render: () => (
+      <TextFineTuneViewQuestions />
+  ),
+}, 
+
+NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
   defaultRoute: 'notfound',

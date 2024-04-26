@@ -87,8 +87,9 @@ export const AddFilesWindow: FC<{
       <Window
         open
         size="lg"
-        title={`Add Documents to ${session.name}?`}
+        // title={`Add Documents to ${session.name}?`}
         withCancel
+        cancelTitle="Cancel" 
         submitTitle={ addDocumentsSubmitTitle }
         onSubmit={ () => {
           if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {
@@ -105,7 +106,7 @@ export const AddFilesWindow: FC<{
           session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
             <FineTuneImageInputs
               initialFiles={ inputs.files }
-              showSystemInteraction={ false }
+              // showSystemInteraction={ false }
               onChange={ (files) => {
                 inputs.setFiles(files)
               }}

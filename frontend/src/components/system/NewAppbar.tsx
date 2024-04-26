@@ -180,6 +180,27 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 }}
                 >
                 {
+                    getTitle ?
+                    getTitle() :
+                    (
+                        <Typography
+                            className="inferenceTitle"
+                            component="h1"
+                            variant="h6"
+                            color="inherit"
+                            noWrap
+                            sx={{
+                                flexGrow: 1,
+                                ml: 1,
+                                color: 'text.primary',
+                                fontWeight: 'bold', 
+                            }}
+                        >
+                        {meta.title || ''}
+                        </Typography>
+                    )
+                }
+                {
                   modelSwitcher
                 }
                 </Box>

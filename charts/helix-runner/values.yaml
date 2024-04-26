@@ -28,9 +28,12 @@ runner:
   # terms on https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1)
   huggingfaceToken: ""
 
-resources: {}
-  # limits:
-  #   nvidia.com/gpu: 1
+# Both node selectors and resources need to target
+resources:
+  limits:
+    nvidia.com/gpu: '1'
+  requests:
+    nvidia.com/gpu: '1'
 
 serviceAccount:
   # Specifies whether a service account should be created
