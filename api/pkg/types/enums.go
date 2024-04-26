@@ -65,39 +65,6 @@ func ValidateSessionType(sessionType string, acceptEmpty bool) (SessionType, err
 	}
 }
 
-type DatasetType string
-
-const (
-	DatasetTypeNone DatasetType = ""
-	// a folder with some files inside
-	DatasetTypeFolder DatasetType = "folder"
-	// a datastore with vectors
-	DatasetTypeRAG DatasetType = "rag"
-	// a collection of JSON files ready for fine tuning
-	DatasetTypeQAPairs DatasetType = "qapairs"
-	// the output of a finetune
-	DatasetTypeLora DatasetType = "lora"
-)
-
-func ValidateDatasetType(datasetType string, acceptEmpty bool) (DatasetType, error) {
-	switch datasetType {
-	case string(DatasetTypeFolder):
-		return DatasetTypeFolder, nil
-	case string(DatasetTypeRAG):
-		return DatasetTypeRAG, nil
-	case string(DatasetTypeQAPairs):
-		return DatasetTypeQAPairs, nil
-	case string(DatasetTypeLora):
-		return DatasetTypeLora, nil
-	default:
-		if acceptEmpty && datasetType == string(DatasetTypeNone) {
-			return DatasetTypeNone, nil
-		} else {
-			return DatasetTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
-		}
-	}
-}
-
 type CloneInteractionMode string
 
 const (
@@ -291,3 +258,44 @@ const (
 	// a helix access token for a specific app
 	APIKeyType_App APIKeyType = "app"
 )
+
+type EntityType string
+
+const (
+	EntityTypeNone EntityType = ""
+	// a collection of original documents intended for use with text fine tuning
+	EntityTypeFinetuneDocuments EntityType = "finetune_documents"
+	// a collection of images intended for use with image fine tuning
+	EntityTypeFinetuneImages EntityType = "finetune_images"
+	// a folder with plain text files inside - we have probably converted the source files into text files
+	EntityTypeFinetunePlainText EntityType = "finetune_plaintext"
+	// a folder with JSON files inside - these are probably the output of a data prep module
+	EntityTypeFinetuneQAPairs EntityType = "finetune_qapairs"
+	// a datastore with vectors
+	EntityTypeRAGDatabase EntityType = "rag_database"
+	// the output of a finetune
+	EntityTypeLora EntityType = "lora"
+)
+
+func ValidateEntityType(datasetType string, acceptEmpty bool) (EntityType, error) {
+	switch datasetType {
+	case string(EntityTypeFinetuneDocuments):
+		return EntityTypeFinetuneDocuments, nil
+	case string(EntityTypeFinetuneImages):
+		return EntityTypeFinetuneImages, nil
+	case string(EntityTypeFinetunePlainText):
+		return EntityTypeFinetunePlainText, nil
+	case string(EntityTypeFinetuneQAPairs):
+		return EntityTypeFinetuneQAPairs, nil
+	case string(EntityTypeRAGDatabase):
+		return EntityTypeRAGDatabase, nil
+	case string(EntityTypeLora):
+		return EntityTypeLora, nil
+	default:
+		if acceptEmpty && datasetType == string(EntityTypeNone) {
+			return EntityTypeNone, nil
+		} else {
+			return EntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
+		}
+	}
+}
