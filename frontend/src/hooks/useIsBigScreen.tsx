@@ -2,7 +2,7 @@ import { useTheme, Breakpoint } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 
 const useIsBigScreen = ({
-  breakpoint = 'sm',
+  breakpoint = 'md',
 }: {
   breakpoint?: number | Breakpoint,
 } = {}) => {

@@ -1,30 +1,34 @@
-import React, { FC, useContext } from 'react'
+import React, { FC } from 'react'
 import { useTheme } from '@mui/material/styles'
-import useMediaQuery from '@mui/material/useMediaQuery'
 import CssBaseline from '@mui/material/CssBaseline'
 import Box from '@mui/material/Box'
+import Drawer from '@mui/material/Drawer'
 
-import Drawer from '../components/system/Drawer'
+import AppBar from '../components/system/AppBar'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import useLayout from '../hooks/useLayout'
 import Snackbar from '../components/system/Snackbar'
 
 import GlobalLoading from '../components/system/GlobalLoading'
 
+import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
-import { ThemeContext } from '../contexts/theme'
+import useIsBigScreen from '../hooks/useIsBigScreen'
+import useLayout from '../hooks/useLayout'
 
 const Layout: FC = ({
   children
 }) => {
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const lightTheme = useLightTheme()
+  const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
+  const layout = useLayout()
 
   return (
     <Box
@@ -36,20 +40,40 @@ const Layout: FC = ({
       component="div"
     >
       <CssBaseline />
-      {/* {
-        window.location.pathname.includes("/session") ? null :
-        <NewAppBar
-          getTitle={ getTitle }
-          getToolbarElement={ layout.toolbarRenderer }
-          meta={ meta }
-          handleDrawerToggle={ handleDrawerToggle }
-          bigScreen={ bigScreen }
-          drawerWidth={router.meta.sidebar?drawerWidth:0}
-        />
-      } */}
+      {
+        router.meta.topbar && (
+          <AppBar
+            title={ router.meta.title }
+            onOpenDrawer={ () => account.setMobileMenuOpen(true) }
+          >
+            { layout.toolbarContent }
+          </AppBar>
+        )
+      }
       {
         router.meta.drawer && (
-          <Drawer>
+          <Drawer
+            variant={ isBigScreen ? "permanent" : "temporary" }
+            open={ isBigScreen || account.mobileMenuOpen }
+            onClose={ () => account.setMobileMenuOpen(false) }
+            sx={{
+              height: '100vh',
+              '& .MuiDrawer-paper': {
+                backgroundColor: lightTheme.backgroundColor,
+                position: 'relative',
+                whiteSpace: 'nowrap',
+                width: themeConfig.drawerWidth,
+                transition: theme.transitions.create('width', {
+                  easing: theme.transitions.easing.sharp,
+                  duration: theme.transitions.duration.enteringScreen,
+                }),
+                boxSizing: 'border-box',
+                overflowX: 'hidden',
+                height: '100%',
+                overflowY: 'auto',
+              },
+            }}
+          >
             <Sidebar>
               <SessionsMenu
                 onOpenSession={ () => {

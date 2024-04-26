@@ -54,6 +54,7 @@ const Sidebar: React.FC<{
 
   const navigateTo = (path: string) => {
     router.navigate(path)
+    account.setMobileMenuOpen(false)
     setAccountMenuAnchorEl(null)
   }
 

@@ -1,40 +1,28 @@
 import React, { FC, useCallback, useState } from 'react'
-import Box from '@mui/material/Box'
-import IconButton from '@mui/material/IconButton'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
-import ListItemSecondaryAction from '@mui/material/ListItemSecondaryAction'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
 import CircularProgress from '@mui/material/CircularProgress'
 
-import EditIcon from '@mui/icons-material/Edit'
-import DeleteIcon from '@mui/icons-material/Delete'
 import ImageIcon from '@mui/icons-material/Image'
 import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
 import DeveloperBoardIcon from '@mui/icons-material/DeveloperBoard'
 import PermMediaIcon from '@mui/icons-material/PermMedia'
-import MoreVertIcon from '@mui/icons-material/MoreVert'
-import DeleteConfirmWindow from '../widgets/DeleteConfirmWindow'
-import EditTextWindow from '../widgets/EditTextWindow'
+
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import ClickLink from '../widgets/ClickLink'
 
-import useSnackbar from '../../hooks/useSnackbar'
 import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
-import useLoading from '../../hooks/useLoading'
 
 import {
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
   SESSION_TYPE_TEXT,
-  ISessionSummary,
 } from '../../types'
 
 export const SessionsMenu: FC<{
@@ -44,48 +32,11 @@ export const SessionsMenu: FC<{
 }> = ({
   onOpenSession,
 }) => {
-  const snackbar = useSnackbar()
   const sessions = useSessions()
-  const loading = useLoading()
   const {
     navigate,
     params,
   } = useRouter()
-
-  const [deletingSession, setDeletingSession] = useState<ISessionSummary>()
-  const [editingSession, setEditingSession] = useState<ISessionSummary>()
-  const [menuSession, setMenuSession] = useState<ISessionSummary>()
-
-  const [anchorEl, setAnchorEl] = useState(null)
-  const open = Boolean(anchorEl)
-
-  const handleClose = () => {
-    setAnchorEl(null)
-    setMenuSession(undefined)
-  }
-
-  const onDeleteSessionConfirm = useCallback(async (session_id: string) => {
-    loading.setLoading(true)
-    try {
-      const result = await sessions.deleteSession(session_id)
-      if(!result) return
-      setDeletingSession(undefined)
-      snackbar.success(`Session deleted`)
-      navigate('home')
-    } catch(e) {}
-    loading.setLoading(false)
-  }, [])
-
-  const onSubmitSessionName = useCallback(async (session_id: string, name: string) => {
-    loading.setLoading(true)
-    try {
-      const result = await sessions.renameSession(session_id, name)
-      if(!result) return
-      setEditingSession(undefined)
-      snackbar.success(`Session updated`)
-    } catch(e) {}
-    loading.setLoading(false)
-  }, [])
 
   return (
     <>
@@ -130,97 +81,10 @@ export const SessionsMenu: FC<{
                     id={ session.session_id }
                   />
                 </ListItemButton>
-                {/* <ListItemSecondaryAction>
-                  <IconButton
-                    edge="end"
-                    size="small"
-                    onClick={ (event: any) => {
-                      setMenuSession(session)
-                      setAnchorEl(event.currentTarget)
-                    }}
-                  >
-                    <MoreVertIcon
-                      sx={{
-                        color: '#999'
-                      }}
-                      fontSize="small"
-                    />
-                  </IconButton>
-                </ListItemSecondaryAction> */}
               </ListItem>
             )
           })
         }
-        {/* <Menu
-          anchorEl={anchorEl}
-          keepMounted
-          open={open}
-          onClose={handleClose}
-        >
-          <MenuItem
-            onClick={ () => {
-              if(!menuSession) return
-              navigate("session", {session_id: menuSession.session_id})
-              setEditingSession(menuSession)
-              handleClose()
-            }}
-          >
-            <ListItemIcon>
-              <EditIcon
-                fontSize="small"
-              />
-            </ListItemIcon>
-            <ListItemText>
-              Rename
-            </ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={ () => {
-              if(!menuSession) return
-              navigate("session", {session_id: menuSession.session_id})
-              setDeletingSession(menuSession)
-              handleClose()
-            }}
-          >
-            <ListItemIcon>
-              <DeleteIcon
-                fontSize="small"
-              />
-            </ListItemIcon>
-            <ListItemText>
-              Delete
-            </ListItemText>
-          </MenuItem>
-        </Menu>
-        {
-          deletingSession && (
-            <DeleteConfirmWindow
-              title={`session ${deletingSession.name}?`}
-              onCancel={ () => {
-                setDeletingSession(undefined) 
-                setMenuSession(undefined) 
-              }}
-              onSubmit={ () => {
-                onDeleteSessionConfirm(deletingSession.session_id)
-              }}
-            />
-          )
-        }
-        {
-          editingSession && (
-            <EditTextWindow
-              title={`Edit session name`}
-              value={ editingSession.name }
-              onCancel={ () => {
-                setEditingSession(undefined) 
-                setMenuSession(undefined) 
-              }}
-              onSubmit={ (value) => {
-                onSubmitSessionName(editingSession.session_id, value)
-              }}
-            />
-          )
-        } */}
       </List>
       {
         sessions.pagination.total > sessions.pagination.limit && (

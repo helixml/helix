@@ -164,8 +164,10 @@ export const useAccountContext = (): IAccountContext => {
           win.setUser(user)
         }
 
-        win.$crisp.push(['set', 'user:email', user?.email])
-        win.$crisp.push(['set', 'user:nickname', user?.name])
+        if(win.$crisp) {
+          win.$crisp.push(['set', 'user:email', user?.email])
+          win.$crisp.push(['set', 'user:nickname', user?.name])
+        }
 
         api.setToken(keycloak.token)
         setUser(user)

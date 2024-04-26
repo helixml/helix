@@ -20,12 +20,10 @@ import useAccount from '../../hooks/useAccount'
 const AppBar: React.FC<{
   height?: number,
   title?: string,
-  leftElement?: React.ReactNode,
   onOpenDrawer?: () => void,
 }> = ({
   height = 78,
   title,
-  leftElement,
   onOpenDrawer,
   children,
 }) => {
@@ -42,7 +40,7 @@ const AppBar: React.FC<{
       sx={{
         height,
         px: 0,
-        borderBottom: lightTheme ? themeConfig.lightBorder: themeConfig.darkBorder,
+        borderBottom: lightTheme.border,
         width: { xs: '100%', sm: '100%', md: `calc(100% - ${themeConfig.drawerWidth}px)` },
         ml: { xs: '0px', sm: '0px', md: `${themeConfig.drawerWidth}px` },
       }}
@@ -56,13 +54,30 @@ const AppBar: React.FC<{
           alignItems: 'center',
           width: '100%',
           mx: 0,
-          backgroundColor: lightTheme ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+          backgroundColor: lightTheme.backgroundColor,
         }}
       >
         <Row>
-          <Cell>
-            {
-              isBigScreen ? (
+          {
+            !isBigScreen && (
+              <Cell>
+                <IconButton
+                  color="inherit"
+                  aria-label="open drawer"
+                  edge="start"
+                  onClick={ onOpenDrawer }
+                  sx={{
+                    mx: .5,
+                  }}
+                >
+                  <MenuIcon />
+                </IconButton>
+              </Cell>
+            )
+          }
+          {
+            title && (
+              <Cell>
                 <Typography
                   className="inferenceTitle"
                   component="h1"
@@ -78,25 +93,6 @@ const AppBar: React.FC<{
                 >
                   { title }
                 </Typography>
-              ) : (
-                <IconButton
-                  color="inherit"
-                  aria-label="open drawer"
-                  edge="start"
-                  onClick={ onOpenDrawer }
-                  sx={{
-                    mx: .5,
-                  }}
-                >
-                  <MenuIcon />
-                </IconButton>
-              )
-            }
-          </Cell>
-          {
-            leftElement && (
-              <Cell>
-                { leftElement }
               </Cell>
             )
           }
@@ -112,10 +108,10 @@ const AppBar: React.FC<{
                   endIcon={ isBigScreen ? <LoginIcon /> : null }
                   onClick={ account.onLogin }
                   sx={{
-                      ml: 2,
+                    ml: 2,
                   }}
                 >
-                    Login / Register
+                  Login / Register
                 </Button> 
               )
             }

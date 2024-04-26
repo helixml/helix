@@ -1,71 +1,71 @@
-import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { styled, useTheme } from '@mui/material/styles'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import bluebird from 'bluebird'
-import Button from '@mui/material/Button'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
-import Grid from '@mui/material/Grid'
-import Container from '@mui/material/Container'
+import React, { FC, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Divider from '@mui/material/Divider'
-import Checkbox from '@mui/material/Checkbox'
-import InputLabel from '@mui/material/InputLabel'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import Select from '@mui/material/Select'
-import FormControl from '@mui/material/FormControl'
-import Switch from '@mui/material/Switch'
-import SendIcon from '@mui/icons-material/Send'
-import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
-import SettingsIcon from '@mui/icons-material/Settings'
-import ConstructionIcon from '@mui/icons-material/Construction'
-import InputAdornment from '@mui/material/InputAdornment'
-import useThemeConfig from '../hooks/useThemeConfig'
-import IconButton from '@mui/material/IconButton'
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
-import { SelectChangeEvent } from '@mui/material/Select'
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 
 import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
-import FineTuneTextInputs from '../components/session/FineTuneTextInputs'
-import FineTuneImageInputs from '../components/session/FineTuneImageInputs'
-import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
-import Window from '../components/widgets/Window'
-import Disclaimer from '../components/widgets/Disclaimer'
-import UploadingOverlay from '../components/widgets/UploadingOverlay'
-import Row from '../components/widgets/Row'
-import Cell from '../components/widgets/Cell'
 
-import useSnackbar from '../hooks/useSnackbar'
-import useApi from '../hooks/useApi'
-import useRouter from '../hooks/useRouter'
-import useAccount from '../hooks/useAccount'
-import useTools from '../hooks/useTools'
 import useLayout from '../hooks/useLayout'
-import useSessions from '../hooks/useSessions'
-import useFinetuneInputs from '../hooks/useFinetuneInputs'
-import ButtonGroup from '@mui/material/ButtonGroup'
+import useRouter from '../hooks/useRouter'
 import useSessionConfig from '../hooks/useSessionConfig'
-import useTracking from '../hooks/useTracking'
+
+import CreateToolbar from '../components/create/Toolbar'
+import ConfigWindow from '../components/create/ConfigWindow'
 
 import {
   ISessionMode,
   ISessionType,
+  ICreateSessionConfig,
   SESSION_MODE_INFERENCE,
-  SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
-  SESSION_TYPE_IMAGE,
-  BUTTON_STATES,
 } from '../types'
 
+const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
+  activeToolIDs: [],
+  finetuneEnabled: true,
+  ragEnabled: false,
+  ragDistanceFunction: 'cosine', 
+  ragThreshold: 0.2,
+  ragResultsCount: 3,
+  ragChunkSize: 1024,
+  ragChunkOverflow: 20,
+}
+
 const Create: FC = () => {
+  const layout = useLayout()
+  const router = useRouter()
+
+  const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
+  const [ showConfigWindow, setShowConfigWindow ] = useState(false)
+
+  const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
+  const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
+
+  useEffect(() => {
+    layout.setToolbarContent(
+      <CreateToolbar
+        mode={ mode }
+        onOpenConfig={ () => setShowConfigWindow(true) }
+        onSetMode={ mode => router.setParams({mode}) }
+      />
+    )
+    return () => layout.setToolbarContent()
+  }, [
+    mode,
+  ])
+
   return (
     <BackgroundImageWrapper>
       <Box sx={{m:20}}>hello4</Box>
+      {
+        showConfigWindow && (
+          <ConfigWindow
+            mode={ mode }
+            type={ type }
+            sessionConfig={ sessionConfig }
+            setSessionConfig={ setSessionConfig }
+            onClose={ () => setShowConfigWindow(false) }
+          />
+        )
+      }
     </BackgroundImageWrapper>
   )
 }
