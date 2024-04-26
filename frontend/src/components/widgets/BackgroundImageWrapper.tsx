@@ -21,7 +21,7 @@ const BackgroundImageWrapper: FC<BackgroundImageWrapperProps> = ({ children }) =
         height: '100%',
         backgroundImage: theme.palette.mode === 'light' ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
         backgroundSize: '80%',
-        backgroundPosition: 'center 130%',
+        backgroundPosition: 'center center',
         backgroundRepeat: 'no-repeat',
        
       }}
