@@ -4,7 +4,6 @@ import CssBaseline from '@mui/material/CssBaseline'
 import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 
-import AppBar from '../components/system/AppBar'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import Snackbar from '../components/system/Snackbar'
@@ -15,7 +14,6 @@ import useAccount from '../hooks/useAccount'
 import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
-import useLayout from '../hooks/useLayout'
 
 const Layout: FC = ({
   children
@@ -26,7 +24,6 @@ const Layout: FC = ({
   const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
-  const layout = useLayout()
 
   return (
     <Box
@@ -38,16 +35,6 @@ const Layout: FC = ({
       component="div"
     >
       <CssBaseline />
-      {/* {
-        router.meta.topbar && (
-          <AppBar
-            title={ router.meta.title }
-            onOpenDrawer={ () => account.setMobileMenuOpen(true) }
-          >
-            { layout.toolbarContent }
-          </AppBar>
-        )
-      } */}
       {
         router.meta.drawer && (
           <Drawer

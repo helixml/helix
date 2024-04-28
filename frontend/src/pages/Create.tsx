@@ -2,8 +2,8 @@ import React, { FC, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 
 import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
+import Page from '../components/system/Page'
 
-import useLayout from '../hooks/useLayout'
 import useRouter from '../hooks/useRouter'
 import useSessionConfig from '../hooks/useSessionConfig'
 
@@ -30,7 +30,6 @@ const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
 }
 
 const Create: FC = () => {
-  const layout = useLayout()
   const router = useRouter()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
@@ -39,34 +38,31 @@ const Create: FC = () => {
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
 
-  useEffect(() => {
-    layout.setToolbarContent(
-      <CreateToolbar
-        mode={ mode }
-        onOpenConfig={ () => setShowConfigWindow(true) }
-        onSetMode={ mode => router.setParams({mode}) }
-      />
-    )
-    return () => layout.setToolbarContent()
-  }, [
-    mode,
-  ])
-
   return (
-    <BackgroundImageWrapper>
-      <Box sx={{m:20}}>hello4</Box>
-      {
-        showConfigWindow && (
-          <ConfigWindow
-            mode={ mode }
-            type={ type }
-            sessionConfig={ sessionConfig }
-            setSessionConfig={ setSessionConfig }
-            onClose={ () => setShowConfigWindow(false) }
-          />
-        )
-      }
-    </BackgroundImageWrapper>
+    <Page
+      topbarContent={(
+        <CreateToolbar
+          mode={ mode }
+          onOpenConfig={ () => setShowConfigWindow(true) }
+          onSetMode={ mode => router.setParams({mode}) }
+        />
+      )}
+    >
+      <BackgroundImageWrapper>
+        <Box sx={{m:20}}>hello4</Box>
+        {
+          showConfigWindow && (
+            <ConfigWindow
+              mode={ mode }
+              type={ type }
+              sessionConfig={ sessionConfig }
+              setSessionConfig={ setSessionConfig }
+              onClose={ () => setShowConfigWindow(false) }
+            />
+          )
+        }
+      </BackgroundImageWrapper>
+    </Page>
   )
 }
 

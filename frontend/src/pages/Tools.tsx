@@ -8,7 +8,6 @@ import CreateToolWindow from '../components/tools/CreateToolWindow'
 import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import ToolsTable from '../components/tools/ToolsTable'
-import useLayout from '../hooks/useLayout'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
@@ -21,7 +20,6 @@ import {
 const Tools: FC = () => {
   const account = useAccount()
   const tools = useTools()
-  const layout = useLayout()
   const snackbar = useSnackbar()
   const {
     navigate,
