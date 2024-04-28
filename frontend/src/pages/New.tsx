@@ -476,7 +476,7 @@ const New: FC = () => {
 
     // Cleanup function to remove the toolbar renderer when the component unmounts or bigScreen changes
     return () => layout.setToolbarContent()
-  }, [toolbar])
+  }, [])
   
   if(!initialized) return null
 

@@ -35,14 +35,13 @@ const AppBar: React.FC<{
   return (
     <MUIAppBar
       elevation={0}
-      position="fixed"
+      position="relative"
       color="default"
       sx={{
         height,
         px: 0,
         borderBottom: lightTheme.border,
-        width: { xs: '100%', sm: '100%', md: `calc(100% - ${themeConfig.drawerWidth}px)` },
-        ml: { xs: '0px', sm: '0px', md: `${themeConfig.drawerWidth}px` },
+        width: '100%',
       }}
     >
       <Toolbar
@@ -100,7 +99,7 @@ const AppBar: React.FC<{
             {
               // if there is a user, then show the children if big screen (otherwise nothing)
               // if there is no user - show a button
-              account.user ? isBigScreen ? children : null : (
+              account.user ? children : (
                 <Button
                   size={ isBigScreen ? 'medium' : 'small' }
                   variant="contained"

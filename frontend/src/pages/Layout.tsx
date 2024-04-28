@@ -7,13 +7,11 @@ import Drawer from '@mui/material/Drawer'
 import AppBar from '../components/system/AppBar'
 import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
+import Snackbar from '../components/system/Snackbar'
+import GlobalLoading from '../components/system/GlobalLoading'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
-import Snackbar from '../components/system/Snackbar'
-
-import GlobalLoading from '../components/system/GlobalLoading'
-
 import useLightTheme from '../hooks/useLightTheme'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useIsBigScreen from '../hooks/useIsBigScreen'
@@ -40,7 +38,7 @@ const Layout: FC = ({
       component="div"
     >
       <CssBaseline />
-      {
+      {/* {
         router.meta.topbar && (
           <AppBar
             title={ router.meta.title }
@@ -49,7 +47,7 @@ const Layout: FC = ({
             { layout.toolbarContent }
           </AppBar>
         )
-      }
+      } */}
       {
         router.meta.drawer && (
           <Drawer
@@ -89,7 +87,7 @@ const Layout: FC = ({
         sx={{
           backgroundColor: (theme) => {
             if(router.meta.background) return router.meta.background
-            return theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
+            return lightTheme.backgroundColor
           },
           flexGrow: 1,
           height: '100vh',
@@ -101,8 +99,8 @@ const Layout: FC = ({
           component="div"
           sx={{
             flexGrow: 1,
-            overflow: 'auto',
             backgroundColor: theme.palette.mode === 'light' ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor,
+            height: '100%',
             minHeight: '100%',
           }}
         >
