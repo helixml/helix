@@ -1,10 +1,10 @@
 import React, { FC, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 
-import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
 import Page from '../components/system/Page'
 
 import useRouter from '../hooks/useRouter'
+import useLightTheme from '../hooks/useLightTheme'
 import useSessionConfig from '../hooks/useSessionConfig'
 
 import CreateToolbar from '../components/create/Toolbar'
@@ -31,6 +31,7 @@ const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
 
 const Create: FC = () => {
   const router = useRouter()
+  const lightTheme = useLightTheme()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
@@ -47,21 +48,24 @@ const Create: FC = () => {
           onSetMode={ mode => router.setParams({mode}) }
         />
       )}
+      sx={{
+        backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+        backgroundSize: '80%',
+        backgroundPosition: 'center center',
+        backgroundRepeat: 'no-repeat',
+      }}
     >
-      <BackgroundImageWrapper>
-        <Box sx={{m:20}}>hello4</Box>
-        {
-          showConfigWindow && (
-            <ConfigWindow
-              mode={ mode }
-              type={ type }
-              sessionConfig={ sessionConfig }
-              setSessionConfig={ setSessionConfig }
-              onClose={ () => setShowConfigWindow(false) }
-            />
-          )
-        }
-      </BackgroundImageWrapper>
+      {
+        showConfigWindow && (
+          <ConfigWindow
+            mode={ mode }
+            type={ type }
+            sessionConfig={ sessionConfig }
+            setSessionConfig={ setSessionConfig }
+            onClose={ () => setShowConfigWindow(false) }
+          />
+        )
+      }
     </Page>
   )
 }

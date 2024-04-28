@@ -11,7 +11,6 @@ import IconButton from '@mui/material/IconButton'
 import ZoomOutMapIcon from '@mui/icons-material/ZoomOutMap'
 import TextField from '@mui/material/TextField'
 import CloseIcon from '@mui/icons-material/Close'
-import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
 
 interface UploadedImage {
   id: string,
@@ -55,7 +54,6 @@ const ImageFineTuneView: FC = () => {
 
   
   return (
-    <BackgroundImageWrapper>
     <Container
       maxWidth="xl"
       sx={{
@@ -200,7 +198,6 @@ const ImageFineTuneView: FC = () => {
           )
         }
     </Container>
-    </BackgroundImageWrapper>
   )
 }
 
