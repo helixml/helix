@@ -8,7 +8,6 @@ import CreateAppWindow from '../components/apps/CreateAppWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
 
-import useLayout from '../hooks/useLayout'
 import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
@@ -21,7 +20,6 @@ import {
 const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
-  const layout = useLayout()
   const snackbar = useSnackbar()
   const {
     params,

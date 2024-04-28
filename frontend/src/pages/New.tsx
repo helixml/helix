@@ -1,7 +1,6 @@
 import React, { FC, useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { styled, useTheme } from '@mui/material/styles'
+import { useTheme } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
-import bluebird from 'bluebird'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -20,7 +19,6 @@ import FormControl from '@mui/material/FormControl'
 import Switch from '@mui/material/Switch'
 import SendIcon from '@mui/icons-material/Send'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
-import SettingsIcon from '@mui/icons-material/Settings'
 import ConstructionIcon from '@mui/icons-material/Construction'
 import InputAdornment from '@mui/material/InputAdornment'
 import useThemeConfig from '../hooks/useThemeConfig'
@@ -37,18 +35,15 @@ import FineTuneImageLabels from '../components/session/FineTuneImageLabels'
 import Window from '../components/widgets/Window'
 import Disclaimer from '../components/widgets/Disclaimer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
-import Row from '../components/widgets/Row'
-import Cell from '../components/widgets/Cell'
+import Page from '../components/system/Page'
 
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useTools from '../hooks/useTools'
-import useLayout from '../hooks/useLayout'
 import useSessions from '../hooks/useSessions'
 import useFinetuneInputs from '../hooks/useFinetuneInputs'
-import ButtonGroup from '@mui/material/ButtonGroup'
 import useSessionConfig from '../hooks/useSessionConfig'
 import useTracking from '../hooks/useTracking'
 
@@ -76,7 +71,7 @@ const New: FC = () => {
   const account = useAccount()
   const tools = useTools()
   const sessions = useSessions()
-  const layout = useLayout()
+  
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const inputs = useFinetuneInputs()
   const sessionConfig = useSessionConfig()
@@ -470,14 +465,6 @@ const New: FC = () => {
     </Box>
   )
 
-  // Use an effect hook to set the toolbar renderer
-  useEffect(() => {
-    layout.setToolbarContent(toolbar)
-
-    // Cleanup function to remove the toolbar renderer when the component unmounts or bigScreen changes
-    return () => layout.setToolbarContent()
-  }, [])
-  
   if(!initialized) return null
 
   const CenteredMessage: FC = () => {
@@ -577,550 +564,554 @@ const New: FC = () => {
   const shouldShowModeTabs = isFineTuneMode && !isOnImageFineTuneSecondStep
 
   return (
-    <BackgroundImageWrapper>
-      
-      {shouldShowModeTabs && (
-        <Box sx={{ display: 'flex', width: '93%' }}>
-          {/* IMAGE Typography with line */}
-          <Box
-            sx={{
-              width: '49%',
-              textAlign: 'center',
-              cursor: 'pointer',
-              '&:after': {
-                content: '""',
-                display: 'block',
-                height: '2px',
-                backgroundColor: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
-                marginTop: '0.25rem',
-              }
-            }}
-            onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
-          >
-            <Typography
-              variant="subtitle1"
+    <Page
+      topbarContent={ toolbar }
+    >
+      <BackgroundImageWrapper>
+        
+        {shouldShowModeTabs && (
+          <Box sx={{ display: 'flex', width: '93%' }}>
+            {/* IMAGE Typography with line */}
+            <Box
               sx={{
-                fontSize: "medium",
-                fontWeight: 800,
-                color: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
-                marginBottom: '10px',
+                width: '49%',
+                textAlign: 'center',
+                cursor: 'pointer',
+                '&:after': {
+                  content: '""',
+                  display: 'block',
+                  height: '2px',
+                  backgroundColor: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
+                  marginTop: '0.25rem',
+                }
               }}
+              onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_IMAGE)}
             >
-              Images
-            </Typography>
-          </Box>
-          {/* TEXT Typography with line */}
-          <Box
-            sx={{
-              width: '50%',
-              textAlign: 'center',
-              cursor: 'pointer',
-              '&:after': {
-                content: '""',
-                display: 'block',
-                height: '2px',
-                backgroundColor: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
-              }
-            }}
-            onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
-          >
-            <Typography
-              variant="subtitle1"
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontSize: "medium",
+                  fontWeight: 800,
+                  color: selectedType === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
+                  marginBottom: '10px',
+                }}
+              >
+                Images
+              </Typography>
+            </Box>
+            {/* TEXT Typography with line */}
+            <Box
               sx={{
-                fontSize: "medium",
-                fontWeight: 800,
-                color: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
-                marginBottom: '10px',
+                width: '50%',
+                textAlign: 'center',
+                cursor: 'pointer',
+                '&:after': {
+                  content: '""',
+                  display: 'block',
+                  height: '2px',
+                  backgroundColor: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+                }
               }}
+              onClick={() => setModel(mode as ISessionMode, SESSION_TYPE_TEXT)}
             >
-              Text
-            </Typography>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontSize: "medium",
+                  fontWeight: 800,
+                  color: selectedType === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+                  marginBottom: '10px',
+                }}
+              >
+                Text
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-      )}
-      
-      <Box
-        sx={{
-          width: '100%',
-          flexGrow: 1,
-          overflowY: 'auto',
-          p: 2,
-          backgroundFilter: 'opacity(0.5)',
-        }}
-      >
-        <Menu
-          id="mode-menu"
-          open={Boolean(modeMenuOpen)}
-          onClose={handleModeMenuClose}
-          onClick={() => account.setMobileMenuOpen(false)}
-          anchorEl={modeMenuRef.current}
+        )}
+        
+        <Box
           sx={{
-            marginTop:"50px",
-            zIndex: 9999,
-            }}
-          anchorOrigin={{
-            vertical: 'bottom',
-            horizontal: 'left',
-          }}
-          transformOrigin={{
-            vertical: 'center',
-            horizontal: 'left',
+            width: '100%',
+            flexGrow: 1,
+            overflowY: 'auto',
+            p: 2,
+            backgroundFilter: 'opacity(0.5)',
           }}
         >
-          <MenuItem
-            key={SESSION_MODE_INFERENCE}
-            selected={params.mode === SESSION_MODE_INFERENCE}
-            onClick={(event) => {
-              handleModeMenuItemClick(event, SESSION_MODE_INFERENCE);
-              handleModeMenuClose();
-            }}
-          >
-            Inference
-          </MenuItem>
-          <MenuItem
-            key={SESSION_MODE_FINETUNE}
-            selected={params.mode === SESSION_MODE_FINETUNE}
-            onClick={(event) => {
-              handleModeMenuItemClick(event, SESSION_MODE_FINETUNE);
-              handleModeMenuClose();
-            }}
-          >
-            Fine-tune
-          </MenuItem>
-        </Menu>
-        <Container maxWidth="lg">
-          <Box
+          <Menu
+            id="mode-menu"
+            open={Boolean(modeMenuOpen)}
+            onClose={handleModeMenuClose}
+            onClick={() => account.setMobileMenuOpen(false)}
+            anchorEl={modeMenuRef.current}
             sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
+              marginTop:"50px",
+              zIndex: 9999,
+              }}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'left',
+            }}
+            transformOrigin={{
+              vertical: 'center',
+              horizontal: 'left',
             }}
           >
-            {selectedMode !== SESSION_MODE_FINETUNE && <CenteredMessage />}
-          </Box>
-          {
-            isOnImageFineTuneFirstStep && (
-              <FineTuneImageInputs
-                showButton
-                initialFiles={ inputs.files }
-                onChange={ (files) => {
-                  inputs.setFiles(files)
-                }}
-                onDone={ () => inputs.setFineTuneStep(1) }
-              />
-            )
-          }
-          {
-            isOnTextFineTuneFirstStep && (
-              <FineTuneTextInputs
-                showButton
-                initialCounter={ inputs.manualTextFileCounter }
-                initialFiles={ inputs.files }
-                onChange={ (counter, files) => {
-                  inputs.setManualTextFileCounter(counter)
-                  inputs.setFiles(files)
-                }}
-                onDone={ onStartTextFinetune }
-                hideTextField={true} 
-              />
-            )
-          }
-          {
-            isOnImageFineTuneSecondStep && (
-              <FineTuneImageLabels
-                showButton
-                showImageLabelErrors={ inputs.showImageLabelErrors }
-                initialLabels={ inputs.labels }
-                files={ inputs.files }
-                onChange={ (labels) => {
-                  inputs.setLabels(labels)
-                }}
-                onDone={ onStartImageFinetune }
-              />
-            )
-          }
-        </Container>
-      </Box>
-
-      {
-        mode == SESSION_MODE_INFERENCE && (
-          <Box
-            sx={{
-              width: '100%',
-              flexGrow: 0,
-              p: 2,
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Container maxWidth="xl">
-              <Box
-                sx={{
-                  width: '100%',
-                  flexGrow: 0,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <SampleContent />
-              </Box>
-              <Box
-                sx={{
-                  width: '100%',
-                  flexGrow: 0,
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <TextField
-                  id="textEntry"
-                  fullWidth
-                  inputRef={textFieldRef}
-                  autoFocus
-                  label={(
-                    (
-                      type == SESSION_TYPE_TEXT ?
-                        'Chat with Helix...' :
-                        'Describe what you want to see in an image...'
-                    ) + " (shift+enter to add a newline)"
-                  )}
-                  value={inputs.inputValue}
-                  disabled={selectedMode == SESSION_MODE_FINETUNE}
-                  onChange={handleInputChange}
-                  name="ai_submit"
-                  multiline={true}
-                  onKeyDown={handleKeyDown}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Button
-                          variant="contained"
-                          size="small"
-                          sx={{
-                            bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
-                            ":hover": {
-                              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
-                            },
-                            color: 'black',
-                            mr: 2,
-                            borderRadius: 1,
-                            textTransform: 'none',
-                            fontSize: "medium",
-                            fontWeight: 800,
-                            pt: '1px',
-                            pb: '1px',
-                          }}
-                          endIcon={<SwapHorizIcon />}
-                          onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
-                        >
-                          {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
-                        </Button>
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          id="sendButton"
-                          aria-label="send"
-                          disabled={selectedMode == SESSION_MODE_FINETUNE}
-                          onClick={onInference}
-                          sx={{
-                            color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                          }}
-                        >
-                          <SendIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
+            <MenuItem
+              key={SESSION_MODE_INFERENCE}
+              selected={params.mode === SESSION_MODE_INFERENCE}
+              onClick={(event) => {
+                handleModeMenuItemClick(event, SESSION_MODE_INFERENCE);
+                handleModeMenuClose();
+              }}
+            >
+              Inference
+            </MenuItem>
+            <MenuItem
+              key={SESSION_MODE_FINETUNE}
+              selected={params.mode === SESSION_MODE_FINETUNE}
+              onClick={(event) => {
+                handleModeMenuItemClick(event, SESSION_MODE_FINETUNE);
+                handleModeMenuClose();
+              }}
+            >
+              Fine-tune
+            </MenuItem>
+          </Menu>
+          <Container maxWidth="lg">
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {selectedMode !== SESSION_MODE_FINETUNE && <CenteredMessage />}
+            </Box>
+            {
+              isOnImageFineTuneFirstStep && (
+                <FineTuneImageInputs
+                  showButton
+                  initialFiles={ inputs.files }
+                  onChange={ (files) => {
+                    inputs.setFiles(files)
                   }}
+                  onDone={ () => inputs.setFineTuneStep(1) }
                 />
-              </Box>
-              <Box
-                sx={{
-                  mt: 2,
-                }}
-              >
-                <Disclaimer />
-              </Box>
-            </Container>
-            
-          </Box>
-        )
-      }
+              )
+            }
+            {
+              isOnTextFineTuneFirstStep && (
+                <FineTuneTextInputs
+                  showButton
+                  initialCounter={ inputs.manualTextFileCounter }
+                  initialFiles={ inputs.files }
+                  onChange={ (counter, files) => {
+                    inputs.setManualTextFileCounter(counter)
+                    inputs.setFiles(files)
+                  }}
+                  onDone={ onStartTextFinetune }
+                  hideTextField={true} 
+                />
+              )
+            }
+            {
+              isOnImageFineTuneSecondStep && (
+                <FineTuneImageLabels
+                  showButton
+                  showImageLabelErrors={ inputs.showImageLabelErrors }
+                  initialLabels={ inputs.labels }
+                  files={ inputs.files }
+                  onChange={ (labels) => {
+                    inputs.setLabels(labels)
+                  }}
+                  onDone={ onStartImageFinetune }
+                />
+              )
+            }
+          </Container>
+        </Box>
 
-      {
-        inputs.uploadProgress && (
-          <UploadingOverlay
-            percent={ inputs.uploadProgress.percent }
-          />
-        )
-      }
-      
-      {
-        showLoginWindow && (
-          <Window
-            open
-            size="md"
-            title="Please login to continue"
-            onCancel={ () => {
-              setShowLoginWindow(false)
-            }}
-            onSubmit={ () => {
-              proceedToLogin()
-            }}
-            withCancel
-            cancelTitle="Cancel"
-            submitTitle="Login / Register"
-          >
-            <Typography gutterBottom>
-              You can login with your Google account or with your email address.
-            </Typography>
-            <Typography>
-              We will keep what you've done here for you, so you may continue where you left off.
-            </Typography>
-          </Window>
-        )
-      }
-      
-      {
-        showSessionSettings && (
-          <Window
-            open
-            size="md"
-            title="Session Settings"
-            onCancel={ () => {
-              setShowSessionSettings(false)
-              setActiveSettingsTab(0)
-            }}
-            withCancel
-            cancelTitle="Close"
-          >
-            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-              <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
-                setActiveSettingsTab(newValue)
-              }}>
-                {
-                  account.serverConfig.tools_enabled && (
-                    <Tab label="Active Tools" />
-                  )
-                }
-                {
-                  selectedMode == SESSION_MODE_FINETUNE && account.admin && (
-                    <Tab label="Admin" />
-                  )
-                }
-              </Tabs>
+        {
+          mode == SESSION_MODE_INFERENCE && (
+            <Box
+              sx={{
+                width: '100%',
+                flexGrow: 0,
+                p: 2,
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Container maxWidth="xl">
+                <Box
+                  sx={{
+                    width: '100%',
+                    flexGrow: 0,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <SampleContent />
+                </Box>
+                <Box
+                  sx={{
+                    width: '100%',
+                    flexGrow: 0,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <TextField
+                    id="textEntry"
+                    fullWidth
+                    inputRef={textFieldRef}
+                    autoFocus
+                    label={(
+                      (
+                        type == SESSION_TYPE_TEXT ?
+                          'Chat with Helix...' :
+                          'Describe what you want to see in an image...'
+                      ) + " (shift+enter to add a newline)"
+                    )}
+                    value={inputs.inputValue}
+                    disabled={selectedMode == SESSION_MODE_FINETUNE}
+                    onChange={handleInputChange}
+                    name="ai_submit"
+                    multiline={true}
+                    onKeyDown={handleKeyDown}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Button
+                            variant="contained"
+                            size="small"
+                            sx={{
+                              bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowRoot : themeConfig.greenRoot, // Green for image, Yellow for text
+                              ":hover": {
+                                bgcolor: type == SESSION_TYPE_TEXT ? themeConfig.yellowLight : themeConfig.greenLight, // Green for image, Yellow for text
+                              },
+                              color: 'black',
+                              mr: 2,
+                              borderRadius: 1,
+                              textTransform: 'none',
+                              fontSize: "medium",
+                              fontWeight: 800,
+                              pt: '1px',
+                              pb: '1px',
+                            }}
+                            endIcon={<SwapHorizIcon />}
+                            onClick={() => setModel(mode as ISessionMode, (type == SESSION_TYPE_TEXT ? SESSION_TYPE_IMAGE : SESSION_TYPE_TEXT))}
+                          >
+                            {type == SESSION_TYPE_TEXT ? "TEXT" : "IMAGE"}
+                          </Button>
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            id="sendButton"
+                            aria-label="send"
+                            disabled={selectedMode == SESSION_MODE_FINETUNE}
+                            onClick={onInference}
+                            sx={{
+                              color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                            }}
+                          >
+                            <SendIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Box>
+                <Box
+                  sx={{
+                    mt: 2,
+                  }}
+                >
+                  <Disclaimer />
+                </Box>
+              </Container>
+              
             </Box>
-            <Box>
-              {
-                account.serverConfig.tools_enabled && activeSettingsTab == 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    <Grid container spacing={3}>
-                      <Grid item xs={ 12 } md={ 6 }>
-                        <Typography variant="body1">Your Tools:</Typography>
-                        <Divider sx={{mt:2,mb:2}} />
-                        {
-                          tools.userTools.map((tool) => {
-                            return (
-                              <Box sx={{ mb: 2 }} key={tool.id}>
-                                <FormControlLabel
-                                  control={
-                                    <Checkbox 
-                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                      onChange={(event) => {
-                                        handleToolsCheckboxChange(tool.id, event)
-                                      }}
-                                    />
-                                  }
-                                  label={(
-                                    <Box>
-                                      <Box>
-                                        <Typography variant="body1">{ tool.name }</Typography>
-                                      </Box>
-                                      <Box>
-                                        <Typography variant="caption">{ tool.description }</Typography>
-                                      </Box>
-                                    </Box> 
-                                  )}
-                                />
-                              </Box>
-                            )
-                          })
-                        }
-                      </Grid>
-                      <Grid item xs={ 12 } md={ 6 }>
-                        <Typography variant="body1">Global Tools:</Typography>
-                        <Divider sx={{mt:2,mb:2}} />
-                        {
-                          tools.globalTools.map((tool) => {
-                            return (
-                              <Box sx={{ mb: 2 }} key={tool.id}>
-                                <FormControlLabel
-                                  key={tool.id}
-                                  control={
-                                    <Checkbox 
-                                      checked={sessionConfig.activeToolIDs.includes(tool.id)}
-                                      onChange={(event) => {
-                                        handleToolsCheckboxChange(tool.id, event)
-                                      }}
-                                    />
-                                  }
-                                  label={(
-                                    <Box>
-                                      <Box>
-                                        <Typography variant="body1">{ tool.name }</Typography>
-                                      </Box>
-                                      <Box>
-                                        <Typography variant="caption">{ tool.description }</Typography>
-                                      </Box>
-                                    </Box> 
-                                  )}
-                                />
-                              </Box>
-                            )
-                          })
-                        }
-                      </Grid>
-                    </Grid>
-                  </Box>
-                )
-              }
+          )
+        }
 
-              {
-                // TODO: we need a better way of handling dynamic tabs
-                activeSettingsTab == (account.serverConfig.tools_enabled ? 1 : 0) && (
-                  <Box sx={{ mt: 2 }}>
-                    {
-                      selectedMode == SESSION_MODE_FINETUNE && (
-                        <FormGroup row>
-                          <FormControlLabel
-                            control={
-                              <Checkbox 
-                                checked={sessionConfig.finetuneEnabled}
-                                onChange={(event) => {
-                                  sessionConfig.setFinetuneEnabled(event.target.checked)
-                                }}
-                              />
-                            }
-                            label="Finetune Enabled?"
-                          />
-                          {
-                            selectedType == SESSION_TYPE_TEXT && (
-                              <FormControlLabel
-                                control={
-                                  <Checkbox 
-                                    checked={sessionConfig.ragEnabled}
-                                    onChange={(event) => {
-                                      sessionConfig.setRagEnabled(event.target.checked)
-                                    }}
-                                  />
-                                }
-                                label="Rag Enabled?"
-                              />
-                            )
-                          }
-                        </FormGroup>
-                      )
-                    }
-                    {
-                      sessionConfig.ragEnabled && (
-                        <>
+        {
+          inputs.uploadProgress && (
+            <UploadingOverlay
+              percent={ inputs.uploadProgress.percent }
+            />
+          )
+        }
+        
+        {
+          showLoginWindow && (
+            <Window
+              open
+              size="md"
+              title="Please login to continue"
+              onCancel={ () => {
+                setShowLoginWindow(false)
+              }}
+              onSubmit={ () => {
+                proceedToLogin()
+              }}
+              withCancel
+              cancelTitle="Cancel"
+              submitTitle="Login / Register"
+            >
+              <Typography gutterBottom>
+                You can login with your Google account or with your email address.
+              </Typography>
+              <Typography>
+                We will keep what you've done here for you, so you may continue where you left off.
+              </Typography>
+            </Window>
+          )
+        }
+        
+        {
+          showSessionSettings && (
+            <Window
+              open
+              size="md"
+              title="Session Settings"
+              onCancel={ () => {
+                setShowSessionSettings(false)
+                setActiveSettingsTab(0)
+              }}
+              withCancel
+              cancelTitle="Close"
+            >
+              <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                <Tabs value={activeSettingsTab} onChange={(event: React.SyntheticEvent, newValue: number) => {
+                  setActiveSettingsTab(newValue)
+                }}>
+                  {
+                    account.serverConfig.tools_enabled && (
+                      <Tab label="Active Tools" />
+                    )
+                  }
+                  {
+                    selectedMode == SESSION_MODE_FINETUNE && account.admin && (
+                      <Tab label="Admin" />
+                    )
+                  }
+                </Tabs>
+              </Box>
+              <Box>
+                {
+                  account.serverConfig.tools_enabled && activeSettingsTab == 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Grid container spacing={3}>
+                        <Grid item xs={ 12 } md={ 6 }>
+                          <Typography variant="body1">Your Tools:</Typography>
                           <Divider sx={{mt:2,mb:2}} />
-                          <Typography variant="h6" gutterBottom sx={{mb: 2}}>RAG Settings</Typography>
-                          <Grid container spacing={3}>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <FormControl fullWidth>
-                                <InputLabel>Rag Distance Function</InputLabel>
-                                <Select
-                                  value={sessionConfig.ragDistanceFunction}
-                                  label="Rag Distance Function"
-                                  onChange={(e) => sessionConfig.setRagDistanceFunction(e.target.value as any)}
-                                >
-                                  <MenuItem value="l2">l2</MenuItem>
-                                  <MenuItem value="inner_product">inner_product</MenuItem>
-                                  <MenuItem value="cosine">cosine</MenuItem>
-                                </Select>
-                              </FormControl>
+                          {
+                            tools.userTools.map((tool) => {
+                              return (
+                                <Box sx={{ mb: 2 }} key={tool.id}>
+                                  <FormControlLabel
+                                    control={
+                                      <Checkbox 
+                                        checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                        onChange={(event) => {
+                                          handleToolsCheckboxChange(tool.id, event)
+                                        }}
+                                      />
+                                    }
+                                    label={(
+                                      <Box>
+                                        <Box>
+                                          <Typography variant="body1">{ tool.name }</Typography>
+                                        </Box>
+                                        <Box>
+                                          <Typography variant="caption">{ tool.description }</Typography>
+                                        </Box>
+                                      </Box> 
+                                    )}
+                                  />
+                                </Box>
+                              )
+                            })
+                          }
+                        </Grid>
+                        <Grid item xs={ 12 } md={ 6 }>
+                          <Typography variant="body1">Global Tools:</Typography>
+                          <Divider sx={{mt:2,mb:2}} />
+                          {
+                            tools.globalTools.map((tool) => {
+                              return (
+                                <Box sx={{ mb: 2 }} key={tool.id}>
+                                  <FormControlLabel
+                                    key={tool.id}
+                                    control={
+                                      <Checkbox 
+                                        checked={sessionConfig.activeToolIDs.includes(tool.id)}
+                                        onChange={(event) => {
+                                          handleToolsCheckboxChange(tool.id, event)
+                                        }}
+                                      />
+                                    }
+                                    label={(
+                                      <Box>
+                                        <Box>
+                                          <Typography variant="body1">{ tool.name }</Typography>
+                                        </Box>
+                                        <Box>
+                                          <Typography variant="caption">{ tool.description }</Typography>
+                                        </Box>
+                                      </Box> 
+                                    )}
+                                  />
+                                </Box>
+                              )
+                            })
+                          }
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )
+                }
+
+                {
+                  // TODO: we need a better way of handling dynamic tabs
+                  activeSettingsTab == (account.serverConfig.tools_enabled ? 1 : 0) && (
+                    <Box sx={{ mt: 2 }}>
+                      {
+                        selectedMode == SESSION_MODE_FINETUNE && (
+                          <FormGroup row>
+                            <FormControlLabel
+                              control={
+                                <Checkbox 
+                                  checked={sessionConfig.finetuneEnabled}
+                                  onChange={(event) => {
+                                    sessionConfig.setFinetuneEnabled(event.target.checked)
+                                  }}
+                                />
+                              }
+                              label="Finetune Enabled?"
+                            />
+                            {
+                              selectedType == SESSION_TYPE_TEXT && (
+                                <FormControlLabel
+                                  control={
+                                    <Checkbox 
+                                      checked={sessionConfig.ragEnabled}
+                                      onChange={(event) => {
+                                        sessionConfig.setRagEnabled(event.target.checked)
+                                      }}
+                                    />
+                                  }
+                                  label="Rag Enabled?"
+                                />
+                              )
+                            }
+                          </FormGroup>
+                        )
+                      }
+                      {
+                        sessionConfig.ragEnabled && (
+                          <>
+                            <Divider sx={{mt:2,mb:2}} />
+                            <Typography variant="h6" gutterBottom sx={{mb: 2}}>RAG Settings</Typography>
+                            <Grid container spacing={3}>
+                              <Grid item xs={ 12 } md={ 4 }>
+                                <FormControl fullWidth>
+                                  <InputLabel>Rag Distance Function</InputLabel>
+                                  <Select
+                                    value={sessionConfig.ragDistanceFunction}
+                                    label="Rag Distance Function"
+                                    onChange={(e) => sessionConfig.setRagDistanceFunction(e.target.value as any)}
+                                  >
+                                    <MenuItem value="l2">l2</MenuItem>
+                                    <MenuItem value="inner_product">inner_product</MenuItem>
+                                    <MenuItem value="cosine">cosine</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid item xs={ 12 } md={ 4 }>
+                                <TextField
+                                  fullWidth
+                                  label="Rag Threshold"
+                                  type="number"
+                                  InputLabelProps={{
+                                    shrink: true,
+                                  }}
+                                  variant="standard"
+                                  value={ sessionConfig.ragThreshold }
+                                  onChange={ (event) => {
+                                    sessionConfig.setRagThreshold(event.target.value as any)
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={ 12 } md={ 4 }>
+                                <TextField
+                                  fullWidth
+                                  label="Rag Results Count"
+                                  type="number"
+                                  InputLabelProps={{
+                                    shrink: true,
+                                  }}
+                                  variant="standard"
+                                  value={ sessionConfig.ragResultsCount }
+                                  onChange={ (event) => {
+                                    sessionConfig.setRagResultsCount(event.target.value as any)
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={ 12 } md={ 4 }>
+                                <TextField
+                                  fullWidth
+                                  label="Rag Chunk Size"
+                                  type="number"
+                                  InputLabelProps={{
+                                    shrink: true,
+                                  }}
+                                  variant="standard"
+                                  value={ sessionConfig.ragChunkSize }
+                                  onChange={ (event) => {
+                                    sessionConfig.setRagChunkSize(event.target.value as any)
+                                  }}
+                                />
+                              </Grid>
+                              <Grid item xs={ 12 } md={ 4 }>
+                                <TextField
+                                  fullWidth
+                                  label="Rag Chunk Overflow"
+                                  type="number"
+                                  InputLabelProps={{
+                                    shrink: true,
+                                  }}
+                                  variant="standard"
+                                  value={ sessionConfig.ragChunkOverflow }
+                                  onChange={ (event) => {
+                                    sessionConfig.setRagChunkOverflow(event.target.value as any)
+                                  }}
+                                />
+                              </Grid>
                             </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Threshold"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ sessionConfig.ragThreshold }
-                                onChange={ (event) => {
-                                  sessionConfig.setRagThreshold(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Results Count"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ sessionConfig.ragResultsCount }
-                                onChange={ (event) => {
-                                  sessionConfig.setRagResultsCount(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Chunk Size"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ sessionConfig.ragChunkSize }
-                                onChange={ (event) => {
-                                  sessionConfig.setRagChunkSize(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                            <Grid item xs={ 12 } md={ 4 }>
-                              <TextField
-                                fullWidth
-                                label="Rag Chunk Overflow"
-                                type="number"
-                                InputLabelProps={{
-                                  shrink: true,
-                                }}
-                                variant="standard"
-                                value={ sessionConfig.ragChunkOverflow }
-                                onChange={ (event) => {
-                                  sessionConfig.setRagChunkOverflow(event.target.value as any)
-                                }}
-                              />
-                            </Grid>
-                          </Grid>
-                        </>
-                      )
-                    }
-                  </Box>
-                )
-              }              
-            </Box>
-          </Window>
-        )
-      }
-    </BackgroundImageWrapper>
+                          </>
+                        )
+                      }
+                    </Box>
+                  )
+                }              
+              </Box>
+            </Window>
+          )
+        }
+      </BackgroundImageWrapper>
+    </Page>
   )
 }
 

@@ -29,9 +29,7 @@ export interface IApplicationRoute extends Route {
 export const NOT_FOUND_ROUTE: IApplicationRoute = {
   name: 'notfound',
   path: '/notfound',
-  meta: {
-    title: 'Page Not Found',
-  },
+  meta: {},
   render: () => <div>Page Not Found</div>,
 }
 
@@ -40,7 +38,6 @@ const routes: IApplicationRoute[] = [
   name: 'new',
   path: '/',
   meta: {
-    title: '',
     drawer: true,
     topbar: true,
   },
@@ -51,7 +48,6 @@ const routes: IApplicationRoute[] = [
   name: 'create',
   path: '/create',
   meta: {
-    title: '',
     drawer: true,
     topbar: true,
   },
@@ -62,7 +58,6 @@ const routes: IApplicationRoute[] = [
   name: 'files',
   path: '/files',
   meta: {
-    title: 'Files',
     drawer: true,
     topbar: true,
   },
@@ -75,7 +70,6 @@ const routes: IApplicationRoute[] = [
   name: 'tools',
   path: '/tools',
   meta: {
-    title: 'Tools',
     drawer: true,
     topbar: true,
   },
@@ -86,7 +80,6 @@ const routes: IApplicationRoute[] = [
   name: 'apps',
   path: '/apps',
   meta: {
-    title: 'Apps',
     drawer: true,
     topbar: true,
   },
@@ -97,7 +90,6 @@ const routes: IApplicationRoute[] = [
   name: 'tool',
   path: '/tool/:tool_id',
   meta: {
-    title: 'Edit Tool',
     drawer: false,
     topbar: true,
   },
@@ -108,7 +100,6 @@ const routes: IApplicationRoute[] = [
   name: 'app',
   path: '/app/:app_id',
   meta: {
-    title: 'Edit App',
     drawer: false,
     topbar: true,
   },
@@ -119,7 +110,6 @@ const routes: IApplicationRoute[] = [
   name: 'session',
   path: '/session/:session_id',
   meta: {
-    title: 'Session',
     drawer: true,
     topbar: false,
   },
@@ -130,7 +120,6 @@ const routes: IApplicationRoute[] = [
   name: 'dashboard',
   path: '/dashboard',
   meta: {
-    title: 'Dashboard',
     drawer: true,
     topbar: true,
     background: '#ffffff'
@@ -142,7 +131,6 @@ const routes: IApplicationRoute[] = [
   name: 'account',
   path: '/account',
   meta: {
-    title: 'Account',
     drawer: true,
     topbar: true,
   },
@@ -151,7 +139,6 @@ const routes: IApplicationRoute[] = [
   name: 'imagefinetuneview',
   path: '/imagefinetuneview',
   meta: {
-    title: 'A Dogs Dinner',
     drawer: true,
     topbar: true,
   },
@@ -162,7 +149,6 @@ const routes: IApplicationRoute[] = [
   name: 'imagefinetunemoreview',
   path: '/imagefinetunemoreview',
   meta: {
-    title: 'A Dogs Dinner',
     drawer: true,
     topbar: true,
   },
@@ -174,7 +160,6 @@ const routes: IApplicationRoute[] = [
   name: 'textfinetuneupdate',
   path: '/textfinetuneupdate',
   meta: {
-    title: 'A Dogs Dinner',
     drawer: true,
     topbar: true,
   },
@@ -186,7 +171,6 @@ const routes: IApplicationRoute[] = [
   name: 'textfinetuneviewquestions',
   path: '/textfinetuneviewquestions',
   meta: {
-    title: 'A Dogs Dinner',
     drawer: true,
     topbar: true,
   },
