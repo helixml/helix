@@ -548,3 +548,9 @@ export interface ICreateSessionConfig {
   ragChunkSize: number,
   ragChunkOverflow: number,
 }
+
+export interface IHelixModel {
+  id: string,
+  title: string,
+  description: string,
+}
