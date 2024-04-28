@@ -113,6 +113,42 @@ depends_on:
 ---
 kind: pipeline
 type: docker
+name: build-runner-with-llama-8b
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-runner
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner    
+    auto_tag: true
+    repo: helixml/helix/runner
+    location: europe
+    args:
+      - PULL_LLAMA3_8B=true
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
 name: build-gptscript_devserver
 
 volumes:
