@@ -3,6 +3,8 @@ import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
 import ConstructionIcon from '@mui/icons-material/Construction'
 
+import Cell from '../widgets/Cell'
+import Row from '../widgets/Row'
 import SessionModeSwitch from './SessionModeSwitch'
 
 import {
@@ -19,17 +21,27 @@ const CreateToolbar: FC<{
   onSetMode,
 }) => {
   return (
-    <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-      <IconButton
-        onClick={ onOpenConfig }
-      >
-        <ConstructionIcon />
-      </IconButton>
-      <SessionModeSwitch
-        mode={ mode }
-        onSetMode={ onSetMode }
-      />
-    </Box>
+    <Row>
+      <Cell>
+
+      </Cell>
+      <Cell grow>
+        
+      </Cell>
+      <Cell>
+        <IconButton
+          onClick={ onOpenConfig }
+        >
+          <ConstructionIcon />
+        </IconButton>
+      </Cell>
+      <Cell>
+        <SessionModeSwitch
+          mode={ mode }
+          onSetMode={ onSetMode }
+        />
+      </Cell>
+    </Row>
   )
 }
 

@@ -5,8 +5,10 @@ import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
-
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+
+import Row from '../widgets/Row'
+import Cell from '../widgets/Cell'
 
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 
@@ -29,43 +31,49 @@ const SessionModeSwitch: FC<{
   const [ modeMenuAnchorEl, setModeMenuAnchorEl ] = useState<null | HTMLElement>(null)
 
   return bigScreen ? (
-    <>
-      <Typography
-        sx={{
-          color: mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
-          fontWeight: mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
-          mr: 2,
-          ml: 3,
-          textAlign: 'right',
-        }}
-      >
-          Inference
-      </Typography>
-      <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
-        <Switch
-          checked={mode === SESSION_MODE_FINETUNE}
-          onChange={(event: any) => onSetMode(event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE)}
-          name="modeSwitch"
-          size="medium"
+    <Row>
+      <Cell>
+        <Typography
           sx={{
-            transform: 'scale(1.6)',
-            '& .MuiSwitch-thumb': {
-            scale: 0.4,
-            },
+            color: mode === SESSION_MODE_INFERENCE ? 'text.primary' : 'text.secondary',
+            fontWeight: mode === SESSION_MODE_INFERENCE ? 'bold' : 'normal',
+            mr: 2,
+            ml: 3,
+            textAlign: 'right',
           }}
-        />
-      </Box>
-      <Typography
-        sx={{
-          color: mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
-          fontWeight: mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
-          marginLeft: 2,
-          textAlign: 'left',
-        }}
-      >
-        Fine-tuning
-      </Typography>
-    </>
+        >
+            Inference
+        </Typography>
+      </Cell>
+      <Cell>
+        <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+          <Switch
+            checked={mode === SESSION_MODE_FINETUNE}
+            onChange={(event: any) => onSetMode(event.target.checked ? SESSION_MODE_FINETUNE : SESSION_MODE_INFERENCE)}
+            name="modeSwitch"
+            size="medium"
+            sx={{
+              transform: 'scale(1.6)',
+              '& .MuiSwitch-thumb': {
+              scale: 0.4,
+              },
+            }}
+          />
+        </Box>
+      </Cell>
+      <Cell>
+        <Typography
+          sx={{
+            color: mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
+            fontWeight: mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
+            marginLeft: 2,
+            textAlign: 'left',
+          }}
+        >
+          Fine-tuning
+        </Typography>
+      </Cell>
+    </Row>
   ) : (
     <>
       <Typography

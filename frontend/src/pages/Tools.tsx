@@ -3,6 +3,7 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
+import Page from '../components/system/Page'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
 import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
@@ -90,9 +91,12 @@ const Tools: FC = () => {
     account.user,
   ])
 
-  useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
-      return (
+  if(!account.user) return null
+
+  return (
+    <Page
+      topbarTitle="Tools"
+      topbarContent={(
         <div>
           <Button
             variant="contained"
@@ -119,22 +123,12 @@ const Tools: FC = () => {
               New API tool
           </Button>
         </div>
-        
-      )
-    })
-
-    return () => layout.setToolbarRenderer(undefined)
-  }, [])
-
-  if(!account.user) return null
-
-  return (
-    <>
+      )}
+    >
       <Container
         maxWidth="xl"
         sx={{
-          mt: 12,
-          height: 'calc(100%)',
+          mb: 4,
         }}
       >
         <ToolsTable
@@ -168,7 +162,7 @@ const Tools: FC = () => {
           />
         )
       }
-    </>
+    </Page>
   )
 }
 
