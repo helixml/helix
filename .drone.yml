@@ -127,6 +127,7 @@ steps:
   settings:
     dockerfile: Dockerfile.runner    
     auto_tag: true
+    auto_tag_suffix: llama3-8b
     repo: helixml/helix/runner
     location: europe
     args:
