@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react'
 import Box from '@mui/material/Box'
+import { SxProps } from '@mui/system'
 
 import AppBar from './AppBar'
 
@@ -8,9 +9,11 @@ import useAccount from '../../hooks/useAccount'
 const Page: React.FC<{
   topbarTitle?: string,
   topbarContent?: ReactNode,
+  sx?: SxProps,
 }> = ({
   topbarTitle,
   topbarContent,
+  sx = {},
   children,
 }) => {
   const account = useAccount()
@@ -20,6 +23,7 @@ const Page: React.FC<{
         height: '100vh',
         display: 'flex',
         flexDirection: 'column',
+        ...sx
       }}
     >
       <Box

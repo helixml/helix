@@ -13,9 +13,6 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import CloseIcon from '@mui/icons-material/Close'
 import { useTheme } from '@mui/material/styles'
 
-import BackgroundImageWrapper from '../components/widgets/BackgroundImageWrapper'
-
-
 interface UploadedImage {
   id: string,
   url: string,
@@ -47,7 +44,6 @@ const ImageFineTuneMoreView: FC = () => {
 
   
   return (
-   <BackgroundImageWrapper>
     <Container
       maxWidth="xl"
       sx={{
@@ -203,7 +199,6 @@ const ImageFineTuneMoreView: FC = () => {
         />
       </Box>
     </Container>
-    </BackgroundImageWrapper>
   )
 }
 
