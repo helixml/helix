@@ -18,16 +18,10 @@ import {
   SESSION_TYPE_TEXT,
 } from '../types'
 
-const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
-  activeToolIDs: [],
-  finetuneEnabled: true,
-  ragEnabled: false,
-  ragDistanceFunction: 'cosine', 
-  ragThreshold: 0.2,
-  ragResultsCount: 3,
-  ragChunkSize: 1024,
-  ragChunkOverflow: 20,
-}
+import {
+  DEFAULT_SESSION_CONFIG,
+  HELIX_DEFAULT_TEXT_MODEL,
+} from '../config'
 
 const Create: FC = () => {
   const router = useRouter()
@@ -38,14 +32,18 @@ const Create: FC = () => {
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
+  const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
 
   return (
     <Page
       topbarContent={(
         <CreateToolbar
           mode={ mode }
+          type={ type }
+          model={ model }
           onOpenConfig={ () => setShowConfigWindow(true) }
           onSetMode={ mode => router.setParams({mode}) }
+          onSetModel={ model => router.setParams({model}) }
         />
       )}
       sx={{
