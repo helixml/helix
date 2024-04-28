@@ -71,6 +71,7 @@ const ModelPicker: FC<{
           {
             HELIX_TEXT_MODELS.map(model => (
               <MenuItem
+                key={ model.id }
                 sx={{fontSize: "large"}}
                 onClick={() => {
                   onSetModel(model.id)

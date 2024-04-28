@@ -1,14 +1,13 @@
 import React, { FC, useState, useEffect } from 'react'
-import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
+import CreateToolbar from '../components/create/Toolbar'
+import ConfigWindow from '../components/create/ConfigWindow'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
-import useSessionConfig from '../hooks/useSessionConfig'
-
-import CreateToolbar from '../components/create/Toolbar'
-import ConfigWindow from '../components/create/ConfigWindow'
+import useTools from '../hooks/useTools'
+import useAccount from '../hooks/useAccount'
 
 import {
   ISessionMode,
@@ -26,6 +25,8 @@ import {
 const Create: FC = () => {
   const router = useRouter()
   const lightTheme = useLightTheme()
+  const tools = useTools()
+  const account = useAccount()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
@@ -33,6 +34,13 @@ const Create: FC = () => {
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+
+  useEffect(() => {
+    if(!account.user) return
+    tools.loadData()
+  }, [
+    account.user,
+  ])
 
   return (
     <Page
