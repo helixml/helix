@@ -33,13 +33,13 @@ const CreateSettingsWindow: FC<{
   mode: ISessionMode,
   type: ISessionType,
   sessionConfig: ICreateSessionConfig,
-  setSessionConfig: Dispatch<SetStateAction<ICreateSessionConfig>>,
+  onSetSessionConfig: Dispatch<SetStateAction<ICreateSessionConfig>>,
   onClose: () => void,
 }> = ({
   mode,
   type,
   sessionConfig,
-  setSessionConfig,
+  onSetSessionConfig,
   onClose,
 }) => {
   const account = useAccount()
@@ -48,12 +48,12 @@ const CreateSettingsWindow: FC<{
 
   const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
     if(event.target.checked) {
-      setSessionConfig(config => ({
+      onSetSessionConfig(config => ({
         ...config,
         activeToolIDs: [ ...config.activeToolIDs, id ],
       }))
     } else {
-      setSessionConfig(config => ({
+      onSetSessionConfig(config => ({
         ...config,
         activeToolIDs: config.activeToolIDs.filter(toolId => toolId !== id)
       }))
@@ -170,7 +170,7 @@ const CreateSettingsWindow: FC<{
                       control={
                         <Checkbox 
                           checked={sessionConfig.finetuneEnabled}
-                          onChange={(event) => setSessionConfig(config => ({
+                          onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             finetuneEnabled: event.target.checked,
                           }))}
@@ -184,7 +184,7 @@ const CreateSettingsWindow: FC<{
                           control={
                             <Checkbox 
                               checked={sessionConfig.ragEnabled}
-                              onChange={(event) => setSessionConfig(config => ({
+                              onChange={(event) => onSetSessionConfig(config => ({
                                 ...config,
                                 ragEnabled: event.target.checked,
                               }))}
@@ -209,7 +209,7 @@ const CreateSettingsWindow: FC<{
                           <Select
                             value={sessionConfig.ragDistanceFunction}
                             label="Rag Distance Function"
-                            onChange={(event) => setSessionConfig(config => ({
+                            onChange={(event) => onSetSessionConfig(config => ({
                               ...config,
                               ragDistanceFunction: event.target.value as any,
                             }))}
@@ -230,7 +230,7 @@ const CreateSettingsWindow: FC<{
                           }}
                           variant="standard"
                           value={ sessionConfig.ragThreshold }
-                          onChange={(event) => setSessionConfig(config => ({
+                          onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             ragThreshold: event.target.value as any,
                           }))}
@@ -246,7 +246,7 @@ const CreateSettingsWindow: FC<{
                           }}
                           variant="standard"
                           value={ sessionConfig.ragResultsCount }
-                          onChange={(event) => setSessionConfig(config => ({
+                          onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             ragResultsCount: event.target.value as any,
                           }))}
@@ -262,7 +262,7 @@ const CreateSettingsWindow: FC<{
                           }}
                           variant="standard"
                           value={ sessionConfig.ragChunkSize }
-                          onChange={(event) => setSessionConfig(config => ({
+                          onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             ragChunkSize: event.target.value as any,
                           }))}
@@ -278,7 +278,7 @@ const CreateSettingsWindow: FC<{
                           }}
                           variant="standard"
                           value={ sessionConfig.ragChunkOverflow }
-                          onChange={(event) => setSessionConfig(config => ({
+                          onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             ragChunkOverflow: event.target.value as any,
                           }))}

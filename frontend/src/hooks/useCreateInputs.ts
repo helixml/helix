@@ -40,7 +40,7 @@ export interface IFinetuneInputs {
   reset: () => Promise<void>,
 }
 
-export const useFinetuneInputs = () => {
+export const useCreateInputs = () => {
   const [inputValue, setInputValue] = useState('')
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
@@ -142,4 +142,4 @@ export const useFinetuneInputs = () => {
   }
 }
 
-export default useFinetuneInputs
+export default useCreateInputs

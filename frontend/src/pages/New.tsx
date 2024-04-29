@@ -42,7 +42,7 @@ import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
 import useTools from '../hooks/useTools'
 import useSessions from '../hooks/useSessions'
-import useFinetuneInputs from '../hooks/useFinetuneInputs'
+import useCreateInputs from '../hooks/useCreateInputs'
 import useSessionConfig from '../hooks/useSessionConfig'
 import useTracking from '../hooks/useTracking'
 import useLightTheme from '../hooks/useLightTheme'
@@ -73,7 +73,7 @@ const New: FC = () => {
   const sessions = useSessions()
   
   const textFieldRef = useRef<HTMLTextAreaElement>()
-  const inputs = useFinetuneInputs()
+  const inputs = useCreateInputs()
   const sessionConfig = useSessionConfig()
   
   const themeConfig = useThemeConfig()

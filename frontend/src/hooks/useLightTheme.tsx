@@ -7,8 +7,8 @@ const useLightTheme = () => {
   const isLight = theme.palette.mode === 'light'
   const border = isLight ? themeConfig.lightBorder : themeConfig.darkBorder
   const backgroundColor = isLight ? themeConfig.lightBackgroundColor : themeConfig.darkBackgroundColor
+  const icon = isLight ? themeConfig.lightIcon : themeConfig.darkIcon
   const textColor = isLight ? themeConfig.lightText : themeConfig.neutral300
-
   const scrollbar: SxProps = {
     '&::-webkit-scrollbar': {
       width: '4px',
@@ -26,12 +26,12 @@ const useLightTheme = () => {
       background: isLight ? themeConfig.lightBackgroundColor : themeConfig.darkScrollbarHover,
     },
   }
-
   return {
     isLight,
     isDark: !isLight,
     border,
     backgroundColor,
+    icon,
     textColor,
     scrollbar,
   }
