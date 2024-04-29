@@ -9,11 +9,13 @@ import useAccount from '../../hooks/useAccount'
 const Page: React.FC<{
   topbarTitle?: string,
   topbarContent?: ReactNode,
+  headerContent?: ReactNode,
   footerContent?: ReactNode,
   sx?: SxProps,
 }> = ({
   topbarTitle,
   topbarContent,
+  headerContent,
   footerContent,
   sx = {},
   children,
@@ -40,6 +42,17 @@ const Page: React.FC<{
           { topbarContent }
         </AppBar>
       </Box>
+      {
+        headerContent && (
+          <Box
+            sx={{
+              flexGrow: 0,
+            }}
+          >
+            { headerContent }
+          </Box>
+        )
+      }
       <Box
         sx={{
           flexGrow: 1,
