@@ -59,6 +59,6 @@ export const EXAMPLE_PROMPTS: Record<string, string[]> = {
 }
 
 export const PROMPT_LABELS: Record<string, string> = {
-  SESSION_TYPE_TEXT: 'Chat with Helix...',
-  SESSION_TYPE_IMAGE: 'Describe what you want to see in an image...',
+  [SESSION_TYPE_TEXT]: 'Chat with Helix...',
+  [SESSION_TYPE_IMAGE]: 'Describe what you want to see in an image...',
 }

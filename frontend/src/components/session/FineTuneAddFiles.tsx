@@ -8,7 +8,7 @@ import AddIcon from '@mui/icons-material/Add'
 
 import AddFilesWindow from './AddFilesWindow'
 
-import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useCreateInputs from '../../hooks/useCreateInputs'
 import useApi from '../../hooks/useApi'
 
 import {
@@ -25,7 +25,7 @@ export const FineTuneAddFiles: FC<{
   onReloadSession,
 }) => {
   const api = useApi()
-  const inputs = useFinetuneInputs()
+  const inputs = useCreateInputs()
   const [ addFilesMode, setAddFilesMode ] = useState(false)
 
   // this is for text finetune
