@@ -1,19 +1,27 @@
 import React, { FC, useState, useEffect } from 'react'
+import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
 import CreateToolbar from '../components/create/Toolbar'
 import ConfigWindow from '../components/create/ConfigWindow'
+import SessionTypeTabs from '../components/create/SessionTypeTabs'
+import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
+import CenterMessage from '../components/create/CenterMessage'
+import ExamplePrompts from '../components/create/ExamplePrompts'
+import InferenceTextField from '../components/create/InferenceTextField'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
+import useCreateInputs from '../hooks/useCreateInputs'
 
 import {
   ISessionMode,
   ISessionType,
   ICreateSessionConfig,
   SESSION_MODE_INFERENCE,
+  SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
 } from '../types'
 
@@ -27,6 +35,7 @@ const Create: FC = () => {
   const lightTheme = useLightTheme()
   const tools = useTools()
   const account = useAccount()
+  const inputs = useCreateInputs()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
@@ -44,6 +53,7 @@ const Create: FC = () => {
 
   return (
     <Page
+      topbarTitle={ mode == SESSION_MODE_FINETUNE ? 'The start of something beautiful' : '' }
       topbarContent={(
         <CreateToolbar
           mode={ mode }
@@ -60,14 +70,75 @@ const Create: FC = () => {
         backgroundPosition: 'center center',
         backgroundRepeat: 'no-repeat',
       }}
+      footerContent={(
+        <Box
+          sx={{
+            p: 2,
+          }}
+        >
+          <ExamplePrompts
+            type={ type }
+            onPrompt={ (prompt) => {
+              console.log('--------------------------------------------')
+              console.log(prompt)
+            }}
+          />
+          <InferenceTextField
+            type={ type }
+            value={ inputs.inputValue }
+            disabled={ mode == SESSION_MODE_FINETUNE }
+            startAdornment={(
+              <SessionTypeSwitch
+                type={ type }
+                onSetType={ type => router.setParams({type}) }
+              />
+            )}
+            onUpdate={ inputs.setInputValue }
+            onInference={ () => {
+              console.log('--------------------------------------------')
+              console.log(inputs.inputValue)
+            }}
+          />
+        </Box>
+      )}
     >
+      {
+        mode == SESSION_MODE_FINETUNE && (
+          <>
+            <SessionTypeTabs
+              type={ type }
+              onSetType={ type => router.setParams({type}) }
+            />
+          </>
+        )
+      }
+      {
+        mode == SESSION_MODE_INFERENCE && (
+          <>
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pt: 10,
+              }}
+            >
+              <CenterMessage
+                type={ type }
+                onSetType={ type => router.setParams({type}) }
+              />
+            </Box>
+          </>
+        )
+      }
       {
         showConfigWindow && (
           <ConfigWindow
             mode={ mode }
             type={ type }
             sessionConfig={ sessionConfig }
-            setSessionConfig={ setSessionConfig }
+            onSetSessionConfig={ setSessionConfig }
             onClose={ () => setShowConfigWindow(false) }
           />
         )

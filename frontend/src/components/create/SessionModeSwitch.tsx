@@ -19,10 +19,10 @@ import {
 } from '../../types'
 
 const SessionModeSwitch: FC<{
-  mode?: ISessionMode,
+  mode: ISessionMode,
   onSetMode: (mode: ISessionMode) => void,
 }> = ({
-  mode = SESSION_MODE_INFERENCE,
+  mode,
   onSetMode,
 }) => {
   const theme = useTheme()

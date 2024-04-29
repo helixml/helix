@@ -6,7 +6,7 @@ import FineTuneImageLabels from './FineTuneImageLabels'
 import FineTuneTextInputs from './FineTuneTextInputs'
 import UploadingOverlay from '../widgets/UploadingOverlay'
 
-import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useCreateInputs from '../../hooks/useCreateInputs'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 
@@ -28,7 +28,7 @@ export const AddFilesWindow: FC<{
 }) => {
   const snackbar = useSnackbar()
   const api = useApi()
-  const inputs = useFinetuneInputs()
+  const inputs = useCreateInputs()
 
   const addDocumentsSubmitTitle = useMemo(() => {
     if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {

@@ -1,6 +1,9 @@
 import {
   IHelixModel,
   ICreateSessionConfig,
+  SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
+  ISessionType,
 } from './types'
 
 export const HELIX_TEXT_MODELS: IHelixModel[] = [{
@@ -32,4 +35,30 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   ragResultsCount: 3,
   ragChunkSize: 1024,
   ragChunkOverflow: 20,
+}
+
+// TODO: a typescript god needs to tell me why we can't have
+// Record<ISessionType, string[]> ???
+export const EXAMPLE_PROMPTS: Record<string, string[]> = {
+  [SESSION_TYPE_TEXT]: [
+    "Draft a weekly newsletter focusing on [a specific topic] tailored for a particular [company type], covering all necessary updates and insights",
+    "Prepare a pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
+    "Compose a email regarding project timeline adjustments to a client, explaining the reasons, impacts, and the revised timelines",
+    "Develop a market analysis report on [industry/market segment], identifying key trends, challenges, and opportunities for growth",
+    "Write an executive summary for a strategic plan focusing on [specific objective], including background, strategy, and expected outcomes",
+    "Create a business proposal for [product/service] targeting [specific audience], outlining the value proposition, competitive advantage, and financial projections"
+  ],
+  [SESSION_TYPE_IMAGE]: [
+    "Generate a beautiful photograph of a [color] rose garden, on a [weather condition] day, with [sky features], [additional elements], and a [sky color]",
+    "Create an image of an interior design for a [adjective describing luxury] master bedroom, featuring [materials] furniture, [style keywords]",
+    "Vaporwave style, [vehicle type], [setting], intricately detailed, [color palette], [resolution] resolution, photorealistic, [artistic adjectives]",
+    "Design a corporate brochure cover for a [industry] firm, featuring [architectural style], clean lines, and the company's color scheme",
+    "Produce an infographic illustrating the growth of [topic] over the last decade, using [color palette] and engaging visuals",
+    "Visualize data on customer satisfaction ratings for [product/service], highlighting key strengths and areas for improvement"
+  ]
+}
+
+export const PROMPT_LABELS: Record<string, string> = {
+  SESSION_TYPE_TEXT: 'Chat with Helix...',
+  SESSION_TYPE_IMAGE: 'Describe what you want to see in an image...',
 }
