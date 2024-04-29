@@ -16,10 +16,10 @@ import {
 
 const ExamplePrompts: FC<{
   type: ISessionType,
-  onPrompt: (prompt: string) => void,
+  onChange: (prompt: string) => void,
 }> = ({
   type,
-  onPrompt,
+  onChange,
 }) => {
   const isBigScreen = useIsBigScreen()
   const lightTheme = useLightTheme()
@@ -52,11 +52,11 @@ const ExamplePrompts: FC<{
                 cursor: 'pointer',
                 border: lightTheme.border,
                 borderRadius: 3,
-                padding: 1,
+                padding: 1.5,
                 fontSize: 'small',
                 lineHeight: 1.4,
               }}
-              onClick={() => onPrompt(prompt)}
+              onClick={() => onChange(prompt)}
             >
               {prompt}
             </Box>

@@ -37,6 +37,7 @@ const Create: FC = () => {
   const account = useAccount()
   const inputs = useCreateInputs()
 
+  const [ initialPrompt, setInitialPrompt ] = useState('')
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
 
@@ -50,7 +51,7 @@ const Create: FC = () => {
   }, [
     account.user,
   ])
-
+  
   return (
     <Page
       topbarTitle={ mode == SESSION_MODE_FINETUNE ? 'The start of something beautiful' : '' }
@@ -71,18 +72,15 @@ const Create: FC = () => {
         backgroundRepeat: 'no-repeat',
       }}
       footerContent={(
-        <Box
-          sx={{
-            p: 2,
-          }}
-        >
-          <ExamplePrompts
-            type={ type }
-            onPrompt={ (prompt) => {
-              console.log('--------------------------------------------')
-              console.log(prompt)
-            }}
-          />
+        <Box sx={{ p: 3 }}>
+          <Box sx={{ mb: 3 }}>
+            <ExamplePrompts
+              type={ type }
+              onChange={ (prompt) => {
+                inputs.setInputValue(prompt)
+              }}
+            />
+          </Box>
           <InferenceTextField
             type={ type }
             value={ inputs.inputValue }

@@ -1,4 +1,4 @@
-import React, { FC, ReactNode, useRef } from 'react'
+import React, { FC, ReactNode, useRef, useEffect } from 'react'
 import TextField from '@mui/material/TextField'
 import InputAdornment from '@mui/material/InputAdornment'
 import IconButton from '@mui/material/IconButton'
@@ -45,6 +45,12 @@ const InferenceTextField: FC<{
       }
     }
   }
+
+  useEffect(() => {
+    if (textFieldRef.current && !textFieldRef.current?.matches(':focus')) {
+      textFieldRef.current.focus()
+    }
+  }, [value])
 
   return (
     <TextField
