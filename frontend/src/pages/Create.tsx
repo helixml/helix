@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
@@ -33,11 +33,8 @@ import {
 const Create: FC = () => {
   const router = useRouter()
   const lightTheme = useLightTheme()
-  const tools = useTools()
-  const account = useAccount()
   const inputs = useCreateInputs()
 
-  const [ initialPrompt, setInitialPrompt ] = useState('')
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
 
@@ -45,13 +42,6 @@ const Create: FC = () => {
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
 
-  useEffect(() => {
-    if(!account.user) return
-    tools.loadData()
-  }, [
-    account.user,
-  ])
-  
   return (
     <Page
       topbarTitle={ mode == SESSION_MODE_FINETUNE ? 'The start of something beautiful' : '' }
@@ -71,7 +61,7 @@ const Create: FC = () => {
         backgroundPosition: 'center center',
         backgroundRepeat: 'no-repeat',
       }}
-      footerContent={(
+      footerContent={ mode == SESSION_MODE_INFERENCE ? (
         <Box sx={{ p: 3 }}>
           <Box sx={{ mb: 3 }}>
             <ExamplePrompts
@@ -98,7 +88,7 @@ const Create: FC = () => {
             }}
           />
         </Box>
-      )}
+      ) : null}
     >
       {
         mode == SESSION_MODE_FINETUNE && (

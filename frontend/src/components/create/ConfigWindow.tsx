@@ -1,4 +1,4 @@
-import React, { FC, useState, SetStateAction, Dispatch } from 'react'
+import React, { FC, useState, SetStateAction, Dispatch, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
@@ -59,6 +59,13 @@ const CreateSettingsWindow: FC<{
       }))
     }
   }
+
+  useEffect(() => {
+    if(!account.user) return
+    tools.loadData()
+  }, [
+    account.user,
+  ])
 
   return (
     <Window
