@@ -87,15 +87,13 @@ const Sidebar: React.FC<{
                 sx={{
                   ml: 2,
                   p: 1,
-                  fontWeight: 'heading',
-                  '&:hover': {
-                    color: themeConfig.darkHighlight,
-                  },
+                  fontWeight: 'bold',
+                  color: '#d5f4fa',
                 }}
                 primary="New Session"
               />
-              <ListItemIcon>
-                <AddIcon color="primary" />
+              <ListItemIcon sx={{color: '#d5f4fa'}}>
+                <AddIcon />
               </ListItemIcon>
             </ListItemButton>
           </ListItem>
@@ -136,7 +134,7 @@ const Sidebar: React.FC<{
           <Typography
             variant="body2"
             sx={{
-              color: lightTheme.textColor,
+              color: lightTheme.textColorFaded,
               flexGrow: 1,
               display: 'flex',
               justifyContent: 'flex-start',
@@ -152,7 +150,7 @@ const Sidebar: React.FC<{
           <Typography
             variant="body2"
             sx={{
-              color: lightTheme.textColor,
+              color: lightTheme.textColorFaded,
               flexGrow: 1,
               display: 'flex',
               justifyContent: 'flex-start',
@@ -177,9 +175,14 @@ const Sidebar: React.FC<{
             {
               account.user ? (
                 <>
-                  <Typography variant="caption">
-                    Signed in as<br /> {account.user.email}
-                  </Typography>
+                  <Box>
+                    <Typography variant="body2" sx={{fontWeight: 'bold'}}>
+                      {account.user.name}
+                    </Typography>
+                    <Typography variant="caption" sx={{color: lightTheme.textColorFaded}}>
+                      {account.user.email}
+                    </Typography>
+                  </Box>
                   <IconButton
                     size="large"
                     aria-label="account of current user"
@@ -188,8 +191,8 @@ const Sidebar: React.FC<{
                     onClick={(event: React.MouseEvent<HTMLElement>) => {
                       setAccountMenuAnchorEl(event.currentTarget)
                     }}
-                    color="inherit"
-                    sx={{marginLeft: "auto"}}
+                    
+                    sx={{marginLeft: "auto", color: lightTheme.textColorFaded}}
                   >
                     <MoreVertIcon />
                   </IconButton>

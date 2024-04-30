@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton'
 import SendIcon from '@mui/icons-material/Send'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import useEnterPress from '../../hooks/useEnterPress'
 
 import {
   ISessionType,
@@ -30,20 +31,14 @@ const InferenceTextField: FC<{
 }) => {
   const lightTheme = useLightTheme()
   const textFieldRef = useRef<HTMLTextAreaElement>()
+  const handleKeyDown = useEnterPress({
+    value,
+    updateHandler: onUpdate,
+    triggerHandler: onInference,
+  })
   
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     onUpdate(event.target.value)
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      if (event.shiftKey) {
-        onUpdate(value + "\n")
-      } else {
-        onInference()
-      }
-    }
   }
 
   useEffect(() => {
@@ -61,10 +56,10 @@ const InferenceTextField: FC<{
       label={ `${PROMPT_LABELS[type]} (shift+enter to add a newline)` }
       value={ value }
       disabled={ disabled }
-      onChange={handleInputChange}
+      onChange={ handleInputChange }
       name="ai_submit"
-      multiline={true}
-      onKeyDown={handleKeyDown}
+      multiline={ true }
+      onKeyDown={ handleKeyDown }
       InputProps={{
         startAdornment: startAdornment ? (
           <InputAdornment position="start">

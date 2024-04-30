@@ -11,6 +11,8 @@ import ExamplePrompts from '../components/create/ExamplePrompts'
 import InferenceTextField from '../components/create/InferenceTextField'
 import Disclaimer from '../components/widgets/Disclaimer'
 
+import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
+
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useCreateInputs from '../hooks/useCreateInputs'
@@ -29,7 +31,7 @@ import {
   HELIX_DEFAULT_TEXT_MODEL,
 } from '../config'
 
-const PADDING_X = 3
+const PADDING_X = 6
 
 const Create: FC = () => {
   const router = useRouter()
@@ -55,10 +57,17 @@ const Create: FC = () => {
   )
 
   const headerContent = mode == SESSION_MODE_FINETUNE && (
-    <SessionTypeTabs
-      type={ type }
-      onSetType={ type => router.setParams({type}) }
-    />
+    <Box
+      sx={{
+        mt: 3,
+        px: PADDING_X,
+      }}
+    >
+      <SessionTypeTabs
+        type={ type }
+        onSetType={ type => router.setParams({type}) }
+      />
+    </Box>
   )
 
   const footerContent = mode == SESSION_MODE_INFERENCE ? (
@@ -97,6 +106,7 @@ const Create: FC = () => {
     <Box
       sx={{
         p: 0,
+        px: PADDING_X,
         borderTop: lightTheme.border,
         height: '100px',
         backgroundColor: 'rgba(0,0,0,0.5)',
@@ -123,24 +133,39 @@ const Create: FC = () => {
       
       {
         mode == SESSION_MODE_INFERENCE && (
-          <>
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pt: 10,
-              }}
-            >
-              <CenterMessage
-                type={ type }
-                onSetType={ type => router.setParams({type}) }
-              />
-            </Box>
-          </>
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pt: 10,
+            }}
+          >
+            <CenterMessage
+              type={ type }
+              onSetType={ type => router.setParams({type}) }
+            />
+          </Box>
         )
       }
+
+      {
+        mode == SESSION_MODE_FINETUNE && (
+          <Box
+            sx={{
+              pt: 2,
+              px: PADDING_X,
+            }}
+          >
+            <AddDocumentsForm
+              files={ inputs.finetuneFiles }
+              onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+            />
+          </Box>
+        )
+      }
+
       {
         showConfigWindow && (
           <ConfigWindow

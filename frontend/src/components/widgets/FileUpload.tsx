@@ -1,4 +1,4 @@
-import React, {FC,useCallback} from 'react'
+import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
 import { useDropzone, DropzoneOptions } from 'react-dropzone'
@@ -7,7 +7,7 @@ const FileUpload: FC<{
   sx?: SxProps,
   onlyImages?: boolean,
   onlyDocuments?: boolean,
-  onUpload: (files: File[]) => Promise<void>,
+  onUpload: (files: File[]) => void,
 }> = ({
   children,
   sx = {},
