@@ -9,14 +9,19 @@ import AddIcon from '@mui/icons-material/Add'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 
 import Caption from '../widgets/Caption'
+import FileIcon from './FileIcon'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
 import useEnterPress from '../../hooks/useEnterPress'
 
+import {
+  IUploadFile,
+} from '../../types'
+
 export const AddDocumentsForm: FC<{
-  files: File[],
-  onAddFiles: (files: File[]) => void,
+  files: IUploadFile[],
+  onAddFiles: (files: IUploadFile[]) => void,
 }> = ({
   files,
   onAddFiles,
@@ -32,7 +37,10 @@ export const AddDocumentsForm: FC<{
       return
     }
     const title = decodeURIComponent(manualURL.replace(/\/$/i, '')).replace(/^https?:\/\//i, '').replace(/^www\./i, '')
-    onAddFiles([new File([new Blob([manualURL], { type: 'text/html' })], `${title}.url`)])
+    onAddFiles([{
+      label: manualURL,
+      file: new File([new Blob([manualURL], { type: 'text/html' })], `${title}.url`),
+    }])
     setManualURL('')
   }
 
@@ -42,18 +50,22 @@ export const AddDocumentsForm: FC<{
       return
     }
     const counter = files.reduce((acc, file) => {
-      return acc + (file.name.match(/\.txt$/i) ? 1 : 0)
+      return acc + (file.file.name.match(/\.txt$/i) ? 1 : 0)
     }, 0)
     
     const title = `textfile-${counter}.txt`
-    onAddFiles([new File([new Blob([manualTextFile], { type: 'text/plain' })], title)])
+    onAddFiles([{
+      label: manualTextFile,
+      file: new File([new Blob([manualTextFile], { type: 'text/plain' })], title)
+    }])
     setManualTextFile('')
   }
 
   const onDropFiles = (newFiles: File[]) => {
-    console.log('--------------------------------------------')
-    console.log('newFiles', newFiles)
-    onAddFiles(newFiles)
+    onAddFiles(newFiles.map(f => ({
+      label: f.name,
+      file: f,
+    })))
   }
 
   const handleKeyDownURL = useEnterPress({
@@ -61,9 +73,6 @@ export const AddDocumentsForm: FC<{
     updateHandler: setManualURL,
     triggerHandler: onAddURL,
   })
-
-  console.log('--------------------------------------------')
-  console.log(files)
 
   return (
     <>
@@ -259,7 +268,7 @@ export const AddDocumentsForm: FC<{
         {files.length > 0 && files.map((file, index) => {
           return (
             <Box
-              key={file.name}
+              key={file.file.name}
               sx={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -276,9 +285,12 @@ export const AddDocumentsForm: FC<{
                   color: '#999',
                 }}
               >
-                <AttachFileIcon sx={{ mr: 1 }} />
+                <FileIcon
+                  name={ file.file.name }
+                  sx={{ mr: 1 }}
+                />
                 <Caption sx={{ maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {file.name}
+                  {file.file.name}
                 </Caption>
               </Box>
             </Box>
