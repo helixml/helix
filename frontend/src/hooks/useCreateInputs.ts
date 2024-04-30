@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, SetStateAction, Dispatch } from 'react'
 import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
 import {
+  IUploadedFile,
   ISerializedPage,
 } from '../types'
 
@@ -20,19 +21,21 @@ import {
 
 export interface IFinetuneInputs {
   inputValue: string,
-  setInputValue: (value: string) => void,
+  setInputValue: Dispatch<SetStateAction<string>>,
   manualTextFileCounter: number,
-  setManualTextFileCounter: (value: number) => void,
+  setManualTextFileCounter: Dispatch<SetStateAction<number>>,
   fineTuneStep: number,
-  setFineTuneStep: (value: number) => void,
+  setFineTuneStep: Dispatch<SetStateAction<number>>,
   showImageLabelErrors: boolean,
-  setShowImageLabelErrors: (value: boolean) => void,
+  setShowImageLabelErrors: Dispatch<SetStateAction<boolean>>,
   files: File[],
-  setFiles: (value: File[]) => void,
+  setFiles: Dispatch<SetStateAction<File[]>>,
+  finetuneFiles: IUploadedFile[],
+  setFinetuneFiles: Dispatch<SetStateAction<IUploadedFile[]>>,
   labels: Record<string, string>,
-  setLabels: (value: Record<string, string>) => void,
+  setLabels: Dispatch<SetStateAction<Record<string, string>>>,
   uploadProgress: IFilestoreUploadProgress | undefined,
-  setUploadProgress: (value: IFilestoreUploadProgress | undefined) => void,
+  setUploadProgress: Dispatch<SetStateAction<IFilestoreUploadProgress | undefined>>,
   serializePage: () => Promise<void>,
   loadFromLocalStorage: () => Promise<void>,
   setFormData: (formData: FormData) => FormData,
@@ -47,6 +50,7 @@ export const useCreateInputs = () => {
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
+  const [finetuneFiles, setFinetuneFiles] = useState<IUploadedFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
   
   const serializePage = useCallback(async () => {
@@ -132,6 +136,7 @@ export const useCreateInputs = () => {
     fineTuneStep, setFineTuneStep,
     showImageLabelErrors, setShowImageLabelErrors,
     files, setFiles,
+    finetuneFiles, setFinetuneFiles,
     labels, setLabels,
     uploadProgress, setUploadProgress,
     serializePage,

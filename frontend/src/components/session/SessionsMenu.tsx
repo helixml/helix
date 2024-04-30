@@ -17,6 +17,7 @@ import ClickLink from '../widgets/ClickLink'
 
 import useSessions from '../../hooks/useSessions'
 import useRouter from '../../hooks/useRouter'
+import useLightTheme from '../../hooks/useLightTheme'
 
 import {
   SESSION_MODE_FINETUNE,
@@ -33,6 +34,7 @@ export const SessionsMenu: FC<{
   onOpenSession,
 }) => {
   const sessions = useSessions()
+  const lightTheme = useLightTheme()
   const {
     navigate,
     params,
@@ -76,7 +78,13 @@ export const SessionsMenu: FC<{
                   </ListItemIcon>
                   <ListItemText
                     sx={{marginLeft: "-15px"}}
-                    primaryTypographyProps={{ fontSize: 'small', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    primaryTypographyProps={{
+                      fontSize: 'small',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      color: lightTheme.textColorFaded,
+                    }}
                     primary={ session.name }
                     id={ session.session_id }
                   />
