@@ -8,6 +8,8 @@ import {
   SESSION_TYPE_IMAGE,
 } from '../../types'
 
+import useLightTheme from '../../hooks/useLightTheme'
+
 import {
   COLORS,
 } from '../../config'
@@ -19,6 +21,8 @@ const SessionTypeTabs: FC<{
   type,
   onSetType,
 }) => {
+  const lightTheme = useLightTheme()
+
   return (
     <Box
       sx={{
@@ -37,7 +41,7 @@ const SessionTypeTabs: FC<{
               content: '""',
               display: 'block',
               height: '2px',
-              backgroundColor: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
+              backgroundColor: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : lightTheme.icon,
               marginTop: '0.25rem',
             }
           }}
@@ -48,7 +52,7 @@ const SessionTypeTabs: FC<{
             sx={{
               fontSize: "medium",
               fontWeight: 800,
-              color: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : 'rgba(255, 255, 255, 0.2)',
+              color: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : lightTheme.icon,
               marginBottom: '10px',
             }}
           >
@@ -64,7 +68,7 @@ const SessionTypeTabs: FC<{
               content: '""',
               display: 'block',
               height: '2px',
-              backgroundColor: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : 'rgba(255, 255, 255, 0.2)',
+              backgroundColor: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
             }
           }}
           onClick={() => onSetType(SESSION_TYPE_TEXT)}
@@ -74,7 +78,7 @@ const SessionTypeTabs: FC<{
             sx={{
               fontSize: "medium",
               fontWeight: 800,
-              color: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : 'rgba(255, 255, 255, 0.2)',
+              color: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
               marginBottom: '10px',
             }}
           >

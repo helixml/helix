@@ -87,8 +87,12 @@ const Sidebar: React.FC<{
                 sx={{
                   ml: 2,
                   p: 1,
-                  fontWeight: 'bold',
-                  color: '#d5f4fa',
+                }}
+                primaryTypographyProps={{
+                  sx: {
+                    fontWeight: 'bold',
+                    color: '#d5f4fa',
+                  }
                 }}
                 primary="New Session"
               />

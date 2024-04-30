@@ -31,17 +31,6 @@ const Cell: FC<{
     sx,
   ])
 
-  const useJustifyContent = useMemo(() => {
-    const useSx = sx as any
-    if(useSx.justifyContent !== undefined) return useSx.justifyContent
-    if(end) return 'flex-end'
-    return 'flex-start'
-  }, [
-    flexGrow,
-    grow,
-    sx,
-  ])
-
   // this is when the screen is small and the user has given a breakpoint
   if(breakpoint && !isLarge) {
     return (
