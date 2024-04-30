@@ -19,10 +19,12 @@ import useAccount from '../../hooks/useAccount'
 
 const AppBar: React.FC<{
   height?: number,
+  px?: number,
   title?: string,
   onOpenDrawer?: () => void,
 }> = ({
   height = 78,
+  px = 3,
   title,
   onOpenDrawer,
   children,
@@ -39,21 +41,23 @@ const AppBar: React.FC<{
       color="default"
       sx={{
         height,
-        px: 0,
         borderBottom: lightTheme.border,
         width: '100%',
       }}
     >
       <Toolbar
         sx={{
-          pr: '12px', // keep right padding when drawer closed
           height: '100%',
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
           width: '100%',
-          mx: 0,
           backgroundColor: lightTheme.backgroundColor,
+          padding: 0,
+          margin: 0,
+          '&.MuiToolbar-root': {
+            px,
+          },
         }}
       >
         <Row>
@@ -85,7 +89,6 @@ const AppBar: React.FC<{
                   noWrap
                   sx={{
                       flexGrow: 1,
-                      ml: 1,
                       color: 'text.primary',
                       fontWeight: 'bold', 
                   }}

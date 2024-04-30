@@ -8,6 +8,10 @@ import {
   SESSION_TYPE_IMAGE,
 } from '../../types'
 
+import {
+  COLORS,
+} from '../../config'
+
 const SessionTypeTabs: FC<{
   type: ISessionType,
   onSetType: (type: ISessionType) => void,
@@ -21,10 +25,9 @@ const SessionTypeTabs: FC<{
         width: '100%',
         display: 'flex',
         justifyContent: 'center',
-        p: 4,
       }}
     >
-      <Box sx={{ display: 'flex', width: '92%' }}>
+      <Box sx={{ display: 'flex', width: '100%' }}>
         <Box
           sx={{
             width: '50%',
@@ -34,7 +37,7 @@ const SessionTypeTabs: FC<{
               content: '""',
               display: 'block',
               height: '2px',
-              backgroundColor: type === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
+              backgroundColor: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : 'rgba(255, 255, 255, 0.2)', // Light white with transparency if Text is selected
               marginTop: '0.25rem',
             }
           }}
@@ -45,7 +48,7 @@ const SessionTypeTabs: FC<{
             sx={{
               fontSize: "medium",
               fontWeight: 800,
-              color: type === SESSION_TYPE_IMAGE ? '#3BF959' : 'rgba(255, 255, 255, 0.2)',
+              color: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : 'rgba(255, 255, 255, 0.2)',
               marginBottom: '10px',
             }}
           >
@@ -61,7 +64,7 @@ const SessionTypeTabs: FC<{
               content: '""',
               display: 'block',
               height: '2px',
-              backgroundColor: type === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+              backgroundColor: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : 'rgba(255, 255, 255, 0.2)',
             }
           }}
           onClick={() => onSetType(SESSION_TYPE_TEXT)}
@@ -71,7 +74,7 @@ const SessionTypeTabs: FC<{
             sx={{
               fontSize: "medium",
               fontWeight: 800,
-              color: type === SESSION_TYPE_TEXT ? '#ffff00' : 'rgba(255, 255, 255, 0.2)',
+              color: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : 'rgba(255, 255, 255, 0.2)',
               marginBottom: '10px',
             }}
           >
