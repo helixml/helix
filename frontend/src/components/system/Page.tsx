@@ -11,12 +11,14 @@ const Page: React.FC<{
   topbarContent?: ReactNode,
   headerContent?: ReactNode,
   footerContent?: ReactNode,
+  px?: number,
   sx?: SxProps,
 }> = ({
   topbarTitle,
   topbarContent,
   headerContent,
   footerContent,
+  px = 3,
   sx = {},
   children,
 }) => {
@@ -37,6 +39,7 @@ const Page: React.FC<{
       >
         <AppBar
           title={ topbarTitle }
+          px={ px }
           onOpenDrawer={ () => account.setMobileMenuOpen(true) }
         >
           { topbarContent }

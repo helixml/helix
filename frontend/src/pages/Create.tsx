@@ -2,7 +2,7 @@ import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
 
 import Page from '../components/system/Page'
-import CreateToolbar from '../components/create/Toolbar'
+import Toolbar from '../components/create/Toolbar'
 import ConfigWindow from '../components/create/ConfigWindow'
 import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
@@ -13,8 +13,6 @@ import Disclaimer from '../components/widgets/Disclaimer'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
-import useTools from '../hooks/useTools'
-import useAccount from '../hooks/useAccount'
 import useCreateInputs from '../hooks/useCreateInputs'
 
 import {
@@ -31,6 +29,8 @@ import {
   HELIX_DEFAULT_TEXT_MODEL,
 } from '../config'
 
+const PADDING_X = 3
+
 const Create: FC = () => {
   const router = useRouter()
   const lightTheme = useLightTheme()
@@ -44,7 +44,7 @@ const Create: FC = () => {
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
 
   const topbar = (
-    <CreateToolbar
+    <Toolbar
       mode={ mode }
       type={ type }
       model={ model }
@@ -62,7 +62,7 @@ const Create: FC = () => {
   )
 
   const footerContent = mode == SESSION_MODE_INFERENCE ? (
-    <Box sx={{ px: 3 }}>
+    <Box sx={{ px: PADDING_X }}>
       <Box sx={{ mb: 3 }}>
         <ExamplePrompts
           type={ type }
@@ -94,7 +94,14 @@ const Create: FC = () => {
       </Box>
     </Box>
   ) : (
-    <Box sx={{ p: 0 }}>
+    <Box
+      sx={{
+        p: 0,
+        borderTop: lightTheme.border,
+        height: '100px',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+      }}
+    >
 
     </Box>
   )
@@ -105,10 +112,11 @@ const Create: FC = () => {
       topbarContent={ topbar }
       headerContent={ headerContent }
       footerContent={ footerContent }
+      px={ PADDING_X }
       sx={{
         backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
         backgroundSize: '80%',
-        backgroundPosition: 'center center',
+        backgroundPosition: mode == SESSION_MODE_INFERENCE ? 'center center' : `center ${window.innerHeight - 280}px`,
         backgroundRepeat: 'no-repeat',
       }}
     >

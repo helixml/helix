@@ -44,14 +44,13 @@ const ModelPicker: FC<{
           mx: 0,
           color: 'text.primary',
           borderRadius: '15px', // Add rounded corners
-          padding: "3px",
           cursor: "pointer",
           "&:hover": {
             backgroundColor: lightTheme.isLight ? "#efefef" : "#13132b",
           },
         }}
       >
-        &nbsp;&nbsp;{modelData.title} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+        {modelData.title} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
       </Typography>
       <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
         <Menu

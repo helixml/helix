@@ -37,9 +37,7 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   ragChunkOverflow: 20,
 }
 
-// TODO: a typescript god needs to tell me why we can't have
-// Record<ISessionType, string[]> ???
-export const EXAMPLE_PROMPTS: Record<string, string[]> = {
+export const EXAMPLE_PROMPTS = {
   [SESSION_TYPE_TEXT]: [
     "Draft a weekly newsletter focusing on [a specific topic] tailored for a particular [company type], covering all necessary updates and insights",
     "Prepare a pitch for [presentation topic] aimed at potential investors, highlighting key benefits, projections, and strategic advantages",
@@ -58,7 +56,12 @@ export const EXAMPLE_PROMPTS: Record<string, string[]> = {
   ]
 }
 
-export const PROMPT_LABELS: Record<string, string> = {
+export const PROMPT_LABELS = {
   [SESSION_TYPE_TEXT]: 'Chat with Helix...',
   [SESSION_TYPE_IMAGE]: 'Describe what you want to see in an image...',
+}
+
+export const COLORS = {
+  [SESSION_TYPE_TEXT]: '#ffff00',
+  [SESSION_TYPE_IMAGE]: '#3BF959',
 }
