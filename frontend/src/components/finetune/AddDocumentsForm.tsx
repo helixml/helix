@@ -1,14 +1,17 @@
 import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
-import { prettyBytes } from '../../utils/format'
+import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
 import FileUpload from '../widgets/FileUpload'
 
+import LinkIcon from '@mui/icons-material/Link'
 import AddIcon from '@mui/icons-material/Add'
+import TextFieldsIcon from '@mui/icons-material/TextFields'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+
+import Caption from '../widgets/Caption'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -51,6 +54,8 @@ export const AddDocumentsForm: FC<{
   }
 
   const onDropFiles = (newFiles: File[]) => {
+    console.log('--------------------------------------------')
+    console.log('newFiles', newFiles)
     onAddFiles(newFiles)
   }
 
@@ -244,7 +249,45 @@ export const AddDocumentsForm: FC<{
           </Typography>
         </Box>
       </FileUpload>
-      
+      <Box
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          mt: 3,
+        }}
+       >
+        {files.length > 0 && files.map((file, index) => {
+          return (
+            <Box
+              key={file.name}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                mr: 5,
+                mb: 2,
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  color: '#999',
+                }}
+              >
+                <AttachFileIcon sx={{ mr: 1 }} />
+                <Caption sx={{ maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {file.name}
+                </Caption>
+              </Box>
+            </Box>
+          )
+        })}
+      </Box>
     </>
   )
 }

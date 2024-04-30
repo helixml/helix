@@ -102,7 +102,7 @@ const Create: FC = () => {
         <Disclaimer />
       </Box>
     </Box>
-  ) : (
+  ) : inputs.finetuneFiles.length > 0 ? (
     <Box
       sx={{
         p: 0,
@@ -114,7 +114,7 @@ const Create: FC = () => {
     >
 
     </Box>
-  )
+  ) : null
 
   return (
     <Page
