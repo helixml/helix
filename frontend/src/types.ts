@@ -554,3 +554,9 @@ export interface IHelixModel {
   title: string,
   description: string,
 }
+
+export interface IUploadFile {
+  // used for the file drawer - e.g. show the actual URL or a preview of the text
+  label: string,
+  file: File,
+}

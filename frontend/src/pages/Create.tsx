@@ -17,6 +17,7 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
+import FileDrawer from '../components/finetune/FileDrawer'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
@@ -47,6 +48,7 @@ const Create: FC = () => {
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
+  const [ showFileDrawer, setShowFileDrawer ] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
@@ -125,7 +127,7 @@ const Create: FC = () => {
             {inputs.finetuneFiles.length} file{inputs.finetuneFiles.length !== 1 ? 's' : ''} added.
             <Link
               component="button"
-              onClick={() => {}}
+              onClick={() => setShowFileDrawer(true)}
               sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
               >
               View or edit files
@@ -211,6 +213,17 @@ const Create: FC = () => {
             sessionConfig={ sessionConfig }
             onSetSessionConfig={ setSessionConfig }
             onClose={ () => setShowConfigWindow(false) }
+          />
+        )
+      }
+
+      {
+        showFileDrawer && (
+          <FileDrawer
+            open
+            files={ inputs.finetuneFiles }
+            onUpdate={ inputs.setFinetuneFiles }
+            onClose={ () => setShowFileDrawer(false) }
           />
         )
       }

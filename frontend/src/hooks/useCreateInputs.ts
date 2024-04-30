@@ -3,7 +3,7 @@ import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
 import {
-  IUploadedFile,
+  IUploadFile,
   ISerializedPage,
 } from '../types'
 
@@ -30,8 +30,8 @@ export interface IFinetuneInputs {
   setShowImageLabelErrors: Dispatch<SetStateAction<boolean>>,
   files: File[],
   setFiles: Dispatch<SetStateAction<File[]>>,
-  finetuneFiles: IUploadedFile[],
-  setFinetuneFiles: Dispatch<SetStateAction<IUploadedFile[]>>,
+  finetuneFiles: IUploadFile[],
+  setFinetuneFiles: Dispatch<SetStateAction<IUploadFile[]>>,
   labels: Record<string, string>,
   setLabels: Dispatch<SetStateAction<Record<string, string>>>,
   uploadProgress: IFilestoreUploadProgress | undefined,
@@ -50,7 +50,7 @@ export const useCreateInputs = () => {
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [files, setFiles] = useState<File[]>([])
-  const [finetuneFiles, setFinetuneFiles] = useState<IUploadedFile[]>([])
+  const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
   
   const serializePage = useCallback(async () => {
