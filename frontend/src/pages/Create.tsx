@@ -1,5 +1,8 @@
 import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import Link from '@mui/material/Link'
+import Button from '@mui/material/Button'
 
 import Page from '../components/system/Page'
 import Toolbar from '../components/create/Toolbar'
@@ -10,6 +13,8 @@ import CenterMessage from '../components/create/CenterMessage'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import InferenceTextField from '../components/create/InferenceTextField'
 import Disclaimer from '../components/widgets/Disclaimer'
+import Row from '../components/widgets/Row'
+import Cell from '../components/widgets/Cell'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 
@@ -24,11 +29,13 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
+  SESSION_TYPE_IMAGE,
 } from '../types'
 
 import {
   DEFAULT_SESSION_CONFIG,
   HELIX_DEFAULT_TEXT_MODEL,
+  COLORS,
 } from '../config'
 
 const PADDING_X = 6
@@ -112,7 +119,37 @@ const Create: FC = () => {
         backgroundColor: 'rgba(0,0,0,0.5)',
       }}
     >
-
+      <Row sx={{height:'100%'}}>
+        <Cell>
+          <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
+            {inputs.finetuneFiles.length} file{inputs.finetuneFiles.length !== 1 ? 's' : ''} added.
+            <Link
+              component="button"
+              onClick={() => {}}
+              sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
+              >
+              View or edit files
+            </Link>
+          </Typography>
+        </Cell>
+        <Cell grow />
+        <Cell>
+          <Button
+            sx={{
+              bgcolor: COLORS[type],
+              color: 'black',
+              borderRadius: 1,
+              fontSize: "medium",
+              fontWeight: 800,
+              textTransform: 'none',
+            }}
+            variant="contained"
+            onClick={() => {}}
+          >
+            Continue
+          </Button>
+        </Cell>
+      </Row>
     </Box>
   ) : null
 
@@ -151,7 +188,7 @@ const Create: FC = () => {
       }
 
       {
-        mode == SESSION_MODE_FINETUNE && (
+        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_TEXT && (
           <Box
             sx={{
               pt: 2,

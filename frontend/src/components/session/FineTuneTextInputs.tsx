@@ -494,7 +494,7 @@ const [files, setFiles] = useState<CustomFile[]>(
       </Box>
 
       <Box  sx={{flexGrow: 0, }}>
-         <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ flexGrow: 0, mt: 10, mb: 2 }}>
+        <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ flexGrow: 0, mt: 10, mb: 2 }}>
           <Grid item xs={6}>
             {files.length > 0 && (
               <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
@@ -527,7 +527,7 @@ const [files, setFiles] = useState<CustomFile[]>(
               </Button>
             )}
           </Grid>
-         </Grid>
+        </Grid>
        </Box>
 
     <Drawer

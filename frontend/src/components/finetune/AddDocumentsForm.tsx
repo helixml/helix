@@ -1,14 +1,11 @@
 import React, { FC, useState } from 'react'
 import Box from '@mui/material/Box'
-import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
 import FileUpload from '../widgets/FileUpload'
 
-import LinkIcon from '@mui/icons-material/Link'
 import AddIcon from '@mui/icons-material/Add'
-import TextFieldsIcon from '@mui/icons-material/TextFields'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 
 import Caption from '../widgets/Caption'
