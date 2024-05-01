@@ -1,15 +1,11 @@
 import React, { FC, useState } from 'react'
-import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import IconButton from '@mui/material/IconButton'
 import TextField from '@mui/material/TextField'
-import FileUpload from '../widgets/FileUpload'
 
 import AddIcon from '@mui/icons-material/Add'
-import AttachFileIcon from '@mui/icons-material/AttachFile'
 
-import Caption from '../widgets/Caption'
-import FileIcon from './FileIcon'
+import FileUploadArea from './FileUploadArea'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -59,13 +55,6 @@ export const AddDocumentsForm: FC<{
       file: new File([new Blob([manualTextFile], { type: 'text/plain' })], title)
     }])
     setManualTextFile('')
-  }
-
-  const onDropFiles = (newFiles: File[]) => {
-    onAddFiles(newFiles.map(f => ({
-      label: f.name,
-      file: f,
-    })))
   }
 
   const handleKeyDownURL = useEnterPress({
@@ -217,86 +206,12 @@ export const AddDocumentsForm: FC<{
       >
         Files
       </Typography>
-      <FileUpload
+      <FileUploadArea
         onlyDocuments
-        onUpload={ onDropFiles }
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '120px',
-            minHeight: '120px',
-            cursor: 'pointer',
-            backgroundColor: '#000',
-            borderRadius: 0,
-            border: `1px solid ${lightTheme.icon}`,
-          }}
-          onClick={ () => {} }
-        >
-          <Typography
-            sx={{
-              color: lightTheme.textColorFaded,
-              cursor: 'pointer',
-            }}
-          >
-            Drag files here to upload (or&nbsp;
-            <span
-              style={{
-                textDecoration: 'underline',
-                color: lightTheme.textColor,
-              }}
-            >
-              upload manually
-            </span>
-            )
-          </Typography>
-        </Box>
-      </FileUpload>
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          mt: 3,
-        }}
-       >
-        {files.length > 0 && files.map((file, index) => {
-          return (
-            <Box
-              key={file.file.name}
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                mr: 5,
-                mb: 2,
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'flex-start',
-                  color: '#999',
-                }}
-              >
-                <FileIcon
-                  name={ file.file.name }
-                  sx={{ mr: 1 }}
-                />
-                <Caption sx={{ maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {file.file.name}
-                </Caption>
-              </Box>
-            </Box>
-          )
-        })}
-      </Box>
+        files={ files }
+        height={ 120 }
+        onAddFiles={ onAddFiles }
+      />
     </>
   )
 }
