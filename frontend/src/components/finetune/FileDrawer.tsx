@@ -121,7 +121,7 @@ export const FileDrawer: FC<{
                       />
                     </ListItemIcon>
                     <ListItemText
-                      primary={ file.label }
+                      primary={ file.drawerLabel }
                       sx={{
                         mr: 4,
                         whiteSpace: 'nowrap',

@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
@@ -18,11 +18,13 @@ import Cell from '../components/widgets/Cell'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
+import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useCreateInputs from '../hooks/useCreateInputs'
+import useSnackbar from '../hooks/useSnackbar'
 
 import {
   ISessionMode,
@@ -46,14 +48,48 @@ const Create: FC = () => {
   const router = useRouter()
   const lightTheme = useLightTheme()
   const inputs = useCreateInputs()
+  const snackbar = useSnackbar()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
+  const [ showImageLabelsEmptyError, setShowImageLabelsEmptyError ] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+  const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
+
+  const onInference = () => {
+    console.log('--------------------------------------------')
+    console.log(inputs.inputValue)
+  }
+
+  const onStartTextFinetune = () => {
+
+  }
+
+  const onStartImageFunetune = () => {
+    inputs.serializePage()
+    console.log('--------------------------------------------')
+    console.log('here2')
+    return
+    
+    const emptyLabel = inputs.files.find(file => {
+      return inputs.labels[file.name] ? false : true
+    })
+    if(emptyLabel) {
+      setShowImageLabelsEmptyError(true)
+      snackbar.error('Please label all images before continuing')
+      return
+    } else {
+      setShowImageLabelsEmptyError(false)
+    }
+  }
+
+  useEffect(() => {
+    inputs.loadFromLocalStorage()
+  }, [])
 
   const topbar = (
     <Toolbar
@@ -102,10 +138,7 @@ const Create: FC = () => {
             />
           )}
           onUpdate={ inputs.setInputValue }
-          onInference={ () => {
-            console.log('--------------------------------------------')
-            console.log(inputs.inputValue)
-          }}
+          onInference={ onInference }
         />
       </Box>
       <Box sx={{ mb: 1 }}>
@@ -147,7 +180,17 @@ const Create: FC = () => {
               textTransform: 'none',
             }}
             variant="contained"
-            onClick={() => {}}
+            onClick={() => {
+              if(type == SESSION_TYPE_TEXT) {
+                onStartTextFinetune()
+              } else if (type == SESSION_TYPE_IMAGE) {
+                if(imageFineTuneStep == 'upload') {
+                  router.setParams({imageFineTuneStep: 'label'})
+                } else {
+                  onStartImageFunetune()
+                }
+              }
+            }}
           >
             Continue
           </Button>
@@ -170,7 +213,7 @@ const Create: FC = () => {
         backgroundRepeat: 'no-repeat',
       }}
     >
-      
+
       {
         mode == SESSION_MODE_INFERENCE && (
           <Box
@@ -207,7 +250,7 @@ const Create: FC = () => {
       }
 
       {
-        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && (
+        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'upload' && (
           <Box
             sx={{
               pt: 2,
@@ -217,6 +260,24 @@ const Create: FC = () => {
             <AddImagesForm
               files={ inputs.finetuneFiles }
               onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+            />
+          </Box>
+        )
+      }
+
+      {
+        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' && (
+          <Box
+            sx={{
+              pt: 2,
+              px: PADDING_X,
+            }}
+          >
+            <LabelImagesForm
+              files={ inputs.finetuneFiles }
+              labels={ inputs.labels }
+              showEmptyErrors={ showImageLabelsEmptyError }
+              onSetLabels={ inputs.setLabels }
             />
           </Box>
         )
