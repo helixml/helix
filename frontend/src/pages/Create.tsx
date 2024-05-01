@@ -17,6 +17,7 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
+import AddImagesForm from '../components/finetune/AddImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 
 import useRouter from '../hooks/useRouter'
@@ -198,6 +199,22 @@ const Create: FC = () => {
             }}
           >
             <AddDocumentsForm
+              files={ inputs.finetuneFiles }
+              onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+            />
+          </Box>
+        )
+      }
+
+      {
+        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && (
+          <Box
+            sx={{
+              pt: 2,
+              px: PADDING_X,
+            }}
+          >
+            <AddImagesForm
               files={ inputs.finetuneFiles }
               onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
             />
