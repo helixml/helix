@@ -360,6 +360,11 @@ export interface ISessionMetaUpdate {
   owner_type?: string,
 }
 
+export interface IUploadFile {
+  // used for the file drawer - e.g. show the actual URL or a preview of the text
+  drawerLabel: string,
+  file: File,
+}
 
 export interface ISerlializedFile {
   filename: string
@@ -369,6 +374,7 @@ export interface ISerlializedFile {
 
 export interface ISerializedPage {
   files: ISerlializedFile[],
+  drawerLabels: Record<string, string>,
   labels: Record<string, string>,
   fineTuneStep: number,
   manualTextFileCounter: number,
@@ -553,10 +559,4 @@ export interface IHelixModel {
   id: string,
   title: string,
   description: string,
-}
-
-export interface IUploadFile {
-  // used for the file drawer - e.g. show the actual URL or a preview of the text
-  label: string,
-  file: File,
 }

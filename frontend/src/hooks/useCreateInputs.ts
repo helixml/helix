@@ -52,16 +52,19 @@ export const useCreateInputs = () => {
   const [files, setFiles] = useState<File[]>([])
   const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
-  
+
   const serializePage = useCallback(async () => {
-    const serializedFiles = await bluebird.map(files, async (file) => {
-      const serializedFile = await serializeFile(file)
+    const drawerLabels: Record<string, string> = {}
+    const serializedFiles = await bluebird.map(finetuneFiles, async (file) => {
+      drawerLabels[file.file.name] = file.drawerLabel
+      const serializedFile = await serializeFile(file.file)
       await saveFile(serializedFile)
       serializedFile.content = ''
       return serializedFile
     })
     const data: ISerializedPage = {
       files: serializedFiles,
+      drawerLabels,
       labels,
       fineTuneStep,
       manualTextFileCounter,
@@ -69,7 +72,7 @@ export const useCreateInputs = () => {
     }
     localStorage.setItem('new-page', JSON.stringify(data))
   }, [
-    files,
+    finetuneFiles,
     labels,
     fineTuneStep,
     manualTextFileCounter,
@@ -105,17 +108,22 @@ export const useCreateInputs = () => {
     if(!dataString) {
       return
     }
-    localStorage.removeItem('new-page')
+    // localStorage.removeItem('new-page')
     const data: ISerializedPage = JSON.parse(dataString)
     // map over the empty content files
     // load their content from the individual file key
     // turn into native File
     const loadedFiles = await bluebird.map(data.files, async file => {
       const loadedFile = await loadFile(file)
-      await deleteFile(file)
-      return deserializeFile(loadedFile)
+      // await deleteFile(file)
+      const deserializedFile = deserializeFile(loadedFile)
+      const uploadedFile: IUploadFile = {
+        drawerLabel: data.drawerLabels[deserializedFile.name],
+        file: deserializedFile,
+      }
+      return uploadedFile
     })
-    setFiles(loadedFiles)
+    setFinetuneFiles(loadedFiles)
     setLabels(data.labels)
     setFineTuneStep(data.fineTuneStep)
     setManualTextFileCounter(data.manualTextFileCounter)

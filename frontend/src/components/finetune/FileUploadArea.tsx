@@ -29,7 +29,7 @@ export const FileUploadArea: FC<{
 
   const onDropFiles = (newFiles: File[]) => {
     onAddFiles(newFiles.map(f => ({
-      label: f.name,
+      drawerLabel: f.name,
       file: f,
     })))
   }

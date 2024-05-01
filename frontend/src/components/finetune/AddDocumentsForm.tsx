@@ -34,7 +34,7 @@ export const AddDocumentsForm: FC<{
     }
     const title = decodeURIComponent(manualURL.replace(/\/$/i, '')).replace(/^https?:\/\//i, '').replace(/^www\./i, '')
     onAddFiles([{
-      label: manualURL,
+      drawerLabel: manualURL,
       file: new File([new Blob([manualURL], { type: 'text/html' })], `${title}.url`),
     }])
     setManualURL('')
@@ -51,7 +51,7 @@ export const AddDocumentsForm: FC<{
     
     const title = `textfile-${counter}.txt`
     onAddFiles([{
-      label: manualTextFile,
+      drawerLabel: manualTextFile,
       file: new File([new Blob([manualTextFile], { type: 'text/plain' })], title)
     }])
     setManualTextFile('')
