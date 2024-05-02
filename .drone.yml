@@ -131,7 +131,7 @@ steps:
     - "latest-llama3-8b"
     repo: helixml/helix/runner
     location: europe
-    args:
+    build_args:
       - PULL_LLAMA3_8B=true
     json_key:
       from_secret: gar_json_key_b64
@@ -169,7 +169,7 @@ steps:
     - "latest-llama3-70b"
     repo: helixml/helix/runner
     location: europe
-    args:
+    build_args:
       - PULL_LLAMA3_8B=true
       - PULL_LLAMA3_70B=true
     json_key:
