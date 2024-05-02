@@ -127,10 +127,8 @@ steps:
   settings:
     dockerfile: Dockerfile.runner    
     tags:
-    - "${DRONE_TAG}-llama3-8b"
+    - "${DRONE_TAG:-main}-llama3-8b" # Default to branch
     - "latest-llama3-8b"
-    auto_tag: true
-    auto_tag_suffix: llama3-8b
     repo: helixml/helix/runner
     location: europe
     args:
@@ -167,7 +165,7 @@ steps:
   settings:
     dockerfile: Dockerfile.runner
     tags:
-    - "${DRONE_TAG}-llama3-70b"
+    - "${DRONE_TAG:-main}-llama3-70b"
     - "latest-llama3-70b"
     repo: helixml/helix/runner
     location: europe
