@@ -343,9 +343,13 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 const inbuiltModelsDirectory = "/workspace/ollama"
 
 func initializeModelsCache(cfg *config.RunnerConfig) error {
-	if _, err := os.Stat(inbuiltModelsDirectory); os.IsNotExist(err) {
-		// If the directory doesn't exist, nothing to do
-		return nil
+	_, err := os.Stat(inbuiltModelsDirectory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// If the directory doesn't exist, nothing to do
+			return nil
+		}
+		return fmt.Errorf("error checking inbuilt models directory: %w", err)
 	}
 
 	// Check if the cache dir exists, if not create it
