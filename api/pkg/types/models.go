@@ -21,7 +21,7 @@ const (
 	Model_Ollama_NousHermes2Pro ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
 
 	Model_Ollama_Llama3_8b  ModelName = "llama3:instruct"
-	Model_Ollama_Llama3_70b ModelName = "llama3:70b-instruct-q2_K"
+	Model_Ollama_Llama3_70b ModelName = "llama3:70b"
 )
 
 func NewModel(name string) ModelName {
