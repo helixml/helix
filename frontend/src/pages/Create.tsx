@@ -70,14 +70,13 @@ const Create: FC = () => {
   }
 
   const onStartImageFunetune = () => {
-    inputs.serializePage()
     console.log('--------------------------------------------')
-    console.log('here2')
-    return
-    
+    console.log(inputs.labels)
     const emptyLabel = inputs.files.find(file => {
       return inputs.labels[file.name] ? false : true
     })
+    console.log('--------------------------------------------')
+    console.log(emptyLabel)
     if(emptyLabel) {
       setShowImageLabelsEmptyError(true)
       snackbar.error('Please label all images before continuing')
@@ -85,6 +84,9 @@ const Create: FC = () => {
     } else {
       setShowImageLabelsEmptyError(false)
     }
+
+    console.log('--------------------------------------------')
+    console.log('ready')
   }
 
   useEffect(() => {
@@ -157,16 +159,30 @@ const Create: FC = () => {
     >
       <Row sx={{height:'100%'}}>
         <Cell>
-          <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
-            {inputs.finetuneFiles.length} file{inputs.finetuneFiles.length !== 1 ? 's' : ''} added.
-            <Link
-              component="button"
-              onClick={() => setShowFileDrawer(true)}
-              sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
-              >
-              View or edit files
-            </Link>
-          </Typography>
+          {
+            type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' ? (
+              <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
+                <Link
+                  component="button"
+                  onClick={() => router.removeParams(['imageFineTuneStep'])}
+                  sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
+                >
+                  Return to upload images
+                </Link>
+              </Typography>
+            ) : (
+              <Typography sx={{ display: 'inline-flex', textAlign: 'left' }}>
+                {inputs.finetuneFiles.length} file{inputs.finetuneFiles.length !== 1 ? 's' : ''} added.
+                <Link
+                  component="button"
+                  onClick={() => setShowFileDrawer(true)}
+                  sx={{ ml: 0.5, textDecoration: 'underline', color: COLORS[type] }}
+                >
+                  View or edit files
+                </Link>
+              </Typography>
+            )
+          }
         </Cell>
         <Cell grow />
         <Cell>
@@ -192,7 +208,9 @@ const Create: FC = () => {
               }
             }}
           >
-            Continue
+            {
+              type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' ? 'Start training' : 'Continue'
+            }
           </Button>
         </Cell>
       </Row>
