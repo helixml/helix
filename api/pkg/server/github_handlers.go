@@ -115,8 +115,10 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		_, err = githubApp.Update()
+		app, err = githubApp.Update()
 		if err != nil {
+			app.Config.Error = err.Error()
+			apiServer.Store.UpdateApp(r.Context(), app)
 			log.Error().Msgf("error updating github app: %s", err.Error())
 			http.Error(w, fmt.Sprintf("error updating github app: %s", err.Error()), http.StatusInternalServerError)
 			return
