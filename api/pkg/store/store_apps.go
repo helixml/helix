@@ -93,8 +93,8 @@ func (s *PostgresStore) DeleteApp(ctx context.Context, id string) error {
 func setAppDefaults(apps ...*types.App) {
 	for idx := range apps {
 		app := apps[idx]
-		if app.Config.Helix.ActiveTools == nil {
-			app.Config.Helix.ActiveTools = []string{}
+		if app.Config.Helix.Assistants == nil {
+			app.Config.Helix.Assistants = []types.AssistantConfig{}
 		}
 	}
 }
