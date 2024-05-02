@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/runner"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/helixml/helix/api/pkg/util/copydir"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -260,6 +261,11 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return err
 	}
 
+	err = initializeModelsCache(options.Runner.Config)
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to initialize models cache")
+	}
+
 	// we will append the instance ID onto these paths
 	// because it's a model_instance that will spawn Python
 	// processes that will then speak back to these routes
@@ -329,4 +335,31 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 
 	<-ctx.Done()
 	return nil
+}
+
+// inbuiltModelsDirectory directory inside the Docker image that can have
+// a cache of models that are already downloaded during the build process.
+// These files need to be copied into runner cache dir
+const inbuiltModelsDirectory = "/workspace/ollama"
+
+func initializeModelsCache(cfg *config.RunnerConfig) error {
+	_, err := os.Stat(inbuiltModelsDirectory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// If the directory doesn't exist, nothing to do
+			return nil
+		}
+		return fmt.Errorf("error checking inbuilt models directory: %w", err)
+	}
+
+	// Check if the cache dir exists, if not create it
+	if _, err := os.Stat(cfg.CacheDir); os.IsNotExist(err) {
+		err = os.MkdirAll(cfg.CacheDir, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
+	return copydir.CopyDir(cfg.CacheDir, inbuiltModelsDirectory)
+
 }
