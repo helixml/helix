@@ -36,6 +36,18 @@ ENV PULL_LLAMA3_70B=$PULL_LLAMA3_70B
 # TODO: not sure if this is necessary
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
 
+# Install ollama
+RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.33-rc7/ollama-linux-amd64 -o /usr/bin/ollama
+RUN chmod +x /usr/bin/ollama
+
+# Set up the ollama models directory, runner will be able to access this
+RUN mkdir -p /workspace/ollama
+ENV OLLAMA_MODELS=/workspace/ollama
+
+COPY scripts/pull_ollama_models.sh /workspace/scripts/pull_ollama_models.sh
+
+RUN bash /workspace/scripts/pull_ollama_models.sh
+
 # ====================================
 # TODO: cache all the weights early on
 # ====================================
@@ -73,19 +85,6 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
     curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.3/pget" && chmod +x /usr/local/bin/pget && \
     wget http://thegiflibrary.tumblr.com/post/11565547760 -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 # what you sayin', cat?
-
-# TODO: mount /root/.ollama
-# RUN curl -fsSL https://ollama.com/install.sh | sh
-RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.33-rc7/ollama-linux-amd64 -o /usr/bin/ollama
-RUN chmod +x /usr/bin/ollama
-
-# Set up the ollama models directory, runner will be able to access this
-RUN mkdir -p /workspace/ollama
-ENV OLLAMA_MODELS=/workspace/ollama
-
-COPY scripts/pull_ollama_models.sh /workspace/scripts/pull_ollama_models.sh
-
-RUN bash /workspace/scripts/pull_ollama_models.sh
 
 # so we don't have to fork upstream cog-sdxl repo
 COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py
