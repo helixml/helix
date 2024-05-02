@@ -75,7 +75,9 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
 # what you sayin', cat?
 
 # TODO: mount /root/.ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
+# RUN curl -fsSL https://ollama.com/install.sh | sh
+RUN curl -L https://ollama.com/download/ollama-linux-amd64 -o /usr/bin/ollama
+RUN chmod +x /usr/bin/ollama
 
 # Set up the ollama models directory, runner will be able to access this
 RUN mkdir -p /workspace/ollama
