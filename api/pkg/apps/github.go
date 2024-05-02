@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v2"
 )
@@ -19,6 +20,7 @@ type GithubAppOptions struct {
 	GithubConfig config.GitHub
 	Client       *github.GithubClient
 	App          *types.App
+	ToolsPlanner tools.Planner
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
@@ -29,6 +31,7 @@ type GithubApp struct {
 	GithubConfig config.GitHub
 	helixConfig  *types.AppHelixConfig
 	Client       *github.GithubClient
+	ToolsPlanner tools.Planner
 	App          *types.App
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
@@ -44,6 +47,9 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 	if options.Client == nil {
 		return nil, fmt.Errorf("Client is required")
 	}
+	if options.ToolsPlanner == nil {
+		return nil, fmt.Errorf("ToolsPlanner is required")
+	}
 	if options.App == nil {
 		return nil, fmt.Errorf("App struct is required")
 	}
@@ -56,6 +62,7 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 		Repo:         parts[1],
 		GithubConfig: options.GithubConfig,
 		Client:       options.Client,
+		ToolsPlanner: options.ToolsPlanner,
 		App:          options.App,
 		UpdateApp:    options.UpdateApp,
 	}, nil
@@ -258,6 +265,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
 		}
 
+		newTools := []types.Tool{}
 		newScripts := []types.AssistantGPTScript{}
 
 		// scripts means you can configure the GPTScript contents inline with the helix.yaml
@@ -285,6 +293,17 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 				}
 				newScripts = append(newScripts, script)
 			}
+
+			newTools = append(newTools, types.Tool{
+				Name:        script.Name,
+				Description: script.Description,
+				ToolType:    types.ToolTypeGPTScript,
+				Config: types.ToolConfig{
+					GPTScript: &types.ToolGPTScriptConfig{
+						Script: script.Content,
+					},
+				},
+			})
 		}
 
 		newAPIs := []types.AssistantAPI{}
@@ -315,9 +334,35 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 				newAPIs = append(newAPIs, api)
 			}
 
-			config.Assistants[i].GPTScripts = newScripts
-			config.Assistants[i].APIs = newAPIs
+			if api.Schema == "" {
+				return nil, fmt.Errorf("api %s has no schema", api.Name)
+			}
+
+			newTools = append(newTools, types.Tool{
+				Name:        api.Name,
+				Description: api.Description,
+				ToolType:    types.ToolTypeAPI,
+				Config: types.ToolConfig{
+					API: &types.ToolApiConfig{
+						URL:     api.URL,
+						Schema:  api.Schema,
+						Headers: api.Headers,
+						Query:   api.Query,
+					},
+				},
+			})
 		}
+
+		for i := range newTools {
+			err := tools.ValidateTool(&newTools[i], githubApp.ToolsPlanner, false)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		config.Assistants[i].GPTScripts = newScripts
+		config.Assistants[i].APIs = newAPIs
+		config.Assistants[i].Tools = newTools
 	}
 
 	return config, nil

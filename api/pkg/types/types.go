@@ -633,14 +633,12 @@ type Tool struct {
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType   OwnerType `json:"owner_type"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	ToolType    ToolType  `json:"tool_type"`
-	Global      bool      `json:"global"`
-	// TODO: tool configuration
-	// such as OpenAPI spec, function code, etc.
-	Config ToolConfig `json:"config" gorm:"jsonb"`
+	OwnerType   OwnerType  `json:"owner_type"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	ToolType    ToolType   `json:"tool_type"`
+	Global      bool       `json:"global"`
+	Config      ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
@@ -736,7 +734,8 @@ type AssistantConfig struct {
 	SystemPrompt string               `json:"system_prompt" yaml:"system_prompt"`
 	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
 	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
-	Tools        []Tool
+	// these are populated from the APIs and GPTScripts on create and update
+	Tools []Tool
 }
 
 type AppHelixConfig struct {
@@ -758,6 +757,7 @@ type AppConfig struct {
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
 	Helix          *AppHelixConfig   `json:"helix"`
 	Github         *AppGithubConfig  `json:"github"`
+	Error          string            `json:"error"`
 }
 
 func (m AppConfig) Value() (driver.Value, error) {
