@@ -23,6 +23,11 @@ const (
 // https://platform.openai.com/docs/api-reference/chat/create
 // POST https://app.tryhelix.ai//v1/chat/completions
 func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, req *http.Request) {
+	addCorsHeaders(res)
+	if req.Method == "OPTIONS" {
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
