@@ -671,20 +671,20 @@ func (ToolConfig) GormDataType() string {
 }
 
 type ToolApiConfig struct {
-	URL     string           `json:"url"` // Server override
-	Schema  string           `json:"schema"`
-	Actions []*ToolApiAction `json:"actions"` // Read-only, parsed from schema on creation
+	URL     string           `json:"url" yaml:"url"` // Server override
+	Schema  string           `json:"schema" yaml:"schema"`
+	Actions []*ToolApiAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
 
-	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
-	Query   map[string]string `json:"query"`   // Query parameters that will be always set
+	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
+	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec
 type ToolApiAction struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Method      string `json:"method" yaml:"method"`
+	Path        string `json:"path" yaml:"path"`
 }
 
 type ToolGPTScriptConfig struct {
@@ -709,26 +709,41 @@ const (
 	AppTypeGithub AppType = "github"
 )
 
-type AppHelixConfigGPTScript struct {
-	Name     string `json:"name" yaml:"name"`
-	FilePath string `json:"file_path" yaml:"file_path"`
-	Content  string `json:"content" yaml:"content"`
+type AssistantGPTScript struct {
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	File        string `json:"file" yaml:"file"`
+	Content     string `json:"content" yaml:"content"`
 }
 
-type AppHelixConfigGPTScripts struct {
-	Files   []string                  `json:"files" yaml:"files"`
-	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
+type AssistantAPI struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Schema      string            `json:"schema" yaml:"schema"`
+	SchemaURL   string            `json:"schema_url" yaml:"schema_url"`
+	URL         string            `json:"url" yaml:"url"`
+	Headers     map[string]string `json:"headers" yaml:"headers"`
+	Query       map[string]string `json:"query" yaml:"query"`
+}
+
+// apps are a collection of assistants
+// the APIs and GPTScripts are both processed into a single list of Tools
+type AssistantConfig struct {
+	Name         string               `json:"name" yaml:"name"`
+	Description  string               `json:"description" yaml:"description"`
+	Avatar       string               `json:"avatar" yaml:"avatar"`
+	Model        string               `json:"model" yaml:"model"`
+	SystemPrompt string               `json:"system_prompt" yaml:"system_prompt"`
+	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
+	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+	Tools        []Tool
 }
 
 type AppHelixConfig struct {
-	Name           string                   `json:"name" yaml:"name"`
-	Description    string                   `json:"description" yaml:"description"`
-	Avatar         string                   `json:"avatar" yaml:"avatar"`
-	SystemPrompt   string                   `json:"system_prompt" yaml:"system_prompt"`
-	ActiveTools    []string                 `json:"active_tools" yaml:"active_tools"`
-	Secrets        map[string]string        `json:"secrets" yaml:"secrets"`
-	AllowedDomains []string                 `json:"allowed_domains" yaml:"allowed_domains"`
-	GPTScript      AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Avatar      string            `json:"avatar" yaml:"avatar"`
+	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
 }
 
 type AppGithubConfig struct {
@@ -739,8 +754,10 @@ type AppGithubConfig struct {
 }
 
 type AppConfig struct {
-	Helix  *AppHelixConfig  `json:"helix"`
-	Github *AppGithubConfig `json:"github"`
+	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
+	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
+	Helix          *AppHelixConfig   `json:"helix"`
+	Github         *AppGithubConfig  `json:"github"`
 }
 
 func (m AppConfig) Value() (driver.Value, error) {

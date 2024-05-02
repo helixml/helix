@@ -2,6 +2,7 @@ package apps
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -245,72 +246,79 @@ func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
 }
 
 func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
-	if config.ActiveTools == nil {
-		config.ActiveTools = []string{}
+	if config.Assistants == nil {
+		config.Assistants = []types.AssistantConfig{}
 	}
 
-	if config.Secrets == nil {
-		config.Secrets = map[string]string{}
-	}
-
-	if config.AllowedDomains == nil {
-		config.AllowedDomains = []string{}
-	}
-
-	if config.GPTScript.Scripts == nil {
-		config.GPTScript.Scripts = []types.AppHelixConfigGPTScript{}
-	}
-
-	if config.GPTScript.Files == nil {
-		config.GPTScript.Files = []string{}
-	}
-
-	newScripts := []types.AppHelixConfigGPTScript{}
-
-	// scripts means you can configure the GPTScript contents inline with the helix.yaml
-	for i, script := range config.GPTScript.Scripts {
-		if script.Name == "" {
-			return nil, fmt.Errorf("gpt script %d has no name", i)
+	for i, assistant := range config.Assistants {
+		if assistant.APIs == nil {
+			config.Assistants[i].APIs = []types.AssistantAPI{}
 		}
-		if script.FilePath != "" {
-			if _, err := os.Stat(githubApp.Filepath(script.FilePath)); err != nil {
-				if os.IsNotExist(err) {
-					return nil, fmt.Errorf("gpt script not found: %s", script.FilePath)
+		if assistant.GPTScripts == nil {
+			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
+		}
+
+		newScripts := []types.AssistantGPTScript{}
+
+		// scripts means you can configure the GPTScript contents inline with the helix.yaml
+		for _, script := range assistant.GPTScripts {
+			if script.File != "" {
+				expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), []string{script.File})
+				if err != nil {
+					return nil, err
 				}
-				return nil, err
+				for _, filepath := range expandedFiles {
+					content, err := os.ReadFile(filepath)
+					if err != nil {
+						return nil, err
+					}
+					newScripts = append(newScripts, types.AssistantGPTScript{
+						Name:        path.Base(filepath),
+						File:        githubApp.RelativePath(filepath),
+						Content:     string(content),
+						Description: script.Description,
+					})
+				}
+			} else {
+				if script.Content == "" {
+					return nil, fmt.Errorf("gpt script %s has no content", script.Name)
+				}
+				newScripts = append(newScripts, script)
+			}
+		}
+
+		newAPIs := []types.AssistantAPI{}
+
+		for _, api := range assistant.APIs {
+			if api.SchemaURL != "" {
+				client := system.NewRetryClient(3)
+				resp, err := client.Get(api.SchemaURL)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get schema from url: %w", err)
+				}
+				defer resp.Body.Close()
+
+				bts, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read response body: %w", err)
+				}
+
+				if api.Headers == nil {
+					api.Headers = map[string]string{}
+				}
+
+				if api.Query == nil {
+					api.Query = map[string]string{}
+				}
+
+				api.Schema = string(bts)
+				newAPIs = append(newAPIs, api)
 			}
 
-			content, err := os.ReadFile(githubApp.Filepath(script.FilePath))
-			if err != nil {
-				return nil, err
-			}
-
-			script.Content = string(content)
+			config.Assistants[i].GPTScripts = newScripts
+			config.Assistants[i].APIs = newAPIs
 		}
-		if script.Content == "" {
-			return nil, fmt.Errorf("gpt script %s has no content", script.Name)
-		}
-		newScripts = append(newScripts, script)
 	}
-
-	expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), config.GPTScript.Files)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, filepath := range expandedFiles {
-		content, err := os.ReadFile(filepath)
-		if err != nil {
-			return nil, err
-		}
-		newScripts = append(newScripts, types.AppHelixConfigGPTScript{
-			Name:     path.Base(filepath),
-			FilePath: githubApp.RelativePath(filepath),
-			Content:  string(content),
-		})
-	}
-
-	config.GPTScript.Scripts = newScripts
 
 	return config, nil
 }

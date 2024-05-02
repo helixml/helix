@@ -84,8 +84,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	if app.Config.Helix == nil {
 		app.Config.Helix = &types.AppHelixConfig{
-			ActiveTools: []string{},
-			Secrets:     map[string]string{},
+			Assistants: []types.AssistantConfig{},
 		}
 	}
 
@@ -233,9 +232,8 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	existing.Name = appUpdate.Name
 	existing.Description = appUpdate.Description
 	existing.Updated = time.Now()
-	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
-	existing.Config.Helix.Secrets = appUpdate.Secrets
-	existing.Config.Helix.AllowedDomains = appUpdate.AllowedDomains
+	existing.Config.Secrets = appUpdate.Secrets
+	existing.Config.AllowedDomains = appUpdate.AllowedDomains
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), existing)
@@ -326,7 +324,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 	}
 
 	envPairs := []string{}
-	for key, value := range appRecord.Config.Helix.Secrets {
+	for key, value := range appRecord.Config.Secrets {
 		envPairs = append(envPairs, key+"="+value)
 	}
 
