@@ -42,6 +42,7 @@ func (apiServer *HelixAPIServer) getGithubApp(app *types.App) (*apps.GithubApp, 
 		GithubConfig: apiServer.Cfg.GitHub,
 		Client:       client,
 		App:          app,
+		ToolsPlanner: apiServer.Controller.ToolsPlanner,
 		UpdateApp: func(app *types.App) (*types.App, error) {
 			return apiServer.Store.UpdateApp(context.Background(), app)
 		},
