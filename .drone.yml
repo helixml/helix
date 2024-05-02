@@ -126,6 +126,9 @@ steps:
   pull: always
   settings:
     dockerfile: Dockerfile.runner    
+    tags:
+    - "${DRONE_TAG}-llama3-8b"
+    - "latest-llama3-8b"
     auto_tag: true
     auto_tag_suffix: llama3-8b
     repo: helixml/helix/runner
@@ -162,9 +165,10 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.runner    
-    auto_tag: true
-    auto_tag_suffix: llama3-70b
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_TAG}-llama3-70b"
+    - "latest-llama3-70b"
     repo: helixml/helix/runner
     location: europe
     args:
