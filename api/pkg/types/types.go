@@ -721,7 +721,6 @@ type AssistantAPI struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
 	Schema      string            `json:"schema" yaml:"schema"`
-	SchemaURL   string            `json:"schema_url" yaml:"schema_url"`
 	URL         string            `json:"url" yaml:"url"`
 	Headers     map[string]string `json:"headers" yaml:"headers"`
 	Query       map[string]string `json:"query" yaml:"query"`
