@@ -93,15 +93,19 @@ func NewServer(
 	}
 
 	return &HelixAPIServer{
-		Cfg:            cfg,
-		Store:          store,
-		Stripe:         stripe,
-		Controller:     controller,
-		Janitor:        janitor,
-		runnerAuth:     runnerAuth,
-		adminAuth:      newAdminAuth(cfg.WebServer.AdminIDs),
-		authMiddleware: newMiddleware(authenticator, cfg.WebServer, store),
-		pubsub:         ps,
+		Cfg:        cfg,
+		Store:      store,
+		Stripe:     stripe,
+		Controller: controller,
+		Janitor:    janitor,
+		runnerAuth: runnerAuth,
+		adminAuth:  newAdminAuth(cfg.WebServer.AdminIDs),
+		authMiddleware: newAuthMiddleware(
+			authenticator,
+			cfg.WebServer,
+			store,
+		),
+		pubsub: ps,
 	}, nil
 }
 
@@ -137,6 +141,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
+func matchAllRoutes(r *http.Request, rm *mux.RouteMatch) bool {
+	return true
+}
+
 func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
@@ -148,13 +156,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	subRouter := router.PathPrefix(API_PREFIX).Subrouter()
 
 	// auth router requires a valid token from keycloak
-	authRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-
-	maybeAuthRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
+	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	maybeAuthRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
 
 	authRouter.Use(apiServer.authMiddleware.enforceVerifyToken)
 	maybeAuthRouter.Use(apiServer.authMiddleware.maybeVerifyToken)
