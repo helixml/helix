@@ -37,7 +37,7 @@ ENV PULL_LLAMA3_70B=$PULL_LLAMA3_70B
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
 
 # Install ollama
-RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.33-rc7/ollama-linux-amd64 -o /usr/bin/ollama
+RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.33/ollama-linux-amd64 -o /usr/bin/ollama
 RUN chmod +x /usr/bin/ollama
 
 # Set up the ollama models directory, runner will be able to access this
