@@ -76,7 +76,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               </Typography>
             </Box>
             {
-              app.config.helix?.gptscript?.scripts?.map((gptscript, index) => {
+              // TODO: support more than 1 assistant
+              (app.config.helix?.assistants[0]?.gptscripts || []).map((gptscript, index) => {
                 return (
                   <Box key={index}>
                     <Row>

@@ -81,7 +81,9 @@ export const useApps = () => {
         github: {
           repo,
           hash: '', 
-        }
+        },
+        secrets: {},
+        allowed_domains: [],
       },
     }, {}, {
       snackbar: true,
