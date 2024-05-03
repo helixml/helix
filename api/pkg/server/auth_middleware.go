@@ -137,27 +137,3 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(f)
 }
-
-func (auth *authMiddleware) requireUser(next http.Handler) http.Handler {
-	f := func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	}
-
-	return http.HandlerFunc(f)
-}
-
-func (auth *authMiddleware) requireAdmin(next http.Handler) http.Handler {
-	f := func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	}
-
-	return http.HandlerFunc(f)
-}
-
-func (auth *authMiddleware) requireRunner(next http.Handler) http.Handler {
-	f := func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
-	}
-
-	return http.HandlerFunc(f)
-}
