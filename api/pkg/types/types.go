@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 type Module struct {
@@ -384,21 +386,27 @@ type UserMeta struct {
 	Config UserConfig `json:"config"`
 }
 
+// this is given to the frontend as user context
+type UserStatus struct {
+	Admin  bool       `json:"admin"`
+	User   string     `json:"user"`
+	Config UserConfig `json:"config"`
+}
+
 // passed between the api server and the controller
+// we parse the token (if provided and then create this object)
+// the request context is always present - if for un-authenticated requests
+// in that case, the owner and token fields are empty
 type RequestContext struct {
 	Ctx       context.Context
 	Admin     bool
 	Owner     string
 	OwnerType OwnerType
+	AppID     string
 	Email     string
 	FullName  string
 	Token     string
-}
-
-type UserStatus struct {
-	Admin  bool       `json:"admin"`
-	User   string     `json:"user"`
-	Config UserConfig `json:"config"`
+	TokenType types.TokenType
 }
 
 type UserDetails struct {

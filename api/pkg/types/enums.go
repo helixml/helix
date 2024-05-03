@@ -258,3 +258,12 @@ const (
 	// a helix access token for a specific app
 	APIKeyType_App APIKeyType = "app"
 )
+
+type TokenType string
+
+const (
+	TokenTypeNone     TokenType = ""
+	TokenTypeRunner   TokenType = "runner"
+	TokenTypeKeycloak TokenType = "keycloak"
+	TokenTypeAPIKey   TokenType = "api_key"
+)
