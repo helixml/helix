@@ -28,11 +28,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
-	userContext := getRequestContext(req)
-
-	if !hasUser(userContext.User) {
-		http.Error(res, "unauthorized", http.StatusForbidden)
+	reqContext := getRequestContext(req)
+	if !hasUser(reqContext.User) {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
+
 	}
 
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
@@ -48,7 +48,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
-	status, err := apiServer.Controller.GetStatus(userContext)
+	status, err := apiServer.Controller.GetStatus(reqContext)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
@@ -103,8 +103,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionType:      types.SessionTypeText,
 		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
-		Owner:            userContext.User.ID,
-		OwnerType:        userContext.User.Type,
+		Owner:            reqContext.User.ID,
+		OwnerType:        reqContext.User.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
@@ -114,17 +114,17 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		sessionID: sessionID,
 		modelName: chatCompletionRequest.Model,
 		start: func() error {
-			_, err := apiServer.Controller.CreateSession(userContext, newSession)
+			_, err := apiServer.Controller.CreateSession(reqContext, newSession)
 			return err
 		},
 	}
 
 	if chatCompletionRequest.Stream {
-		apiServer.handleStreamingResponse(res, req, userContext, startReq)
+		apiServer.handleStreamingResponse(res, req, reqContext, startReq)
 		return
 	}
 
-	apiServer.handleBlockingResponse(res, req, userContext, startReq)
+	apiServer.handleBlockingResponse(res, req, reqContext, startReq)
 }
 
 type startSessionConfig struct {
