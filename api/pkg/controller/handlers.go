@@ -11,18 +11,18 @@ import (
 )
 
 func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, error) {
-	usermeta, err := c.Options.Store.GetUserMeta(ctx.Ctx, ctx.Owner)
+	usermeta, err := c.Options.Store.GetUserMeta(ctx.Ctx, ctx.User.ID)
 
 	if err != nil || usermeta == nil {
 		usermeta = &types.UserMeta{
-			ID:     ctx.Owner,
+			ID:     ctx.User.ID,
 			Config: types.UserConfig{},
 		}
 	}
 
 	return types.UserStatus{
-		Admin:  ctx.Admin,
-		User:   ctx.Owner,
+		Admin:  ctx.User.Admin,
+		User:   ctx.User.ID,
 		Config: usermeta.Config,
 	}, nil
 }
@@ -34,16 +34,16 @@ func (c *Controller) CreateAPIKey(ctx types.RequestContext, apiKey *types.APIKey
 	}
 
 	apiKey.Key = key
-	apiKey.Owner = ctx.Owner
-	apiKey.OwnerType = ctx.OwnerType
+	apiKey.Owner = ctx.User.ID
+	apiKey.OwnerType = ctx.User.Type
 
 	return c.Options.Store.CreateAPIKey(ctx.Ctx, apiKey)
 }
 
 func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, error) {
 	apiKeys, err := c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
-		Owner:     ctx.Owner,
-		OwnerType: ctx.OwnerType,
+		Owner:     ctx.User.ID,
+		OwnerType: ctx.User.Type,
 	})
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error
 		return errors.New("no such key")
 	}
 	// only the owner of an api key can delete it
-	if fetchedApiKey.Owner != ctx.Owner || fetchedApiKey.OwnerType != ctx.OwnerType {
+	if fetchedApiKey.Owner != ctx.User.ID || fetchedApiKey.OwnerType != ctx.User.Type {
 		return errors.New("unauthorized")
 	}
 	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, fetchedApiKey.Key)

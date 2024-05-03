@@ -92,7 +92,7 @@ func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT
 	return token, nil
 }
 
-func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.UserDetails, error) {
+func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) (*types.User, error) {
 	adminToken, err := k.getAdminToken(ctx)
 	if err != nil {
 		return nil, err
@@ -103,12 +103,11 @@ func (k *KeycloakAuthenticator) GetUserByID(ctx context.Context, userID string) 
 		return nil, err
 	}
 
-	return &types.UserDetails{
-		ID:        gocloak.PString(user.ID),
-		Username:  gocloak.PString(user.Username),
-		Email:     gocloak.PString(user.Email),
-		FirstName: gocloak.PString(user.FirstName),
-		LastName:  gocloak.PString(user.LastName),
+	return &types.User{
+		ID:       gocloak.PString(user.ID),
+		Username: gocloak.PString(user.Username),
+		Email:    gocloak.PString(user.Email),
+		FullName: fmt.Sprintf("%s %s", gocloak.PString(user.FirstName), gocloak.PString(user.LastName)),
 	}, nil
 }
 

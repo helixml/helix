@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
-
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 type Module struct {
@@ -357,13 +355,6 @@ type OwnerContext struct {
 	OwnerType OwnerType
 }
 
-type UserData struct {
-	ID       string
-	Email    string
-	FullName string
-	Token    string
-}
-
 type StripeUser struct {
 	StripeID        string
 	HelixID         string
@@ -393,28 +384,32 @@ type UserStatus struct {
 	Config UserConfig `json:"config"`
 }
 
+type User struct {
+	// the actual token used and it's type
+	Token string
+	// none, runner. keycloak, api_key
+	TokenType TokenType
+	// if the ID of the user is contained in the env setting
+	Admin bool
+	// if the token is associated with an app
+	AppID string
+	// these are set by the keycloak user based on the token
+	// if it's an app token - the keycloak user is loaded from the owner of the app
+	// if it's a runner token - these values will be empty
+	ID       string
+	Type     OwnerType
+	Email    string
+	Username string
+	FullName string
+}
+
 // passed between the api server and the controller
 // we parse the token (if provided and then create this object)
 // the request context is always present - if for un-authenticated requests
 // in that case, the owner and token fields are empty
 type RequestContext struct {
-	Ctx       context.Context
-	Admin     bool
-	Owner     string
-	OwnerType OwnerType
-	AppID     string
-	Email     string
-	FullName  string
-	Token     string
-	TokenType types.TokenType
-}
-
-type UserDetails struct {
-	ID        string
-	Username  string
-	FirstName string
-	LastName  string
-	Email     string
+	Ctx  context.Context
+	User User
 }
 
 // a single envelope that is broadcast to users

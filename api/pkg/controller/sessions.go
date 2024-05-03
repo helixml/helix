@@ -895,7 +895,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.Owner), newSession.ID)
+	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.User.ID), newSession.ID)
 	if err != nil {
 		return nil, err
 	}
