@@ -309,33 +309,23 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 		newAPIs := []types.AssistantAPI{}
 
 		for _, api := range assistant.APIs {
-			if api.SchemaURL != "" {
-				client := system.NewRetryClient(3)
-				resp, err := client.Get(api.SchemaURL)
-				if err != nil {
-					return nil, fmt.Errorf("failed to get schema from url: %w", err)
-				}
-				defer resp.Body.Close()
-
-				bts, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return nil, fmt.Errorf("failed to read response body: %w", err)
-				}
-
-				if api.Headers == nil {
-					api.Headers = map[string]string{}
-				}
-
-				if api.Query == nil {
-					api.Query = map[string]string{}
-				}
-
-				api.Schema = string(bts)
-				newAPIs = append(newAPIs, api)
-			}
-
 			if api.Schema == "" {
 				return nil, fmt.Errorf("api %s has no schema", api.Name)
+			}
+
+			processedSchema, err := githubApp.processApiSchema(api.Schema)
+			if err != nil {
+				return nil, err
+			}
+
+			api.Schema = processedSchema
+
+			if api.Headers == nil {
+				api.Headers = map[string]string{}
+			}
+
+			if api.Query == nil {
+				api.Query = map[string]string{}
 			}
 
 			newTools = append(newTools, types.Tool{
@@ -366,4 +356,35 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 	}
 
 	return config, nil
+}
+
+func (githubApp *GithubApp) processApiSchema(schema string) (string, error) {
+	if strings.HasPrefix(strings.ToLower(schema), "http://") || strings.HasPrefix(strings.ToLower(schema), "https://") {
+		client := system.NewRetryClient(3)
+		resp, err := client.Get(schema)
+		if err != nil {
+			return "", fmt.Errorf("failed to get schema from URL: %w", err)
+		}
+		defer resp.Body.Close()
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read response body: %w", err)
+		}
+		return string(bts), nil
+	}
+
+	// if the schema is only one line then assume it's a file path
+	if !strings.Contains(schema, "\n") && !strings.Contains(schema, "\r") {
+		// it must be a YAML file
+		if !strings.HasSuffix(schema, ".yaml") && !strings.HasSuffix(schema, ".yml") {
+			return "", fmt.Errorf("schema must be in yaml format")
+		}
+		content, err := os.ReadFile(githubApp.Filepath(schema))
+		if err != nil {
+			return "", fmt.Errorf("failed to read schema file: %w", err)
+		}
+		return string(content), nil
+	}
+
+	return schema, nil
 }
