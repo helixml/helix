@@ -444,6 +444,9 @@ const App: FC = () => {
                   onRunScript={ onRunScript }
                 />
               </Box>
+              {/* 
+                  TODO: add apis table
+                */}
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="subtitle1">
                 Environment Variables

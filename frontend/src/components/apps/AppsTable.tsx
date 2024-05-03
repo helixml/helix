@@ -40,6 +40,50 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   const tableData = useMemo(() => {
     return data.map(app => {
+      const gptScripts = (app.config.helix?.assistants[0]?.gptscripts || [])
+      const gptscriptsElem = gptScripts.length > 0 ? (
+        <>
+          <Box sx={{mb: 2}}>
+            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              GPTScripts
+            </Typography>
+          </Box>
+          {
+            // TODO: support more than 1 assistant
+            gptScripts.map((gptscript, index) => {
+              return (
+                <Box
+                  key={index}
+                >
+                  <Row>
+                    <Cell sx={{width:'50%'}}>
+                      <Chip color="secondary" size="small" label={gptscript.name} />
+                    </Cell>
+                    <Cell sx={{width:'50%'}}>
+                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                        {gptscript.content?.split('\n').filter(r => r)[0] || ''}
+                      </Typography>
+                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                        {gptscript.content?.split('\n').filter(r => r)[1] || ''}
+                      </Typography>
+                      <JsonWindowLink
+                        sx={{textDecoration: 'underline'}}
+                        data={gptscript.content}
+                      >
+                        expand
+                      </JsonWindowLink>
+                    </Cell>
+                  </Row>
+                </Box>
+              )
+            })
+          }
+        </>
+      ) : null
+
+      // TODO: add the list of apis also to this display
+      // we can grab stuff from the tools package that already renders endpoints
+
       return {
         id: app.id,
         _data: app,
@@ -68,43 +112,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           </Row>
         ),
         type: app.app_type,
-        details: (
-          <>
-            <Box sx={{mb: 2}}>
-              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-                GPTScripts
-              </Typography>
-            </Box>
-            {
-              // TODO: support more than 1 assistant
-              (app.config.helix?.assistants[0]?.gptscripts || []).map((gptscript, index) => {
-                return (
-                  <Box key={index}>
-                    <Row>
-                      <Cell sx={{width:'50%'}}>
-                        <Chip color="secondary" size="small" label={gptscript.name} />
-                      </Cell>
-                      <Cell sx={{width:'50%'}}>
-                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                          {gptscript.content?.split('\n').filter(r => r)[0] || ''}
-                        </Typography>
-                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                          {gptscript.content?.split('\n').filter(r => r)[1] || ''}
-                        </Typography>
-                        <JsonWindowLink
-                          sx={{textDecoration: 'underline'}}
-                          data={gptscript.content}
-                        >
-                          expand
-                        </JsonWindowLink>
-                      </Cell>
-                    </Row>
-                  </Box>
-                )
-              })
-            }
-          </>
-        ),
+        details: gptscriptsElem,
         updated: (
           <Box
             sx={{
