@@ -259,8 +259,8 @@ const App: FC = () => {
     setName(app.name)
     setDescription(app.description)
     setSchema(JSON.stringify(app.config, null, 4))
-    setSecrets(app.config.helix?.secrets || {})
-    setAllowedDomains(app.config.helix?.allowed_domains || [])
+    setSecrets(app.config.secrets || {})
+    setAllowedDomains(app.config.allowed_domains || [])
     setHasLoaded(true)
   }, [
     app,
@@ -436,8 +436,11 @@ const App: FC = () => {
                   height: '300px'
                 }}
               >
+                {/* 
+                  TODO: support more than 1 assistant
+                */}
                 <AppGptscriptsGrid
-                  data={ app.config.helix?.gptscript?.scripts || [] }
+                  data={ app.config.helix?.assistants[0]?.gptscripts || [] }
                   onRunScript={ onRunScript }
                 />
               </Box>
