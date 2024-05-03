@@ -119,16 +119,14 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 		}
 
 		var hash string
-		app, hash, err = githubApp.Update()
+		app, err = githubApp.Update()
 		if err != nil {
 			if app.Config.Github == nil {
 				app.Config.Github = &types.AppGithubConfig{}
 			}
-			app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
-				Updated: time.Now(),
-				Error:   err.Error(),
-				Hash:    hash,
-			}
+			// we expect the github app to have already set the hash and timestamp
+			// of the pulled config - if the config had an error we end up here
+			app.Config.Github.LastUpdate.Error = err.Error()
 			log.Error().Msgf("error updating github app: %s", err.Error())
 			http.Error(w, fmt.Sprintf("error updating github app: %s", err.Error()), http.StatusInternalServerError)
 		} else {

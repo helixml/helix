@@ -226,7 +226,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		existing, _, err = githubApp.Update()
+		existing, err = githubApp.Update()
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}

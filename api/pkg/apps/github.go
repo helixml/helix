@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/system"
@@ -128,6 +127,10 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 	}
 
 	app.Config.Github.Hash = commitHash
+	app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+		Updated: time.Now(),
+		Hash:    commitHash,
+	}
 
 	webhookSigningSecret, err := system.GenerateAPIKey()
 	if err != nil {
@@ -160,45 +163,69 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 }
 
 // this is called when github is pushed
-func (githubApp *GithubApp) Update() (*types.App, string, error) {
+func (githubApp *GithubApp) Update() (*types.App, error) {
 	app := githubApp.App
 
 	// update the code locally
 	err := githubApp.Clone()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
 	if err != nil {
-		return nil, commitHash, err
+		return nil, err
 	}
 
 	app.Updated = time.Now()
-	app.Config.Github.Hash = commitHash
+
+	// do this here because then if there is an error we will mark
+	// the latest update as an error but not update the app itself
+	app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+		Updated: time.Now(),
+		Hash:    commitHash,
+	}
 
 	config, err := githubApp.GetConfig()
 	if err != nil {
-		return nil, commitHash, err
+		return nil, err
 	}
 
 	if config == nil {
-		return nil, commitHash, fmt.Errorf("helix.yaml not found in repo")
+		return nil, fmt.Errorf("helix.yaml not found in repo")
 	}
 
 	config, err = githubApp.processConfig(config)
 	if err != nil {
-		return nil, commitHash, err
+		// if there is an error here it means there is a problem with the config
+		// we have loaded from github - let's mark the latest update as an error
+		// but not hoist the config up to the app to leave the last known working
+		// version alone
+		app.Config.Github.LastUpdate.Error = err.Error()
+
+		// TODO: what is best practice here?
+		// as in we are already in an error handling sitch
+		// what do we do when there is another error?
+		// the only reason we want to update the app right now is to let
+		// the user know that there was an error processing their latest config
+		// (I need someone who knows how to handle errors better than me to help me here)
+		githubApp.UpdateApp(app)
+
+		return nil, err
 	}
 
+	// do this after we have called processConfig
+	// because then if there is a problem with the config
+	// we won't actually update the app
+	app.Config.Github.Hash = commitHash
 	app.Config.Helix = config
 
 	app, err = githubApp.UpdateApp(app)
 	if err != nil {
-		return nil, commitHash, err
+		return nil, err
 	}
 
-	return app, commitHash, nil
+	return app, nil
 }
 
 func (githubApp *GithubApp) Clone() error {
@@ -371,8 +398,6 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 		config.Assistants[i].Tools = newTools
 	}
 
-	fmt.Printf("config --------------------------------------\n")
-	spew.Dump(config)
 	return config, nil
 }
 
