@@ -737,7 +737,11 @@ type AssistantConfig struct {
 	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
 	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
 	// these are populated from the APIs and GPTScripts on create and update
-	Tools []Tool
+	// we include tools in the JSON that we send to the browser
+	// but we don't include it in the yaml which feeds this struct because
+	// we populate the tools array from the APIs and GPTScripts arrays
+	// so - Tools is readonly - hence only JSON for the frontend to see
+	Tools []Tool `json:"tools"`
 }
 
 type AppHelixConfig struct {
