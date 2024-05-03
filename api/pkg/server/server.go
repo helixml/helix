@@ -154,15 +154,15 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// auth router requires a valid token from keycloak or api key
 	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
-	authRouter.Use(apiServer.authMiddleware.requireUser)
+	authRouter.Use(requireUser)
 
 	// runner router requires a valid runner token
 	runnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
-	runnerRouter.Use(apiServer.authMiddleware.requireRunner)
+	runnerRouter.Use(requireRunner)
 
 	// admin auth requires a user with admin flag
 	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
-	adminRouter.Use(apiServer.authMiddleware.requireAdmin)
+	adminRouter.Use(requireAdmin)
 
 	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,

@@ -12,19 +12,46 @@ type contextKey string
 
 const userKey contextKey = "user"
 
-// func isRequestAuthenticatedAgainstToken(r *http.Request, actualToken string) bool {
-// 	providedToken := getRequestToken(r)
-// 	return providedToken == actualToken
-// }
+/*
+-
+Middlewares
+-
+*/
+func requireUser(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		user := getRequestUser(r)
+		if !hasUser(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
 
-// func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
-// 	isAdmin := apiServer.isAdmin(req)
-// 	if !isAdmin {
-// 		return fmt.Errorf("access denied")
-// 	} else {
-// 		return nil
-// 	}
-// }
+func requireAdmin(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		user := getRequestUser(r)
+		if !isAdmin(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
+
+func requireRunner(next http.Handler) http.Handler {
+	f := func(w http.ResponseWriter, r *http.Request) {
+		user := getRequestUser(r)
+		if !isRunner(user) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+	return http.HandlerFunc(f)
+}
 
 /*
 -
@@ -126,7 +153,7 @@ func hasUser(user types.User) bool {
 }
 
 func isAdmin(user types.User) bool {
-	return user.ID != "" && user.Admin
+	return hasUser(user) && user.Admin
 }
 
 func isRunner(user types.User) bool {
