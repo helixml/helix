@@ -81,7 +81,7 @@ const Apps: FC = () => {
 
   useEffect(() => {
     if(!apps.githubStatus) return
-    apps.loadGithubRepos()
+    //apps.loadGithubRepos()
   }, [
     apps.githubStatus,
   ])

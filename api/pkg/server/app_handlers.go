@@ -114,6 +114,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          created,
+			ToolsPlanner: s.Controller.ToolsPlanner,
 			UpdateApp: func(app *types.App) (*types.App, error) {
 				return s.Store.UpdateApp(r.Context(), app)
 			},
@@ -124,6 +125,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 		newApp, err := githubApp.Create()
 		if err != nil {
+			s.Store.DeleteApp(r.Context(), created.ID)
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
@@ -215,6 +217,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          existing,
+			ToolsPlanner: s.Controller.ToolsPlanner,
 			UpdateApp: func(app *types.App) (*types.App, error) {
 				return s.Store.UpdateApp(r.Context(), app)
 			},
@@ -223,7 +226,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		existing, err = githubApp.Update()
+		existing, _, err = githubApp.Update()
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
