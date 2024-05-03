@@ -9,6 +9,6 @@ import (
 )
 
 type Authenticator interface {
-	GetUserByID(ctx context.Context, userID string) (*types.UserDetails, error)
+	GetUserByID(ctx context.Context, userID string) (*types.User, error)
 	ValidateUserToken(ctx context.Context, token string) (*jwt.Token, error)
 }

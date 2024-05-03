@@ -28,6 +28,13 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
+	userContext := getRequestContext(req)
+
+	if !hasUser(userContext.User) {
+		http.Error(res, "unauthorized", http.StatusForbidden)
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
@@ -40,8 +47,6 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		http.Error(res, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	userContext := apiServer.getRequestContext(req)
 
 	status, err := apiServer.Controller.GetStatus(userContext)
 	if err != nil {
@@ -98,8 +103,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionType:      types.SessionTypeText,
 		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
-		Owner:            userContext.Owner,
-		OwnerType:        userContext.OwnerType,
+		Owner:            userContext.User.ID,
+		OwnerType:        userContext.User.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
@@ -139,7 +144,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.Owner, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -273,7 +278,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	// Wait for the results from the session update. Last event will have the interaction with the full
 	// response from the model.
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.Owner, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
