@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -117,14 +118,29 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		app, err = githubApp.Update()
+		var hash string
+		app, hash, err = githubApp.Update()
 		if err != nil {
-			app.Config.Error = err.Error()
-			apiServer.Store.UpdateApp(r.Context(), app)
+			if app.Config.Github == nil {
+				app.Config.Github = &types.AppGithubConfig{}
+			}
+			app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+				Updated: time.Now(),
+				Error:   err.Error(),
+				Hash:    hash,
+			}
 			log.Error().Msgf("error updating github app: %s", err.Error())
 			http.Error(w, fmt.Sprintf("error updating github app: %s", err.Error()), http.StatusInternalServerError)
-			return
+		} else {
+			if app.Config.Github == nil {
+				app.Config.Github = &types.AppGithubConfig{}
+			}
+			app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+				Updated: time.Now(),
+				Hash:    hash,
+			}
 		}
+		apiServer.Store.UpdateApp(r.Context(), app)
 	}
 }
 

@@ -747,11 +747,18 @@ type AppHelixConfig struct {
 	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
 }
 
+type AppGithubConfigUpdate struct {
+	Updated time.Time `json:"updated"`
+	Hash    string    `json:"hash"`
+	Error   string    `json:"error"`
+}
+
 type AppGithubConfig struct {
-	Repo          string  `json:"repo"`
-	Hash          string  `json:"hash"`
-	KeyPair       KeyPair `json:"key_pair"`
-	WebhookSecret string  `json:"webhook_secret"`
+	Repo          string                `json:"repo"`
+	Hash          string                `json:"hash"`
+	KeyPair       KeyPair               `json:"key_pair"`
+	WebhookSecret string                `json:"webhook_secret"`
+	LastUpdate    AppGithubConfigUpdate `json:"last_update"`
 }
 
 type AppConfig struct {
@@ -759,7 +766,6 @@ type AppConfig struct {
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
 	Helix          *AppHelixConfig   `json:"helix"`
 	Github         *AppGithubConfig  `json:"github"`
-	Error          string            `json:"error"`
 }
 
 func (m AppConfig) Value() (driver.Value, error) {

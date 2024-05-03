@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/system"
@@ -159,18 +160,18 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 }
 
 // this is called when github is pushed
-func (githubApp *GithubApp) Update() (*types.App, error) {
+func (githubApp *GithubApp) Update() (*types.App, string, error) {
 	app := githubApp.App
 
 	// update the code locally
 	err := githubApp.Clone()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
 	if err != nil {
-		return nil, err
+		return nil, commitHash, err
 	}
 
 	app.Updated = time.Now()
@@ -178,26 +179,26 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 
 	config, err := githubApp.GetConfig()
 	if err != nil {
-		return nil, err
+		return nil, commitHash, err
 	}
 
 	if config == nil {
-		return nil, fmt.Errorf("helix.yaml not found in repo")
+		return nil, commitHash, fmt.Errorf("helix.yaml not found in repo")
 	}
 
 	config, err = githubApp.processConfig(config)
 	if err != nil {
-		return nil, err
+		return nil, commitHash, err
 	}
 
 	app.Config.Helix = config
 
 	app, err = githubApp.UpdateApp(app)
 	if err != nil {
-		return nil, err
+		return nil, commitHash, err
 	}
 
-	return app, nil
+	return app, commitHash, nil
 }
 
 func (githubApp *GithubApp) Clone() error {
@@ -280,11 +281,23 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 					if err != nil {
 						return nil, err
 					}
+					file := githubApp.RelativePath(filepath)
 					newScripts = append(newScripts, types.AssistantGPTScript{
-						Name:        path.Base(filepath),
-						File:        githubApp.RelativePath(filepath),
+						Name:        file,
+						File:        file,
 						Content:     string(content),
 						Description: script.Description,
+					})
+					newTools = append(newTools, types.Tool{
+						Name:     file,
+						ToolType: types.ToolTypeGPTScript,
+						Config: types.ToolConfig{
+							GPTScript: &types.ToolGPTScriptConfig{
+								Script: string(content),
+							},
+						},
+						Created: time.Now(),
+						Updated: time.Now(),
 					})
 				}
 			} else {
@@ -292,18 +305,19 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 					return nil, fmt.Errorf("gpt script %s has no content", script.Name)
 				}
 				newScripts = append(newScripts, script)
-			}
-
-			newTools = append(newTools, types.Tool{
-				Name:        script.Name,
-				Description: script.Description,
-				ToolType:    types.ToolTypeGPTScript,
-				Config: types.ToolConfig{
-					GPTScript: &types.ToolGPTScriptConfig{
-						Script: script.Content,
+				newTools = append(newTools, types.Tool{
+					Name:        script.Name,
+					Description: script.Description,
+					ToolType:    types.ToolTypeGPTScript,
+					Config: types.ToolConfig{
+						GPTScript: &types.ToolGPTScriptConfig{
+							Script: script.Content,
+						},
 					},
-				},
-			})
+					Created: time.Now(),
+					Updated: time.Now(),
+				})
+			}
 		}
 
 		newAPIs := []types.AssistantAPI{}
@@ -340,6 +354,8 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 						Query:   api.Query,
 					},
 				},
+				Created: time.Now(),
+				Updated: time.Now(),
 			})
 		}
 
@@ -355,6 +371,8 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 		config.Assistants[i].Tools = newTools
 	}
 
+	fmt.Printf("config --------------------------------------\n")
+	spew.Dump(config)
 	return config, nil
 }
 
