@@ -37,7 +37,7 @@ ENV PULL_LLAMA3_70B=$PULL_LLAMA3_70B
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
 
 # Install ollama
-RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.33/ollama-linux-amd64 -o /usr/bin/ollama
+RUN curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.1.33/ollama-linux-amd64 -o /usr/bin/ollama
 RUN chmod +x /usr/bin/ollama
 
 # Set up the ollama models directory, runner will be able to access this
@@ -60,7 +60,7 @@ RUN echo "echo \"Pretending to activate virtualenv (actually doing nothing)\"" >
 # accumulate deb stuff here. golang is for _development_ workflow of quick iteration on runner
 RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy \
     libgl1-mesa-glx ffmpeg libsm6 libxext6 wget software-properties-common python3 python3-pip git unzip wget python3-virtualenv && \
-    add-apt-repository -y ppa:longsleep/golang-backports && apt update -qq && apt install -qqy golang-1.21 golang-go && \
+    add-apt-repository -y ppa:longsleep/golang-backports && apt update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 # Checkout https://github.com/lukemarsden/axolotl/tree/new-long-running (see the hash for the specific version)
