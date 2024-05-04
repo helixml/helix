@@ -1,6 +1,9 @@
 package helix
 
 import (
+	"fmt"
+
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/spf13/cobra"
 )
@@ -13,8 +16,13 @@ func newQapairCommand() *cobra.Command {
 	var qapairCmd = &cobra.Command{
 		Use:   "qapairs",
 		Short: "A CLI tool for running QA pair commands",
-		Run: func(cmd *cobra.Command, args []string) {
-			qapairs.Run(target, prompt, theText)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			serverConfig, err := config.LoadServerConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load server config: %v", err)
+			}
+
+			return qapairs.Run(&serverConfig, prompt, theText)
 		},
 	}
 
