@@ -2,6 +2,7 @@ package qapairs
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/rs/zerolog/log"
 
@@ -25,19 +26,18 @@ func NewClient(cfg *config.ServerConfig, ps pubsub.PubSub, controller openai.Con
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
 	case config.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey != "" {
-
-			log.Info().
-				Str("base_url", cfg.Providers.TogetherAI.BaseURL).
-				Msg("using TogetherAI provider for tools")
-
-			apiClient = openai.New(
-				cfg.Providers.TogetherAI.APIKey,
-				cfg.Providers.TogetherAI.BaseURL)
-		} else {
-			// gptscript server case
-			log.Info().Msg("no explicit tools provider LLM configured (gptscript server will still work if OPENAI_API_KEY is set)")
+		if cfg.Providers.TogetherAI.APIKey == "" {
+			return nil, fmt.Errorf("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
+
+		log.Info().
+			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
+			Msg("using TogetherAI provider for tools")
+
+		apiClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL)
+
 	case config.ProviderHelix:
 		if controller == nil {
 			return nil, errors.New("no controller provided for Helix provider")
