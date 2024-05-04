@@ -30,8 +30,10 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner         string            `json:"runner"`          // e.g. 0
-	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	Runner         string         `json:"runner"`          // e.g. 0
+	Message        string         `json:"message"`         // e.g. Prove pythagoras
+	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
+
 	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
 	Progress       int               `json:"progress"`        // e.g. 0-100
 	Files          []string          `json:"files"`           // list of filepath paths
@@ -49,6 +51,18 @@ type Interaction struct {
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
 	RagResults []SessionRagResult `json:"rag_results"`
+}
+
+type ResponseFormatType string
+
+const (
+	ResponseFormatTypeJSONObject ResponseFormatType = "text"
+	ResponseFormatTypeText       ResponseFormatType = "json_object"
+)
+
+type ResponseFormat struct {
+	Type   ResponseFormatType
+	Schema map[string]interface{} `json:"schema"`
 }
 
 type InteractionMessage struct {

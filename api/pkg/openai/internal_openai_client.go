@@ -161,6 +161,13 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 			DataPrepChunks: map[string][]types.DataPrepChunk{},
 		}
 
+		if req.ResponseFormat != nil {
+			interaction.ResponseFormat = types.ResponseFormat{
+				Type:   types.ResponseFormatType(req.ResponseFormat.Type),
+				Schema: req.ResponseFormat.Schema,
+			}
+		}
+
 		interactions = append(interactions, interaction)
 	}
 
