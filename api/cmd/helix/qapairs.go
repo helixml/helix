@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var target []string
 var prompt []string
 var theText []string
+var qaPairGenModel string // model to use
 
 func newQapairCommand() *cobra.Command {
 	var qapairCmd = &cobra.Command{
@@ -27,12 +27,16 @@ func newQapairCommand() *cobra.Command {
 				return fmt.Errorf("failed to create client: %v", err)
 			}
 
+			if qaPairGenModel != "" {
+				serverConfig.FineTuning.QAPairGenModel = qaPairGenModel
+			}
+
 			return qapairs.Run(client, serverConfig.FineTuning.QAPairGenModel, prompt, theText)
 		},
 	}
 
-	qapairCmd.Flags().StringSliceVar(&target, "target", []string{},
-		"Target(s) to use, defaults to all",
+	qapairCmd.Flags().StringVar(&qaPairGenModel, "model", "",
+		"Model to use if you want to override default",
 	)
 	qapairCmd.Flags().StringSliceVar(&prompt, "prompt", []string{},
 		"Prompt(s) to use, defaults to all",
