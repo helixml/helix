@@ -21,6 +21,7 @@ type ServerConfig struct {
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
 	GitHub             GitHub
+	FineTuning         FineTuning
 	Apps               Apps
 }
 
@@ -235,6 +236,15 @@ type GitHub struct {
 	ClientSecret string `envconfig:"GITHUB_INTEGRATION_CLIENT_SECRET" description:"The github app client secret."`
 	RepoFolder   string `envconfig:"GITHUB_INTEGRATION_REPO_FOLDER" default:"/filestore/github/repos" description:"What folder do we use to clone github repos."`
 	WebhookURL   string `envconfig:"GITHUB_INTEGRATION_WEBHOOK_URL" description:"The URL to receive github webhooks."`
+}
+
+type FineTuning struct {
+	Enabled  bool     `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
+	Provider Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
+	// Suggestions based on provider:
+	// - Together AI: meta-llama/Llama-3-8b-chat-hf
+	// - Helix: llama3:instruct
+	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"meta-llama/Llama-3-8b-chat-hf" description:"Which LLM model to use for QA pairs."`
 }
 
 type Apps struct {
