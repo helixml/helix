@@ -22,7 +22,12 @@ func newQapairCommand() *cobra.Command {
 				return fmt.Errorf("failed to load server config: %v", err)
 			}
 
-			return qapairs.Run(&serverConfig, prompt, theText)
+			client, err := qapairs.NewClient(&serverConfig, nil, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create client: %v", err)
+			}
+
+			return qapairs.Run(client, serverConfig.FineTuning.QAPairGenModel, prompt, theText)
 		},
 	}
 
