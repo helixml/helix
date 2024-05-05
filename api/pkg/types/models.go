@@ -20,7 +20,7 @@ const (
 	Model_Ollama_CodeLlama ModelName = "codellama:70b-instruct-q2_K"
 
 	Model_Ollama_NousHermes2Pro       ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
-	Model_Ollama_NousHermes2ProLlama3 ModelName = "adrienbrault/nous-hermes2pro-llama3-8b:8792"
+	Model_Ollama_NousHermes2ProLlama3 ModelName = "adrienbrault/nous-hermes2pro-llama3-8b:q8_0"
 
 	Model_Ollama_Llama3_8b  ModelName = "llama3:instruct"
 	Model_Ollama_Llama3_70b ModelName = "llama3:70b"
