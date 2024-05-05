@@ -100,11 +100,18 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		ActiveTools:      []string{},
 	}
 
+	if chatCompletionRequest.ResponseFormat != nil {
+		newSession.ResponseFormat = types.ResponseFormat{
+			Type:   types.ResponseFormatType(chatCompletionRequest.ResponseFormat.Type),
+			Schema: chatCompletionRequest.ResponseFormat.Schema,
+		}
+	}
+
 	startReq := &startSessionConfig{
 		sessionID: sessionID,
 		modelName: chatCompletionRequest.Model,
 		start: func() error {
-			_, err := apiServer.Controller.CreateSession(userContext, newSession)
+			_, err := apiServer.Controller.StartSession(userContext, newSession)
 			return err
 		},
 	}

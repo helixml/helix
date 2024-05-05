@@ -90,7 +90,8 @@ const (
 )
 
 type ChatCompletionResponseFormat struct {
-	Type ChatCompletionResponseFormatType `json:"type,omitempty"`
+	Type   ChatCompletionResponseFormatType `json:"type,omitempty"`
+	Schema map[string]interface{}           `json:"schema,omitempty"`
 }
 
 type ChatMessagePartType string
