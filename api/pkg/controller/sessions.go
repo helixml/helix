@@ -39,6 +39,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Finished:       false,
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
+		ResponseFormat: req.ResponseFormat,
 	}
 
 	activeTools := req.ActiveTools
