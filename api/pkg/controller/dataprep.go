@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -235,7 +236,7 @@ func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, er
 	return filesToConvert, nil
 }
 
-func (c *Controller) getDataPrepFactory(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
+func (c *Controller) getDataPrepFactory() (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
 	client, err := qapairs.NewClient(c.Options.Config, c.Options.PubSub, c)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize qapairs client: %s", err.Error())
@@ -269,7 +270,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
-	_, splitter, err := c.getDataPrepFactory(session)
+	_, splitter, err := c.getDataPrepFactory()
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +466,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	dataprep, _, err := c.getDataPrepFactory(session)
+	dataprep, _, err := c.getDataPrepFactory()
 	if err != nil {
 		return nil, 0, err
 	}
