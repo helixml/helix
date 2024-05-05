@@ -48,7 +48,7 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 	if err != nil {
 		return nil, err
 	}
-	if apiKeys == nil {
+	if len(apiKeys) == 0 {
 		_, err := c.CreateAPIKey(ctx, &types.APIKey{
 			Name: "default",
 			Type: types.APIKeyType_API,
