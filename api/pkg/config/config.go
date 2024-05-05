@@ -244,7 +244,7 @@ type FineTuning struct {
 	// Suggestions based on provider:
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
 	// - Helix: llama3:instruct
-	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"meta-llama/Llama-3-8b-chat-hf" description:"Which LLM model to use for QA pairs."`
+	QAPairGenModel string `envconfig:"FINETUNING_QA_PAIR_GEN_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for QA pairs."`
 }
 
 type Apps struct {
