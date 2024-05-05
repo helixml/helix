@@ -56,8 +56,8 @@ type Interaction struct {
 type ResponseFormatType string
 
 const (
-	ResponseFormatTypeJSONObject ResponseFormatType = "text"
-	ResponseFormatTypeText       ResponseFormatType = "json_object"
+	ResponseFormatTypeJSONObject ResponseFormatType = "json_object"
+	ResponseFormatTypeText       ResponseFormatType = "text"
 )
 
 type ResponseFormat struct {
@@ -485,7 +485,15 @@ type RunnerTaskResponse struct {
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
 	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	Usage    Usage    `json:"usage,omitempty"`
 	Done     bool     `json:"done,omitempty"`
+}
+
+type Usage struct {
+	PromptTokens     int   `json:"prompt_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	TotalTokens      int   `json:"total_tokens"`
+	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
 }
 
 // this is returned by the api server so that clients can see what
@@ -525,6 +533,7 @@ type CreateSessionRequest struct {
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
 	LoraDir                 string
+	ResponseFormat          ResponseFormat
 }
 
 type UpdateSessionRequest struct {
