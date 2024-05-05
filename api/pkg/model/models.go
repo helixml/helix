@@ -30,7 +30,10 @@ func GetModels() (map[types.ModelName]Model, error) {
 	models[types.Model_Ollama_Mistral7b] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), MB*6440)
 	models[types.Model_Ollama_Mixtral] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), GB*24)
 	models[types.Model_Ollama_CodeLlama] = NewOllamaGenericText(types.Model_Ollama_CodeLlama.String(), GB*24)
+
+	// NousHermes2Pro
 	models[types.Model_Ollama_NousHermes2Pro] = NewOllamaGenericText(types.Model_Ollama_NousHermes2Pro.String(), MB*6440)
+	models[types.Model_Ollama_NousHermes2ProLlama3] = NewOllamaGenericText(types.Model_Ollama_NousHermes2ProLlama3.String(), MB*8792)
 
 	// Llama3
 	models[types.Model_Ollama_Llama3_8b] = NewOllamaGenericText(types.Model_Ollama_Llama3_8b.String(), MB*5349)
