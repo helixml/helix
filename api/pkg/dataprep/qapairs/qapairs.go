@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"text/template"
@@ -16,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	ext_openai "github.com/lukemarsden/go-openai2"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -102,7 +102,7 @@ func FindPrompt(name string) (Prompt, error) {
 	var config Config
 	err := yaml.Unmarshal([]byte(qapairConfig), &config)
 	if err != nil {
-		log.Fatal(err)
+		return Prompt{}, fmt.Errorf("failed to unmarshal qapair config: %v", err)
 	}
 
 	for _, prompt := range config.Prompts {
@@ -178,15 +178,17 @@ type TemplateData struct {
 
 func Query(client openai.Client, model string, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
 	// Perform the query for the given target and prompt
+	var (
+		contents string
+		err      error
+	)
 
-	var contents string
-	var err error
 	if text.Contents != "" {
 		contents = text.Contents
 	} else {
 		contents, err = loadFile(text.File)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to load file %s: %w", text.File, err)
 		}
 	}
 
@@ -233,18 +235,18 @@ func Query(client openai.Client, model string, prompt Prompt, text Text, documen
 	// try not enforcing json schema initially, only retry if we fail to parse
 	resp, err := chatWithModel(client, model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
-		log.Printf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
+		log.Warn().Msgf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
 		resp, err = chatWithModel(client, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
-			log.Printf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
+			log.Warn().Msgf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()
-			log.Printf("Took: %.2f seconds. FAILED", float32(latency)/1000)
+			log.Warn().Msgf("Took: %.2f seconds. FAILED", float32(latency)/1000)
 			return []types.DataPrepTextQuestionRaw{}, nil
 		}
 	}
 	latency := time.Since(startTime).Milliseconds()
 
-	log.Printf("Took: %.2f seconds", float32(latency)/1000)
+	log.Info().Msgf("Took: %.2f seconds", float32(latency)/1000)
 
 	err = os.MkdirAll("runs", os.ModePerm)
 	if err != nil {
@@ -252,11 +254,12 @@ func Query(client openai.Client, model string, prompt Prompt, text Text, documen
 	}
 
 	timestamp := time.Now().Unix()
-	filename := fmt.Sprintf("runs/%d_%s_%s_%s.yaml", timestamp, model, prompt.Name, text.Name)
+	filename := fmt.Sprintf("runs/%d_%s_%s.yaml", timestamp, prompt.Name, text.Name)
 
 	respBytes, err := yaml.Marshal(resp)
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Msgf("failed to marshal response")
+		return nil, fmt.Errorf("failed to marshal response, error: %w", err)
 	}
 
 	logData := Log{
@@ -271,12 +274,14 @@ func Query(client openai.Client, model string, prompt Prompt, text Text, documen
 
 	logDataBytes, err := yaml.Marshal(logData)
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Msgf("failed to marshal logData")
+		return nil, fmt.Errorf("failed to marshal log data, error: %w", err)
 	}
 
 	err = os.WriteFile(filename, logDataBytes, 0644)
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Msgf("failed to write file %s", filename)
+		return nil, fmt.Errorf("failed to write log file, error: %w", err)
 	}
 
 	return resp, nil
@@ -319,7 +324,7 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 
 	answer := resp.Choices[0].Message.Content
 
-	log.Printf("Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
+	log.Printf("XXX Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
 
 	if jsonSchema == nil {
 		if strings.Contains(answer, "```json") {
