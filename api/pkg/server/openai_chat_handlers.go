@@ -111,7 +111,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		sessionID: sessionID,
 		modelName: chatCompletionRequest.Model,
 		start: func() error {
-			_, err := apiServer.Controller.CreateSession(userContext, newSession)
+			_, err := apiServer.Controller.StartSession(userContext, newSession)
 			return err
 		},
 	}
