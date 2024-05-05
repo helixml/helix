@@ -26,7 +26,7 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
+func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
