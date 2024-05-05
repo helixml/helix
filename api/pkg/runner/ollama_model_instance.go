@@ -276,7 +276,7 @@ WAIT:
 				i.currentSession = session
 				i.lastActivity = time.Now()
 
-				err = i.processInteraction(session)
+				err := i.processInteraction(session)
 				if err != nil {
 					log.Error().
 						Str("session_id", session.ID).
