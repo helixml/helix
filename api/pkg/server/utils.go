@@ -18,72 +18,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func addCorsHeaders(w http.ResponseWriter) {
-	// Set headers to allow requests from any origin
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-}
-
-func corsMiddleware(f http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		addCorsHeaders(w)
-
-		// If method is OPTIONS, return just the headers and finish the request
-		if r.Method == "OPTIONS" {
-			return
-		}
-
-		f.ServeHTTP(w, r)
-	}
-}
-
-func (apiServer *HelixAPIServer) getRequestContext(req *http.Request) types.RequestContext {
-	user := getRequestUser(req)
-	return types.RequestContext{
-		Ctx:       req.Context(),
-		Owner:     user.ID,
-		OwnerType: types.OwnerTypeUser,
-		Admin:     apiServer.adminAuth.isUserAdmin(user.ID),
-		Email:     user.Email,
-		FullName:  user.FullName,
-		Token:     user.Token,
-	}
-}
-
-func (apiServer *HelixAPIServer) getOwnerContext(req *http.Request) types.OwnerContext {
-	user := getRequestUser(req)
-	return types.OwnerContext{
-		Owner:     user.ID,
-		OwnerType: types.OwnerTypeUser,
-	}
-}
-
-func (apiServer *HelixAPIServer) doesOwnSession(reqContext types.RequestContext, session *types.Session) bool {
-	return session.OwnerType == reqContext.OwnerType && session.Owner == reqContext.Owner
-}
-
-func (apiServer *HelixAPIServer) canSeeSession(reqContext types.RequestContext, session *types.Session) bool {
-	canEdit := apiServer.canEditSession(reqContext, session)
-	if canEdit {
-		return true
-	}
-	if session.Metadata.Shared {
-		return true
-	}
-	return false
-}
-
-func (apiServer *HelixAPIServer) canEditSession(reqContext types.RequestContext, session *types.Session) bool {
-	if session.OwnerType == reqContext.OwnerType && session.Owner == reqContext.Owner {
-		return true
-	}
-	if apiServer.adminAuth.isUserAdmin(reqContext.Owner) {
-		return true
-	}
-	return false
-}
-
 type LoggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -167,7 +101,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 			filePath := filepath.Join(inputPath, fileHeader.Filename)
 
 			log.Debug().Msgf("uploading file %s", filePath)
-			imageItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), filePath, file)
+			imageItem, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filePath, file)
 			if err != nil {
 				return nil, fmt.Errorf("unable to upload file: %s", err.Error())
 			}
@@ -187,7 +121,7 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 
 				metadata[fileHeader.Filename] = label
 
-				labelItem, err := apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), labelFilepath, strings.NewReader(label))
+				labelItem, err := apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), labelFilepath, strings.NewReader(label))
 				if err != nil {
 					return nil, fmt.Errorf("unable to create label: %s", err.Error())
 				}
@@ -242,15 +176,6 @@ func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessi
 	return filePath, ownerContext, nil
 }
 
-func (apiServer *HelixAPIServer) requireAdmin(req *http.Request) error {
-	isAdmin := apiServer.isAdmin(req)
-	if !isAdmin {
-		return fmt.Errorf("access denied")
-	} else {
-		return nil
-	}
-}
-
 func extractSessionID(path string) string {
 	parts := strings.Split(path, "/")
 	for i, part := range parts {
@@ -282,15 +207,15 @@ func (apiServer *HelixAPIServer) isFilestoreRouteAuthorized(req *http.Request) (
 		}
 	}
 
+	user := getRequestUser(req)
+
 	// a runner can see all files
-	isRunner := apiServer.runnerAuth.isRequestAuthenticated(req)
-	if isRunner {
+	if isRunner(user) {
 		return true, nil
 	}
 
 	// an admin user can see all files
-	isAdmin := apiServer.adminAuth.isRequestAuthenticated(req)
-	if isAdmin {
+	if isAdmin(user) {
 		return true, nil
 	}
 
@@ -329,31 +254,6 @@ func (nfs neuteredFileSystem) Open(path string) (http.File, error) {
 	}
 
 	return f, nil
-}
-
-func extractBearerToken(token string) string {
-	return strings.Replace(token, "Bearer ", "", 1)
-}
-
-func getBearerToken(r *http.Request) string {
-	return extractBearerToken(r.Header.Get("Authorization"))
-}
-
-func getQueryToken(r *http.Request) string {
-	return r.URL.Query().Get("access_token")
-}
-
-func getRequestToken(r *http.Request) string {
-	token := getBearerToken(r)
-	if token == "" {
-		token = getQueryToken(r)
-	}
-	return token
-}
-
-func isRequestAuthenticatedAgainstToken(r *http.Request, actualToken string) bool {
-	providedToken := getRequestToken(r)
-	return providedToken == actualToken
 }
 
 // used by the widget server

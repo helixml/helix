@@ -48,7 +48,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.pubsub = ps
 
 	suite.userID = "user_id"
-	suite.authCtx = setRequestUser(context.Background(), types.UserData{
+	suite.authCtx = setRequestUser(context.Background(), types.User{
 		ID:       suite.userID,
 		Email:    "foo@email.com",
 		FullName: "Foo Bar",
@@ -66,7 +66,6 @@ func (suite *OpenAIChatSuite) SetupTest() {
 				Janitor: janitor.NewJanitor(config.Janitor{}),
 			},
 		},
-		adminAuth: &adminAuth{},
 	}
 }
 

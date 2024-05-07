@@ -185,11 +185,13 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 	}
 
 	_, err := c.controller.StartSession(types.RequestContext{
-		Ctx:       ctx,
-		Owner:     createSessionReq.Owner,
-		OwnerType: createSessionReq.OwnerType,
-		Admin:     false,
-		Email:     "system@helix.ml",
+		Ctx: ctx,
+		User: types.User{
+			ID:    createSessionReq.Owner,
+			Type:  createSessionReq.OwnerType,
+			Admin: false,
+			Email: "system@helix.ml",
+		},
 	}, createSessionReq)
 	return err
 }

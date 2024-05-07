@@ -23,6 +23,17 @@ const (
 // https://platform.openai.com/docs/api-reference/chat/create
 // POST https://app.tryhelix.ai//v1/chat/completions
 func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, req *http.Request) {
+	addCorsHeaders(res)
+	if req.Method == "OPTIONS" {
+		return
+	}
+
+	reqContext := getRequestContext(req)
+	if !hasUser(reqContext.User) {
+		http.Error(res, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusBadRequest)
@@ -36,9 +47,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
-	userContext := apiServer.getRequestContext(req)
-
-	status, err := apiServer.Controller.GetStatus(userContext)
+	status, err := apiServer.Controller.GetStatus(reqContext)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
@@ -91,10 +100,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      types.SessionTypeText,
+		ParentApp:        reqContext.User.AppID,
 		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
-		Owner:            userContext.Owner,
-		OwnerType:        userContext.OwnerType,
+		Owner:            reqContext.User.ID,
+		OwnerType:        reqContext.User.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
@@ -111,17 +121,17 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		sessionID: sessionID,
 		modelName: chatCompletionRequest.Model,
 		start: func() error {
-			_, err := apiServer.Controller.StartSession(userContext, newSession)
+			_, err := apiServer.Controller.StartSession(reqContext, newSession)
 			return err
 		},
 	}
 
 	if chatCompletionRequest.Stream {
-		apiServer.handleStreamingResponse(res, req, userContext, startReq)
+		apiServer.handleStreamingResponse(res, req, reqContext, startReq)
 		return
 	}
 
-	apiServer.handleBlockingResponse(res, req, userContext, startReq)
+	apiServer.handleBlockingResponse(res, req, reqContext, startReq)
 }
 
 type startSessionConfig struct {
@@ -141,11 +151,43 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.Owner, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
 			return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
+		}
+
+		// this is a special case where if we are using tools then they will not stream
+		// but the widget only works with streaming responses right now so we have to
+		// do this
+		// TODO: make tools work with streaming responses
+		if event.Session != nil && event.Session.ParentApp != "" && len(event.Session.Interactions) > 0 {
+			// we are inside an app - let's check to see if the last interaction was a tools one
+			lastInteraction := event.Session.Interactions[len(event.Session.Interactions)-1]
+			_, ok := lastInteraction.Metadata["tool_id"]
+
+			// ok we used a tool
+			if ok && lastInteraction.Finished {
+				logger.Debug().Msgf("session finished")
+
+				lastChunk := createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), lastInteraction.Message)
+				lastChunk.Choices[0].FinishReason = "stop"
+
+				respData, err := json.Marshal(lastChunk)
+				if err != nil {
+					return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
+				}
+
+				err = writeChunk(res, respData)
+				if err != nil {
+					return err
+				}
+
+				// Close connection
+				close(doneCh)
+				return nil
+			}
 		}
 
 		// If we get a worker task response with done=true, we need to send a final chunk
@@ -275,7 +317,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	// Wait for the results from the session update. Last event will have the interaction with the full
 	// response from the model.
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.Owner, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {

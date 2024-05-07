@@ -3,18 +3,14 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import ViewIcon from '@mui/icons-material/Visibility'
 import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
-import Stack from '@mui/material/Stack'
-import Chip from '@mui/material/Chip'
 import SimpleTable from '../widgets/SimpleTable'
 import ClickLink from '../widgets/ClickLink'
 import useAccount from '../../hooks/useAccount'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
+
+import ToolDetail from './ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
-import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   ITool,
@@ -39,73 +35,7 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
     return data.map(tool => {
       const accessType = tool.global ? 'Global' : 'User'
       const toolType = tool.config.gptscript ? 'GPT Script' : 'Tool'
-      let details: any = ''
-      if(tool.config.api) {
-        details = (
-          <>
-            <Box sx={{mb: 2}}>
-              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-                { tool.config.api.url }
-              </Typography>
-              <Typography variant="caption" gutterBottom>
-                { tool.description }
-              </Typography>
-            </Box>
-            {
-              tool.config.api.actions.map((action, index) => {
-                return (
-                  <Box key={index}>
-                    <Row>
-                      <Cell sx={{width:'50%'}}>
-                        <Typography>
-                          {action.name}
-                        </Typography>
-                      </Cell>
-                      <Cell sx={{width:'50%'}}>
-                        <Row>
-                          <Cell sx={{width: '70px'}}>
-                            <Chip color="secondary" size="small" label={action.method.toUpperCase()} />
-                          </Cell>
-                          <Cell>
-                            <Typography>
-                              {action.path}
-                            </Typography>
-                          </Cell>
-                        </Row>
-                      </Cell>
-                    </Row>
-                    <Row sx={{mt: 0.5, mb: 2}}>
-                      <Cell>
-                        <Typography variant="caption" sx={{color: '#999'}}>
-                          {action.description}
-                        </Typography>
-                      </Cell>
-                    </Row>
-                  </Box>
-                )
-              })
-            }
-          </>
-        )
-      }
-      if(tool.config.gptscript) {
-        details = (
-          <>
-            <Box sx={{mb: 2}}>
-              {
-                tool.config.gptscript.script_url && (
-                  <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-                    { tool.config.gptscript.script_url }
-                  </Typography>
-                )
-              }
-              <Typography variant="caption" gutterBottom>
-                { tool.description }
-              </Typography>
-            </Box>
-          </>
-        )
-      }
+    
       return {
         id: tool.id,
         _data: tool,
@@ -136,7 +66,11 @@ const ToolsDataGrid: FC<React.PropsWithChildren<{
             { new Date(tool.updated).toLocaleString() }
           </Box>
         ),
-        details,
+        details: (
+          <ToolDetail
+            tool={ tool }
+          />
+        ),
       }
     })
   }, [

@@ -7,7 +7,8 @@ import Tooltip from '@mui/material/Tooltip'
 import IconButton from '@mui/material/IconButton'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/Delete'
-import Row from '../widgets/Row'
+import CodeIcon from '@mui/icons-material/Code'
+
 import {
   IApiKey,
 } from '../../types'
@@ -57,13 +58,32 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
               textAlign: 'right',
             }}>
               <CopyToClipboard
+                text={ `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
+<script>
+  ChatWidget({
+    url: '${window.location.origin}/v1/chat/completions',
+    model: 'mistral:7b-instruct',
+    bearerToken: '${data.key}',
+  })
+</script>` }
+                onCopy={ () => {
+                  snackbar.success('embed code copied to clipboard')
+                }}
+              >
+                <Tooltip title="Copy Embed Code">
+                  <IconButton size="small">
+                    <CodeIcon sx={{width: '16px', height: '16px'}} />
+                  </IconButton>
+                </Tooltip>
+              </CopyToClipboard>
+              <CopyToClipboard
                 text={ data.key }
                 onCopy={ () => {
                   snackbar.success('api key copied to clipboard')
                 }}
               >
                 <Tooltip title="Copy API Key">
-                  <IconButton size="small">
+                  <IconButton size="small" sx={{ml: 2}}>
                     <ContentCopyIcon sx={{width: '16px', height: '16px'}} />
                   </IconButton>
                 </Tooltip>

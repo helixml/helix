@@ -56,8 +56,6 @@ type HelixAPIServer struct {
 	Stripe         *stripe.Stripe
 	Controller     *controller.Controller
 	Janitor        *janitor.Janitor
-	runnerAuth     *runnerAuth
-	adminAuth      *adminAuth
 	authMiddleware *authMiddleware
 	pubsub         pubsub.PubSub
 	router         *mux.Router
@@ -87,21 +85,22 @@ func NewServer(
 	if cfg.WebServer.RunnerToken == "" {
 		return nil, fmt.Errorf("runner token is required")
 	}
-	runnerAuth, err := newRunnerAuth(cfg.WebServer.RunnerToken)
-	if err != nil {
-		return nil, err
-	}
 
 	return &HelixAPIServer{
-		Cfg:            cfg,
-		Store:          store,
-		Stripe:         stripe,
-		Controller:     controller,
-		Janitor:        janitor,
-		runnerAuth:     runnerAuth,
-		adminAuth:      newAdminAuth(cfg.WebServer.AdminIDs),
-		authMiddleware: newMiddleware(authenticator, cfg.WebServer, store),
-		pubsub:         ps,
+		Cfg:        cfg,
+		Store:      store,
+		Stripe:     stripe,
+		Controller: controller,
+		Janitor:    janitor,
+		authMiddleware: newAuthMiddleware(
+			authenticator,
+			store,
+			authMiddlewareConfig{
+				adminUserIDs: cfg.WebServer.AdminIDs,
+				runnerToken:  cfg.WebServer.RunnerToken,
+			},
+		),
+		pubsub: ps,
 	}, nil
 }
 
@@ -117,13 +116,10 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		"/ws/user",
 	)
 
-	StartRunnerWebSocketServer(
+	apiServer.startRunnerWebSocketServer(
 		ctx,
 		apiRouter,
-		apiServer.Controller,
 		"/ws/runner",
-		apiServer.Controller.RunnerWebsocketEventChanReader,
-		apiServer.runnerAuth.isRequestAuthenticated,
 	)
 
 	srv := &http.Server{
@@ -137,39 +133,37 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 	return srv.ListenAndServe()
 }
 
+func matchAllRoutes(r *http.Request, rm *mux.RouteMatch) bool {
+	return true
+}
+
 func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router, error) {
 	router := mux.NewRouter()
 	err := apiServer.Janitor.InjectMiddleware(router)
 	if err != nil {
 		return nil, err
 	}
-	router.Use(errorLoggingMiddleware)
 
+	// we do token extraction for all routes
+	// if there is a token we will assign the user if not then oh well no user it's all gravy
+	router.Use(errorLoggingMiddleware)
+	router.Use(apiServer.authMiddleware.extractMiddleware)
+
+	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(API_PREFIX).Subrouter()
 
-	// auth router requires a valid token from keycloak
-	authRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-
-	maybeAuthRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-
-	authRouter.Use(apiServer.authMiddleware.enforceVerifyToken)
-	maybeAuthRouter.Use(apiServer.authMiddleware.maybeVerifyToken)
+	// auth router requires a valid token from keycloak or api key
+	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	authRouter.Use(requireUser)
 
 	// runner router requires a valid runner token
-	runnerRouter := subRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-	runnerRouter.Use(apiServer.runnerAuth.middleware)
+	runnerRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	runnerRouter.Use(requireRunner)
 
-	// admin auth
-	adminRouter := authRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-		return true
-	}).Subrouter()
-	adminRouter.Use(apiServer.adminAuth.middleware)
+	// admin auth requires a user with admin flag
+	adminRouter := authRouter.MatcherFunc(matchAllRoutes).Subrouter()
+	adminRouter.Use(requireAdmin)
+
 	subRouter.HandleFunc("/config", system.DefaultWrapperWithConfig(apiServer.config, system.WrapperConfig{
 		SilenceErrors: true,
 	})).Methods("GET")
@@ -214,7 +208,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 		// we handle our own auth from inside this function
 		// but we need to use the maybeAuthRouter because it uses the keycloak middleware
 		// that will extract the bearer token into a user id for us
-		maybeAuthRouter.PathPrefix("/filestore/viewer/").Handler(
+		subRouter.PathPrefix("/filestore/viewer/").Handler(
 			http.StripPrefix(fmt.Sprintf("%s/filestore/viewer/", API_PREFIX), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// if the session is "shared" then anyone can see the files inside the session
@@ -252,7 +246,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	}
 
 	// OpenAI API compatible routes
-	router.HandleFunc("/v1/chat/completions", corsMiddleware(apiServer.authMiddleware.apiKeyAuth(apiServer.createChatCompletion))).Methods("POST", "OPTIONS")
+	router.HandleFunc("/v1/chat/completions", apiServer.createChatCompletion).Methods("POST", "OPTIONS")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
@@ -260,8 +254,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// api/v1beta/sessions is the new route for creating sessions
 	authRouter.HandleFunc("/sessions/chat", apiServer.startSessionHandler).Methods("POST")
 
-	maybeAuthRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
-	maybeAuthRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
+	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
+	subRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.updateSession)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.deleteSession)).Methods("DELETE")
 	authRouter.HandleFunc("/sessions/{id}/restart", system.Wrapper(apiServer.restartSession)).Methods("PUT")
@@ -272,7 +266,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/{id}/finetune/documents", system.Wrapper(apiServer.finetuneAddDocuments)).Methods("PUT")
 	authRouter.HandleFunc("/sessions/{id}/finetune/clone/{interaction}/{mode}", system.Wrapper(apiServer.cloneFinetuneInteraction)).Methods("POST")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/retry", system.Wrapper(apiServer.retryTextFinetune)).Methods("PUT")
-	maybeAuthRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
+	subRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.getSessionFinetuneConversation)).Methods("GET")
 	authRouter.HandleFunc("/sessions/{id}/finetune/text/conversations/{interaction}", system.Wrapper(apiServer.setSessionFinetuneConversation)).Methods("PUT")
 
 	authRouter.HandleFunc("/tools", system.Wrapper(apiServer.listTools)).Methods("GET")
@@ -289,7 +283,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// this is so frontend devs don't need anything other than their access token
 	// and can auto-connect to this endpoint
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
-	subRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
+	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
 
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
 
@@ -302,10 +296,10 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
-	// Authentication route
+	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
-	// Default handler for static files
+	// proxy other routes to frontend
 	apiServer.registerDefaultHandler(router)
 
 	apiServer.router = router

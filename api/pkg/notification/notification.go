@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
@@ -75,7 +76,7 @@ func (n *NotificationsProvider) Notify(ctx context.Context, notification *Notifi
 		Str("email", user.Email).Str("notification", notification.Event.String()).Msg("sending notification")
 
 	notification.Email = user.Email
-	notification.FirstName = user.FirstName
+	notification.FirstName = strings.Split(user.FullName, " ")[0]
 
 	if n.email.Enabled() {
 		err := n.email.Notify(ctx, notification)

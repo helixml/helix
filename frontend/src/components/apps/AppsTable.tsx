@@ -15,6 +15,7 @@ import useAccount from '../../hooks/useAccount'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import JsonWindowLink from '../widgets/JsonWindowLink'
+import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -36,10 +37,75 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const theme = useTheme()
   const account = useAccount()
 
-  const isAdmin = account.admin
-
   const tableData = useMemo(() => {
     return data.map(app => {
+      const gptScripts = (app.config.helix?.assistants[0]?.gptscripts || [])
+      const apiTools = (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api')
+
+      const gptscriptsElem = gptScripts.length > 0 ? (
+        <>
+          <Box sx={{mb: 2}}>
+            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              GPTScripts
+            </Typography>
+          </Box>
+          {
+            // TODO: support more than 1 assistant
+            gptScripts.map((gptscript, index) => {
+              return (
+                <Box
+                  key={index}
+                >
+                  <Row>
+                    <Cell sx={{width:'50%'}}>
+                      <Chip color="secondary" size="small" label={gptscript.name} />
+                    </Cell>
+                    <Cell sx={{width:'50%'}}>
+                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                        {gptscript.content?.split('\n').filter(r => r)[0] || ''}
+                      </Typography>
+                      <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
+                        {gptscript.content?.split('\n').filter(r => r)[1] || ''}
+                      </Typography>
+                      <JsonWindowLink
+                        sx={{textDecoration: 'underline'}}
+                        data={gptscript.content}
+                      >
+                        expand
+                      </JsonWindowLink>
+                    </Cell>
+                  </Row>
+                </Box>
+              )
+            })
+          }
+        </>
+      ) : null
+
+      const apisElem = apiTools.length > 0 ? (
+        <>
+          <Box sx={{mb: 2}}>
+            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              APIs
+            </Typography>
+          </Box>
+          {
+            // TODO: support more than 1 assistant
+            apiTools.map((apiTool, index) => {
+              return (
+                <ToolDetail
+                  key={ index }
+                  tool={ apiTool }
+                />
+              )
+            })
+          }
+        </>
+      ) : null
+
+      // TODO: add the list of apis also to this display
+      // we can grab stuff from the tools package that already renders endpoints
+
       return {
         id: app.id,
         _data: app,
@@ -70,38 +136,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         type: app.app_type,
         details: (
           <>
-            <Box sx={{mb: 2}}>
-              <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-                GPTScripts
-              </Typography>
-            </Box>
-            {
-              app.config.helix?.gptscript?.scripts?.map((gptscript, index) => {
-                return (
-                  <Box key={index}>
-                    <Row>
-                      <Cell sx={{width:'50%'}}>
-                        <Chip color="secondary" size="small" label={gptscript.name} />
-                      </Cell>
-                      <Cell sx={{width:'50%'}}>
-                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                          {gptscript.content?.split('\n').filter(r => r)[0] || ''}
-                        </Typography>
-                        <Typography variant="body2" sx={{color: '#999', fontSize: '0.8rem'}}>
-                          {gptscript.content?.split('\n').filter(r => r)[1] || ''}
-                        </Typography>
-                        <JsonWindowLink
-                          sx={{textDecoration: 'underline'}}
-                          data={gptscript.content}
-                        >
-                          expand
-                        </JsonWindowLink>
-                      </Cell>
-                    </Row>
-                  </Box>
-                )
-              })
-            }
+            { gptscriptsElem }
+            { apisElem }
           </>
         ),
         updated: (
