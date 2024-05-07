@@ -30,8 +30,10 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner         string            `json:"runner"`          // e.g. 0
-	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	Runner         string         `json:"runner"`          // e.g. 0
+	Message        string         `json:"message"`         // e.g. Prove pythagoras
+	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
+
 	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
 	Progress       int               `json:"progress"`        // e.g. 0-100
 	Files          []string          `json:"files"`           // list of filepath paths
@@ -49,6 +51,18 @@ type Interaction struct {
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
 	RagResults []SessionRagResult `json:"rag_results"`
+}
+
+type ResponseFormatType string
+
+const (
+	ResponseFormatTypeJSONObject ResponseFormatType = "json_object"
+	ResponseFormatTypeText       ResponseFormatType = "text"
+)
+
+type ResponseFormat struct {
+	Type   ResponseFormatType
+	Schema map[string]interface{} `json:"schema"`
 }
 
 type InteractionMessage struct {
@@ -474,7 +488,15 @@ type RunnerTaskResponse struct {
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
 	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	Usage    Usage    `json:"usage,omitempty"`
 	Done     bool     `json:"done,omitempty"`
+}
+
+type Usage struct {
+	PromptTokens     int   `json:"prompt_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	TotalTokens      int   `json:"total_tokens"`
+	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
 }
 
 // this is returned by the api server so that clients can see what
@@ -515,6 +537,7 @@ type CreateSessionRequest struct {
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
 	LoraDir                 string
+	ResponseFormat          ResponseFormat
 }
 
 type UpdateSessionRequest struct {

@@ -12,7 +12,6 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
-	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -217,49 +216,50 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	// a text.DataPrepText factory that runs jobs on ourselves
 	// dogfood nom nom nom
-	controllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
-		if appController == nil {
-			return nil, nil, fmt.Errorf("app controller is not initialized")
-		}
+	// controllerOptions.DataPrepTextFactory = func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
+	// 	if appController == nil {
+	// 		return nil, nil, fmt.Errorf("app controller is not initialized")
+	// 	}
 
-		var questionGenerator text.DataPrepTextQuestionGenerator
-		var err error
+	// 	var questionGenerator text.DataPrepTextQuestionGenerator
+	// 	var err error
 
-		// if we are using openai then let's do that
-		// otherwise - we use our own mistral plugin
-		if cfg.DataPrepText.Module == types.DataPrepModule_HelixMistral {
-			// we give the mistal data prep module a way to run and read sessions
-			questionGenerator, err = text.NewDataPrepTextHelixMistral(
-				cfg.DataPrepText,
-				session,
-				func(req types.CreateSessionRequest) (*types.Session, error) {
-					return appController.CreateSession(types.RequestContext{}, req)
-				},
-				func(id string) (*types.Session, error) {
-					return appController.Options.Store.GetSession(context.Background(), id)
-				},
-			)
-			if err != nil {
-				return nil, nil, err
-			}
-		} else if cfg.DataPrepText.Module == types.DataPrepModule_Dynamic {
-			// empty values = use defaults
-			questionGenerator = text.NewDynamicDataPrep("", []string{})
-		} else {
-			return nil, nil, fmt.Errorf("unknown data prep module: %s", cfg.DataPrepText.Module)
-		}
+	// 	// if we are using openai then let's do that
+	// 	// otherwise - we use our own mistral plugin
+	// 	if cfg.DataPrepText.Module == types.DataPrepModule_HelixMistral {
+	// 		// we give the mistal data prep module a way to run and read sessions
+	// 		questionGenerator, err = text.NewDataPrepTextHelixMistral(
+	// 			cfg.DataPrepText,
+	// 			session,
+	// 			func(req types.CreateSessionRequest) (*types.Session, error) {
+	// 				return appController.CreateSession(types.RequestContext{}, req)
+	// 			},
+	// 			func(id string) (*types.Session, error) {
+	// 				return appController.Options.Store.GetSession(context.Background(), id)
+	// 			},
+	// 		)
+	// 		if err != nil {
+	// 			return nil, nil, err
+	// 		}
+	// 	} else if cfg.DataPrepText.Module == types.DataPrepModule_Dynamic {
+	// 		// empty values = use defaults
 
-		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-			ChunkSize: questionGenerator.GetChunkSize(),
-			Overflow:  cfg.DataPrepText.OverflowSize,
-		})
+	// 		questionGenerator = text.NewDynamicDataPrep("", []string{})
+	// 	} else {
+	// 		return nil, nil, fmt.Errorf("unknown data prep module: %s", cfg.DataPrepText.Module)
+	// 	}
 
-		if err != nil {
-			return nil, nil, err
-		}
+	// 	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+	// 		ChunkSize: questionGenerator.GetChunkSize(),
+	// 		Overflow:  cfg.DataPrepText.OverflowSize,
+	// 	})
 
-		return questionGenerator, splitter, nil
-	}
+	// 	if err != nil {
+	// 		return nil, nil, err
+	// 	}
+
+	// 	return questionGenerator, splitter, nil
+	// }
 
 	appController, err = controller.NewController(ctx, controllerOptions)
 	if err != nil {

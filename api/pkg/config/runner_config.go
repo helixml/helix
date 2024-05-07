@@ -7,9 +7,9 @@ import (
 )
 
 type RunnerConfig struct {
-	Models Models
-
+	Models   Models
 	Runtimes Runtimes
+	CacheDir string `envconfig:"CACHE_DIR" default:"/root/.cache/huggingface"` // Used to download model weights. Ideally should be persistent
 }
 
 func LoadRunnerConfig() (RunnerConfig, error) {

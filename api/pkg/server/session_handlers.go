@@ -112,7 +112,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			sessionID: sessionID,
 			modelName: startReq.Model,
 			start: func() error {
-				_, err := s.Controller.CreateSession(userContext, newSession)
+				_, err := s.Controller.StartSession(userContext, newSession)
 				if err != nil {
 					return fmt.Errorf("failed to create session: %s", err)
 				}
