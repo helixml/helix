@@ -43,6 +43,7 @@ import useWebsocket from '../hooks/useWebsocket'
 import {
   IApp,
   IAppConfig,
+  IAssistantGPTScript,
   IAppHelixConfigGptScript,
   IAppUpdate,
   ISession,
@@ -76,7 +77,7 @@ const App: FC = () => {
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
-  const [ gptScript, setGptScript ] = useState<IAppHelixConfigGptScript>()
+  const [ gptScript, setGptScript ] = useState<IAssistantGPTScript>()
   const [ gptScriptInput, setGptScriptInput ] = useState('')
   const [ gptScriptError, setGptScriptError ] = useState('')
   const [ gptScriptOutput, setGptScriptOutput ] = useState('')
@@ -142,7 +143,7 @@ const App: FC = () => {
     return true
   }
 
-  const onRunScript = (script: IAppHelixConfigGptScript) => {
+  const onRunScript = (script: IAssistantGPTScript) => {
     if(account.apiKeys.length == 0) {
       snackbar.error('Please add an API key')
       return
@@ -163,13 +164,13 @@ const App: FC = () => {
         loading.setLoading(false)
         return
       }
-      if(!gptScript?.file_path) {
+      if(!gptScript?.file) {
         snackbar.error('No script file')
         loading.setLoading(false)
         return
       }
       const results = await api.post<IGptScriptRequest, IGptScriptResponse>('/api/v1/apps/script', {
-        file_path: gptScript?.file_path,
+        file_path: gptScript?.file,
         input: gptScriptInput,
       }, {
         headers: getTokenHeaders(account.apiKeys[0].key),
