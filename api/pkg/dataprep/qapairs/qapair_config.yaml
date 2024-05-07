@@ -8,7 +8,7 @@ prompts:
 
  - name: simple-quiz
    system: |
-    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create question and answer pairs from the given document for your students. Respond with a structured JSON containing an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -40,7 +40,7 @@ prompts:
 
  - name: summaries-one
    system: |
-    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with a structured JSON containing an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -69,7 +69,7 @@ prompts:
 
  - name: metadata
    system: |
-    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with a structured JSON containing an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -119,7 +119,7 @@ prompts:
 
  - name: title-questions
    system: |
-    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with a structured JSON containing an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -162,7 +162,7 @@ prompts:
 
  - name: summaries-three
    system: |
-    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with an array of strict JSON 'question' & 'answer' pairs.
+    You are an intelligent professor. You create one or more question and answer pairs from the given document for your students. Respond with a structured JSON containing an array of strict JSON 'question' & 'answer' pairs.
 
     For example:
     ```json
@@ -202,7 +202,7 @@ prompts:
 
  - name: summaries-sections
    system: |
-    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with strict JSON. Follow the schema below precisely.
+    You are an intelligent professor. You create questions and answers from the given document for your students. Respond with a structured JSON. Follow the schema below precisely.
 
     For example:
     ```json
@@ -296,7 +296,7 @@ prompts:
  - name: you-are-generating-fine-tuning-data
    system: |
     You are a large language model tasked with generating fine-tuning data from a source document that will be used to fine-tune a smaller large language model. You will generate training data for the smaller language model.
-    Respond with strict JSON. Follow the schema below precisely.
+    Respond with a structured JSON. Follow the schema below precisely.
 
     For example:
     ```json
@@ -397,7 +397,7 @@ prompts:
     
     Then, you will think about when, how, what, why and who questions for each fact.
 
-    Respond in strict JSON as a list of facts, and then for each fact a list of question-answer pairs.
+    Respond with a structured JSON containing list of facts, and then for each fact a list of question-answer pairs.
 
     For example:
     ```json

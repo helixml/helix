@@ -164,7 +164,7 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 		interactions = append(interactions, interaction)
 	}
 
-	newSession := types.CreateSessionRequest{
+	createSessionReq := types.CreateSessionRequest{
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      types.SessionTypeText,
@@ -177,17 +177,25 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 		ActiveTools:      []string{},
 	}
 
-	_, err := c.controller.CreateSession(types.RequestContext{
+	if req.ResponseFormat != nil {
+		createSessionReq.ResponseFormat = types.ResponseFormat{
+			Type:   types.ResponseFormatType(req.ResponseFormat.Type),
+			Schema: req.ResponseFormat.Schema,
+		}
+	}
+
+	_, err := c.controller.StartSession(types.RequestContext{
 		Ctx: ctx,
 		User: types.User{
-			ID:    newSession.Owner,
-			Type:  newSession.OwnerType,
+			ID:    createSessionReq.Owner,
+			Type:  createSessionReq.OwnerType,
+			Admin: false,
 			Email: "system@helix.ml",
 		},
-	}, newSession)
+	}, createSessionReq)
 	return err
 }
 
 type Controller interface {
-	CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error)
+	StartSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error)
 }

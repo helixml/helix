@@ -204,7 +204,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			case "helix-code":
 				modelName = types.Model_Ollama_CodeLlama
 			case "helix-json":
-				modelName = types.Model_Ollama_NousHermes2Pro
+				modelName = types.Model_Ollama_NousHermes2ProLlama3
 			default:
 				modelName = types.Model_Ollama_Llama3_8b
 			}
@@ -279,7 +279,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		ActiveTools:             activeTools,
 	}
 
-	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
+	sessionData, err := apiServer.Controller.StartSession(userContext, createRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start session")
 		return nil, err
