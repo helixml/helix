@@ -8,17 +8,17 @@ import Chip from '@mui/material/Chip'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import JsonWindowLink from '../widgets/JsonWindowLink'
 import {
-  IAppHelixConfigGptScript,
+  IAssistantGPTScript,
 } from '../../types'
 
 const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
-  data: IAppHelixConfigGptScript[],
-  onRunScript: (script: IAppHelixConfigGptScript) => void,
+  data: IAssistantGPTScript[],
+  onRunScript: (script: IAssistantGPTScript) => void,
 }>> = ({
   data,
   onRunScript,
 }) => {
-  const columns = useMemo<IDataGrid2_Column<IAppHelixConfigGptScript>[]>(() => {
+  const columns = useMemo<IDataGrid2_Column<IAssistantGPTScript>[]>(() => {
     return [
       {
         name: 'name',
@@ -33,7 +33,7 @@ const AppGptscriptsDataGrid: FC<React.PropsWithChildren<{
         header: 'Path',
         defaultFlex: 0,
         render: ({ data }) => {
-          return data.file_path
+          return data.file
         }
       },
       {
