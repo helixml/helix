@@ -162,7 +162,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 		// but the widget only works with streaming responses right now so we have to
 		// do this
 		// TODO: make tools work with streaming responses
-		if event.Session.ParentApp != "" && len(event.Session.Interactions) > 0 {
+		if event.Session != nil && event.Session.ParentApp != "" && len(event.Session.Interactions) > 0 {
 			// we are inside an app - let's check to see if the last interaction was a tools one
 			lastInteraction := event.Session.Interactions[len(event.Session.Interactions)-1]
 			_, ok := lastInteraction.Metadata["tool_id"]
