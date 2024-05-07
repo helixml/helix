@@ -26,8 +26,7 @@ import StringArrayEditor from '../components/widgets/StringArrayEditor'
 import ClickLink from '../components/widgets/ClickLink'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
-import InteractionLiveStream from '../components/session/InteractionLiveStream'
-import Interaction from '../components/session/Interaction'
+import ToolDetail from '../components/tools/ToolDetail'
 
 import useApps from '../hooks/useApps'
 import useTools from '../hooks/useTools'
@@ -428,25 +427,34 @@ const App: FC = () => {
               
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
-              <Typography variant="subtitle1" sx={{mb: 1}}>
+              <Typography variant="h6" sx={{mb: 1}}>
+                APIs
+              </Typography>
+              <Box>
+                {
+                  (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
+                    return (
+                      <ToolDetail
+                        key={ index }
+                        tool={ apiTool }
+                      />
+                    )
+                  })
+                }
+              </Box>
+              <Typography variant="h6" sx={{mb: 1}}>
                 GPT Scripts
               </Typography>
               <Box
                 sx={{
-                  height: '300px'
+                  maxHeight: '300px',
                 }}
               >
-                {/* 
-                  TODO: support more than 1 assistant
-                */}
                 <AppGptscriptsGrid
                   data={ app.config.helix?.assistants[0]?.gptscripts || [] }
                   onRunScript={ onRunScript }
                 />
               </Box>
-              {/* 
-                  TODO: add apis table
-                */}
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="subtitle1">
                 Environment Variables

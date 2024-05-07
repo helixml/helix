@@ -39,9 +39,6 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   const tableData = useMemo(() => {
     return data.map(app => {
-
-      console.log('--------------------------------------------')
-      console.dir(app)
       const gptScripts = (app.config.helix?.assistants[0]?.gptscripts || [])
       const apiTools = (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api')
 
