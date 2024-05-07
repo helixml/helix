@@ -15,6 +15,7 @@ import useAccount from '../../hooks/useAccount'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 import JsonWindowLink from '../widgets/JsonWindowLink'
+import ToolDetail from '../tools/ToolDetail'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
@@ -36,11 +37,14 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
   const theme = useTheme()
   const account = useAccount()
 
-  const isAdmin = account.admin
-
   const tableData = useMemo(() => {
     return data.map(app => {
+
+      console.log('--------------------------------------------')
+      console.dir(app)
       const gptScripts = (app.config.helix?.assistants[0]?.gptscripts || [])
+      const apiTools = (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api')
+
       const gptscriptsElem = gptScripts.length > 0 ? (
         <>
           <Box sx={{mb: 2}}>
@@ -81,6 +85,27 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         </>
       ) : null
 
+      const apisElem = apiTools.length > 0 ? (
+        <>
+          <Box sx={{mb: 2}}>
+            <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
+              APIs
+            </Typography>
+          </Box>
+          {
+            // TODO: support more than 1 assistant
+            apiTools.map((apiTool, index) => {
+              return (
+                <ToolDetail
+                  key={ index }
+                  tool={ apiTool }
+                />
+              )
+            })
+          }
+        </>
+      ) : null
+
       // TODO: add the list of apis also to this display
       // we can grab stuff from the tools package that already renders endpoints
 
@@ -112,7 +137,12 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
           </Row>
         ),
         type: app.app_type,
-        details: gptscriptsElem,
+        details: (
+          <>
+            { gptscriptsElem }
+            { apisElem }
+          </>
+        ),
         updated: (
           <Box
             sx={{
