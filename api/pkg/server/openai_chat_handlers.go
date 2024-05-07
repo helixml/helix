@@ -151,6 +151,38 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 			return fmt.Errorf("error unmarshalling websocket event '%s': %w", string(payload), err)
 		}
 
+		// this is a special case where if we are using tools then they will not stream
+		// but the widget only works with streaming responses right now so we have to
+		// do this
+		// TODO: make tools work with streaming responses
+		if event.Session.ParentApp != "" && len(event.Session.Interactions) > 0 {
+			// we are inside an app - let's check to see if the last interaction was a tools one
+			lastInteraction := event.Session.Interactions[len(event.Session.Interactions)-1]
+			_, ok := lastInteraction.Metadata["tool_id"]
+
+			// ok we used a tool
+			if ok && lastInteraction.Finished {
+				logger.Debug().Msgf("session finished")
+
+				lastChunk := createChatCompletionChunk(startReq.sessionID, string(startReq.modelName), lastInteraction.Message)
+				lastChunk.Choices[0].FinishReason = "stop"
+
+				respData, err := json.Marshal(lastChunk)
+				if err != nil {
+					return fmt.Errorf("error marshalling websocket event '%+v': %w", event, err)
+				}
+
+				err = writeChunk(res, respData)
+				if err != nil {
+					return err
+				}
+
+				// Close connection
+				close(doneCh)
+				return nil
+			}
+		}
+
 		// If we get a worker task response with done=true, we need to send a final chunk
 		if event.WorkerTaskResponse != nil && event.WorkerTaskResponse.Done {
 			logger.Debug().Msgf("session finished")
