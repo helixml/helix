@@ -503,6 +503,7 @@ type CreateSessionRequest struct {
 	SystemPrompt            string // System message
 	Stream                  bool
 	ParentSession           string
+	ParentApp               string
 	ModelName               ModelName
 	Owner                   string
 	OwnerType               OwnerType

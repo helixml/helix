@@ -32,7 +32,6 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	if !hasUser(reqContext.User) {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
-
 	}
 
 	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
@@ -101,6 +100,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		SessionID:        sessionID,
 		SessionMode:      sessionMode,
 		SessionType:      types.SessionTypeText,
+		ParentApp:        reqContext.User.AppID,
 		Stream:           chatCompletionRequest.Stream,
 		ModelName:        types.ModelName(chatCompletionRequest.Model),
 		Owner:            reqContext.User.ID,
