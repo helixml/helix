@@ -19,7 +19,7 @@ runner:
   host: https://app.tryhelix.ai
   token: oh-hallo
   # Models to pull on start
-  models: mistral:7b-instruct,llama3:instruct,llama3:70b,mixtral:instruct
+  models: mistral:7b-instruct,llama3:instruct,llama3:70b,mixtral:instruct,phi3:instruct
   # Available memory for the runner
   memory: 24GB
   # IPC mode
@@ -31,9 +31,9 @@ runner:
 # Both node selectors and resources need to target
 resources:
   limits:
-    nvidia.com/gpu: '1'
+    nvidia.com/gpu: "1"
   requests:
-    nvidia.com/gpu: '1'
+    nvidia.com/gpu: "1"
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -49,10 +49,12 @@ serviceAccount:
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
+podSecurityContext:
+  {}
   # fsGroup: 2000
 
-securityContext: {}
+securityContext:
+  {}
   # capabilities:
   #   drop:
   #   - ALL
