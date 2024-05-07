@@ -2,25 +2,24 @@
 
 These are files that have some role to play in the process of:
 
- * fine tuning input data
- * fine tuning output artifacts
- * RAG sources
+ * fine tuning input data (raw files, text files, qa pairs)
+ * fine tuning output artifacts (lora files, sdxl finetunes)
+ * RAG sources (plain text files turned into vectors and stored)
  * inference uploaded files
    * e.g. upload a CSV and ask questions about it
    * e.g. upload an image and ask what is inside it
 
 Here is a list of the different data entities:
 
- * `documents` - original files uploaded by the user for text fine tuning
- * `images` - original files uploaded by the user for image fine tuning
- * `plain_text` - `documents` converted to plain text
+ * `files` - original files uploaded by the user for fine tuning or inference
+ * `plain_text` - `files` converted to plain text - for text fine tuning or rag
  * `qa_pairs` - a JSON file(s) of question-answer pairs - we turn `plain_text` into these using an LLM
  * `finetune` - an artifact prouced by fine tuning a model
  * `rag` - a database that holds a vector representation of a `plain_text` data entity
 
 Some of these entities are produced by converting others.
 
-Some of them are used an inputs to finetune sessions.
+Some of them are used as inputs to finetune sessions.
 
 Others are the outputs of finetune sessions.
 
