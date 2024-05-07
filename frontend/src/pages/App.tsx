@@ -430,14 +430,24 @@ const App: FC = () => {
               <Typography variant="h6" sx={{mb: 1}}>
                 APIs
               </Typography>
-              <Box>
+              <Box
+                sx={{mb: 2}}
+              >
                 {
                   (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
                     return (
-                      <ToolDetail
+                      <Box
                         key={ index }
-                        tool={ apiTool }
-                      />
+                        sx={{
+                          p: 2,
+                          border: '1px solid #303047',
+                        }}
+                      >
+                        <ToolDetail
+                          key={ index }
+                          tool={ apiTool }
+                        />
+                      </Box>
                     )
                   })
                 }
