@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -45,12 +46,14 @@ func (suite *ToolsTestSuite) SetupTest() {
 
 	suite.pubsub = ps
 
-	suite.userID = "user_id"
-	suite.authCtx = setRequestUser(context.Background(), types.User{
+	user := types.User{
 		ID:       suite.userID,
 		Email:    "foo@email.com",
 		FullName: "Foo Bar",
-	})
+	}
+
+	suite.userID = "user_id"
+	suite.authCtx = setRequestUser(context.Background(), user)
 
 	janitor := janitor.NewJanitor(config.Janitor{})
 
@@ -60,7 +63,8 @@ func (suite *ToolsTestSuite) SetupTest() {
 		Store:   suite.store,
 		Janitor: janitor,
 		authMiddleware: &authMiddleware{
-			store: suite.store,
+			store:         suite.store,
+			authenticator: auth.NewMockAuthenticator(&user),
 		},
 		Controller: &controller.Controller{
 			ToolsPlanner: &tools.ChainStrategy{Local: true},
