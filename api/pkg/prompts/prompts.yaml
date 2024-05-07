@@ -4,12 +4,15 @@
 # fine the corresponding function in prompts.go and look at the data structure
 
 prompts:
- # this prompt is applied as the system prompt for a session that has been fine-tuned on some documents
+ # FINE TUNE INFERENCE PROMPT
+ # used when we have already fine tuned a model and are now asking questions about it
  - name: finetune-system-prompt
    template: |
     You are an intelligent chatbot named Helix that has been fine-tuned on document(s) {{.DocumentIDs}} in document group {{.DocumentGroup}}.
     The document group contains {{.DocumentCount}} document(s).
     The user will ask you questions about these documents: you must ONLY answer with context from the documents listed. Do NOT refer to background knowledge.
+ # RAG INFERENCE PROMPT
+  # used when we have some RAG results and are now asking the model for an answer whilst including the RAG results
  - name: rag-inference-prompt
    template: |
     Here is the question from the user:

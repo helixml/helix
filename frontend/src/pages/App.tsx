@@ -26,8 +26,7 @@ import StringArrayEditor from '../components/widgets/StringArrayEditor'
 import ClickLink from '../components/widgets/ClickLink'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
-import InteractionLiveStream from '../components/session/InteractionLiveStream'
-import Interaction from '../components/session/Interaction'
+import ToolDetail from '../components/tools/ToolDetail'
 
 import useApps from '../hooks/useApps'
 import useTools from '../hooks/useTools'
@@ -44,6 +43,7 @@ import useWebsocket from '../hooks/useWebsocket'
 import {
   IApp,
   IAppConfig,
+  IAssistantGPTScript,
   IAppHelixConfigGptScript,
   IAppUpdate,
   ISession,
@@ -77,7 +77,7 @@ const App: FC = () => {
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
-  const [ gptScript, setGptScript ] = useState<IAppHelixConfigGptScript>()
+  const [ gptScript, setGptScript ] = useState<IAssistantGPTScript>()
   const [ gptScriptInput, setGptScriptInput ] = useState('')
   const [ gptScriptError, setGptScriptError ] = useState('')
   const [ gptScriptOutput, setGptScriptOutput ] = useState('')
@@ -143,7 +143,7 @@ const App: FC = () => {
     return true
   }
 
-  const onRunScript = (script: IAppHelixConfigGptScript) => {
+  const onRunScript = (script: IAssistantGPTScript) => {
     if(account.apiKeys.length == 0) {
       snackbar.error('Please add an API key')
       return
@@ -164,13 +164,13 @@ const App: FC = () => {
         loading.setLoading(false)
         return
       }
-      if(!gptScript?.file_path) {
+      if(!gptScript?.file) {
         snackbar.error('No script file')
         loading.setLoading(false)
         return
       }
       const results = await api.post<IGptScriptRequest, IGptScriptResponse>('/api/v1/apps/script', {
-        file_path: gptScript?.file_path,
+        file_path: gptScript?.file,
         input: gptScriptInput,
       }, {
         headers: getTokenHeaders(account.apiKeys[0].key),
@@ -259,8 +259,8 @@ const App: FC = () => {
     setName(app.name)
     setDescription(app.description)
     setSchema(JSON.stringify(app.config, null, 4))
-    setSecrets(app.config.helix?.secrets || {})
-    setAllowedDomains(app.config.helix?.allowed_domains || [])
+    setSecrets(app.config.secrets || {})
+    setAllowedDomains(app.config.allowed_domains || [])
     setHasLoaded(true)
   }, [
     app,
@@ -428,16 +428,41 @@ const App: FC = () => {
               
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
-              <Typography variant="subtitle1" sx={{mb: 1}}>
+              <Typography variant="h6" sx={{mb: 1}}>
+                APIs
+              </Typography>
+              <Box
+                sx={{mb: 2}}
+              >
+                {
+                  (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
+                    return (
+                      <Box
+                        key={ index }
+                        sx={{
+                          p: 2,
+                          border: '1px solid #303047',
+                        }}
+                      >
+                        <ToolDetail
+                          key={ index }
+                          tool={ apiTool }
+                        />
+                      </Box>
+                    )
+                  })
+                }
+              </Box>
+              <Typography variant="h6" sx={{mb: 1}}>
                 GPT Scripts
               </Typography>
               <Box
                 sx={{
-                  height: '300px'
+                  maxHeight: '300px',
                 }}
               >
                 <AppGptscriptsGrid
-                  data={ app.config.helix?.gptscript?.scripts || [] }
+                  data={ app.config.helix?.assistants[0]?.gptscripts || [] }
                   onRunScript={ onRunScript }
                 />
               </Box>

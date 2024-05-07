@@ -2,6 +2,7 @@ package apps
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/github"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v2"
 )
@@ -18,6 +20,7 @@ type GithubAppOptions struct {
 	GithubConfig config.GitHub
 	Client       *github.GithubClient
 	App          *types.App
+	ToolsPlanner tools.Planner
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
 
@@ -28,6 +31,7 @@ type GithubApp struct {
 	GithubConfig config.GitHub
 	helixConfig  *types.AppHelixConfig
 	Client       *github.GithubClient
+	ToolsPlanner tools.Planner
 	App          *types.App
 	UpdateApp    func(app *types.App) (*types.App, error)
 }
@@ -43,6 +47,9 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 	if options.Client == nil {
 		return nil, fmt.Errorf("Client is required")
 	}
+	if options.ToolsPlanner == nil {
+		return nil, fmt.Errorf("ToolsPlanner is required")
+	}
 	if options.App == nil {
 		return nil, fmt.Errorf("App struct is required")
 	}
@@ -55,6 +62,7 @@ func NewGithubApp(options GithubAppOptions) (*GithubApp, error) {
 		Repo:         parts[1],
 		GithubConfig: options.GithubConfig,
 		Client:       options.Client,
+		ToolsPlanner: options.ToolsPlanner,
 		App:          options.App,
 		UpdateApp:    options.UpdateApp,
 	}, nil
@@ -119,6 +127,10 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 	}
 
 	app.Config.Github.Hash = commitHash
+	app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+		Updated: time.Now(),
+		Hash:    commitHash,
+	}
 
 	webhookSigningSecret, err := system.GenerateAPIKey()
 	if err != nil {
@@ -166,7 +178,13 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 	}
 
 	app.Updated = time.Now()
-	app.Config.Github.Hash = commitHash
+
+	// do this here because then if there is an error we will mark
+	// the latest update as an error but not update the app itself
+	app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+		Updated: time.Now(),
+		Hash:    commitHash,
+	}
 
 	config, err := githubApp.GetConfig()
 	if err != nil {
@@ -179,9 +197,27 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 
 	config, err = githubApp.processConfig(config)
 	if err != nil {
+		// if there is an error here it means there is a problem with the config
+		// we have loaded from github - let's mark the latest update as an error
+		// but not hoist the config up to the app to leave the last known working
+		// version alone
+		app.Config.Github.LastUpdate.Error = err.Error()
+
+		// TODO: what is best practice here?
+		// as in we are already in an error handling sitch
+		// what do we do when there is another error?
+		// the only reason we want to update the app right now is to let
+		// the user know that there was an error processing their latest config
+		// (I need someone who knows how to handle errors better than me to help me here)
+		githubApp.UpdateApp(app)
+
 		return nil, err
 	}
 
+	// do this after we have called processConfig
+	// because then if there is a problem with the config
+	// we won't actually update the app
+	app.Config.Github.Hash = commitHash
 	app.Config.Helix = config
 
 	app, err = githubApp.UpdateApp(app)
@@ -245,72 +281,156 @@ func (githubApp *GithubApp) GetConfig() (*types.AppHelixConfig, error) {
 }
 
 func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.AppHelixConfig, error) {
-	if config.ActiveTools == nil {
-		config.ActiveTools = []string{}
+	if config.Assistants == nil {
+		config.Assistants = []types.AssistantConfig{}
 	}
 
-	if config.Secrets == nil {
-		config.Secrets = map[string]string{}
-	}
-
-	if config.AllowedDomains == nil {
-		config.AllowedDomains = []string{}
-	}
-
-	if config.GPTScript.Scripts == nil {
-		config.GPTScript.Scripts = []types.AppHelixConfigGPTScript{}
-	}
-
-	if config.GPTScript.Files == nil {
-		config.GPTScript.Files = []string{}
-	}
-
-	newScripts := []types.AppHelixConfigGPTScript{}
-
-	// scripts means you can configure the GPTScript contents inline with the helix.yaml
-	for i, script := range config.GPTScript.Scripts {
-		if script.Name == "" {
-			return nil, fmt.Errorf("gpt script %d has no name", i)
+	for i, assistant := range config.Assistants {
+		if assistant.APIs == nil {
+			config.Assistants[i].APIs = []types.AssistantAPI{}
 		}
-		if script.FilePath != "" {
-			if _, err := os.Stat(githubApp.Filepath(script.FilePath)); err != nil {
-				if os.IsNotExist(err) {
-					return nil, fmt.Errorf("gpt script not found: %s", script.FilePath)
+		if assistant.GPTScripts == nil {
+			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
+		}
+
+		newTools := []types.Tool{}
+		newScripts := []types.AssistantGPTScript{}
+
+		// scripts means you can configure the GPTScript contents inline with the helix.yaml
+		for _, script := range assistant.GPTScripts {
+			if script.File != "" {
+				expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), []string{script.File})
+				if err != nil {
+					return nil, err
 				}
-				return nil, err
+				for _, filepath := range expandedFiles {
+					content, err := os.ReadFile(filepath)
+					if err != nil {
+						return nil, err
+					}
+					file := githubApp.RelativePath(filepath)
+					newScripts = append(newScripts, types.AssistantGPTScript{
+						Name:        file,
+						File:        file,
+						Content:     string(content),
+						Description: script.Description,
+					})
+					newTools = append(newTools, types.Tool{
+						ID:       system.GenerateUUID(),
+						Name:     file,
+						ToolType: types.ToolTypeGPTScript,
+						Config: types.ToolConfig{
+							GPTScript: &types.ToolGPTScriptConfig{
+								Script: string(content),
+							},
+						},
+						Created: time.Now(),
+						Updated: time.Now(),
+					})
+				}
+			} else {
+				if script.Content == "" {
+					return nil, fmt.Errorf("gpt script %s has no content", script.Name)
+				}
+				newScripts = append(newScripts, script)
+				newTools = append(newTools, types.Tool{
+					ID:          system.GenerateUUID(),
+					Name:        script.Name,
+					Description: script.Description,
+					ToolType:    types.ToolTypeGPTScript,
+					Config: types.ToolConfig{
+						GPTScript: &types.ToolGPTScriptConfig{
+							Script: script.Content,
+						},
+					},
+					Created: time.Now(),
+					Updated: time.Now(),
+				})
+			}
+		}
+
+		newAPIs := []types.AssistantAPI{}
+
+		for _, api := range assistant.APIs {
+			if api.Schema == "" {
+				return nil, fmt.Errorf("api %s has no schema", api.Name)
 			}
 
-			content, err := os.ReadFile(githubApp.Filepath(script.FilePath))
+			processedSchema, err := githubApp.processApiSchema(api.Schema)
 			if err != nil {
 				return nil, err
 			}
 
-			script.Content = string(content)
-		}
-		if script.Content == "" {
-			return nil, fmt.Errorf("gpt script %s has no content", script.Name)
-		}
-		newScripts = append(newScripts, script)
-	}
+			api.Schema = processedSchema
 
-	expandedFiles, err := system.ExpandAndCheckFiles(githubApp.Filepath(""), config.GPTScript.Files)
-	if err != nil {
-		return nil, err
-	}
+			if api.Headers == nil {
+				api.Headers = map[string]string{}
+			}
 
-	for _, filepath := range expandedFiles {
-		content, err := os.ReadFile(filepath)
-		if err != nil {
-			return nil, err
+			if api.Query == nil {
+				api.Query = map[string]string{}
+			}
+
+			newTools = append(newTools, types.Tool{
+				ID:          system.GenerateUUID(),
+				Name:        api.Name,
+				Description: api.Description,
+				ToolType:    types.ToolTypeAPI,
+				Config: types.ToolConfig{
+					API: &types.ToolApiConfig{
+						URL:     api.URL,
+						Schema:  api.Schema,
+						Headers: api.Headers,
+						Query:   api.Query,
+					},
+				},
+				Created: time.Now(),
+				Updated: time.Now(),
+			})
 		}
-		newScripts = append(newScripts, types.AppHelixConfigGPTScript{
-			Name:     path.Base(filepath),
-			FilePath: githubApp.RelativePath(filepath),
-			Content:  string(content),
-		})
-	}
 
-	config.GPTScript.Scripts = newScripts
+		for i := range newTools {
+			err := tools.ValidateTool(&newTools[i], githubApp.ToolsPlanner, false)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		config.Assistants[i].GPTScripts = newScripts
+		config.Assistants[i].APIs = newAPIs
+		config.Assistants[i].Tools = newTools
+	}
 
 	return config, nil
+}
+
+func (githubApp *GithubApp) processApiSchema(schema string) (string, error) {
+	if strings.HasPrefix(strings.ToLower(schema), "http://") || strings.HasPrefix(strings.ToLower(schema), "https://") {
+		client := system.NewRetryClient(3)
+		resp, err := client.Get(schema)
+		if err != nil {
+			return "", fmt.Errorf("failed to get schema from URL: %w", err)
+		}
+		defer resp.Body.Close()
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read response body: %w", err)
+		}
+		return string(bts), nil
+	}
+
+	// if the schema is only one line then assume it's a file path
+	if !strings.Contains(schema, "\n") && !strings.Contains(schema, "\r") {
+		// it must be a YAML file
+		if !strings.HasSuffix(schema, ".yaml") && !strings.HasSuffix(schema, ".yml") {
+			return "", fmt.Errorf("schema must be in yaml format")
+		}
+		content, err := os.ReadFile(githubApp.Filepath(schema))
+		if err != nil {
+			return "", fmt.Errorf("failed to read schema file: %w", err)
+		}
+		return string(content), nil
+	}
+
+	return schema, nil
 }

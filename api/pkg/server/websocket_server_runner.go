@@ -8,7 +8,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -21,13 +20,10 @@ type RunnerConnectionWrapper struct {
 }
 
 // StartRunnerWebSocketServer starts a WebSocket server
-func StartRunnerWebSocketServer(
-	ctx context.Context,
+func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
+	_ context.Context,
 	r *mux.Router,
-	Controller *controller.Controller,
 	path string,
-	websocketEventChan chan *types.WebsocketEvent,
-	authHandler AuthenticateRequest,
 ) {
 	var mutex = &sync.Mutex{}
 
@@ -49,8 +45,14 @@ func StartRunnerWebSocketServer(
 	}
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		authed := authHandler(r)
-		if !authed {
+		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
+		if err != nil {
+			log.Error().Msgf("Error getting user: %s", err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if user == nil || !isRunner(*user) {
 			log.Error().Msgf("Error authorizing runner websocket")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -93,7 +95,7 @@ func StartRunnerWebSocketServer(
 				continue
 			}
 
-			websocketEventChan <- &event
+			apiServer.Controller.RunnerWebsocketEventChanReader <- &event
 		}
 
 		removeConnection(conn)

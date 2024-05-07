@@ -23,14 +23,14 @@ import (
 // @Router /api/v1/apps [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
-	userContext := s.getRequestContext(r)
+	userContext := getRequestContext(r)
 
 	// Extract the "type" query parameter
 	queryType := r.URL.Query().Get("type")
 
 	allApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
+		Owner:     userContext.User.ID,
+		OwnerType: userContext.User.Type,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -66,26 +66,25 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
 	}
 
-	userContext := s.getRequestContext(r)
+	userContext := getRequestContext(r)
 
 	// Getting existing tools for the user
 	existingApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
+		Owner:     userContext.User.ID,
+		OwnerType: userContext.User.Type,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
 	app.ID = system.GenerateAppID()
-	app.Owner = userContext.Owner
-	app.OwnerType = userContext.OwnerType
+	app.Owner = userContext.User.ID
+	app.OwnerType = userContext.User.Type
 	app.Updated = time.Now()
 
 	if app.Config.Helix == nil {
 		app.Config.Helix = &types.AppHelixConfig{
-			ActiveTools: []string{},
-			Secrets:     map[string]string{},
+			Assistants: []types.AssistantConfig{},
 		}
 	}
 
@@ -115,6 +114,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          created,
+			ToolsPlanner: s.Controller.ToolsPlanner,
 			UpdateApp: func(app *types.App) (*types.App, error) {
 				return s.Store.UpdateApp(r.Context(), app)
 			},
@@ -125,6 +125,7 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 		newApp, err := githubApp.Create()
 		if err != nil {
+			s.Store.DeleteApp(r.Context(), created.ID)
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
@@ -168,7 +169,7 @@ type AppUpdatePayload struct {
 // @Router /api/v1/apps/{id} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
-	userContext := s.getRequestContext(r)
+	userContext := getRequestContext(r)
 
 	var appUpdate AppUpdatePayload
 	err := json.NewDecoder(r.Body).Decode(&appUpdate)
@@ -203,7 +204,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
-	if existing.Owner != userContext.Owner {
+	if existing.Owner != userContext.User.ID {
 		return nil, system.NewHTTPError403("you do not have permission to update this app")
 	}
 
@@ -216,6 +217,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 			GithubConfig: s.Cfg.GitHub,
 			Client:       client,
 			App:          existing,
+			ToolsPlanner: s.Controller.ToolsPlanner,
 			UpdateApp: func(app *types.App) (*types.App, error) {
 				return s.Store.UpdateApp(r.Context(), app)
 			},
@@ -233,9 +235,8 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	existing.Name = appUpdate.Name
 	existing.Description = appUpdate.Description
 	existing.Updated = time.Now()
-	existing.Config.Helix.ActiveTools = appUpdate.ActiveTools
-	existing.Config.Helix.Secrets = appUpdate.Secrets
-	existing.Config.Helix.AllowedDomains = appUpdate.AllowedDomains
+	existing.Config.Secrets = appUpdate.Secrets
+	existing.Config.AllowedDomains = appUpdate.AllowedDomains
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), existing)
@@ -256,7 +257,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 // @Router /api/v1/apps/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
-	userContext := s.getRequestContext(r)
+	userContext := getRequestContext(r)
 
 	id := getID(r)
 
@@ -268,7 +269,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != userContext.Owner {
+	if existing.Owner != userContext.User.ID {
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
@@ -296,20 +297,13 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		return nil, nil
 	}
 
-	apiKey, err := s.authMiddleware.maybeOwnerFromRequest(r)
-	if err != nil {
-		return nil, system.NewHTTPError403("error loading api key")
-	}
+	userContext := getRequestContext(r)
 
-	if apiKey == nil {
-		return nil, system.NewHTTPError403("no api key found")
-	}
-
-	if !apiKey.AppID.Valid || apiKey.AppID.String == "" {
+	if userContext.User.AppID == "" {
 		return nil, system.NewHTTPError403("no api key for app found")
 	}
 
-	appRecord, err := s.Store.GetApp(r.Context(), apiKey.AppID.String)
+	appRecord, err := s.Store.GetApp(r.Context(), userContext.User.AppID)
 	if err != nil {
 		if err == store.ErrNotFound {
 			return nil, system.NewHTTPError404("app not found")
@@ -326,7 +320,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 	}
 
 	envPairs := []string{}
-	for key, value := range appRecord.Config.Helix.Secrets {
+	for key, value := range appRecord.Config.Secrets {
 		envPairs = append(envPairs, key+"="+value)
 	}
 
