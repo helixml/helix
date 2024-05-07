@@ -61,12 +61,11 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
                 text={ `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
 <script>
   ChatWidget({
-    url: 'https://app.tryhelix.ai/v1/chat/completions',
+    url: '${window.location.origin}/v1/chat/completions',
     model: 'mistral:7b-instruct',
     bearerToken: '${data.key}',
   })
-</script>
-                ` }
+</script>` }
                 onCopy={ () => {
                   snackbar.success('embed code copied to clipboard')
                 }}

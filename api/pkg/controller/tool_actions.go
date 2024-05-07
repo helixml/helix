@@ -16,14 +16,34 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("action not found in interaction metadata")
 	}
 
+	var tool *types.Tool
+	var err error
+
 	toolID, ok := systemInteraction.Metadata["tool_id"]
 	if !ok {
 		return nil, fmt.Errorf("tool ID not found in interaction metadata")
 	}
 
-	tool, err := c.Options.Store.GetTool(ctx, toolID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tool %s: %w", toolID, err)
+	if session.ParentApp != "" {
+		app, err := c.Options.Store.GetApp(ctx, session.ParentApp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get app %s: %w", session.ParentApp, err)
+		}
+		if len(app.Config.Helix.Assistants) <= 0 {
+			return nil, fmt.Errorf("no assistants found in app %s", session.ParentApp)
+		}
+		assistant := app.Config.Helix.Assistants[0]
+
+		for _, appTool := range assistant.Tools {
+			if appTool.ID == toolID {
+				tool = &appTool
+			}
+		}
+	} else {
+		tool, err = c.Options.Store.GetTool(ctx, toolID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get tool %s: %w", toolID, err)
+		}
 	}
 
 	userInteraction, err := data.GetLastUserInteraction(session.Interactions)
@@ -51,6 +71,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		systemInteraction.Metadata["raw_message"] = resp.RawMessage
 		systemInteraction.Metadata["error"] = resp.Error
 		systemInteraction.Metadata["tool_id"] = toolID
+		systemInteraction.Metadata["tool_app_id"] = session.ParentApp
 		systemInteraction.Metadata["tool_action"] = action
 		systemInteraction.State = types.InteractionStateComplete
 
