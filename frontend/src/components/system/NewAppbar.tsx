@@ -23,12 +23,12 @@ import { SESSION_MODE_INFERENCE, SESSION_MODE_FINETUNE } from "../../types"
 import useMediaQuery from "@mui/material/useMediaQuery"
 
 interface NewAppBarProps {
-	getTitle?: () => React.ReactNode
-	getToolbarElement?: (bigScreen: boolean) => React.ReactNode
+	getTitle?: () => React.ReactNode;
+	getToolbarElement?: (bigScreen: boolean) => React.ReactNode;
 	meta: { title?: string }
-	handleDrawerToggle: () => void
-	bigScreen: boolean
-	drawerWidth: number
+	handleDrawerToggle: () => void;
+	bigScreen: boolean;
+	drawerWidth: number;
 }
 
 const NewAppBar: React.FC<NewAppBarProps> = ({
