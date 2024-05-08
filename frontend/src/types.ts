@@ -516,6 +516,8 @@ export interface IAppGithubConfigUpdate {
   updated: string,
   hash: string,
   error: string,
+  key_pair?: IKeyPair,
+  last_update?: IAppGithubConfigUpdate,
 }
 
 export interface IAppGithubConfig {
