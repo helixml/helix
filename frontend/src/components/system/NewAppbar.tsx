@@ -272,5 +272,4 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
 		</AppBar>
 	)
 }
-
 export default NewAppBar
