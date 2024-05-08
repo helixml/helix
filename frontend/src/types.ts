@@ -12,8 +12,7 @@ export const SESSION_TYPE_TEXT: ISessionType = 'text'
 export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
 export type ISessionOriginType = 'user_created' | 'cloned'
-export const SESSION_ORIGIN_TYPE_USER_CREATED: ISessionOriginType =
-	'user_created'
+export const SESSION_ORIGIN_TYPE_USER_CREATED: ISessionOriginType =	'user_created'
 export const SESSION_ORIGIN_TYPE_CLONED: ISessionOriginType = 'cloned'
 
 export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
@@ -23,62 +22,35 @@ export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
 export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
 export type IWebSocketEventType = 'session_update' | 'worker_task_response'
-export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType =
-	'session_update'
-export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType =
-	'worker_task_response'
+export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType =	'session_update'
+export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType =	'worker_task_response'
 
 export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
-export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType =
-	'stream'
-export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType =
-	'progress'
-export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType =
-	'result'
+export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType =	'stream'
+export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType =	'progress'
+export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType =	'result'
 
 export type ICloneInteractionMode = 'just_data' | 'with_questions' | 'all'
-export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode =
-	'just_data'
-export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode =
-	'with_questions'
+export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode ='just_data'
+export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode =	'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName =
-	| 'mistralai/Mistral-7B-Instruct-v0.1'
-	| 'stabilityai/stable-diffusion-xl-base-1.0'
-	| 'mistral:7b-instruct'
-	| 'mixtral:instruct'
-	| 'llama3:instruct'
-	| 'llama3:70b'
-	| 'phi3:instruct'
-export const MODEL_NAME_MISTRAL: IModelName =
-	'mistralai/Mistral-7B-Instruct-v0.1'
-export const MODEL_NAME_SDXL: IModelName =
-	'stabilityai/stable-diffusion-xl-base-1.0'
+export type IModelName = | 'mistralai/Mistral-7B-Instruct-v0.1'| 'stabilityai/stable-diffusion-xl-base-1.0'| 'mistral:7b-instruct'| 'mixtral:instruct'| 'llama3:instruct'| 'llama3:70b'| 'phi3:instruct'
+export const MODEL_NAME_MISTRAL: IModelName =	'mistralai/Mistral-7B-Instruct-v0.1'
+export const MODEL_NAME_SDXL: IModelName =	'stabilityai/stable-diffusion-xl-base-1.0'
 export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
 export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
 export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b'
 export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
 export const MODEL_NAME_OLLAMA_PHI3: IModelName = 'phi3:instruct'
 
-export type ITextDataPrepStage =
-	| ""
-	| 'edit_files'
-	| 'extract_text'
-	| 'index_rag'
-	| 'generate_questions'
-	| 'complete'
-	| 'edit_questions'
-	| 'finetune'
+export type ITextDataPrepStage =| ""| 'edit_files'| 'extract_text'| 'index_rag'| 'generate_questions'| 'complete'| 'edit_questions'| 'finetune'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ""
 export const TEXT_DATA_PREP_STAGE_EDIT_FILES: ITextDataPrepStage = 'edit_files'
-export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage =
-	'extract_text'
+export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage ='extract_text'
 export const TEXT_DATA_PREP_STAGE_INDEX_RAG: ITextDataPrepStage = 'index_rag'
-export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage =
-	'generate_questions'
-export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage =
-	'edit_questions'
+export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage =	'generate_questions'
+export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage ='edit_questions'
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
@@ -138,12 +110,12 @@ export interface IFileStoreBreadcrumb {
 }
 
 export interface IFileStoreItem {
-	created: number,
-	size: number,
-	directory: boolean,
-	name: string,
-	path: string,
-	url: string,
+	created: number;
+	size: number;
+	directory: boolean;
+	name: string;
+	path: string;
+	url: string;
 }
 
 export interface IFileStoreFolder {
@@ -265,7 +237,7 @@ export interface IBotForm {
 }
 
 export interface IBotConfig {
-  
+
 }
 
 export interface IBot {
