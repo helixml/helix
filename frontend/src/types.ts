@@ -509,7 +509,15 @@ export interface IAppHelixConfig {
   name?: string,
   description?: string,
   avatar?: string,
-  assistants: IAssistantConfig[],  
+  system_prompt?: string,
+  active_tools?: string[],
+  secrets?: Record<string, string>,
+  allowed_domains?: string[],
+  gptscript?: IAppHelixConfigGptScripts,
+}
+
+export interface IAppGithubConfig {
+  repo: string,
 }
 
 export interface IAppGithubConfigUpdate {
@@ -536,22 +544,22 @@ export interface IAppConfig {
 
 
 export interface IApp {
-	id: string,
-	created: Date,
-	updated: Date,
-	owner: string,
-	owner_type: IOwnerType,
-	name: string,
-	description: string,
-	app_type: IAppType,
-	config: IAppConfig,
-}
+  id: string,
+  created: Date,
+  updated: Date,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  app_type: IAppType,
+  config: IAppConfig,
+} 
 
 export interface IAppUpdate {
-	name: string,
-	description: string,
-	secrets: Record<string, string>,
-	allowed_domains: string[],
+  name: string,
+  description: string,
+  secrets: Record<string, string>,
+  allowed_domains: string[],
 }
 
 export interface IGithubStatus {
