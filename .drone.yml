@@ -91,7 +91,7 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.runner    
+    dockerfile: Dockerfile.runner
     auto_tag: true
     repo: helixml/helix/runner
     location: europe
@@ -125,7 +125,7 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.runner    
+    dockerfile: Dockerfile.runner
     tags:
     - "${DRONE_TAG:-main}-llama3-8b" # Default to branch
     - "latest-llama3-8b"
@@ -147,8 +147,9 @@ steps:
 
 depends_on:
 - default
+- build-runner
 
-# llama3 70B 
+# llama3 70B
 ---
 kind: pipeline
 type: docker
@@ -187,6 +188,7 @@ steps:
 
 depends_on:
 - default
+- build-runner-with-llama-8b
 
 ---
 kind: pipeline
@@ -203,7 +205,7 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.gptscript_devserver    
+    dockerfile: Dockerfile.gptscript_devserver
     auto_tag: true
     repo: helixml/helix/gptscript_devserver
     location: europe
