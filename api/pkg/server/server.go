@@ -147,10 +147,11 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// we do token extraction for all routes
 	// if there is a token we will assign the user if not then oh well no user it's all gravy
 	router.Use(errorLoggingMiddleware)
-	router.Use(apiServer.authMiddleware.extractMiddleware)
 
 	// any route that lives under /api/v1
 	subRouter := router.PathPrefix(API_PREFIX).Subrouter()
+
+	subRouter.Use(apiServer.authMiddleware.extractMiddleware)
 
 	// auth router requires a valid token from keycloak or api key
 	authRouter := subRouter.MatcherFunc(matchAllRoutes).Subrouter()
