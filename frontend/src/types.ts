@@ -445,16 +445,16 @@ export interface IToolConfig {
 }
 
 export interface ITool {
-	id: string,
-	created: string,
-	updated: string,
-	owner: string,
-	owner_type: IOwnerType,
-	name: string,
-	description: string,
-	global: boolean,
-	tool_type: IToolType,
-	config: IToolConfig,
+  id: string,
+  created: string,
+  updated: string,
+  owner: string,
+  owner_type: IOwnerType,
+  name: string,
+  description: string,
+  tool_type: IToolType,
+  global: boolean,
+  config: IToolConfig
 }
 
 export interface IKeyPair {
@@ -488,15 +488,24 @@ export interface IAppHelixConfig {
 	gptscript?: IAppHelixConfigGptScripts,
 }
 
+export interface IAppGithubConfigUpdate {
+  updated: string,
+  hash: string,
+  error: string,
+}
+
 export interface IAppGithubConfig {
 	repo: string,
 	hash: string,
 	key_pair?: IKeyPair,
+	last_update?: IAppGithubConfigUpdate,
 }
 
 export interface IAppConfig {
 	helix?: IAppHelixConfig,
 	github?: IAppGithubConfig,
+	secrets: Record<string, string>,
+	allowed_domains: string[],
 }
 
 export interface IApp {
