@@ -33,35 +33,55 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 	if err != nil {
 		return nil, err
 	}
-
 	if cfg.ClientSecret == "" {
 		log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
 
 		// Lookup
-		clients, err := gck.GetClients(context.Background(), token.AccessToken, cfg.Realm, gocloak.GetClientsParams{})
+		apiClients, err := gck.GetClients(context.Background(), token.AccessToken, cfg.Realm, gocloak.GetClientsParams{ClientID: &cfg.ClientID})
 		if err != nil {
 			return nil, fmt.Errorf("GetClients: error getting clients: %s", err.Error())
 		}
 
-		for _, client := range clients {
-			if client.ClientID != nil && *client.ClientID == cfg.ClientID {
-				creds, err := gck.GetClientSecret(context.Background(), token.AccessToken, cfg.Realm, *client.ID)
-				if err != nil {
-					return nil, fmt.Errorf("GetClientSecret: error getting client secret: %s", err.Error())
-				}
-				cfg.ClientSecret = *creds.Value
+		numAPIClients := len(apiClients)
+		if numAPIClients == 1 {
+			creds, err := gck.GetClientSecret(context.Background(), token.AccessToken, cfg.Realm, *apiClients[0].ID)
 
-				log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("found client secret")
-
-				break
+			if err != nil {
+				return nil, fmt.Errorf("GetClientSecret: error getting client secret: %s", err.Error())
 			}
+
+			cfg.ClientSecret = *creds.Value
+			log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("found client secret in already configured keycloak")
+
+		} else if numAPIClients == 0 {
+			creds, err := createAPIClient(gck, token.AccessToken, cfg)
+			if err != nil {
+				return nil, err
+			}
+			cfg.ClientSecret = *creds.Value
+			log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Str("secret", cfg.ClientSecret).Msg("GetClientSecret: no Keycloak client found, created client, obtained new client secret")
+		} else {
+			return nil, fmt.Errorf("GetClientSecret: error getting client secret: found multiple %d config(s) for %s", len(apiClients), cfg.ClientID)
 		}
+
 	}
 
 	return &KeycloakAuthenticator{
 		cfg:     cfg,
 		gocloak: gck,
 	}, nil
+}
+
+func createAPIClient(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) (*gocloak.CredentialRepresentation, error) {
+	clientID, err := gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.ClientID})
+	if err != nil {
+		return nil, fmt.Errorf("CreateClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+	}
+	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, clientID)
+	if err != nil {
+		return nil, fmt.Errorf("GetClientSecret: no Keycloak client found, attempt to create and fetch client secret failed with: %s", err.Error())
+	}
+	return creds, nil
 }
 
 func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
