@@ -515,22 +515,25 @@ export interface IAppHelixConfig {
 export interface IAppGithubConfigUpdate {
   updated: string,
   hash: string,
-  error: string,
-}
-
-export interface IAppGithubConfig {
-	repo: string,
-	hash: string,
-	key_pair?: IKeyPair,
-	last_update?: IAppGithubConfigUpdate,
+  key_pair?: IKeyPair,
+  last_update?: IAppGithubConfigUpdate,
 }
 
 export interface IAppConfig {
-	helix?: IAppHelixConfig,
-	github?: IAppGithubConfig,
-	secrets: Record<string, string>,
-	allowed_domains: string[],
+  helix?: IAppHelixConfig,
+  github?: IAppGithubConfig,
+  secrets: Record<string, string>,
+  allowed_domains: string[],
 }
+
+
+// export interface IAppGithubConfig {
+// 	repo: string,
+// 	hash: string,
+// 	key_pair?: IKeyPair,
+// 	last_update?: IAppGithubConfigUpdate,
+// }
+
 
 export interface IApp {
 	id: string,
