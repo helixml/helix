@@ -535,12 +535,12 @@ export interface IAppConfig {
 }
 
 
-// export interface IAppGithubConfig {
-// 	repo: string,
-// 	hash: string,
-// 	key_pair?: IKeyPair,
-// 	last_update?: IAppGithubConfigUpdate,
-// }
+export interface IAppGithubConfig {
+	repo: string,
+	hash: string,
+	key_pair?: IKeyPair,
+	last_update?: IAppGithubConfigUpdate,
+}
 
 
 export interface IApp {
