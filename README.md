@@ -17,7 +17,7 @@
 
 # HelixML
 
-[![Discord](https://dcbadge.vercel.app/api/server/VJftd844GE?style=flat&compact=true)](https://discord.gg/VJftd844GE)
+[👥 Discord](https://discord.gg/VJftd844GE)
 
 Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
