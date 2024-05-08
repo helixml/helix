@@ -518,19 +518,18 @@ export interface IAppGithubConfigUpdate {
   error: string,
 }
 
-export interface IAppGithubConfigUpdate {
-  updated: string,
-  hash: string,
-  error: string,
-  key_pair?: IKeyPair,
-  last_update?: IAppGithubConfigUpdate,
+export interface IAppGithubConfig {
+	repo: string,
+	hash: string,
+	key_pair?: IKeyPair,
+	last_update?: IAppGithubConfigUpdate,
 }
 
 export interface IAppConfig {
-  helix?: IAppHelixConfig,
-  github?: IAppGithubConfig,
-  secrets: Record<string, string>,
-  allowed_domains: string[],
+	helix?: IAppHelixConfig,
+	github?: IAppGithubConfig,
+	secrets: Record<string, string>,
+	allowed_domains: string[],
 }
 
 export interface IApp {
