@@ -1,90 +1,90 @@
 // TODO: it sucks that there are constants defined in types
-export type ISessionCreator = "system" | "user"
-export const SESSION_CREATOR_SYSTEM: ISessionCreator = "system"
-export const SESSION_CREATOR_USER: ISessionCreator = "user"
+export type ISessionCreator = 'system' | 'user'
+export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
+export const SESSION_CREATOR_USER: ISessionCreator = 'user'
 
-export type ISessionMode = "inference" | "finetune"
-export const SESSION_MODE_INFERENCE: ISessionMode = "inference"
-export const SESSION_MODE_FINETUNE: ISessionMode = "finetune"
+export type ISessionMode = 'inference' | 'finetune'
+export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
+export const SESSION_MODE_FINETUNE: ISessionMode = 'finetune'
 
-export type ISessionType = "text" | "image"
-export const SESSION_TYPE_TEXT: ISessionType = "text"
-export const SESSION_TYPE_IMAGE: ISessionType = "image"
+export type ISessionType = 'text' | 'image'
+export const SESSION_TYPE_TEXT: ISessionType = 'text'
+export const SESSION_TYPE_IMAGE: ISessionType = 'image'
 
-export type ISessionOriginType = "user_created" | "cloned"
+export type ISessionOriginType = 'user_created' | 'cloned'
 export const SESSION_ORIGIN_TYPE_USER_CREATED: ISessionOriginType =
-	"user_created"
-export const SESSION_ORIGIN_TYPE_CLONED: ISessionOriginType = "cloned"
+	'user_created'
+export const SESSION_ORIGIN_TYPE_CLONED: ISessionOriginType = 'cloned'
 
-export type IInteractionState = "waiting" | "editing" | "complete" | "error"
-export const INTERACTION_STATE_WAITING: IInteractionState = "waiting"
-export const INTERACTION_STATE_EDITING: IInteractionState = "editing"
-export const INTERACTION_STATE_COMPLETE: IInteractionState = "complete"
-export const INTERACTION_STATE_ERROR: IInteractionState = "error"
+export type IInteractionState = 'waiting' | 'editing' | 'complete' | 'error'
+export const INTERACTION_STATE_WAITING: IInteractionState = 'waiting'
+export const INTERACTION_STATE_EDITING: IInteractionState = 'editing'
+export const INTERACTION_STATE_COMPLETE: IInteractionState = 'complete'
+export const INTERACTION_STATE_ERROR: IInteractionState = 'error'
 
-export type IWebSocketEventType = "session_update" | "worker_task_response"
+export type IWebSocketEventType = 'session_update' | 'worker_task_response'
 export const WEBSOCKET_EVENT_TYPE_SESSION_UPDATE: IWebSocketEventType =
-	"session_update"
+	'session_update'
 export const WEBSOCKET_EVENT_TYPE_WORKER_TASK_RESPONSE: IWebSocketEventType =
-	"worker_task_response"
+	'worker_task_response'
 
-export type IWorkerTaskResponseType = "stream" | "progress" | "result"
+export type IWorkerTaskResponseType = 'stream' | 'progress' | 'result'
 export const WORKER_TASK_RESPONSE_TYPE_STREAM: IWorkerTaskResponseType =
-	"stream"
+	'stream'
 export const WORKER_TASK_RESPONSE_TYPE_PROGRESS: IWorkerTaskResponseType =
-	"progress"
+	'progress'
 export const WORKER_TASK_RESPONSE_TYPE_RESULT: IWorkerTaskResponseType =
-	"result"
+	'result'
 
-export type ICloneInteractionMode = "just_data" | "with_questions" | "all"
+export type ICloneInteractionMode = 'just_data' | 'with_questions' | 'all'
 export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode =
-	"just_data"
+	'just_data'
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode =
-	"with_questions"
-export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = "all"
+	'with_questions'
+export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
 export type IModelName =
-	| "mistralai/Mistral-7B-Instruct-v0.1"
-	| "stabilityai/stable-diffusion-xl-base-1.0"
-	| "mistral:7b-instruct"
-	| "mixtral:instruct"
-	| "llama3:instruct"
-	| "llama3:70b"
-	| "phi3:instruct"
+	| 'mistralai/Mistral-7B-Instruct-v0.1'
+	| 'stabilityai/stable-diffusion-xl-base-1.0'
+	| 'mistral:7b-instruct'
+	| 'mixtral:instruct'
+	| 'llama3:instruct'
+	| 'llama3:70b'
+	| 'phi3:instruct'
 export const MODEL_NAME_MISTRAL: IModelName =
-	"mistralai/Mistral-7B-Instruct-v0.1"
+	'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName =
-	"stabilityai/stable-diffusion-xl-base-1.0"
-export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = "mistral:7b-instruct"
-export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = "llama3:instruct"
-export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = "llama3:70b"
-export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = "mixtral:instruct"
-export const MODEL_NAME_OLLAMA_PHI3: IModelName = "phi3:instruct"
+	'stabilityai/stable-diffusion-xl-base-1.0'
+export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
+export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b'
+export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
+export const MODEL_NAME_OLLAMA_PHI3: IModelName = 'phi3:instruct'
 
 export type ITextDataPrepStage =
 	| ""
-	| "edit_files"
-	| "extract_text"
-	| "index_rag"
-	| "generate_questions"
-	| "edit_questions"
-	| "finetune"
-	| "complete"
+	| 'edit_files'
+	| 'extract_text'
+	| 'index_rag'
+	| 'generate_questions'
+	| 'complete'
+	| 'edit_questions'
+	| 'finetune'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ""
-export const TEXT_DATA_PREP_STAGE_EDIT_FILES: ITextDataPrepStage = "edit_files"
+export const TEXT_DATA_PREP_STAGE_EDIT_FILES: ITextDataPrepStage = 'edit_files'
 export const TEXT_DATA_PREP_STAGE_EXTRACT_TEXT: ITextDataPrepStage =
-	"extract_text"
-export const TEXT_DATA_PREP_STAGE_INDEX_RAG: ITextDataPrepStage = "index_rag"
+	'extract_text'
+export const TEXT_DATA_PREP_STAGE_INDEX_RAG: ITextDataPrepStage = 'index_rag'
 export const TEXT_DATA_PREP_STAGE_GENERATE_QUESTIONS: ITextDataPrepStage =
-	"generate_questions"
+	'generate_questions'
 export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage =
-	"edit_questions"
-export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = "finetune"
-export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = "complete"
+	'edit_questions'
+export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
+export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
-export type IAppType = "helix" | "github"
-export const APP_TYPE_HELIX: IAppType = "helix"
-export const APP_TYPE_GITHUB: IAppType = "github"
+export type IAppType = 'helix' | 'github'
+export const APP_TYPE_HELIX: IAppType = 'helix'
+export const APP_TYPE_GITHUB: IAppType = 'github'
 
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
 	TEXT_DATA_PREP_STAGE_EDIT_FILES,
@@ -119,9 +119,9 @@ export interface IUserConfig {
 	stripe_subscription_id?: string
 }
 
-export type IOwnerType = "user" | "system" | "org"
+export type IOwnerType = 'user' | 'system' | 'org'
 
-export type IApiKeyType = "api" | "github" | "app"
+export type IApiKeyType = 'api' | 'github' | 'app'
 
 export interface IApiKey {
 	owner: string
@@ -416,7 +416,7 @@ export interface IPaginationState {
 	offset: number
 }
 
-export type IButtonStateColor = "primary" | "secondary"
+export type IButtonStateColor = 'primary' | 'secondary'
 export interface IButtonStates {
 	addTextColor: IButtonStateColor
 	addTextLabel: string
@@ -427,12 +427,12 @@ export interface IButtonStates {
 }
 
 export const BUTTON_STATES: IButtonStates = {
-	addUrlColor: "primary",
-	addUrlLabel: "Add URL",
-	addTextColor: "primary",
-	addTextLabel: "Add Text",
-	uploadFilesColor: "primary",
-	uploadFilesLabel: "Or Choose Files",
+	addUrlColor: 'primary',
+	addUrlLabel: 'Add URL',
+	addTextColor: 'primary',
+	addTextLabel: 'Add Text',
+	uploadFilesColor: 'primary',
+	uploadFilesLabel: 'Or Choose Files',
 }
 
 // these are kept in local storage so we know what to do once we are logged in
@@ -443,7 +443,7 @@ export interface IShareSessionInstructions {
 	addDocumentsMode?: boolean
 }
 
-export type IToolType = "api" | "gptscript"
+export type IToolType = 'api' | 'gptscript'
 
 export interface IToolApiAction {
 	name: string
