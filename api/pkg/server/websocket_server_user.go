@@ -63,10 +63,16 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		userID, err := apiServer.authMiddleware.userIDFromRequestBothModes(r)
+		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
-			log.Error().Msgf("Error getting user id: %s", err.Error())
+			log.Error().Msgf("Error getting user: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if user == nil || !hasUser(*user) {
+			log.Error().Msgf("Error getting user")
+			http.Error(w, "unauthorized", http.StatusInternalServerError)
 			return
 		}
 
@@ -86,7 +92,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 		defer conn.Close()
 
-		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(userID, sessionID), func(payload []byte) error {
+		sub, err := apiServer.pubsub.Subscribe(r.Context(), pubsub.GetSessionQueue(user.ID, sessionID), func(payload []byte) error {
 			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
 				log.Error().Msgf("Error writing to websocket: %s", err.Error())
 			}
@@ -102,7 +108,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 
 		log.Trace().
 			Str("action", "⚪ user ws CONNECT").
-			Msgf("connected user websocket: %s for session: %s\n", userID, sessionID)
+			Msgf("connected user websocket: %s for session: %s\n", user.ID, sessionID)
 
 		// we block on reading messages from the client
 		// if we get any errors then we break and this will close

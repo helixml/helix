@@ -41,7 +41,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	userContext := s.getRequestContext(req)
+	userContext := getRequestContext(req)
 
 	status, err := s.Controller.GetStatus(userContext)
 	if err != nil {
@@ -62,8 +62,8 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 		// Basic validation on the lora dir path, it should be something like
 		// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
 		ownerContext := types.OwnerContext{
-			Owner:     userContext.Owner,
-			OwnerType: userContext.OwnerType,
+			Owner:     userContext.User.ID,
+			OwnerType: userContext.User.Type,
 		}
 		userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
 		if err != nil {
@@ -100,8 +100,8 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
-			Owner:            userContext.Owner,
-			OwnerType:        userContext.OwnerType,
+			Owner:            userContext.User.ID,
+			OwnerType:        userContext.User.Type,
 			LoraDir:          startReq.LoraDir,
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
@@ -112,7 +112,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			sessionID: sessionID,
 			modelName: startReq.Model,
 			start: func() error {
-				_, err := s.Controller.CreateSession(userContext, newSession)
+				_, err := s.Controller.StartSession(userContext, newSession)
 				if err != nil {
 					return fmt.Errorf("failed to create session: %s", err)
 				}
@@ -143,7 +143,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			modelName: startReq.Model,
 			start: func() error {
 
-				_, err := s.Controller.UpdateSession(s.getRequestContext(req), types.UpdateSessionRequest{
+				_, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
 					SessionID:       startReq.SessionID,
 					UserInteraction: interactions[0],
 					SessionMode:     types.SessionModeInference,

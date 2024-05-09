@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
@@ -22,14 +21,12 @@ import (
 )
 
 type ControllerOptions struct {
-	Config *config.ServerConfig
-	Store  store.Store
-	PubSub pubsub.PubSub
-	// Planner             tools.Planner
-	Filestore           filestore.FileStore
-	Janitor             *janitor.Janitor
-	DataPrepTextFactory func(session *types.Session) (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error)
-	Notifier            notification.Notifier
+	Config    *config.ServerConfig
+	Store     store.Store
+	PubSub    pubsub.PubSub
+	Filestore filestore.FileStore
+	Janitor   *janitor.Janitor
+	Notifier  notification.Notifier
 }
 
 type Controller struct {
@@ -69,9 +66,6 @@ func NewController(
 ) (*Controller, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("store is required")
-	}
-	if options.DataPrepTextFactory == nil {
-		return nil, fmt.Errorf("data prep text factory is required")
 	}
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")

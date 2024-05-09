@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -234,6 +236,29 @@ func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, er
 	return filesToConvert, nil
 }
 
+func (c *Controller) getDataPrepFactory() (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
+	client, err := qapairs.NewClient(c.Options.Config, c.Options.PubSub, c)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize qapairs client: %s", err.Error())
+	}
+
+	questionGenerator := text.NewDynamicDataPrep(
+		client,
+		c.Options.Config.FineTuning.QAPairGenModel,
+	)
+
+	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+		ChunkSize: questionGenerator.GetChunkSize(),
+		Overflow:  c.Options.Config.DataPrepText.OverflowSize,
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return questionGenerator, splitter, nil
+}
+
 func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.DataPrepTextQuestionGenerator) ([]*text.DataPrepTextSplitterChunk, error) {
 	filesToConvert, err := c.getTextFilesToConvert(session)
 	if err != nil {
@@ -245,7 +270,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
-	_, splitter, err := c.Options.DataPrepTextFactory(session)
+	_, splitter, err := c.getDataPrepFactory()
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +466,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	dataprep, _, err := c.Options.DataPrepTextFactory(session)
+	dataprep, _, err := c.getDataPrepFactory()
 	if err != nil {
 		return nil, 0, err
 	}
