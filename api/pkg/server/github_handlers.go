@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -32,8 +33,10 @@ type GithubStatus struct {
 // and client frontends where there is no user context from an auth token
 func (apiServer *HelixAPIServer) getGithubApp(app *types.App) (*apps.GithubApp, error) {
 	client, err := apiServer.getGithubClientFromUserContext(types.RequestContext{
-		Owner:     app.Owner,
-		OwnerType: app.OwnerType,
+		User: types.User{
+			ID:   app.Owner,
+			Type: app.OwnerType,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -42,6 +45,7 @@ func (apiServer *HelixAPIServer) getGithubApp(app *types.App) (*apps.GithubApp, 
 		GithubConfig: apiServer.Cfg.GitHub,
 		Client:       client,
 		App:          app,
+		ToolsPlanner: apiServer.Controller.ToolsPlanner,
 		UpdateApp: func(app *types.App) (*types.App, error) {
 			return apiServer.Store.UpdateApp(context.Background(), app)
 		},
@@ -114,20 +118,35 @@ func (apiServer *HelixAPIServer) githubWebhook(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		_, err = githubApp.Update()
+		var hash string
+		app, err = githubApp.Update()
 		if err != nil {
+			if app.Config.Github == nil {
+				app.Config.Github = &types.AppGithubConfig{}
+			}
+			// we expect the github app to have already set the hash and timestamp
+			// of the pulled config - if the config had an error we end up here
+			app.Config.Github.LastUpdate.Error = err.Error()
 			log.Error().Msgf("error updating github app: %s", err.Error())
 			http.Error(w, fmt.Sprintf("error updating github app: %s", err.Error()), http.StatusInternalServerError)
-			return
+		} else {
+			if app.Config.Github == nil {
+				app.Config.Github = &types.AppGithubConfig{}
+			}
+			app.Config.Github.LastUpdate = types.AppGithubConfigUpdate{
+				Updated: time.Now(),
+				Hash:    hash,
+			}
 		}
+		apiServer.Store.UpdateApp(r.Context(), app)
 	}
 }
 
 // do we already have the github token as an api key in the database?
 func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.RequestContext) (string, error) {
 	apiKeys, err := apiServer.Store.ListAPIKeys(userContext.Ctx, &store.ListApiKeysQuery{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
+		Owner:     userContext.User.ID,
+		OwnerType: userContext.User.Type,
 	})
 	if err != nil {
 		return "", err
@@ -142,8 +161,8 @@ func (apiServer *HelixAPIServer) getGithubDatabaseToken(userContext types.Reques
 
 func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.RequestContext, token string) error {
 	apiKeys, err := apiServer.Store.ListAPIKeys(userContext.Ctx, &store.ListApiKeysQuery{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
+		Owner:     userContext.User.ID,
+		OwnerType: userContext.User.Type,
 	})
 	if err != nil {
 		return err
@@ -157,8 +176,8 @@ func (apiServer *HelixAPIServer) setGithubDatabaseToken(userContext types.Reques
 		}
 	}
 	_, err = apiServer.Store.CreateAPIKey(userContext.Ctx, &types.APIKey{
-		Owner:     userContext.Owner,
-		OwnerType: userContext.OwnerType,
+		Owner:     userContext.User.ID,
+		OwnerType: userContext.User.Type,
 		Name:      "github-oauth",
 		Key:       token,
 		Type:      types.APIKeyType_Github,
@@ -182,7 +201,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(userContext types.RequestC
 			"%s%s/github/callback?access_token=%s&pageURL=%s",
 			apiServer.Cfg.WebServer.URL,
 			API_PREFIX,
-			userContext.Token,
+			userContext.User.Token,
 			url.QueryEscape(pageURL),
 		),
 		Endpoint: github_oauth.Endpoint,
@@ -198,7 +217,7 @@ func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http
 		return nil, fmt.Errorf("pageURL is required")
 	}
 
-	userContext := apiServer.getRequestContext(req)
+	userContext := getRequestContext(req)
 	databaseToken, err := apiServer.getGithubDatabaseToken(userContext)
 	if err != nil {
 		return nil, err
@@ -212,13 +231,13 @@ func (apiServer *HelixAPIServer) githubStatus(res http.ResponseWriter, req *http
 		conf := apiServer.getGithubOauthConfig(userContext, pageURL)
 		return &GithubStatus{
 			HasToken:    false,
-			RedirectURL: conf.AuthCodeURL(userContext.Email, oauth2.AccessTypeOffline),
+			RedirectURL: conf.AuthCodeURL(userContext.User.Email, oauth2.AccessTypeOffline),
 		}, nil
 	}
 }
 
 func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http.Request) {
-	userContext := apiServer.getRequestContext(req)
+	userContext := getRequestContext(req)
 	pageURL := req.URL.Query().Get("pageURL")
 	code := req.URL.Query().Get("code")
 	conf := apiServer.getGithubOauthConfig(userContext, pageURL)
@@ -236,7 +255,7 @@ func (apiServer *HelixAPIServer) githubCallback(w http.ResponseWriter, req *http
 }
 
 func (apiServer *HelixAPIServer) getGithubClientFromRequest(req *http.Request) (*github.GithubClient, error) {
-	return apiServer.getGithubClientFromUserContext(apiServer.getRequestContext(req))
+	return apiServer.getGithubClientFromUserContext(getRequestContext(req))
 }
 
 func (apiServer *HelixAPIServer) getGithubClientFromUserContext(userContext types.RequestContext) (*github.GithubClient, error) {

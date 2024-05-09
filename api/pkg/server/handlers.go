@@ -28,7 +28,7 @@ func (apiServer *HelixAPIServer) sessionLoaderWithID(req *http.Request, id strin
 	if id == "" {
 		return nil, system.NewHTTPError400("cannot load session without id")
 	}
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 	session, err := apiServer.Store.GetSession(reqContext.Ctx, id)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -40,9 +40,9 @@ func (apiServer *HelixAPIServer) sessionLoaderWithID(req *http.Request, id strin
 	canSee := false
 
 	if writeMode {
-		canSee = apiServer.canEditSession(reqContext, session)
+		canSee = canEditSession(reqContext.User, session)
 	} else {
-		canSee = apiServer.canSeeSession(reqContext, session)
+		canSee = canSeeSession(reqContext.User, session)
 	}
 
 	if !canSee {
@@ -68,10 +68,10 @@ func (apiServer *HelixAPIServer) getSessionSummary(res http.ResponseWriter, req 
 }
 
 func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.Request) (*types.SessionsList, error) {
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 	query := store.GetSessionsQuery{}
-	query.Owner = reqContext.Owner
-	query.OwnerType = reqContext.OwnerType
+	query.Owner = reqContext.User.ID
+	query.OwnerType = reqContext.User.Type
 
 	// Extract offset and limit values from query parameters
 	offsetStr := req.URL.Query().Get("offset")
@@ -171,7 +171,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 }
 
 func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 
 	// now upload any files that were included
 	err := req.ParseMultipartForm(10 << 20)
@@ -204,7 +204,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 			case "helix-code":
 				modelName = types.Model_Ollama_CodeLlama
 			case "helix-json":
-				modelName = types.Model_Ollama_NousHermes2Pro
+				modelName = types.Model_Ollama_NousHermes2ProLlama3
 			default:
 				modelName = types.Model_Ollama_Llama3_8b
 			}
@@ -227,7 +227,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		return nil, fmt.Errorf("no interaction found")
 	}
 
-	userContext := apiServer.getRequestContext(req)
+	userContext := getRequestContext(req)
 	status, err := apiServer.Controller.GetStatus(userContext)
 	if err != nil {
 		return nil, err
@@ -267,8 +267,8 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Stream:                  true,
 		SessionType:             sessionType,
 		ModelName:               modelName,
-		Owner:                   reqContext.Owner,
-		OwnerType:               reqContext.OwnerType,
+		Owner:                   reqContext.User.ID,
+		OwnerType:               reqContext.User.Type,
 		UserInteractions:        []*types.Interaction{userInteraction},
 		Priority:                status.Config.StripeSubscriptionActive,
 		ParentSession:           req.FormValue("parent_session"),
@@ -279,7 +279,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		ActiveTools:             activeTools,
 	}
 
-	sessionData, err := apiServer.Controller.CreateSession(userContext, createRequest)
+	sessionData, err := apiServer.Controller.StartSession(userContext, createRequest)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to start session")
 		return nil, err
@@ -308,7 +308,7 @@ func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *htt
 		return nil, system.NewHTTPError404("no interaction found")
 	}
 
-	sessionData, err := apiServer.Controller.UpdateSession(apiServer.getRequestContext(req), types.UpdateSessionRequest{
+	sessionData, err := apiServer.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
 		SessionID:       session.ID,
 		UserInteraction: userInteraction,
 		SessionMode:     session.Mode,
@@ -326,7 +326,7 @@ func (apiServer *HelixAPIServer) updateSessionConfig(res http.ResponseWriter, re
 		return nil, httpError
 	}
 
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 
 	var data *types.SessionMetadata
 
@@ -393,32 +393,32 @@ window.RUDDERSTACK_DATA_PLANE_URL = "%s"
 }
 
 func (apiServer *HelixAPIServer) status(res http.ResponseWriter, req *http.Request) (types.UserStatus, error) {
-	return apiServer.Controller.GetStatus(apiServer.getRequestContext(req))
+	return apiServer.Controller.GetStatus(getRequestContext(req))
 }
 
 func (apiServer *HelixAPIServer) filestoreConfig(res http.ResponseWriter, req *http.Request) (filestore.FilestoreConfig, error) {
-	return apiServer.Controller.FilestoreConfig(apiServer.getOwnerContext(req))
+	return apiServer.Controller.FilestoreConfig(getOwnerContext(req))
 }
 
 func (apiServer *HelixAPIServer) filestoreList(res http.ResponseWriter, req *http.Request) ([]filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreList(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreList(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreGet(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreGet(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreGet(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreCreateFolder(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreCreateFolder(apiServer.getOwnerContext(req), req.URL.Query().Get("path"))
+	return apiServer.Controller.FilestoreCreateFolder(getOwnerContext(req), req.URL.Query().Get("path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreRename(res http.ResponseWriter, req *http.Request) (filestore.FileStoreItem, error) {
-	return apiServer.Controller.FilestoreRename(apiServer.getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
+	return apiServer.Controller.FilestoreRename(getOwnerContext(req), req.URL.Query().Get("path"), req.URL.Query().Get("new_path"))
 }
 
 func (apiServer *HelixAPIServer) filestoreDelete(res http.ResponseWriter, req *http.Request) (string, error) {
 	path := req.URL.Query().Get("path")
-	err := apiServer.Controller.FilestoreDelete(apiServer.getOwnerContext(req), path)
+	err := apiServer.Controller.FilestoreDelete(getOwnerContext(req), path)
 	return path, err
 }
 
@@ -437,7 +437,7 @@ func (apiServer *HelixAPIServer) filestoreUpload(res http.ResponseWriter, req *h
 			return false, fmt.Errorf("unable to open file")
 		}
 		defer file.Close()
-		_, err = apiServer.Controller.FilestoreUploadFile(apiServer.getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
+		_, err = apiServer.Controller.FilestoreUploadFile(getOwnerContext(req), filepath.Join(path, fileHeader.Filename), file)
 		if err != nil {
 			return false, fmt.Errorf("unable to upload file: %s", err.Error())
 		}
@@ -638,7 +638,7 @@ func (apiServer *HelixAPIServer) retryTextFinetune(res http.ResponseWriter, req 
 
 func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	vars := mux.Vars(req)
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 
 	// clone the session into the eval user account
 	// only admins can do this
@@ -657,7 +657,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 
 	// if we own the session then we don't need to copy all files
 	copyAllFiles := true
-	if apiServer.doesOwnSession(reqContext, session) {
+	if doesOwnSession(reqContext.User, session) {
 		copyAllFiles = false
 	}
 
@@ -671,7 +671,7 @@ func (apiServer *HelixAPIServer) cloneFinetuneInteraction(res http.ResponseWrite
 	}
 	// switch the target user to be the eval user
 	if cloneIntoEvalUser != "" {
-		reqContext.Owner = apiServer.Cfg.WebServer.EvalUserID
+		reqContext.User.ID = apiServer.Cfg.WebServer.EvalUserID
 	}
 	return system.DefaultController(apiServer.Controller.CloneUntilInteraction(reqContext, session, controller.CloneUntilInteractionRequest{
 		InteractionID: interaction.ID,
@@ -777,7 +777,7 @@ func (apiServer *HelixAPIServer) updateSessionMeta(res http.ResponseWriter, req 
 		return nil, httpError
 	}
 
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 
 	update := &types.SessionMetaUpdate{}
 	err := json.NewDecoder(req.Body).Decode(update)
@@ -813,7 +813,7 @@ func (apiServer *HelixAPIServer) deleteSession(res http.ResponseWriter, req *htt
 	if httpError != nil {
 		return nil, httpError
 	}
-	reqContext := apiServer.getRequestContext(req)
+	reqContext := getRequestContext(req)
 	return system.DefaultController(apiServer.Store.DeleteSession(reqContext.Ctx, session.ID))
 }
 
@@ -970,7 +970,7 @@ func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http
 		}
 	}
 
-	createdKey, err := apiServer.Controller.CreateAPIKey(apiServer.getRequestContext(req), newAPIKey)
+	createdKey, err := apiServer.Controller.CreateAPIKey(getRequestContext(req), newAPIKey)
 	if err != nil {
 		return "", err
 	}
@@ -992,7 +992,7 @@ func containsType(keyType string, typesParam string) bool {
 }
 
 func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.Request) ([]*types.APIKey, error) {
-	apiKeys, err := apiServer.Controller.GetAPIKeys(apiServer.getRequestContext(req))
+	apiKeys, err := apiServer.Controller.GetAPIKeys(getRequestContext(req))
 	if err != nil {
 		return nil, err
 	}
@@ -1021,7 +1021,7 @@ func (apiServer *HelixAPIServer) getAPIKeys(res http.ResponseWriter, req *http.R
 
 func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http.Request) (string, error) {
 	apiKey := req.URL.Query().Get("key")
-	err := apiServer.Controller.DeleteAPIKey(apiServer.getRequestContext(req), apiKey)
+	err := apiServer.Controller.DeleteAPIKey(getRequestContext(req), apiKey)
 	if err != nil {
 		return "", err
 	}
@@ -1030,7 +1030,7 @@ func (apiServer *HelixAPIServer) deleteAPIKey(res http.ResponseWriter, req *http
 
 func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.Request) (*types.APIKey, error) {
 	apiKey := req.URL.Query().Get("key")
-	key, err := apiServer.Controller.CheckAPIKey(apiServer.getRequestContext(req).Ctx, apiKey)
+	key, err := apiServer.Controller.CheckAPIKey(getRequestContext(req).Ctx, apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1038,13 +1038,13 @@ func (apiServer *HelixAPIServer) checkAPIKey(res http.ResponseWriter, req *http.
 }
 
 func (apiServer *HelixAPIServer) subscriptionCreate(res http.ResponseWriter, req *http.Request) (string, error) {
-	reqContext := apiServer.getRequestContext(req)
-	return apiServer.Stripe.GetCheckoutSessionURL(reqContext.Owner, reqContext.Email)
+	reqContext := getRequestContext(req)
+	return apiServer.Stripe.GetCheckoutSessionURL(reqContext.User.ID, reqContext.User.Email)
 }
 
 func (apiServer *HelixAPIServer) subscriptionManage(res http.ResponseWriter, req *http.Request) (string, error) {
-	reqContext := apiServer.getRequestContext(req)
-	userMeta, err := apiServer.Store.GetUserMeta(reqContext.Ctx, reqContext.Owner)
+	reqContext := getRequestContext(req)
+	userMeta, err := apiServer.Store.GetUserMeta(reqContext.Ctx, reqContext.User.ID)
 	if err != nil {
 		return "", err
 	}

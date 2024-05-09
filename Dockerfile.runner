@@ -18,7 +18,7 @@ COPY . .
 
 # Build the Go app
 # RUN go mod tidy && go mod download && CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
 
 # FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
 FROM winglian/axolotl:main-py3.10-cu118-2.0.1@sha256:71582175f32c1aca4f0355b8af62f627429a8a83eabbb84e18096490b1661d3c
@@ -27,8 +27,26 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 WORKDIR /workspace
 
+ARG PULL_LLAMA3_8B="false"
+ARG PULL_LLAMA3_70B="false"
+
+ENV PULL_LLAMA3_8B=$PULL_LLAMA3_8B
+ENV PULL_LLAMA3_70B=$PULL_LLAMA3_70B
+
 # TODO: not sure if this is necessary
 ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib64:/usr/local/nvidia/bin
+
+# Install ollama
+RUN curl --retry 5 -L https://github.com/ollama/ollama/releases/download/v0.1.33/ollama-linux-amd64 -o /usr/bin/ollama
+RUN chmod +x /usr/bin/ollama
+
+# Set up the ollama models directory, runner will be able to access this
+RUN mkdir -p /workspace/ollama
+ENV OLLAMA_MODELS=/workspace/ollama
+
+COPY scripts/pull_ollama_models.sh /workspace/scripts/pull_ollama_models.sh
+
+RUN bash /workspace/scripts/pull_ollama_models.sh
 
 # ====================================
 # TODO: cache all the weights early on
@@ -67,9 +85,6 @@ RUN --mount=type=cache,target=/root/.cache/pip cd /workspace && \
     curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.0.3/pget" && chmod +x /usr/local/bin/pget && \
     wget http://thegiflibrary.tumblr.com/post/11565547760 -O face_landmarker_v2_with_blendshapes.task -q https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 # what you sayin', cat?
-
-# TODO: mount /root/.ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # so we don't have to fork upstream cog-sdxl repo
 COPY cog/helix_cog_wrapper.py /workspace/cog-sdxl/helix_cog_wrapper.py

@@ -17,7 +17,7 @@
 
 # HelixML
 
-[![Discord](https://dcbadge.vercel.app/api/server/VJftd844GE?style=flat&compact=true)](https://discord.gg/VJftd844GE)
+[👥 Discord](https://discord.gg/VJftd844GE)
 
 Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
@@ -46,10 +46,10 @@ Ensure keycloak realm settings are up to date with your .env file
 To start the services:
 
 ```
-docker-compose up -d
+docker compose up -d
 ```
 
-The dashboard will be available on `http://localhost`.
+By default, the dashboard will be available on `http://localhost`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 

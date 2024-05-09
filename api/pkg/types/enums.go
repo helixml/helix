@@ -299,3 +299,12 @@ func ValidateEntityType(datasetType string, acceptEmpty bool) (EntityType, error
 		}
 	}
 }
+
+type TokenType string
+
+const (
+	TokenTypeNone     TokenType = ""
+	TokenTypeRunner   TokenType = "runner"
+	TokenTypeKeycloak TokenType = "keycloak"
+	TokenTypeAPIKey   TokenType = "api_key"
+)

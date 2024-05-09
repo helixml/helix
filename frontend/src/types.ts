@@ -35,12 +35,12 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b-instruct-q2_K'
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
 export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
-export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b-instruct-q2_K'
+export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b'
 export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
@@ -458,8 +458,8 @@ export interface ITool {
   owner_type: IOwnerType,
   name: string,
   description: string,
-  global: boolean,
   tool_type: IToolType,
+  global: boolean,
   config: IToolConfig,
 }
 
@@ -483,26 +483,58 @@ export interface IAppHelixConfigGptScripts {
   scripts?: IAppHelixConfigGptScript[],
 }
 
+export interface IAssistantApi {
+  name: string,
+  description: string,
+  schema: string,
+  url: string,
+  headers: Record<string, string>,
+  query: Record<string, string>,
+}
+
+export interface IAssistantGPTScript {
+  name: string,
+  description: string,
+  file: string,
+  content: string,
+}
+
+export interface IAssistantConfig {
+  name: string,
+  description: string,
+  avatar: string,
+  model: string,
+  system_prompt: string,
+  apis: IAssistantApi[],
+  gptscripts: IAssistantGPTScript[],
+  tools: ITool[],
+}
+
 export interface IAppHelixConfig {
   name?: string,
   description?: string,
   avatar?: string,
-  system_prompt?: string,
-  active_tools?: string[],
-  secrets?: Record<string, string>,
-  allowed_domains?: string[],
-  gptscript?: IAppHelixConfigGptScripts,
+  assistants: IAssistantConfig[],  
+}
+
+export interface IAppGithubConfigUpdate {
+  updated: string,
+  hash: string,
+  error: string,
 }
 
 export interface IAppGithubConfig {
   repo: string,
   hash: string,
   key_pair?: IKeyPair,
+  last_update?: IAppGithubConfigUpdate,
 }
 
 export interface IAppConfig {
   helix?: IAppHelixConfig,
   github?: IAppGithubConfig,
+  secrets: Record<string, string>,
+  allowed_domains: string[],
 }
 
 export interface IApp {

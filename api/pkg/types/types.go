@@ -30,8 +30,10 @@ type Interaction struct {
 	// to get down to what actually matters
 	Mode SessionMode `json:"mode"`
 	// the ID of the runner that processed this interaction
-	Runner         string            `json:"runner"`          // e.g. 0
-	Message        string            `json:"message"`         // e.g. Prove pythagoras
+	Runner         string         `json:"runner"`          // e.g. 0
+	Message        string         `json:"message"`         // e.g. Prove pythagoras
+	ResponseFormat ResponseFormat `json:"response_format"` // e.g. json
+
 	DisplayMessage string            `json:"display_message"` // if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)
 	Progress       int               `json:"progress"`        // e.g. 0-100
 	Files          []string          `json:"files"`           // list of filepath paths
@@ -49,6 +51,18 @@ type Interaction struct {
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
 	RagResults []SessionRagResult `json:"rag_results"`
+}
+
+type ResponseFormatType string
+
+const (
+	ResponseFormatTypeJSONObject ResponseFormatType = "json_object"
+	ResponseFormatTypeText       ResponseFormatType = "text"
+)
+
+type ResponseFormat struct {
+	Type   ResponseFormatType
+	Schema map[string]interface{} `json:"schema"`
 }
 
 type InteractionMessage struct {
@@ -355,13 +369,6 @@ type OwnerContext struct {
 	OwnerType OwnerType
 }
 
-type UserData struct {
-	ID       string
-	Email    string
-	FullName string
-	Token    string
-}
-
 type StripeUser struct {
 	StripeID        string
 	HelixID         string
@@ -384,29 +391,39 @@ type UserMeta struct {
 	Config UserConfig `json:"config"`
 }
 
-// passed between the api server and the controller
-type RequestContext struct {
-	Ctx       context.Context
-	Admin     bool
-	Owner     string
-	OwnerType OwnerType
-	Email     string
-	FullName  string
-	Token     string
-}
-
+// this is given to the frontend as user context
 type UserStatus struct {
 	Admin  bool       `json:"admin"`
 	User   string     `json:"user"`
 	Config UserConfig `json:"config"`
 }
 
-type UserDetails struct {
-	ID        string
-	Username  string
-	FirstName string
-	LastName  string
-	Email     string
+type User struct {
+	// the actual token used and it's type
+	Token string
+	// none, runner. keycloak, api_key
+	TokenType TokenType
+	// if the ID of the user is contained in the env setting
+	Admin bool
+	// if the token is associated with an app
+	AppID string
+	// these are set by the keycloak user based on the token
+	// if it's an app token - the keycloak user is loaded from the owner of the app
+	// if it's a runner token - these values will be empty
+	ID       string
+	Type     OwnerType
+	Email    string
+	Username string
+	FullName string
+}
+
+// passed between the api server and the controller
+// we parse the token (if provided and then create this object)
+// the request context is always present - if for un-authenticated requests
+// in that case, the owner and token fields are empty
+type RequestContext struct {
+	Ctx  context.Context
+	User User
 }
 
 // a single envelope that is broadcast to users
@@ -471,7 +488,15 @@ type RunnerTaskResponse struct {
 	Files    []string `json:"files,omitempty"`    // list of filepath paths
 	LoraDir  string   `json:"lora_dir,omitempty"`
 	Error    string   `json:"error,omitempty"`
+	Usage    Usage    `json:"usage,omitempty"`
 	Done     bool     `json:"done,omitempty"`
+}
+
+type Usage struct {
+	PromptTokens     int   `json:"prompt_tokens"`
+	CompletionTokens int   `json:"completion_tokens"`
+	TotalTokens      int   `json:"total_tokens"`
+	DurationMs       int64 `json:"duration_ms"` // How long the request took in milliseconds
 }
 
 // this is returned by the api server so that clients can see what
@@ -500,6 +525,7 @@ type CreateSessionRequest struct {
 	SystemPrompt            string // System message
 	Stream                  bool
 	ParentSession           string
+	ParentApp               string
 	ModelName               ModelName
 	Owner                   string
 	OwnerType               OwnerType
@@ -511,6 +537,7 @@ type CreateSessionRequest struct {
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
 	LoraDir                 string
+	ResponseFormat          ResponseFormat
 }
 
 type UpdateSessionRequest struct {
@@ -633,14 +660,12 @@ type Tool struct {
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType   OwnerType `json:"owner_type"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	ToolType    ToolType  `json:"tool_type"`
-	Global      bool      `json:"global"`
-	// TODO: tool configuration
-	// such as OpenAPI spec, function code, etc.
-	Config ToolConfig `json:"config" gorm:"jsonb"`
+	OwnerType   OwnerType  `json:"owner_type"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	ToolType    ToolType   `json:"tool_type"`
+	Global      bool       `json:"global"`
+	Config      ToolConfig `json:"config" gorm:"jsonb"`
 }
 
 type ToolConfig struct {
@@ -671,20 +696,20 @@ func (ToolConfig) GormDataType() string {
 }
 
 type ToolApiConfig struct {
-	URL     string           `json:"url"` // Server override
-	Schema  string           `json:"schema"`
-	Actions []*ToolApiAction `json:"actions"` // Read-only, parsed from schema on creation
+	URL     string           `json:"url" yaml:"url"` // Server override
+	Schema  string           `json:"schema" yaml:"schema"`
+	Actions []*ToolApiAction `json:"actions" yaml:"actions"` // Read-only, parsed from schema on creation
 
-	Headers map[string]string `json:"headers"` // Headers (authentication, etc)
-	Query   map[string]string `json:"query"`   // Query parameters that will be always set
+	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
+	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec
 type ToolApiAction struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Method      string `json:"method" yaml:"method"`
+	Path        string `json:"path" yaml:"path"`
 }
 
 type ToolGPTScriptConfig struct {
@@ -709,38 +734,66 @@ const (
 	AppTypeGithub AppType = "github"
 )
 
-type AppHelixConfigGPTScript struct {
-	Name     string `json:"name" yaml:"name"`
-	FilePath string `json:"file_path" yaml:"file_path"`
-	Content  string `json:"content" yaml:"content"`
+type AssistantGPTScript struct {
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	File        string `json:"file" yaml:"file"`
+	Content     string `json:"content" yaml:"content"`
 }
 
-type AppHelixConfigGPTScripts struct {
-	Files   []string                  `json:"files" yaml:"files"`
-	Scripts []AppHelixConfigGPTScript `json:"scripts" yaml:"scripts"`
+type AssistantAPI struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Schema      string            `json:"schema" yaml:"schema"`
+	URL         string            `json:"url" yaml:"url"`
+	Headers     map[string]string `json:"headers" yaml:"headers"`
+	Query       map[string]string `json:"query" yaml:"query"`
+}
+
+// apps are a collection of assistants
+// the APIs and GPTScripts are both processed into a single list of Tools
+type AssistantConfig struct {
+	Name         string               `json:"name" yaml:"name"`
+	Description  string               `json:"description" yaml:"description"`
+	Avatar       string               `json:"avatar" yaml:"avatar"`
+	Model        string               `json:"model" yaml:"model"`
+	SystemPrompt string               `json:"system_prompt" yaml:"system_prompt"`
+	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
+	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+	// these are populated from the APIs and GPTScripts on create and update
+	// we include tools in the JSON that we send to the browser
+	// but we don't include it in the yaml which feeds this struct because
+	// we populate the tools array from the APIs and GPTScripts arrays
+	// so - Tools is readonly - hence only JSON for the frontend to see
+	Tools []Tool `json:"tools"`
 }
 
 type AppHelixConfig struct {
-	Name           string                   `json:"name" yaml:"name"`
-	Description    string                   `json:"description" yaml:"description"`
-	Avatar         string                   `json:"avatar" yaml:"avatar"`
-	SystemPrompt   string                   `json:"system_prompt" yaml:"system_prompt"`
-	ActiveTools    []string                 `json:"active_tools" yaml:"active_tools"`
-	Secrets        map[string]string        `json:"secrets" yaml:"secrets"`
-	AllowedDomains []string                 `json:"allowed_domains" yaml:"allowed_domains"`
-	GPTScript      AppHelixConfigGPTScripts `json:"gptscript" yaml:"gptscript"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description"`
+	Avatar      string            `json:"avatar" yaml:"avatar"`
+	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
+}
+
+type AppGithubConfigUpdate struct {
+	Updated time.Time `json:"updated"`
+	Hash    string    `json:"hash"`
+	Error   string    `json:"error"`
 }
 
 type AppGithubConfig struct {
-	Repo          string  `json:"repo"`
-	Hash          string  `json:"hash"`
-	KeyPair       KeyPair `json:"key_pair"`
-	WebhookSecret string  `json:"webhook_secret"`
+	Repo          string                `json:"repo"`
+	Hash          string                `json:"hash"`
+	KeyPair       KeyPair               `json:"key_pair"`
+	WebhookSecret string                `json:"webhook_secret"`
+	LastUpdate    AppGithubConfigUpdate `json:"last_update"`
 }
 
 type AppConfig struct {
-	Helix  *AppHelixConfig  `json:"helix"`
-	Github *AppGithubConfig `json:"github"`
+	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
+	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
+	Helix          *AppHelixConfig   `json:"helix"`
+	Github         *AppGithubConfig  `json:"github"`
 }
 
 func (m AppConfig) Value() (driver.Value, error) {

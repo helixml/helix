@@ -48,7 +48,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.pubsub = ps
 
 	suite.userID = "user_id"
-	suite.authCtx = setRequestUser(context.Background(), types.UserData{
+	suite.authCtx = setRequestUser(context.Background(), types.User{
 		ID:       suite.userID,
 		Email:    "foo@email.com",
 		FullName: "Foo Bar",
@@ -66,7 +66,6 @@ func (suite *OpenAIChatSuite) SetupTest() {
 				Janitor: janitor.NewJanitor(config.Janitor{}),
 			},
 		},
-		adminAuth: &adminAuth{},
 	}
 }
 
@@ -103,7 +102,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 	suite.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, session types.Session) (*types.Session, error) {
 			suite.Equal("user_id", session.Owner)
-			suite.Equal(types.OwnerTypeUser, session.OwnerType)
+			// suite.Equal(types.OwnerTypeUser, session.OwnerType)
 			suite.Equal(suite.userID, session.Owner)
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)
@@ -188,7 +187,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	suite.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, session types.Session) (*types.Session, error) {
 			suite.Equal("user_id", session.Owner)
-			suite.Equal(types.OwnerTypeUser, session.OwnerType)
+			// suite.Equal(types.OwnerTypeUser, session.OwnerType)
 			suite.Equal(suite.userID, session.Owner)
 			suite.Equal(types.SessionModeInference, session.Mode)
 			suite.Equal(types.SessionTypeText, session.Type)

@@ -91,7 +91,7 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.runner    
+    dockerfile: Dockerfile.runner
     auto_tag: true
     repo: helixml/helix/runner
     location: europe
@@ -113,6 +113,86 @@ depends_on:
 ---
 kind: pipeline
 type: docker
+name: build-runner-with-llama-8b
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-runner
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_TAG:-main}-llama3-8b" # Default to branch
+    - "latest-llama3-8b"
+    repo: helixml/helix/runner
+    location: europe
+    build_args:
+      - PULL_LLAMA3_8B=true
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+- build-runner
+
+# llama3 70B
+---
+kind: pipeline
+type: docker
+name: build-runner-with-llama-70b
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-runner
+  image: plugins/gar
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_TAG:-main}-llama3-70b"
+    - "latest-llama3-70b"
+    repo: helixml/helix/runner
+    location: europe
+    build_args:
+      - PULL_LLAMA3_8B=true
+      - PULL_LLAMA3_70B=true
+    json_key:
+      from_secret: gar_json_key_b64
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+- build-runner-with-llama-8b
+
+---
+kind: pipeline
+type: docker
 name: build-gptscript_devserver
 
 volumes:
@@ -125,7 +205,7 @@ steps:
   image: plugins/gar
   pull: always
   settings:
-    dockerfile: Dockerfile.gptscript_devserver    
+    dockerfile: Dockerfile.gptscript_devserver
     auto_tag: true
     repo: helixml/helix/gptscript_devserver
     location: europe

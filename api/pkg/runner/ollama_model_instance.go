@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
@@ -275,7 +276,7 @@ WAIT:
 				i.currentSession = session
 				i.lastActivity = time.Now()
 
-				err = i.processInteraction(session)
+				err := i.processInteraction(session)
 				if err != nil {
 					log.Error().
 						Str("session_id", session.ID).
@@ -439,6 +440,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		interactions = session.Interactions
 	}
 
+	// Adding the system prompt first
 	if session.Metadata.SystemPrompt != "" {
 		messages = append(messages, openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
@@ -461,14 +463,28 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		}
 	}
 
+	var responseFormat *openai.ChatCompletionResponseFormat
+
+	// If the last interaction has response format, use it
+	last, _ := data.GetLastSystemInteraction(interactions)
+	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
+		responseFormat = &openai.ChatCompletionResponseFormat{
+			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
+			Schema: last.ResponseFormat.Schema,
+		}
+	}
+
 	switch {
 	case session.Metadata.Stream:
 		// Adding current message
-		stream, err := i.client.CreateChatCompletionStream(context.Background(), openai.ChatCompletionRequest{
-			Model:    string(session.ModelName),
-			Stream:   true,
-			Messages: messages,
-		})
+		req := openai.ChatCompletionRequest{
+			Model:          string(session.ModelName),
+			Stream:         true,
+			Messages:       messages,
+			ResponseFormat: responseFormat,
+		}
+
+		stream, err := i.client.CreateChatCompletionStream(context.Background(), req)
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
@@ -484,7 +500,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 				// Signal the end of the stream
 				i.emitStreamDone(session)
 				// Send the last message containing full output
-				i.responseProcessor(session, buf, true)
+				// TODO: set usage
+				i.responseProcessor(session, types.Usage{}, buf, true)
 				return nil
 			}
 
@@ -496,14 +513,21 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 			buf += response.Choices[0].Delta.Content
 
-			i.responseProcessor(session, response.Choices[0].Delta.Content, false)
+			i.responseProcessor(session, types.Usage{}, response.Choices[0].Delta.Content, false)
 		}
 	default:
 		// Non-streaming mode
-		response, err := i.client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
-			Model:    string(session.ModelName),
-			Messages: messages,
-		})
+		req := openai.ChatCompletionRequest{
+			Model:          string(session.ModelName),
+			Messages:       messages,
+			ResponseFormat: responseFormat,
+		}
+
+		spew.Dump(req)
+
+		start := time.Now()
+
+		response, err := i.client.CreateChatCompletion(context.Background(), req)
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
@@ -511,13 +535,21 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		log.Info().Str("session_id", session.ID).Msg("response received")
 
 		i.emitStreamDone(session)
+
+		usage := types.Usage{
+			PromptTokens:     response.Usage.PromptTokens,
+			CompletionTokens: response.Usage.CompletionTokens,
+			TotalTokens:      response.Usage.TotalTokens,
+			DurationMs:       time.Since(start).Milliseconds(),
+		}
+
 		// Send the last message containing full output
-		i.responseProcessor(session, response.Choices[0].Message.Content, true)
+		i.responseProcessor(session, usage, response.Choices[0].Message.Content, true)
 		return nil
 	}
 }
 
-func (i *OllamaModelInstance) responseProcessor(session *types.Session, content string, done bool) {
+func (i *OllamaModelInstance) responseProcessor(session *types.Session, usage types.Usage, content string, done bool) {
 	if session == nil {
 		log.Error().Msgf("no current session")
 		return
@@ -537,6 +569,7 @@ func (i *OllamaModelInstance) responseProcessor(session *types.Session, content 
 		Owner:         session.Owner,
 		Done:          done,
 		Message:       content,
+		Usage:         usage,
 	}
 
 	if done {

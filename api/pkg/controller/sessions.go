@@ -26,7 +26,7 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
+func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
@@ -39,6 +39,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Finished:       false,
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
+		ResponseFormat: req.ResponseFormat,
 	}
 
 	activeTools := req.ActiveTools
@@ -53,6 +54,7 @@ func (c *Controller) CreateSession(ctx types.RequestContext, req types.CreateSes
 		Type:          req.SessionType,
 		Mode:          req.SessionMode,
 		ParentSession: req.ParentSession,
+		ParentApp:     req.ParentApp,
 		LoraDir:       req.LoraDir,
 		Owner:         req.Owner,
 		OwnerType:     req.OwnerType,
@@ -523,21 +525,37 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	ctx := context.Background()
 
 	tools := []*types.Tool{}
-	for _, id := range session.Metadata.ActiveTools {
-		tool, err := c.Options.Store.GetTool(context.Background(), id)
-		// we might have stale tool ids in our metadata
-		// so let's not error here
+	// if this session is spawned from an app then we populate the list of tools from the app rather than the linked
+	// database record
+	if session.ParentApp != "" {
+		app, err := c.Options.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
-			log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
-			continue
+			return nil, fmt.Errorf("error getting app: %w", err)
 		}
 
-		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
-		if !tool.Global && tool.Owner != session.Owner {
-			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
+		if len(app.Config.Helix.Assistants) > 0 {
+			assistant := app.Config.Helix.Assistants[0]
+			for _, tool := range assistant.Tools {
+				tools = append(tools, &tool)
+			}
 		}
+	} else {
+		for _, id := range session.Metadata.ActiveTools {
+			tool, err := c.Options.Store.GetTool(context.Background(), id)
+			// we might have stale tool ids in our metadata
+			// so let's not error here
+			if err != nil {
+				log.Error().Err(err).Msgf("error loading tool from session config, perhaps stale tool ID found, session: %s, tool: %s", session.ID, id)
+				continue
+			}
 
-		tools = append(tools, tool)
+			// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
+			if !tool.Global && tool.Owner != session.Owner {
+				return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
+			}
+
+			tools = append(tools, tool)
+		}
 	}
 
 	if len(tools) == 0 {
@@ -592,6 +610,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	}
 
 	lastInteraction.Metadata["tool_id"] = actionTool.ID
+	lastInteraction.Metadata["tool_app_id"] = session.ParentApp
 
 	return session, nil
 }
@@ -895,7 +914,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.Owner), newSession.ID)
+	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.User.ID), newSession.ID)
 	if err != nil {
 		return nil, err
 	}
