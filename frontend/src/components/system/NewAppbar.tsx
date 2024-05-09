@@ -139,7 +139,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                     Helix JSON &nbsp; <small>(Nous Hermes 2 Pro 7B, for function calling & JSON output)</small>
                 </MenuItem>
                 <MenuItem sx={{ fontSize: "large" }} onClick={() => { updateModel('Helix Small'); setModelMenuAnchorEl(null) }}>
-                    Helix Small &nbsp;{" "} <small>(Phi-3 Mini 3.8B, fast and memory efficient)</small>
+                    Helix Small &nbsp; <small>(Phi-3 Mini 3.8B, fast and memory efficient)</small>
 				</MenuItem>
                 {/* TODO: Vision model */}
             </Menu>
