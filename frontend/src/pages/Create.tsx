@@ -118,7 +118,7 @@ const Create: FC = () => {
     </Box>
   )
 
-  const footerContent = mode == SESSION_MODE_INFERENCE ? (
+  const inferenceFooter = (
     <Box sx={{ px: PADDING_X }}>
       <Box sx={{ mb: 3 }}>
         <ExamplePrompts
@@ -147,7 +147,9 @@ const Create: FC = () => {
         <Disclaimer />
       </Box>
     </Box>
-  ) : inputs.finetuneFiles.length > 0 ? (
+  )
+
+  const finetuneFooter = inputs.finetuneFiles.length > 0 && (
     <Box
       sx={{
         p: 0,
@@ -215,14 +217,14 @@ const Create: FC = () => {
         </Cell>
       </Row>
     </Box>
-  ) : null
+  )
 
   return (
     <Page
       topbarTitle={ mode == SESSION_MODE_FINETUNE ? 'The start of something beautiful' : '' }
       topbarContent={ topbar }
       headerContent={ headerContent }
-      footerContent={ footerContent }
+      footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }
       sx={{
         backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',

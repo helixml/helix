@@ -1,6 +1,7 @@
 import React, { FC } from 'react'
 import Typography from '@mui/material/Typography'
 import FileUploadArea from './FileUploadArea'
+import FileList from './FileList'
 
 import {
   IUploadFile,
@@ -27,9 +28,11 @@ export const AddImagesForm: FC<{
       </Typography>
       <FileUploadArea
         onlyImages
-        files={ files }
         height={ 200 }
         onAddFiles={ onAddFiles }
+      />
+      <FileList
+        files={ files }
       />
     </>
   )
