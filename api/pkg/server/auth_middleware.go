@@ -137,3 +137,19 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(f)
 }
+
+func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.getUserFromToken(r.Context(), getRequestToken(r))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		if user == nil {
+			user = &types.User{}
+		}
+		r = r.WithContext(setRequestUser(r.Context(), *user))
+
+		f(w, r)
+	}
+}
