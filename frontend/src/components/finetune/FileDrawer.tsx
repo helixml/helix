@@ -11,6 +11,7 @@ import Divider from '@mui/material/Divider'
 
 import CloseIcon from '@mui/icons-material/Close'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
+import OpenInBrowserIcon from '@mui/icons-material/OpenInBrowser'
 import DeleteIcon from '@mui/icons-material/Delete'
 
 import FileIcon from './FileIcon'
@@ -72,6 +73,8 @@ export const FileDrawer: FC<{
         <List>
           {
             files.map((file, index) => {
+              const isURL = file.file.name.match(/\.url$/i)
+              const downloadIcon = isURL ? <OpenInBrowserIcon /> : <FileDownloadIcon />
               return (
                 <React.Fragment key={file.file.name}>
                   <ListItem
@@ -85,19 +88,23 @@ export const FileDrawer: FC<{
                         <IconButton
                           edge="end"
                           onClick={() => {
-                            const url = URL.createObjectURL(file.file)
-                            const a = document.createElement('a')
-                            a.href = url
-                            a.download = file.file.name
-                            a.click()
-                            URL.revokeObjectURL(url)
+                            if(isURL) {
+                              window.open(file.drawerLabel)
+                            } else {
+                              const url = URL.createObjectURL(file.file)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = file.file.name
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            }
                           }}
                           sx={{
                             ml: 1,
                             color: lightTheme.textColorFaded,
                           }}
                         >
-                          <FileDownloadIcon />
+                          { downloadIcon }
                         </IconButton>
                         <IconButton
                           edge="end"
