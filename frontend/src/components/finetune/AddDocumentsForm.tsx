@@ -6,6 +6,7 @@ import TextField from '@mui/material/TextField'
 import AddIcon from '@mui/icons-material/Add'
 
 import FileUploadArea from './FileUploadArea'
+import FileList from './FileList'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useSnackbar from '../../hooks/useSnackbar'
@@ -208,9 +209,11 @@ export const AddDocumentsForm: FC<{
       </Typography>
       <FileUploadArea
         onlyDocuments
-        files={ files }
         height={ 120 }
         onAddFiles={ onAddFiles }
+      />
+      <FileList
+        files={ files }
       />
     </>
   )
