@@ -30,6 +30,8 @@ import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import { ThemeContext } from '../../contexts/theme'
 
+import { COLORS } from '../../config'
+
 const Sidebar: React.FC<{
 }> = ({
   children,
@@ -80,6 +82,10 @@ const Sidebar: React.FC<{
             <ListItemButton
               sx={{
                 height: '68px',
+                '&:hover': {
+                  '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
+                  '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },
+                },
               }}
               onClick={ () => navigateTo('new') }
             >
@@ -91,12 +97,12 @@ const Sidebar: React.FC<{
                 primaryTypographyProps={{
                   sx: {
                     fontWeight: 'bold',
-                    color: '#d5f4fa',
+                    color: COLORS.GREEN_BUTTON,
                   }
                 }}
                 primary="New Session"
               />
-              <ListItemIcon sx={{color: '#d5f4fa'}}>
+              <ListItemIcon sx={{color: COLORS.GREEN_BUTTON}}>
                 <AddIcon />
               </ListItemIcon>
             </ListItemButton>

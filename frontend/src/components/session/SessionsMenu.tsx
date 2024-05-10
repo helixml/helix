@@ -50,10 +50,11 @@ export const SessionsMenu: FC<{
       >
         {
           sessions.sessions.map((session, i) => {
+            const isActive = session.session_id == params["session_id"]
             return (
               <ListItem
                 sx={{
-                  borderRadius: '8px',
+                  borderRadius: '20px',
                   cursor: 'pointer',
                 }}
                 key={ session.session_id }
@@ -63,18 +64,24 @@ export const SessionsMenu: FC<{
                 }}
               >
                 <ListItemButton
-                  selected={ session.session_id == params["session_id"] }
+                  selected={ isActive }
                   sx={{
                     borderRadius: '4px',
-                    backgroundColor: session.session_id == params["session_id"] ? '#1a1a2f' : 'transparent',
+                    backgroundColor: isActive ? '#1a1a2f' : 'transparent',
                     cursor: 'pointer',
+                    '&:hover': {
+                      '.MuiListItemText-root .MuiTypography-root': { color: '#fff' },
+                      '.MuiListItemIcon-root': { color: '#fff' },
+                    },
                   }}
                 >
-                  <ListItemIcon>
-                    { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
-                    { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DeveloperBoardIcon color="primary" /> }
-                    { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
-                    { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
+                  <ListItemIcon
+                    sx={{color:'red'}}
+                  >
+                    { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" sx={{color: isActive ? '#fff' : ''}}/> }
+                    { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DeveloperBoardIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
+                    { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
+                    { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary"  sx={{color: isActive ? '#fff' : ''}} /> }
                   </ListItemIcon>
                   <ListItemText
                     sx={{marginLeft: "-15px"}}
@@ -83,7 +90,7 @@ export const SessionsMenu: FC<{
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      color: lightTheme.textColorFaded,
+                      color: isActive ? '#fff' : lightTheme.textColorFaded,
                     }}
                     primary={ session.name }
                     id={ session.session_id }
