@@ -42,7 +42,7 @@ const routes: IApplicationRoute[] = [
     topbar: true,
   },
   render: () => (
-      <New />
+      <Create />
   ),
 }, {
   name: 'create',
