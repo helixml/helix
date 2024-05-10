@@ -100,22 +100,7 @@ const AppBar: React.FC<{
           }
           <Cell grow end>
             {
-              // if there is a user, then show the children if big screen (otherwise nothing)
-              // if there is no user - show a button
-              account.user ? children : (
-                <Button
-                  size={ isBigScreen ? 'medium' : 'small' }
-                  variant="contained"
-                  color="primary"
-                  endIcon={ isBigScreen ? <LoginIcon /> : null }
-                  onClick={ account.onLogin }
-                  sx={{
-                    ml: 2,
-                  }}
-                >
-                  Login / Register
-                </Button> 
-              )
+              children
             }
           </Cell>
         </Row>

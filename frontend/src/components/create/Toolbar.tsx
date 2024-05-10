@@ -1,12 +1,16 @@
 import React, { FC } from 'react'
-import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import ConstructionIcon from '@mui/icons-material/Construction'
+import LoginIcon from '@mui/icons-material/Login'
 
 import Cell from '../widgets/Cell'
 import Row from '../widgets/Row'
 import SessionModeSwitch from './SessionModeSwitch'
 import ModelPicker from './ModelPicker'
+
+import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useAccount from '../../hooks/useAccount'
 
 import {
   ISessionMode,
@@ -30,6 +34,8 @@ const CreateToolbar: FC<{
   onSetMode,
   onSetModel,
 }) => {
+  const bigScreen = useIsBigScreen()
+  const account = useAccount()
   return (
     <Row>
       <Cell>
@@ -57,6 +63,30 @@ const CreateToolbar: FC<{
           mode={ mode }
           onSetMode={ onSetMode }
         />
+      </Cell>
+      <Cell>
+        {
+          !account.user && bigScreen ? (
+            <Button
+              size="medium"
+              variant="contained"
+              color="primary"
+              endIcon={ <LoginIcon /> }
+              onClick={ account.onLogin }
+              sx={{
+                ml: 2,
+              }}
+            >
+              Login / Register
+            </Button> 
+          ) : (
+            <IconButton
+              onClick={ () => account.onLogin() }
+            >
+              <LoginIcon />
+            </IconButton>
+          )
+        }
       </Cell>
     </Row>
   )
