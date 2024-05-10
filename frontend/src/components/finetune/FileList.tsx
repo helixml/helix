@@ -42,6 +42,7 @@ export const FileList: FC<{
                 alignItems: 'center',
                 justifyContent: 'flex-start',
                 color: '#999',
+                maxWidth: '200px',
               }}
             >
               <FileIcon
