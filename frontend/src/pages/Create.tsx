@@ -93,6 +93,13 @@ const Create: FC = () => {
     inputs.loadFromLocalStorage()
   }, [])
 
+  useEffect(() => {
+    inputs.setFinetuneFiles([])
+  }, [
+    mode,
+    type,
+  ])
+
   const topbar = (
     <Toolbar
       mode={ mode }
