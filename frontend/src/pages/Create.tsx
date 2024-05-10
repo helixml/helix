@@ -15,6 +15,7 @@ import InferenceTextField from '../components/create/InferenceTextField'
 import Disclaimer from '../components/widgets/Disclaimer'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
+import Window from '../components/widgets/Window'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
@@ -25,6 +26,7 @@ import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useCreateInputs from '../hooks/useCreateInputs'
 import useSnackbar from '../hooks/useSnackbar'
+import useAccount from '../hooks/useAccount'
 
 import {
   ISessionMode,
@@ -49,10 +51,12 @@ const Create: FC = () => {
   const lightTheme = useLightTheme()
   const inputs = useCreateInputs()
   const snackbar = useSnackbar()
+  const account = useAccount()
 
   const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
+  const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ showImageLabelsEmptyError, setShowImageLabelsEmptyError ] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
@@ -65,18 +69,25 @@ const Create: FC = () => {
     console.log(inputs.inputValue)
   }
 
+  // we are about to do a funetune, check if the user is logged in
+  const checkFinetuneLoginStatus = (): boolean => {
+    if(!account.user) {
+      inputs.serializePage()
+      setShowLoginWindow(true)
+      return false
+    }
+    return true
+  }
+
   const onStartTextFinetune = () => {
 
   }
 
   const onStartImageFunetune = () => {
-    console.log('--------------------------------------------')
-    console.log(inputs.labels)
-    const emptyLabel = inputs.files.find(file => {
-      return inputs.labels[file.name] ? false : true
+    const emptyLabel = inputs.finetuneFiles.find(file => {
+      console.log(inputs.labels[file.file.name])
+      return inputs.labels[file.file.name] ? false : true
     })
-    console.log('--------------------------------------------')
-    console.log(emptyLabel)
     if(emptyLabel) {
       setShowImageLabelsEmptyError(true)
       snackbar.error('Please label all images before continuing')
@@ -84,6 +95,8 @@ const Create: FC = () => {
     } else {
       setShowImageLabelsEmptyError(false)
     }
+    
+    if(!checkFinetuneLoginStatus()) return
 
     console.log('--------------------------------------------')
     console.log('ready')
@@ -330,6 +343,32 @@ const Create: FC = () => {
             onUpdate={ inputs.setFinetuneFiles }
             onClose={ () => setShowFileDrawer(false) }
           />
+        )
+      }
+
+      {
+        showLoginWindow && (
+          <Window
+            open
+            size="md"
+            title="Please login to continue"
+            onCancel={ () => {
+              setShowLoginWindow(false)
+            }}
+            onSubmit={ () => {
+              account.onLogin()
+            }}
+            withCancel
+            cancelTitle="Cancel"
+            submitTitle="Login / Register"
+          >
+            <Typography gutterBottom>
+              You can login with your Google account or with your email address.
+            </Typography>
+            <Typography>
+              We will keep what you've done here for you, so you may continue where you left off.
+            </Typography>
+          </Window>
         )
       }
     </Page>

@@ -72,14 +72,15 @@ export const AddFilesWindow: FC<{
 
   // this is for image finetune
   const onAddImageDocuments = async () => {
-    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
-    if(errorFiles.length > 0) {
-      inputs.setShowImageLabelErrors(true)
-      snackbar.error('Please add a label to each image')
-      return
-    }
-    inputs.setShowImageLabelErrors(false)
-    onAddDocuments()
+    // TODO: sort this
+    // const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
+    // if(errorFiles.length > 0) {
+    //   inputs.setShowImageLabelErrors(true)
+    //   snackbar.error('Please add a label to each image')
+    //   return
+    // }
+    // inputs.setShowImageLabelErrors(false)
+    // onAddDocuments()
   }
 
   return (
@@ -105,10 +106,11 @@ export const AddFilesWindow: FC<{
         {
           session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
             <FineTuneImageInputs
-              initialFiles={ inputs.files }
+              initialFiles={ inputs.finetuneFiles.map(f => f.file) }
               // showSystemInteraction={ false }
               onChange={ (files) => {
-                inputs.setFiles(files)
+                // TODO: sort this
+                //inputs.setFinetuneFiles(files)
               }}
             />
           )
@@ -117,11 +119,12 @@ export const AddFilesWindow: FC<{
           session.type == SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
             <FineTuneTextInputs
               initialCounter={ inputs.manualTextFileCounter }
-              initialFiles={ inputs.files }
+              initialFiles={ inputs.finetuneFiles.map(f => f.file) }
               showSystemInteraction={ false }
               onChange={ (counter, files) => {
-                inputs.setManualTextFileCounter(counter)
-                inputs.setFiles(files)
+                // TODO: sort this
+                // inputs.setManualTextFileCounter(counter)
+                // inputs.setFinetuneFiles(files)
               }}
             />
           )
@@ -132,7 +135,7 @@ export const AddFilesWindow: FC<{
               showImageLabelErrors={ inputs.showImageLabelErrors }
               initialLabels={ inputs.labels }
               showSystemInteraction={ false }
-              files={ inputs.files }
+              files={ inputs.finetuneFiles.map(f => f.file) }
               onChange={ (labels) => {
                 inputs.setLabels(labels)
               }}

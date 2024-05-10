@@ -28,8 +28,6 @@ export interface IFinetuneInputs {
   setFineTuneStep: Dispatch<SetStateAction<number>>,
   showImageLabelErrors: boolean,
   setShowImageLabelErrors: Dispatch<SetStateAction<boolean>>,
-  files: File[],
-  setFiles: Dispatch<SetStateAction<File[]>>,
   finetuneFiles: IUploadFile[],
   setFinetuneFiles: Dispatch<SetStateAction<IUploadFile[]>>,
   labels: Record<string, string>,
@@ -49,7 +47,6 @@ export const useCreateInputs = () => {
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
-  const [files, setFiles] = useState<File[]>([])
   const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
 
@@ -80,15 +77,15 @@ export const useCreateInputs = () => {
   ])
 
   const setFormData = useCallback((formData: FormData) => {
-    files.forEach((file) => {
-      formData.append("files", file)
-      if(labels[file.name]) {
-        formData.set(file.name, labels[file.name])
+    finetuneFiles.forEach((file) => {
+      formData.append("files", file.file)
+      if(labels[file.file.name]) {
+        formData.set(file.file.name, labels[file.file.name])
       }
     })
     return formData
   }, [
-    files,
+    finetuneFiles,
     labels,
   ])
 
@@ -131,7 +128,7 @@ export const useCreateInputs = () => {
   }, [])
 
   const reset = useCallback(async () => {
-    setFiles([])
+    setFinetuneFiles([])
     setLabels({})
     setFineTuneStep(0)
     setManualTextFileCounter(0)
@@ -143,7 +140,6 @@ export const useCreateInputs = () => {
     manualTextFileCounter, setManualTextFileCounter,
     fineTuneStep, setFineTuneStep,
     showImageLabelErrors, setShowImageLabelErrors,
-    files, setFiles,
     finetuneFiles, setFinetuneFiles,
     labels, setLabels,
     uploadProgress, setUploadProgress,
