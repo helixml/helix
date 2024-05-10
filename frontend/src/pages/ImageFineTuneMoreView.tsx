@@ -50,10 +50,12 @@ import { useTheme } from '@mui/material/styles';
     <Container
       maxWidth="xl"
       sx={{
-        mt: 12,
-        height: 'calc(100% - 100px)',
+        display: 'flex', // Set the display to flex
+        flexDirection: 'column', // Stack children vertically
+        height: '100vh', // Take up full viewport heigh
       }}
-    >
+     >
+     <Box sx={{ flexGrow: 1, overflow: 'auto' }}> {/* This Box will grow and contains the scrollable content */}
       <Grid container spacing={2}>
         {IMAGE_DATA.map((image, index) => (
           <Grid item xs={12} sm={6} md={4} lg={3} key={image.id}>
@@ -154,6 +156,7 @@ import { useTheme } from '@mui/material/styles';
             <span style={{ color: '#B4FDC0' }}>Restart</span>
             </Typography>
      </Box>
+    
       
      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', mt: 2, width: '100%' }}>
         <Typography className="interactionMessage" gutterBottom>
@@ -186,7 +189,9 @@ import { useTheme } from '@mui/material/styles';
           Clone
         </Button>
       </Box>
-      <Box sx={{ mt: 9 }}> {/* Adjust the margin as needed */}
+      </Box>
+      
+      <Box sx={{ flexGrow: 0 }}> {/* Adjust the margin as needed */}
         <TextField
             fullWidth
             placeholder="Describe what you want to see in an image. (Shift + Enter to add new lines)"
