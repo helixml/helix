@@ -42,12 +42,7 @@ func NewInMemoryNats() (*Nats, error) {
 	}, nil
 }
 
-func (n *Nats) Subscribe(
-	ctx context.Context,
-	topic string,
-	handler func(payload []byte) error,
-) (Subscription, error) {
-
+func (n *Nats) Subscribe(ctx context.Context, topic string, handler func(payload []byte) error) (Subscription, error) {
 	sub, err := n.conn.Subscribe(topic, func(msg *nats.Msg) {
 		err := handler(msg.Data)
 		if err != nil {
@@ -63,4 +58,31 @@ func (n *Nats) Subscribe(
 
 func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error {
 	return n.conn.Publish(topic, payload)
+}
+
+// Request publish a message to the given subject and creates an inbox to receive the response. If response is not
+// received within the timeout, an error is returned.
+func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeout time.Duration) ([]byte, error) {
+	msg, err := n.conn.Request(topic, payload, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg.Data, nil
+}
+
+// QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
+// have multiple subscribers to the same subject, but only one gets it.
+func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, handler func(payload []byte) error) (Subscription, error) {
+	sub, err := n.conn.QueueSubscribe(topic, queue, func(msg *nats.Msg) {
+		err := handler(msg.Data)
+		if err != nil {
+			log.Err(err).Msg("error handling message")
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
 }
