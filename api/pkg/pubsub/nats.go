@@ -73,9 +73,9 @@ func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeou
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
-func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, handler func(payload []byte) error) (Subscription, error) {
+func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, handler func(reply string, payload []byte) error) (Subscription, error) {
 	sub, err := n.conn.QueueSubscribe(topic, queue, func(msg *nats.Msg) {
-		err := handler(msg.Data)
+		err := handler(msg.Reply, msg.Data)
 		if err != nil {
 			log.Err(err).Msg("error handling message")
 		}

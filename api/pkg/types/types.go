@@ -954,3 +954,13 @@ func (t *GptScriptRunnerRequest) Scan(src interface{}) error {
 func (GptScriptRunnerRequest) GormDataType() string {
 	return "json"
 }
+
+type RunnerEventRequestEnvelope struct {
+	Payload []byte
+	Reply   string // Where to send the reply
+}
+
+type RunnerEventResponseEnvelope struct {
+	Reply   string // Where to send the reply
+	Payload []byte
+}
