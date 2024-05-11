@@ -272,7 +272,6 @@ type GptScriptRunnerTaskState string
 
 const (
 	GptScriptRunnerTaskStateNone     InteractionState = ""
-	GptScriptRunnerTaskStateWaiting  InteractionState = "waiting"
 	GptScriptRunnerTaskStateComplete InteractionState = "complete"
 	GptScriptRunnerTaskStateError    InteractionState = "error"
 )

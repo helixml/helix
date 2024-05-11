@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	ToolPrefix    = "tool_"
-	SessionPrefix = "ses_"
-	AppPrefix     = "app_"
+	ToolPrefix                = "tool_"
+	SessionPrefix             = "ses_"
+	AppPrefix                 = "app_"
+	GptScriptRunnerTaskPrefix = "gst_"
 )
 
 func GenerateUUID() string {
@@ -31,5 +32,9 @@ func GenerateSessionID() string {
 }
 
 func GenerateAppID() string {
+	return fmt.Sprintf("%s%s", AppPrefix, newID())
+}
+
+func GenerateGptScriptTaskID() string {
 	return fmt.Sprintf("%s%s", AppPrefix, newID())
 }

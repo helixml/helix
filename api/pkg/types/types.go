@@ -912,11 +912,21 @@ type GptScriptRunnerTask struct {
 	Updated   time.Time                `json:"updated"`
 	Owner     string                   `json:"owner" gorm:"index"` // uuid of owner entity
 	OwnerType OwnerType                `json:"owner_type"`         // e.g. user, system, org
+	AppID     string                   `json:"app_id"`
 	State     GptScriptRunnerTaskState `json:"state"`
 	Type      GptScriptRunnerTaskType  `json:"type"`
+	Retries   int                      `json:"retries"`
+	Duration
 
 	Request  *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
 	Response *GptScriptResponse      `json:"response" gorm:"jsonb"`
+}
+
+type GptScriptRunnerTasksQuery struct {
+	Owner     string
+	OwnerType OwnerType
+	AppID     string
+	State     GptScriptRunnerTaskState
 }
 
 type GptScriptRunnerRequest struct {
