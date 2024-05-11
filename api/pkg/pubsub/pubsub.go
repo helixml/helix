@@ -24,3 +24,7 @@ type Subscription interface {
 func GetSessionQueue(ownerID, sessionID string) string {
 	return "session-updates." + ownerID + "." + sessionID
 }
+
+func GetGPTScriptQueue() string {
+	return "gptscript"
+}
