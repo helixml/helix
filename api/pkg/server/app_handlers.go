@@ -305,11 +305,10 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	appRecord, err := s.Store.GetApp(r.Context(), userContext.User.AppID)
 	if err != nil {
-		if err == store.ErrNotFound {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("app not found")
-		} else {
-			return nil, system.NewHTTPError500(err.Error())
 		}
+		return nil, system.NewHTTPError500(err.Error())
 	}
 
 	// load the body of the request
