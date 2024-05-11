@@ -3,8 +3,11 @@ import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
 import {
+  ISessionMode,
+  ISessionType,
   IUploadFile,
   ISerializedPage,
+  ICreateSessionConfig,
 } from '../types'
 
 import {
@@ -19,6 +22,10 @@ import {
   deleteFile,
 } from '../utils/filestore'
 
+import {
+  DEFAULT_SESSION_CONFIG,
+} from '../config'
+
 export interface IFinetuneInputs {
   inputValue: string,
   setInputValue: Dispatch<SetStateAction<string>>,
@@ -26,6 +33,8 @@ export interface IFinetuneInputs {
   setManualTextFileCounter: Dispatch<SetStateAction<number>>,
   fineTuneStep: number,
   setFineTuneStep: Dispatch<SetStateAction<number>>,
+  sessionConfig: ICreateSessionConfig,
+  setSessionConfig: Dispatch<SetStateAction<ICreateSessionConfig>>,
   showImageLabelErrors: boolean,
   setShowImageLabelErrors: Dispatch<SetStateAction<boolean>>,
   finetuneFiles: IUploadFile[],
@@ -43,6 +52,7 @@ export interface IFinetuneInputs {
 
 export const useCreateInputs = () => {
   const [inputValue, setInputValue] = useState('')
+  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [fineTuneStep, setFineTuneStep] = useState(0)
@@ -76,17 +86,36 @@ export const useCreateInputs = () => {
     inputValue,
   ])
 
-  const setFormData = useCallback((formData: FormData) => {
+  const getFormData = useCallback((mode: ISessionMode, type: ISessionType, model: string): FormData => {
+    const formData = new FormData()
+
+    formData.set('input', inputValue)
+    formData.set('mode', mode)
+    formData.set('type', type)
+    formData.set('helixModel', model)
+
+    formData.set('active_tools', sessionConfig.activeToolIDs.join(','))
+    formData.set('text_finetune_enabled', sessionConfig.finetuneEnabled ? 'yes' : '')
+    formData.set('rag_enabled', sessionConfig.ragEnabled ? 'yes' : '')
+    formData.set('rag_distance_function', sessionConfig.ragDistanceFunction)
+    formData.set('rag_threshold', sessionConfig.ragThreshold.toString())
+    formData.set('rag_results_count', sessionConfig.ragResultsCount.toString())
+    formData.set('rag_chunk_size', sessionConfig.ragChunkSize.toString())
+    formData.set('rag_chunk_overflow', sessionConfig.ragChunkOverflow.toString())
+
     finetuneFiles.forEach((file) => {
       formData.append("files", file.file)
       if(labels[file.file.name]) {
         formData.set(file.file.name, labels[file.file.name])
       }
     })
+
     return formData
   }, [
+    inputValue,
     finetuneFiles,
     labels,
+    sessionConfig,
   ])
 
   const uploadProgressHandler = useCallback((progressEvent: AxiosProgressEvent) => {
@@ -105,14 +134,14 @@ export const useCreateInputs = () => {
     if(!dataString) {
       return
     }
-    // localStorage.removeItem('new-page')
+    localStorage.removeItem('new-page')
     const data: ISerializedPage = JSON.parse(dataString)
     // map over the empty content files
     // load their content from the individual file key
     // turn into native File
     const loadedFiles = await bluebird.map(data.files, async file => {
       const loadedFile = await loadFile(file)
-      // await deleteFile(file)
+      await deleteFile(file)
       const deserializedFile = deserializeFile(loadedFile)
       const uploadedFile: IUploadFile = {
         drawerLabel: data.drawerLabels[deserializedFile.name],
@@ -140,12 +169,13 @@ export const useCreateInputs = () => {
     manualTextFileCounter, setManualTextFileCounter,
     fineTuneStep, setFineTuneStep,
     showImageLabelErrors, setShowImageLabelErrors,
+    sessionConfig, setSessionConfig,
     finetuneFiles, setFinetuneFiles,
     labels, setLabels,
     uploadProgress, setUploadProgress,
     serializePage,
     loadFromLocalStorage,
-    setFormData,
+    getFormData,
     uploadProgressHandler,
     reset,
   }

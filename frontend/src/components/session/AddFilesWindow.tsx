@@ -50,8 +50,7 @@ export const AddFilesWindow: FC<{
     })
 
     try {
-      let formData = new FormData()
-      formData = inputs.setFormData(formData)
+      const formData = inputs.getFormData(session.mode, session.type, session.model_name)
       await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
         params: {

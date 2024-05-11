@@ -66,7 +66,7 @@ const CreateToolbar: FC<{
       </Cell>
       <Cell>
         {
-          !account.user && bigScreen ? (
+          !account.user && (bigScreen ? (
             <Button
               size="medium"
               variant="contained"
@@ -85,7 +85,7 @@ const CreateToolbar: FC<{
             >
               <LoginIcon />
             </IconButton>
-          )
+          ))
         }
       </Cell>
     </Row>
