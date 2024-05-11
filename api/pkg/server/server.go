@@ -122,6 +122,12 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		"/ws/runner",
 	)
 
+	apiServer.startGptScriptRunnerWebSocketServer(
+		ctx,
+		apiRouter,
+		"/ws/gptscript-runner",
+	)
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", apiServer.Cfg.WebServer.Host, apiServer.Cfg.WebServer.Port),
 		WriteTimeout:      time.Minute * 15,
