@@ -84,6 +84,10 @@ type Store interface {
 	GetApp(ctx context.Context, id string) (*types.App, error)
 	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
 	DeleteApp(ctx context.Context, id string) error
+
+	CreateGptScriptRunnerTask(ctx context.Context, task *types.GptScriptRunnerTask) (*types.GptScriptRunnerTask, error)
+	ListGptScriptRunnerTasks(ctx context.Context, q *types.GptScriptRunnerTasksQuery) ([]*types.GptScriptRunnerTask, error)
+	DeleteGptScriptRunnerTask(ctx context.Context, id string) error
 }
 
 var ErrNotFound = errors.New("not found")
