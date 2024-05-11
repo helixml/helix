@@ -51,8 +51,11 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 			Str("action", "🟠 GPTScript runner ws CONNECT").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
-		sub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptQueue(), "runner", func(payload []byte) error {
-			err := conn.WriteMessage(websocket.TextMessage, payload)
+		sub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptQueue(), "runner", func(reply string, payload []byte) error {
+			err := conn.WriteJSON(&types.RunnerEventRequestEnvelope{
+				Reply:   reply,   // Runner will need this inbox channel to send messages back to the requestor
+				Payload: payload, // The actual payload (GPTScript request)
+			})
 			if err != nil {
 				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
 			}
@@ -74,14 +77,17 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 					Msgf("disconnected runner websocket: %s\n", runnerID)
 				break
 			}
-			var event types.WebsocketEvent
-			err = json.Unmarshal(messageBytes, &event)
+			var resp types.RunnerEventResponseEnvelope
+			err = json.Unmarshal(messageBytes, &resp)
 			if err != nil {
 				log.Error().Msgf("Error unmarshalling websocket event: %s", err.Error())
 				continue
 			}
 
-			apiServer.Controller.RunnerWebsocketEventChanReader <- &event
+			err = apiServer.pubsub.Publish(ctx, resp.Reply, resp.Payload)
+			if err != nil {
+				log.Error().Msgf("Error publishing GPTScript response: %s", err.Error())
+			}
 		}
 	})
 }
