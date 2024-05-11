@@ -21,17 +21,20 @@ import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
 import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
+import UploadingOverlay from '../components/widgets/UploadingOverlay'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useCreateInputs from '../hooks/useCreateInputs'
 import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
+import useApi from '../hooks/useApi'
+import useTracking from '../hooks/useTracking'
+import useSessions from '../hooks/useSessions'
 
 import {
   ISessionMode,
   ISessionType,
-  ICreateSessionConfig,
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
@@ -52,8 +55,10 @@ const Create: FC = () => {
   const inputs = useCreateInputs()
   const snackbar = useSnackbar()
   const account = useAccount()
+  const api = useApi()
+  const tracking = useTracking()
+  const sessions = useSessions()
 
-  const [ sessionConfig, setSessionConfig ] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
   const [ showLoginWindow, setShowLoginWindow ] = useState(false)
@@ -64,13 +69,8 @@ const Create: FC = () => {
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
 
-  const onInference = () => {
-    console.log('--------------------------------------------')
-    console.log(inputs.inputValue)
-  }
-
   // we are about to do a funetune, check if the user is logged in
-  const checkFinetuneLoginStatus = (): boolean => {
+  const checkLoginStatus = (): boolean => {
     if(!account.user) {
       inputs.serializePage()
       setShowLoginWindow(true)
@@ -79,11 +79,47 @@ const Create: FC = () => {
     return true
   }
 
-  const onStartTextFinetune = () => {
-
+  const onInference = async () => {
+    if(!checkLoginStatus()) return
+    const formData = inputs.getFormData(mode, type, model)
+    const session = await api.post('/api/v1/sessions', formData)
+    if(!session) return
+    tracking.emitEvent({
+      name: 'inference',
+      session,
+    })
+    await sessions.loadSessions()
+    router.navigate('session', {session_id: session.id})
   }
 
-  const onStartImageFunetune = () => {
+  const onStartFinetune = async (eventName: string) => {
+    inputs.setUploadProgress({
+      percent: 0,
+      totalBytes: 0,
+      uploadedBytes: 0,
+    })
+    const formData = inputs.getFormData(mode, type, model)
+    const session = await api.post('/api/v1/sessions', formData, {
+      onUploadProgress: inputs.uploadProgressHandler,
+    })
+    inputs.setUploadProgress(undefined)
+    if(!session) {
+      return
+    }
+    tracking.emitEvent({
+      name: eventName,
+      session,
+    })
+    await sessions.loadSessions()
+    router.navigate('session', {session_id: session.id})
+  }
+
+  const onStartTextFinetune = async () => {
+    if(!checkLoginStatus()) return
+    await onStartFinetune('finetune:text')
+  }
+
+  const onStartImageFunetune = async () => {
     const emptyLabel = inputs.finetuneFiles.find(file => {
       console.log(inputs.labels[file.file.name])
       return inputs.labels[file.file.name] ? false : true
@@ -96,10 +132,8 @@ const Create: FC = () => {
       setShowImageLabelsEmptyError(false)
     }
     
-    if(!checkFinetuneLoginStatus()) return
-
-    console.log('--------------------------------------------')
-    console.log('ready')
+    if(!checkLoginStatus()) return
+    await onStartFinetune('finetune:image')
   }
 
   useEffect(() => {
@@ -328,8 +362,8 @@ const Create: FC = () => {
           <ConfigWindow
             mode={ mode }
             type={ type }
-            sessionConfig={ sessionConfig }
-            onSetSessionConfig={ setSessionConfig }
+            sessionConfig={ inputs.sessionConfig }
+            onSetSessionConfig={ inputs.setSessionConfig }
             onClose={ () => setShowConfigWindow(false) }
           />
         )
@@ -369,6 +403,14 @@ const Create: FC = () => {
               We will keep what you've done here for you, so you may continue where you left off.
             </Typography>
           </Window>
+        )
+      }
+
+      {
+        inputs.uploadProgress && (
+          <UploadingOverlay
+            percent={ inputs.uploadProgress.percent }
+          />
         )
       }
     </Page>
