@@ -25,6 +25,10 @@ func GetSessionQueue(ownerID, sessionID string) string {
 	return "session-updates." + ownerID + "." + sessionID
 }
 
-func GetGPTScriptQueue() string {
-	return "gptscript"
+func GetGPTScriptAppQueue() string {
+	return "gptscript.app"
+}
+
+func GetGPTScriptToolQueue() string {
+	return "gptscript.tool"
 }
