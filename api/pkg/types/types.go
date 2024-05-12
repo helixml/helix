@@ -955,8 +955,16 @@ func (GptScriptRunnerRequest) GormDataType() string {
 	return "json"
 }
 
+type RunnerEventRequestType int
+
+const (
+	RunnerEventRequestTool RunnerEventRequestType = iota
+	RunnerEventRequestApp
+)
+
 type RunnerEventRequestEnvelope struct {
 	Payload []byte
+	Type    RunnerEventRequestType
 	Reply   string // Where to send the reply
 }
 
