@@ -2,6 +2,9 @@ package gptscript
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -28,8 +31,22 @@ func NewExecutor(cfg *config.ServerConfig, pubsub pubsub.PubSub) *DefaultExecuto
 }
 
 func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	bts, err := json.Marshal(app)
+	if err != nil {
+		return nil, err
+	}
 
-	return nil, nil
+	resp, err := e.pubsub.Request(ctx, pubsub.GetGPTScriptAppQueue(), bts, 30*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
+	}
+
+	var response types.GptScriptResponse
+	if err := json.Unmarshal(resp, &response); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal GPTScript app response: %w", err)
+	}
+
+	return &response, nil
 }
 
 func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
