@@ -10,4 +10,4 @@ venv
 dist
 api/runs
 kubeconfig
-helix
+./helix
