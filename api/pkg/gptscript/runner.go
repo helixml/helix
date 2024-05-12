@@ -24,7 +24,7 @@ type Runner struct {
 	cfg *config.GPTScriptRunnerConfig
 }
 
-func NewDockerRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
+func NewRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
 	return &Runner{
 		cfg: cfg,
 	}
