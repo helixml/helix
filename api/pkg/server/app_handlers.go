@@ -37,7 +37,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	}
 
 	// Filter apps based on the "type" query parameter
-	filteredApps := make([]*types.App, 0)
+	var filteredApps []*types.App
 	for _, app := range allApps {
 		if queryType != "" && app.AppType != types.AppType(queryType) {
 			continue
@@ -281,7 +281,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
-// createTool godoc
+// appRunScript godoc
 // @Summary Run a GPT script inside a github app
 // @Description Run a GPT script inside a github app.
 // @Tags    apps
