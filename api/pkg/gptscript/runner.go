@@ -78,6 +78,22 @@ func (d *Runner) run(ctx context.Context) error {
 		}
 	}()
 
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		// ping every 10 seconds to keep the connection alive
+		case <-ticker.C:
+			err := conn.WriteMessage(websocket.PingMessage, []byte{})
+			if err != nil {
+				log.Err(err).Msg("failed to write ping message, closing connection")
+				return fmt.Errorf("failed to write ping message (%w), closing connection", err)
+			}
+		}
+	}
 }
 
 func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
