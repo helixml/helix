@@ -51,9 +51,10 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 			Str("action", "🟠 GPTScript runner ws CONNECT").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
-		sub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptQueue(), "runner", func(reply string, payload []byte) error {
+		appSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptAppQueue(), "runner", func(reply string, payload []byte) error {
 			err := conn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				Reply:   reply,   // Runner will need this inbox channel to send messages back to the requestor
+				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
+				Type:    types.RunnerEventRequestApp,
 				Payload: payload, // The actual payload (GPTScript request)
 			})
 			if err != nil {
@@ -62,10 +63,27 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 			return err
 		})
 		if err != nil {
-			log.Error().Msgf("Error subscribing to GPTScript queue: %s", err.Error())
+			log.Error().Msgf("Error subscribing to GPTScript app queue: %s", err.Error())
 			return
 		}
-		defer sub.Unsubscribe()
+		defer appSub.Unsubscribe()
+
+		toolSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptToolQueue(), "runner", func(reply string, payload []byte) error {
+			err := conn.WriteJSON(&types.RunnerEventRequestEnvelope{
+				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
+				Type:    types.RunnerEventRequestTool,
+				Payload: payload, // The actual payload (GPTScript request)
+			})
+			if err != nil {
+				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
+			}
+			return err
+		})
+		if err != nil {
+			log.Error().Msgf("Error subscribing to GPTScript tools queue: %s", err.Error())
+			return
+		}
+		defer toolSub.Unsubscribe()
 
 		// Block reads in order to detect disconnects
 		for {
