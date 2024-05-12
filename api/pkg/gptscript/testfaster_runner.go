@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// TODO: delete
 type TestFasterCluster struct {
 	PoolID  string
 	LeaseID string
@@ -61,6 +62,7 @@ systemctl enable gptscript.service
 systemctl start gptscript.service
 `
 
+// TODO: delete
 func getTestfasterAPIHandler() (*testfaster.HttpApiHandler, error) {
 	if os.Getenv("HELIX_TESTFASTER_URL") == "" {
 		return nil, fmt.Errorf("Please set HELIX_TESTFASTER_URL to use remote gptscript execution - join the helix.ml discord for more info")
@@ -77,6 +79,7 @@ func getTestfasterAPIHandler() (*testfaster.HttpApiHandler, error) {
 	return apiHandler, nil
 }
 
+// TODO: delete
 func getTestfasterCluster() (*TestFasterCluster, error) {
 	// used for iterating on the gptscript server code without
 	// having to keep pushing new testfaster configs
@@ -149,6 +152,7 @@ func getTestfasterCluster() (*TestFasterCluster, error) {
 	}, nil
 }
 
+// TODO: delete
 func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
 	cluster, err := getTestfasterCluster()
 	if err != nil {
@@ -193,6 +197,7 @@ func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*type
 	return &result, nil
 }
 
+// TODO: delete
 func RunGPTAppTestfaster(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
 	cluster, err := getTestfasterCluster()
 	if err != nil {
