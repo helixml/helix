@@ -1,11 +1,10 @@
-import React, { FC, useCallback, MouseEvent } from 'react'
+import React, { FC } from 'react'
 import { SxProps } from '@mui/system'
 import Divider from '@mui/material/Divider'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import Container from '@mui/material/Container'
 import Card from '@mui/material/Card'
 import CardActions from '@mui/material/CardActions'
 import CardContent from '@mui/material/CardContent'
@@ -233,7 +232,7 @@ const HomeFeatureCard: FC<{
 }) => {
   const router = useRouter()
   return (
-    <Card sx={{ maxWidth: 345 }}>
+    <Card>
       <CardMedia
         sx={{ height: 140 }}
         image={ feature.image }
@@ -298,9 +297,9 @@ const HomeFeatureSection: FC<{
         flexDirection: 'row',
         alignItems: 'center',
       }}>
-        <Grid container spacing={ 0 }>
+        <Grid container spacing={ 4 }>
           { features.map((feature, index) => (
-            <Grid item sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
+            <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
               <HomeFeatureCard
                 feature={ feature }
               />
@@ -366,6 +365,9 @@ const HomeFeatureGrid: FC = ({
               USERS_FEATURE,
               SETTINGS_FEATURE,
             ]}
+            sx={{
+              pb: 4,
+            }}
           />
         )
       }

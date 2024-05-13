@@ -1,5 +1,6 @@
 import React, { FC } from 'react'
 import { useTheme } from '@mui/material/styles'
+import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
@@ -26,44 +27,56 @@ const Home: FC = () => {
             mb: 4,
           }}
         >
-          <Row>
-            <Cell>
-              <Box
-                component="img"
-                src="/img/logo.png"
+          <Grid container spacing={ 2 }>
+            <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 }>
+              <Row
                 sx={{
-                  width: 100,
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}
-              />
-            </Cell>
-            <Cell
-              sx={{
-                ml: 4,
-              }}
-            >
-              <Typography variant="h3" gutterBottom>
-                Welcome
-              </Typography>
-              <Typography variant="body1">
-                Please choose which feature you want to explore today
-              </Typography>
-            </Cell>
-            <Cell
-              grow
-              sx={{
-                textAlign: 'center',
-              }}
-            >
+              >
+                <Cell>
+                  <Box
+                    component="img"
+                    src="/img/logo.png"
+                    sx={{
+                      width: 100,
+                    }}
+                  />
+                </Cell>
+                <Cell
+                  sx={{
+                    ml: 4,
+                  }}
+                >
+                  <Typography variant="h3" gutterBottom>
+                    Welcome
+                  </Typography>
+                  <Typography variant="body1">
+                    Please choose which feature you want to explore today
+                  </Typography>
+                </Cell>
+              </Row>
+            </Grid>
+            <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 }>
               <Box
-                component="img"
-                src={ isLight ? '/img/nebula-light.png' : '/img/nebula-dark.png' }
                 sx={{
-                  width: '100%',
-                  maxWidth: '800px'
+                  textAlign: 'center',
                 }}
-              />
-            </Cell>
-          </Row>
+              >
+                <Box
+                  component="img"
+                  src={ isLight ? '/img/nebula-light.png' : '/img/nebula-dark.png' }
+                  sx={{
+                    width: '100%',
+                    maxWidth: '800px'
+                  }}
+                />
+              </Box>
+            </Grid>
+          </Grid>
         </Box>
         <HomeFeatureGrid />
       </Container>
