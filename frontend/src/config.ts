@@ -66,4 +66,5 @@ export const COLORS = {
   [SESSION_TYPE_IMAGE]: '#3BF959',
   'GREEN_BUTTON': '#d5f4fa',
   'GREEN_BUTTON_HOVER': '#00d5ff',
+  'AI_BADGE': '#f0beb0',
 }

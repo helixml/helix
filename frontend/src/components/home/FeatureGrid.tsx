@@ -137,7 +137,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
   icon: <PermMediaIcon sx={{color: '#fff'}} />,
   // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => {navigate('new', {mode:"finetune", type:"image"})},

@@ -6,6 +6,7 @@ import Box from '@mui/material/Box'
 
 import useTheme from '@mui/material/styles/useTheme'
 import useThemeConfig from '../../hooks/useThemeConfig'
+import useAccount from '../../hooks/useAccount'
 
 import {
   SESSION_TYPE_TEXT,
@@ -50,6 +51,7 @@ export const Interaction: FC<{
   onRestart,
   children,
 }) => {
+  const account = useAccount()
   let displayMessage: string = ''
   let imageURLs: string[] = []
 
@@ -86,24 +88,23 @@ export const Interaction: FC<{
     }
   }
 
-  const useSystemName = session.name || 'System'
-  const useName = interaction?.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction?.creator
-  const theme = useTheme()
-  const themeConfig = useThemeConfig()
+  const isSystem = interaction?.creator == SESSION_CREATOR_SYSTEM
+  const useName = isSystem ? 'Helix System' : account.user?.name || 'User'
+  const useBadge = isSystem ? 'AI' : ''
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   return (
     <Box
       sx={{
-        // backgroundColor: interaction?.creator == SESSION_CREATOR_SYSTEM ? (theme.palette.mode === 'dark' ? themeConfig.darkPanel : themeConfig.lightPanel) : 'none',
-        p: 2,
-        borderRadius: '0.5rem',
+        mb: 1,
       }}
     >
       <InteractionContainer
-         name={ useName }
-         buttons={ headerButtons }
+        name={ useName }
+        badge={ useBadge }
+        buttons={ headerButtons }
+        background={ isSystem }
       >
           {
             showFinetuning && (
