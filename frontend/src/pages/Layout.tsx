@@ -16,6 +16,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
+
 import NewAppBar from '../components/system/NewAppbar'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -141,6 +142,32 @@ const Layout: FC = ({
         }}
       >
         <List disablePadding>
+          <ListItem disablePadding>
+            <ListItemButton
+              sx={{
+                height: '68px',
+              }}
+              onClick={ () => {
+                navigate('home')
+                account.setMobileMenuOpen(false)
+              }}
+            >
+              <ListItemText
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
+                primary="Home"
+              />
+              <ListItemIcon>
+                <HomeIcon color="primary" />
+              </ListItemIcon>
+            </ListItemButton>
+          </ListItem>
           <ListItem disablePadding>
             <ListItemButton
               sx={{
