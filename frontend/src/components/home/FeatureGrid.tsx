@@ -23,64 +23,64 @@ import {
 
 
 const CHAT_FEATURE: IFeature = {
-  title: 'Chat',
-  description: 'Talk to Helix',
+  title: 'Chat with Helix',
+  description: 'Everything you can do with ChatGPT, with open models.',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const IMAGE_GEN_FEATURE: IFeature = {
-  title: 'Image Gen',
-  description: 'Generate Images',
+  title: 'Image Generation',
+  description: 'Prompt an image model to generate drawings, photos and logos',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const APPS_FEATURE: IFeature = {
-  title: 'Apps',
-  description: 'View Apps',
+  title: 'Browse Apps',
+  description: 'AI Assistants and apps that you or other users have created',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const RAG_FEATURE: IFeature = {
-  title: 'RAG',
-  description: 'Add your own documents',
+  title: 'RAG over Documents',
+  description: 'Upload documents and index them, then chat to your documents',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const FINETUNE_TEXT_FEATURE: IFeature = {
-  title: 'Finetune Text',
-  description: 'Finetune on text',
+  title: 'Finetune on Text',
+  description: 'Train your own LLM on the knowledge in your text (coming soon: finetune on style or complex tools use)',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const FINETUNE_IMAGES_FEATURE: IFeature = {
-  title: 'Finetune Images',
-  description: 'Finetune on images',
+  title: 'Finetune on Images',
+  description: 'Train your own image model on the style of a set of images (e.g. visual style, objects, faces)',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const JS_APP_FEATURE: IFeature = {
-  title: 'JS App',
-  description: 'Create a Javascript AI App',
+  title: 'JS AI-Powered Apps',
+  description: 'Create a Javascript Frontend App with AI powered UI or embed a chatbot',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
 }
 
 const API_FEATURE: IFeature = {
-  title: 'Integrate w/ API',
-  description: 'Use the REST API',
+  title: 'Integrate LLM with REST API',
+  description: 'Provide a Swagger/OpenAPI spec and enable users to call the API via natural language',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
@@ -95,8 +95,8 @@ const GPTSCRIPT_FEATURE: IFeature = {
 }
 
 const DASHBOARD_FEATURE: IFeature = {
-  title: 'Dashboard',
-  description: 'Show the platform dashboard',
+  title: 'Admin Dashboard',
+  description: 'View connected GPU runners and check queue length',
   image: '/img/servers.png',
   openAction: () => {},
   docsAction: () => {},
