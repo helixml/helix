@@ -2,6 +2,7 @@ package gptscript
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 const (
@@ -31,7 +33,8 @@ func NewRunner(cfg *config.GPTScriptRunnerConfig) *Runner {
 }
 
 func (d *Runner) Run(ctx context.Context) error {
-
+	// TODO: retry loop?
+	return d.run(ctx)
 }
 
 func (d *Runner) run(ctx context.Context) error {
@@ -115,5 +118,25 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 }
 
 func (d *Runner) processMessage(ctx context.Context, conn *websocket.Conn, message []byte) error {
+	var envelope types.RunnerEventRequestEnvelope
+	if err := json.Unmarshal(message, &envelope); err != nil {
+		return fmt.Errorf("failed to unmarshal message: %w", err)
+	}
+
+	switch envelope.Type {
+	case types.RunnerEventRequestApp:
+		return d.processAppRequest(ctx, conn, &envelope)
+	case types.RunnerEventRequestTool:
+		return d.processToolRequest(ctx, conn, &envelope)
+	default:
+		return fmt.Errorf("unknown message type: %s", envelope.Type)
+	}
+}
+
+func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+
+}
+
+func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
 
 }
