@@ -4,6 +4,8 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
+import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle'
 import HomeFeatureGrid from '../components/home/FeatureGrid'
 
 import Row from '../components/widgets/Row'
@@ -22,11 +24,7 @@ const Home: FC = () => {
           height: 'calc(100% - 100px)',
         }}
       >
-        <Box
-          sx={{
-            mb: 4,
-          }}
-        >
+        <Box>
           <Grid container spacing={ 2 }>
             <Grid item xs={ 12 } sm={ 12 } md={ 12 } lg={ 6 }>
               <Row
@@ -52,10 +50,10 @@ const Home: FC = () => {
                   }}
                 >
                   <Typography variant="h3" gutterBottom>
-                    Welcome
+                    Helix GenAI Stack
                   </Typography>
                   <Typography variant="body1">
-                    Please choose which feature you want to explore today
+                    Use AI, customize it with your own data, or integrate LLMs with APIs and develop your own AI-powered applications
                   </Typography>
                 </Cell>
               </Row>
@@ -77,6 +75,15 @@ const Home: FC = () => {
               </Box>
             </Grid>
           </Grid>
+        </Box>
+        <Box sx={{mb:4, mt: 4}}>
+          <Alert variant="outlined" severity="info">
+            <strong>Calling all DevOps & platform engineers!</strong>&nbsp;
+            You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
+            &nbsp;<a href="mailto:founders@helix.ml" target="_blank" style={{"color": "white"}}>Email us</a> or <a href="https://discord.gg/VJftd844GE" target="_blank" style={{"color": "white"}}>join Discord</a> for help.
+            {/* <AlertTitle sx={{fontSize: "15pt", marginTop: "-5px", fontWeight: "bold"}}> */}
+              {/* </AlertTitle> */}
+          </Alert>
         </Box>
         <HomeFeatureGrid />
       </Container>

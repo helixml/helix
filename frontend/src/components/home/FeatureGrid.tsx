@@ -11,7 +11,19 @@ import CardActions from '@mui/material/CardActions'
 import CardActionArea from '@mui/material/CardActionArea'
 import CardContent from '@mui/material/CardContent'
 import CardMedia from '@mui/material/CardMedia'
-import AppleIcon from '@mui/icons-material/Apple'
+import ChatIcon from '@mui/icons-material/Chat'
+import ImageIcon from '@mui/icons-material/Image'
+import AppsIcon from '@mui/icons-material/Apps'
+import DocumentScannerIcon from '@mui/icons-material/DocumentScanner'
+import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
+import JavascriptIcon from '@mui/icons-material/Javascript'
+import DashboardIcon from '@mui/icons-material/Dashboard'
+import WebIcon from '@mui/icons-material/Web'
+import ApiIcon from '@mui/icons-material/Api'
+import SettingsIcon from '@mui/icons-material/Settings'
+import GroupIcon from '@mui/icons-material/Group'
+import PermMediaIcon from '@mui/icons-material/PermMedia'
+import PlagiarismIcon from '@mui/icons-material/Plagiarism'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -24,9 +36,9 @@ import {
 
 const CHAT_FEATURE: IFeature = {
   title: 'Chat with Helix',
-  description: 'Everything you can do with ChatGPT, with open models.',
-  image: '/img/servers.png',
-  icon: <AppleIcon sx={{color: '#fff'}} />,
+  description: 'Everything you can do with ChatGPT, with open models',
+  // image: '/img/servers.png',
+  icon: <ChatIcon sx={{color: '#fff'}} />,
   actions: [{
     title: 'Chat',
     color: 'secondary',
@@ -36,33 +48,36 @@ const CHAT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/text-inference/")},
   }]
 }
 
 const IMAGE_GEN_FEATURE: IFeature = {
   title: 'Image Generation',
-  description: 'Prompt an image model to generate drawings, photos and logos',
-  image: '/img/servers.png',
+  description: 'Prompt an image model to generate photos, illustrations or logos',
+  // image: '/img/servers.png',
+  icon: <ImageIcon sx={{color: '#fff'}} />,
   actions: [{
-    title: 'Chat',
+    title: 'Create',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('new', {mode:"inference", type:"image"})},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/image-inference/")},
   }]
 }
 
 const APPS_FEATURE: IFeature = {
   title: 'Browse Apps',
-  description: 'AI Assistants and apps that you or other users have created',
-  image: '/img/servers.png',
+  description: 'AI Assistants and apps that you or other users have created (coming soon)',
+  disabled: true,
+  icon: <AppsIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Browse',
     color: 'secondary',
     variant: 'outlined',
     handler: () => {},
@@ -77,9 +92,12 @@ const APPS_FEATURE: IFeature = {
 const RAG_FEATURE: IFeature = {
   title: 'RAG over Documents',
   description: 'Upload documents and index them, then chat to your documents',
-  image: '/img/servers.png',
+  disabled: true,
+  // icon: <DocumentScannerIcon sx={{color: '#fff'}} />,
+  icon: <PlagiarismIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Upload',
     color: 'secondary',
     variant: 'outlined',
     handler: () => {},
@@ -93,66 +111,74 @@ const RAG_FEATURE: IFeature = {
 
 const FINETUNE_TEXT_FEATURE: IFeature = {
   title: 'Finetune on Text',
-  description: 'Train your own LLM on the knowledge in your text (coming soon: finetune on style or complex tools use)',
-  image: '/img/servers.png',
+  description: 'Train your own LLM on knowledge in your docs (soon: style and complex tools)',
+  icon: <ModelTrainingIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('new', {mode:"finetune", type:"text"})},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/text-finetuning/")},
   }]
 }
 
+// { session.mode == SESSION_MODE_INFERENCE &&  session.type == SESSION_TYPE_IMAGE && <ImageIcon color="primary" /> }
+// { session.mode == SESSION_MODE_INFERENCE && session.type == SESSION_TYPE_TEXT && <DescriptionIcon color="primary" /> }
+// { session.mode == SESSION_MODE_FINETUNE &&  session.type == SESSION_TYPE_IMAGE && <PermMediaIcon color="primary" /> }
+// { session.mode == SESSION_MODE_FINETUNE && session.type == SESSION_TYPE_TEXT && <ModelTrainingIcon color="primary" /> }
 const FINETUNE_IMAGES_FEATURE: IFeature = {
   title: 'Finetune on Images',
-  description: 'Train your own image model on the style of a set of images (e.g. visual style, objects, faces)',
-  image: '/img/servers.png',
+  description: 'Train your own image model on the style of a set of images (e.g. style, objects)',
+  icon: <PermMediaIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
     title: 'Chat',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('new', {mode:"finetune", type:"image"})},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/image-finetuning/")},
   }]
 }
 
 const JS_APP_FEATURE: IFeature = {
-  title: 'JS AI-Powered Apps',
-  description: 'Create a Javascript Frontend App with AI powered UI or embed a chatbot',
-  image: '/img/servers.png',
+  title: 'AI-Powered JS Apps',
+  description: 'Create a Frontend App with AI powered UI or embed a chatbot, deploy with git push',
+  icon: <WebIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Apps',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('apps')},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/develop/apps/")},
   }]
 }
 
 const API_FEATURE: IFeature = {
-  title: 'Integrate LLM with REST API',
-  description: 'Provide a Swagger/OpenAPI spec and enable users to call the API via natural language',
-  image: '/img/servers.png',
+  title: 'API Integration with LLM',
+  description: 'Enable natural language interface to REST APIs with Swagger/OpenAPI specs',
+  icon: <ApiIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'API Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('tools')},
   }, {
-    title: 'Docs',
+    title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
     handler: () => {},
@@ -160,63 +186,67 @@ const API_FEATURE: IFeature = {
 }
 
 const GPTSCRIPT_FEATURE: IFeature = {
-  title: 'GPTScript',
-  description: 'Run GPTScripts',
-  image: '/img/servers.png',
+  title: 'GPTScript on the Server',
+  description: 'Write backend logic in natural language, integrate with frontends or via API',
+  icon: <img src="/img/gptscript.png" style={{width:"30px", filter: "grayscale(1)"}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'GPTScript Tools',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('tools')},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/develop/apps/")},
   }]
 }
 
 const DASHBOARD_FEATURE: IFeature = {
-  title: 'Admin Dashboard',
+  title: 'Dashboard',
   description: 'View connected GPU runners and check queue length',
-  image: '/img/servers.png',
+  icon: <DashboardIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Dashboard',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => {navigate('dashboard')},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://docs.helix.ml/helix/private-deployment/")},
   }]
 }
 
 const USERS_FEATURE: IFeature = {
-  title: 'Users',
-  description: 'Show Users',
-  image: '/img/servers.png',
+  title: 'User Management',
+  description: 'Manage Users, Auth, SSO and OAuth, ActiveDirectory or LDAP integration',
+  icon: <GroupIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   actions: [{
-    title: 'Chat',
+    title: 'Keycloak',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: () => {window.open("/auth")},
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => {window.open("https://www.keycloak.org/docs/latest/server_admin/index.html")},
   }]
 }
 
 const SETTINGS_FEATURE: IFeature = {
   title: 'Settings',
-  description: 'Show Settings (coming soon)',
-  image: '/img/servers.png',
+  description: 'Manage which models are enabled and other configuration (coming soon)',
+  icon: <SettingsIcon sx={{color: '#fff'}} />,
+  // image: '/img/servers.png',
   disabled: true,
   actions: [{
-    title: 'Chat',
+    title: 'Settings',
     color: 'secondary',
     variant: 'outlined',
     handler: () => {},
@@ -237,6 +267,7 @@ const HomeFeatureCard: FC<{
   return (
     <Card>
       <CardActionArea
+        disabled={feature.disabled}
         onClick={() => {
           feature.actions[0].handler(router.navigate)
         }}
@@ -301,6 +332,7 @@ const HomeFeatureCard: FC<{
                   variant={ action.variant }
                   color={ action.color }
                   onClick={ () => action.handler(router.navigate) }
+                  disabled={ feature.disabled }
                 >
                   { action.title }
                 </Button>
@@ -392,9 +424,9 @@ const HomeFeatureGrid: FC = ({
       <HomeFeatureSection
         title="Develop"
         features={[
-          JS_APP_FEATURE,
           API_FEATURE,
           GPTSCRIPT_FEATURE,
+          JS_APP_FEATURE,
         ]}
         sx={{
           mb: 4,
