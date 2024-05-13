@@ -2,14 +2,16 @@ import React, { FC } from 'react'
 import { SxProps } from '@mui/system'
 import Divider from '@mui/material/Divider'
 import Box from '@mui/material/Box'
+import Avatar from '@mui/material/Avatar'
 import Grid from '@mui/material/Grid'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import Card from '@mui/material/Card'
 import CardActions from '@mui/material/CardActions'
+import CardActionArea from '@mui/material/CardActionArea'
 import CardContent from '@mui/material/CardContent'
 import CardMedia from '@mui/material/CardMedia'
-
+import AppleIcon from '@mui/icons-material/Apple'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
@@ -22,13 +24,14 @@ import {
 
 const CHAT_FEATURE: IFeature = {
   title: 'Chat',
-  description: 'Talk to Helix',
+  description: 'Talk to Helix Talk to Helix Talk to Helix Talk to Helix Talk',
   image: '/img/servers.png',
+  icon: <AppleIcon sx={{color: '#fff'}} />,
   actions: [{
     title: 'Chat',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => navigate('new'),
   }, {
     title: 'Docs',
     color: 'primary',
@@ -233,19 +236,61 @@ const HomeFeatureCard: FC<{
   const router = useRouter()
   return (
     <Card>
-      <CardMedia
-        sx={{ height: 140 }}
-        image={ feature.image }
-        title={ feature.title }
-      />
-      <CardContent>
-        <Typography gutterBottom variant="h5" component="div">
-          { feature.title }
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          { feature.description }
-        </Typography>
-      </CardContent>
+      <CardActionArea
+        onClick={() => {
+          feature.actions[0].handler(router.navigate)
+        }}
+      >
+        {
+          feature.image && (
+            <CardMedia
+              sx={{ height: 140 }}
+              image={ feature.image }
+              title={ feature.title }
+            />
+          )
+        }
+        <CardContent
+          sx={{
+            cursor: 'pointer',
+          }}
+        >
+          <Row
+            sx={{
+              alignItems: 'flex-start',
+            }}
+          >
+            {
+              feature.icon && (
+                <Cell
+                  sx={{
+                    mr: 2,
+                    pt: 1,
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      // width: 48,
+                      // height: 48,
+                      backgroundColor: 'primary.main',
+                    }}
+                  >
+                    { feature.icon }
+                  </Avatar>
+                </Cell>
+              )
+            }
+            <Cell grow>
+              <Typography gutterBottom variant="h5" component="div">
+                { feature.title }
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                { feature.description }
+              </Typography>
+            </Cell>
+          </Row>
+        </CardContent>
+      </CardActionArea>
       <CardActions>
         <Row>
           {
