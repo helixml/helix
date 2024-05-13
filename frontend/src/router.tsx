@@ -11,6 +11,7 @@ import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import New from './pages/New'
+import Home from './pages/Home'
 import Collection from './pages/Collection'
 
 import CollectionTitle from './components/collection/CollectionTitle'
@@ -36,8 +37,18 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
 }
 
 const routes: IApplicationRoute[] = [{
-  name: 'new',
+  name: 'home',
   path: '/',
+  meta: {
+    title: 'Home',
+    sidebar: true,
+  },
+  render: () => (
+      <Home />
+  ),
+}, {
+  name: 'new',
+  path: '/new',
   meta: {
     title: 'New Session',
     sidebar: true,

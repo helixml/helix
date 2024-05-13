@@ -569,3 +569,23 @@ export interface IGptScriptResponse {
   output: string,
   error: string,
 }
+
+export interface IRouterNavigateFunction {
+  (name: string, params?: Record<string, any>): void,
+}
+
+export interface IFeatureAction {
+  title: string,
+  color: 'primary' | 'secondary',
+  variant: 'text' | 'contained' | 'outlined',
+  handler: (navigate: IRouterNavigateFunction) => void,
+}
+
+export interface IFeature {
+  title: string,
+  description: string,
+  image?: string,
+  icon?: React.ReactNode,
+  disabled?: boolean,
+  actions: IFeatureAction[],
+}

@@ -79,7 +79,7 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
   }
 
   let isNew = false
-  if (window.location.pathname == "" || window.location.pathname == "/") {
+  if (window.location.pathname == "" || window.location.pathname == "/new") {
     isNew = true
   }
   const mode = new URLSearchParams(window.location.search).get('mode');

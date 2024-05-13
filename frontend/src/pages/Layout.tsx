@@ -5,6 +5,7 @@ import CssBaseline from '@mui/material/CssBaseline'
 import MuiDrawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
+import Divider from '@mui/material/Divider'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -16,6 +17,7 @@ import MenuItem from '@mui/material/MenuItem'
 import Menu from '@mui/material/Menu'
 import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
+
 import NewAppBar from '../components/system/NewAppbar'
 
 import AddIcon from '@mui/icons-material/Add'
@@ -144,6 +146,34 @@ const Layout: FC = ({
           <ListItem disablePadding>
             <ListItemButton
               sx={{
+                // so it lines up with the toolbar
+                height: '77px',
+              }}
+              onClick={ () => {
+                navigate('home')
+                account.setMobileMenuOpen(false)
+              }}
+            >
+              <ListItemText
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
+                primary="Home"
+              />
+              <ListItemIcon>
+                <HomeIcon color="primary" />
+              </ListItemIcon>
+            </ListItemButton>
+          </ListItem>
+          <Divider />
+          <ListItem disablePadding>
+            <ListItemButton
+              sx={{
                 height: '68px',
               }}
               onClick={ () => {
@@ -167,6 +197,7 @@ const Layout: FC = ({
               </ListItemIcon>
             </ListItemButton>
           </ListItem>
+          <Divider />
         </List>
       </Box>
       <Box
@@ -408,6 +439,7 @@ const Layout: FC = ({
   )
 
   const container = window !== undefined ? () => document.body : undefined
+  const showNewAppbar = window.location.pathname.includes("/new")
 
   return (
     <Box
@@ -421,15 +453,16 @@ const Layout: FC = ({
       <CssBaseline />
       {
         /* This app bar is what shows when on the homepage */
-        window.location.pathname.includes("/session") ? null :
-        <NewAppBar
-          getTitle={ getTitle }
-          getToolbarElement={ layout.toolbarRenderer }
-          meta={ meta }
-          handleDrawerToggle={ handleDrawerToggle }
-          bigScreen={ bigScreen }
-          drawerWidth={meta.sidebar?drawerWidth:0}
-        />
+        showNewAppbar && (
+          <NewAppBar
+            getTitle={ getTitle }
+            getToolbarElement={ layout.toolbarRenderer }
+            meta={ meta }
+            handleDrawerToggle={ handleDrawerToggle }
+            bigScreen={ bigScreen }
+            drawerWidth={meta.sidebar?drawerWidth:0}
+          />
+        )
       }
       {/* This drawer is what shows when the screen is small */}
       {
