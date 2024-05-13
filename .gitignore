@@ -11,3 +11,4 @@ dist
 api/runs
 kubeconfig
 helix
+.vscode
