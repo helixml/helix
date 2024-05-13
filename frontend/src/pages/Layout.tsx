@@ -5,6 +5,7 @@ import CssBaseline from '@mui/material/CssBaseline'
 import MuiDrawer from '@mui/material/Drawer'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
+import Divider from '@mui/material/Divider'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
@@ -145,7 +146,8 @@ const Layout: FC = ({
           <ListItem disablePadding>
             <ListItemButton
               sx={{
-                height: '68px',
+                // so it lines up with the toolbar
+                height: '77px',
               }}
               onClick={ () => {
                 navigate('home')
@@ -168,6 +170,7 @@ const Layout: FC = ({
               </ListItemIcon>
             </ListItemButton>
           </ListItem>
+          <Divider />
           <ListItem disablePadding>
             <ListItemButton
               sx={{
@@ -194,6 +197,7 @@ const Layout: FC = ({
               </ListItemIcon>
             </ListItemButton>
           </ListItem>
+          <Divider />
         </List>
       </Box>
       <Box
@@ -435,6 +439,7 @@ const Layout: FC = ({
   )
 
   const container = window !== undefined ? () => document.body : undefined
+  const showNewAppbar = window.location.pathname.includes("/new")
 
   return (
     <Box
@@ -448,15 +453,16 @@ const Layout: FC = ({
       <CssBaseline />
       {
         /* This app bar is what shows when on the homepage */
-        window.location.pathname.includes("/session") ? null :
-        <NewAppBar
-          getTitle={ getTitle }
-          getToolbarElement={ layout.toolbarRenderer }
-          meta={ meta }
-          handleDrawerToggle={ handleDrawerToggle }
-          bigScreen={ bigScreen }
-          drawerWidth={meta.sidebar?drawerWidth:0}
-        />
+        showNewAppbar && (
+          <NewAppBar
+            getTitle={ getTitle }
+            getToolbarElement={ layout.toolbarRenderer }
+            meta={ meta }
+            handleDrawerToggle={ handleDrawerToggle }
+            bigScreen={ bigScreen }
+            drawerWidth={meta.sidebar?drawerWidth:0}
+          />
+        )
       }
       {/* This drawer is what shows when the screen is small */}
       {
