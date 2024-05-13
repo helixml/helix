@@ -10,10 +10,6 @@ import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
-import ImageFineTuneView from './pages/ImageFineTuneView'
-import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
-import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
-import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions'
 import Home from './pages/Home'
 
 import { FilestoreContextProvider } from './contexts/filestore'
@@ -126,44 +122,6 @@ const routes: IApplicationRoute[] = [{
     drawer: true,
   },
   render: () => <Account />,
-}, {
-  name: 'imagefinetuneview',
-  path: '/imagefinetuneview',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <ImageFineTuneView />
-  ),
-}, {
-  name: 'imagefinetunemoreview',
-  path: '/imagefinetunemoreview',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <ImageFineTuneMoreView />
-  ),
-}, 
-{
-  name: 'textfinetuneupdate',
-  path: '/textfinetuneupdate',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-      <TextFineTuneUpdate />
-  ),
-}, 
-{
-  name: 'textfinetuneviewquestions',
-  path: '/textfinetuneviewquestions',
-  meta: {
-    drawer: true,
-  },
-  render: () => (
-    <TextFineTuneViewQuestions />
-  ),
 }, NOT_FOUND_ROUTE]
 
 export const router = createRouter(routes, {
