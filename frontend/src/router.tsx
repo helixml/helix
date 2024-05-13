@@ -1,7 +1,6 @@
 import createRouter, { Route } from 'router5'
 import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
-import Box from '@mui/material/Box'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
@@ -15,6 +14,7 @@ import ImageFineTuneView from './pages/ImageFineTuneView'
 import ImageFineTuneMoreView from './pages/ImageFineTuneMoreView'
 import TextFineTuneUpdate from './pages/TextFineTuneUpdate'
 import TextFineTuneViewQuestions from './pages/TextFineTuneViewQuestions'
+import Home from './pages/Home'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -32,23 +32,22 @@ export const NOT_FOUND_ROUTE: IApplicationRoute = {
   render: () => <div>Page Not Found</div>,
 }
 
-const routes: IApplicationRoute[] = [
-{
-  name: 'new',
+const routes: IApplicationRoute[] = [{
+  name: 'home',
   path: '/',
   meta: {
-    drawer: true,
-    topbar: true,
+    title: 'Home',
+    sidebar: true,
   },
   render: () => (
-      <Create />
+      <Home />
   ),
 }, {
-  name: 'create',
-  path: '/create',
+  name: 'new',
+  path: '/new',
   meta: {
-    drawer: true,
-    topbar: true,
+    title: 'New Session',
+    sidebar: true,
   },
   render: () => (
       <Create />

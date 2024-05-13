@@ -7,6 +7,7 @@ import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import Divider from '@mui/material/Divider'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import IconButton from '@mui/material/IconButton'
@@ -81,7 +82,35 @@ const Sidebar: React.FC<{
           <ListItem disablePadding>
             <ListItemButton
               sx={{
-                height: '68px',
+                // so it lines up with the toolbar
+                height: '77px',
+              }}
+              onClick={ () => {
+                navigateTo('home')
+                account.setMobileMenuOpen(false)
+              }}
+            >
+              <ListItemText
+                sx={{
+                  ml: 2,
+                  p: 1,
+                  fontWeight: 'heading',
+                  '&:hover': {
+                    color: themeConfig.darkHighlight,
+                  },
+                }}
+                primary="Home"
+              />
+              <ListItemIcon>
+                <HomeIcon color="primary" />
+              </ListItemIcon>
+            </ListItemButton>
+          </ListItem>
+          <Divider />
+          <ListItem disablePadding>
+            <ListItemButton
+              sx={{
+                height: '77px',
                 '&:hover': {
                   '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
                   '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },
@@ -107,6 +136,7 @@ const Sidebar: React.FC<{
               </ListItemIcon>
             </ListItemButton>
           </ListItem>
+          <Divider />
         </List>
       </Box>
       <Box
