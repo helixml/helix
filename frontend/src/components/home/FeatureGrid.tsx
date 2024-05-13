@@ -21,93 +21,191 @@ import {
   IFeature,
 } from '../../types'
 
-
 const CHAT_FEATURE: IFeature = {
   title: 'Chat',
   description: 'Talk to Helix',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const IMAGE_GEN_FEATURE: IFeature = {
   title: 'Image Gen',
   description: 'Generate Images',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const APPS_FEATURE: IFeature = {
   title: 'Apps',
   description: 'View Apps',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const RAG_FEATURE: IFeature = {
   title: 'RAG',
   description: 'Add your own documents',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const FINETUNE_TEXT_FEATURE: IFeature = {
   title: 'Finetune Text',
   description: 'Finetune on text',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const FINETUNE_IMAGES_FEATURE: IFeature = {
   title: 'Finetune Images',
   description: 'Finetune on images',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const JS_APP_FEATURE: IFeature = {
   title: 'JS App',
   description: 'Create a Javascript AI App',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const API_FEATURE: IFeature = {
   title: 'Integrate w/ API',
   description: 'Use the REST API',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const GPTSCRIPT_FEATURE: IFeature = {
   title: 'GPTScript',
   description: 'Run GPTScripts',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const DASHBOARD_FEATURE: IFeature = {
   title: 'Dashboard',
   description: 'Show the platform dashboard',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const USERS_FEATURE: IFeature = {
   title: 'Users',
   description: 'Show Users',
   image: '/img/servers.png',
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const SETTINGS_FEATURE: IFeature = {
@@ -115,8 +213,17 @@ const SETTINGS_FEATURE: IFeature = {
   description: 'Show Settings (coming soon)',
   image: '/img/servers.png',
   disabled: true,
-  openAction: () => {},
-  docsAction: () => {},
+  actions: [{
+    title: 'Chat',
+    color: 'secondary',
+    variant: 'outlined',
+    handler: () => {},
+  }, {
+    title: 'Docs',
+    color: 'primary',
+    variant: 'text',
+    handler: () => {},
+  }]
 }
 
 const HomeFeatureCard: FC<{
@@ -142,30 +249,20 @@ const HomeFeatureCard: FC<{
       </CardContent>
       <CardActions>
         <Row>
-        <Cell grow>
-          <Button
-            size="small"
-            sx={{
-              color: 'secondary.main',
-            }}
-            onClick={ () => feature.docsAction(router.navigate) }
-          >
-            Docs
-          </Button>
-        </Cell>
-        <Cell>
-          <Button
-            size="small"
-            variant="outlined"
-            sx={{
-              color: 'secondary.main',
-              borderColor: 'secondary.main',
-            }}
-            onClick={ () => feature.openAction(router.navigate) }
-          >
-            View
-          </Button>
-        </Cell>
+          {
+            feature.actions.map((action, index) => (
+              <Cell key={ index }>
+                <Button
+                  size="small"
+                  variant={ action.variant }
+                  color={ action.color }
+                  onClick={ () => action.handler(router.navigate) }
+                >
+                  { action.title }
+                </Button>
+              </Cell>
+            ))
+          }
         </Row>
       </CardActions>
     </Card>
@@ -196,15 +293,21 @@ const HomeFeatureSection: FC<{
           my: 2,
         }}
       />
-      <Grid container spacing={ 2 }>
-        { features.map((feature, index) => (
-          <Grid item xs={ 12 } sm={ 6 } md={ 4 } key={ index }>
-            <HomeFeatureCard
-              feature={ feature }
-            />
-          </Grid>
-        )) }
-      </Grid>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}>
+        <Grid container spacing={ 0 }>
+          { features.map((feature, index) => (
+            <Grid item sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
+              <HomeFeatureCard
+                feature={ feature }
+              />
+            </Grid>
+          )) }
+        </Grid>
+      </Box>
     </Box>
   )
 }
