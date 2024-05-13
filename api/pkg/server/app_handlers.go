@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
-	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -334,7 +333,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		KeyPair:    appRecord.Config.Github.KeyPair,
 	}
 
-	result, err := gptscript_runner.RunGPTAppTestfaster(r.Context(), app)
+	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}

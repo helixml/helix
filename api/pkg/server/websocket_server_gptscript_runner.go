@@ -13,12 +13,7 @@ import (
 )
 
 // StartRunnerWebSocketServer starts a WebSocket server
-func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
-	_ context.Context,
-	r *mux.Router,
-	path string,
-) {
-
+func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Router, path string) {
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
 		if err != nil {
@@ -33,14 +28,13 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 			return
 		}
 
-		conn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
+		wsConn, err := userWebsocketUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Error().Msgf("Error upgrading websocket: %s", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		defer conn.Close()
+		defer wsConn.Close()
 
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
@@ -51,8 +45,11 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 			Str("action", "🟠 GPTScript runner ws CONNECT").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
+		// TODO: switch to synchronous
+		// subscriptions https://docs.nats.io/using-nats/developer/receiving/sync
+
 		appSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptAppQueue(), "runner", func(reply string, payload []byte) error {
-			err := conn.WriteJSON(&types.RunnerEventRequestEnvelope{
+			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
 				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
 				Type:    types.RunnerEventRequestApp,
 				Payload: payload, // The actual payload (GPTScript request)
@@ -69,7 +66,7 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 		defer appSub.Unsubscribe()
 
 		toolSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptToolQueue(), "runner", func(reply string, payload []byte) error {
-			err := conn.WriteJSON(&types.RunnerEventRequestEnvelope{
+			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
 				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
 				Type:    types.RunnerEventRequestTool,
 				Payload: payload, // The actual payload (GPTScript request)
@@ -87,7 +84,7 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(
 
 		// Block reads in order to detect disconnects
 		for {
-			messageType, messageBytes, err := conn.ReadMessage()
+			messageType, messageBytes, err := wsConn.ReadMessage()
 			log.Trace().Msgf("GPTScript runner websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
 				log.Debug().
