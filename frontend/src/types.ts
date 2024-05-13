@@ -584,7 +584,8 @@ export interface IFeatureAction {
 export interface IFeature {
   title: string,
   description: string,
-  image: string,
+  image?: string,
+  icon?: React.ReactNode,
   disabled?: boolean,
   actions: IFeatureAction[],
 }
