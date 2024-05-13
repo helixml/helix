@@ -37,7 +37,7 @@ const routes: IApplicationRoute[] = [{
   path: '/',
   meta: {
     title: 'Home',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
       <Home />
@@ -47,7 +47,7 @@ const routes: IApplicationRoute[] = [{
   path: '/new',
   meta: {
     title: 'New Session',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
       <Create />
@@ -57,7 +57,6 @@ const routes: IApplicationRoute[] = [{
   path: '/files',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <FilestoreContextProvider>
@@ -69,7 +68,6 @@ const routes: IApplicationRoute[] = [{
   path: '/tools',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <Tools />
@@ -79,7 +77,6 @@ const routes: IApplicationRoute[] = [{
   path: '/apps',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <Apps />
@@ -89,7 +86,6 @@ const routes: IApplicationRoute[] = [{
   path: '/tool/:tool_id',
   meta: {
     drawer: false,
-    topbar: true,
   },
   render: () => (
     <Tool />
@@ -99,7 +95,6 @@ const routes: IApplicationRoute[] = [{
   path: '/app/:app_id',
   meta: {
     drawer: false,
-    topbar: true,
   },
   render: () => (
     <App />
@@ -119,7 +114,6 @@ const routes: IApplicationRoute[] = [{
   path: '/dashboard',
   meta: {
     drawer: true,
-    topbar: true,
     background: '#ffffff'
   },
   render: () => (
@@ -130,7 +124,6 @@ const routes: IApplicationRoute[] = [{
   path: '/account',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => <Account />,
 }, {
@@ -138,7 +131,6 @@ const routes: IApplicationRoute[] = [{
   path: '/imagefinetuneview',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <ImageFineTuneView />
@@ -148,7 +140,6 @@ const routes: IApplicationRoute[] = [{
   path: '/imagefinetunemoreview',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <ImageFineTuneMoreView />
@@ -159,7 +150,6 @@ const routes: IApplicationRoute[] = [{
   path: '/textfinetuneupdate',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
       <TextFineTuneUpdate />
@@ -170,7 +160,6 @@ const routes: IApplicationRoute[] = [{
   path: '/textfinetuneviewquestions',
   meta: {
     drawer: true,
-    topbar: true,
   },
   render: () => (
     <TextFineTuneViewQuestions />
