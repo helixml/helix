@@ -5,9 +5,9 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Alert from '@mui/material/Alert';
-import AlertTitle from '@mui/material/AlertTitle'
-import HomeFeatureGrid from '../components/home/FeatureGrid'
 
+import HomeFeatureGrid from '../components/home/FeatureGrid'
+import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
@@ -15,7 +15,7 @@ const Home: FC = () => {
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
   return (
-    <>
+    <Page>
       <Container
         maxWidth="xl"
         sx={{
@@ -87,7 +87,7 @@ const Home: FC = () => {
         </Box>
         <HomeFeatureGrid />
       </Container>
-    </>
+    </Page>
   )
 }
 

@@ -32,19 +32,23 @@ const Page: React.FC<{
         ...sx
       }}
     >
-      <Box
-        sx={{
-          flexGrow: 0,
-        }}
-      >
-        <AppBar
-          title={ topbarTitle }
-          px={ px }
-          onOpenDrawer={ () => account.setMobileMenuOpen(true) }
-        >
-          { topbarContent }
-        </AppBar>
-      </Box>
+      {
+        (topbarTitle || topbarContent) && (
+          <Box
+            sx={{
+              flexGrow: 0,
+            }}
+          >
+            <AppBar
+              title={ topbarTitle }
+              px={ px }
+              onOpenDrawer={ () => account.setMobileMenuOpen(true) }
+            >
+              { topbarContent }
+            </AppBar>
+          </Box>
+        )
+      }
       {
         headerContent && (
           <Box
