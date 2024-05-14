@@ -21,7 +21,7 @@ FROM ubuntu:22.04
 # RUN apk --update add ca-certificates
 
 RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get install -qqy \
-    wget git unzip wget sqlite && \    
+    wget git unzip wget sqlite curl && \    
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-build-env /helix /helix
