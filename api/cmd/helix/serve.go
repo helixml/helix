@@ -204,15 +204,18 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
+	gse := gptscript.NewExecutor(cfg, ps)
+
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
-		Config:    cfg,
-		Store:     store,
-		PubSub:    ps,
-		Filestore: fs,
-		Janitor:   janitor,
-		Notifier:  notifier,
+		Config:            cfg,
+		Store:             store,
+		PubSub:            ps,
+		GPTScriptExecutor: gse,
+		Filestore:         fs,
+		Janitor:           janitor,
+		Notifier:          notifier,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
@@ -233,8 +236,6 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			return appController.HandleSubscriptionEvent(eventType, user)
 		},
 	)
-
-	gse := gptscript.NewExecutor(cfg, ps)
 
 	server, err := server.NewServer(cfg, store, ps, gse, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
