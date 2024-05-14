@@ -32,7 +32,6 @@ type ChainStrategy struct {
 	apiClient         openai.Client
 	httpClient        *http.Client
 	gptScriptExecutor gptscript.Executor
-	Local             bool // run locally for tests XXX security risk, never set this to true in production
 }
 
 func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, gptScriptExecutor gptscript.Executor, controller openai.Controller) (*ChainStrategy, error) {
