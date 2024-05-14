@@ -33,6 +33,12 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 	if err != nil {
 		return nil, err
 	}
+
+	err = setRealmConfiguration(gck, token.AccessToken, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	if cfg.ClientSecret == "" {
 		log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
 
@@ -43,7 +49,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 		}
 
 		numAPIClients := len(apiClients)
-		if numAPIClients == 1 {
+		if numAPIClients == 1 { //API client exists, do nothing and get details
 			creds, err := gck.GetClientSecret(context.Background(), token.AccessToken, cfg.Realm, *apiClients[0].ID)
 
 			if err != nil {
@@ -53,7 +59,7 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 			cfg.ClientSecret = *creds.Value
 			log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("found client secret in already configured keycloak")
 
-		} else if numAPIClients == 0 {
+		} else if numAPIClients == 0 { // API client does not exist, create new client
 			creds, err := createAPIClient(gck, token.AccessToken, cfg)
 			if err != nil {
 				return nil, err
@@ -82,6 +88,23 @@ func createAPIClient(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) (
 		return nil, fmt.Errorf("GetClientSecret: no Keycloak client found, attempt to create and fetch client secret failed with: %s", err.Error())
 	}
 	return creds, nil
+}
+
+func setRealmConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) (error){
+	realm, err := gck.GetRealm(context.Background(), token, cfg.Realm)
+	if err != nil {
+		return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to update realm config failed with: %s", err.Error())
+	}
+
+	attributes := *realm.Attributes
+	attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
+	*realm.Attributes = attributes
+
+	err = gck.UpdateRealm(context.Background(), token, *realm)
+	if err != nil {
+		return fmt.Errorf("setRealmConfiguration: attempt to update realm config failed with: %s", err.Error())
+	}
+	return nil
 }
 
 func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
