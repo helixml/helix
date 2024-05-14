@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -109,7 +110,7 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 		apiHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
 	}
 
-	apiHost = fmt.Sprintf("%s/ws/gptscript-runner?access_token=%s", apiHost, d.cfg.APIToken)
+	apiHost = fmt.Sprintf("%s%s?access_token=%s", apiHost, system.GetApiPath("/ws/gptscript-runner"), d.cfg.APIToken)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, apiHost, nil)
 	if err != nil {
