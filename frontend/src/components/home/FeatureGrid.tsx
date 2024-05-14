@@ -311,7 +311,9 @@ const HomeFeatureCard: FC<{
                 </Cell>
               )
             }
-            <Cell grow>
+            <Cell grow sx={{
+              minHeight: '80px'
+            }}>
               <Typography gutterBottom variant="h5" component="div">
                 { feature.title }
               </Typography>
