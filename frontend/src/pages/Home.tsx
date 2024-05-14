@@ -11,11 +11,17 @@ import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
+import useIsBigScreen from '../hooks/useIsBigScreen'
+
 const Home: FC = () => {
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
+  const isBigScreen = useIsBigScreen()
+
   return (
-    <Page>
+    <Page
+      showTopbar={ isBigScreen }
+    >
       <Container
         maxWidth="xl"
         sx={{
