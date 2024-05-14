@@ -104,6 +104,10 @@ const Tools: FC = () => {
               mr: 2,
             }}
             onClick={ () => {
+              if(!account.user) {
+                account.setShowLoginWindow(true)
+                return false
+              }
               setAddingGptScriptTool(true)
             }}
             >
@@ -115,6 +119,10 @@ const Tools: FC = () => {
               color="secondary"
               endIcon={<AddIcon />}
               onClick={ () => {
+                if(!account.user) {
+                  account.setShowLoginWindow(true)
+                  return false
+                }
                 setAddingApiTool(true)
               }}
             >
