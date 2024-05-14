@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useCallback } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
@@ -61,7 +61,6 @@ const Create: FC = () => {
 
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
-  const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ showImageLabelsEmptyError, setShowImageLabelsEmptyError ] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
@@ -73,7 +72,7 @@ const Create: FC = () => {
   const checkLoginStatus = (): boolean => {
     if(!account.user) {
       inputs.serializePage()
-      setShowLoginWindow(true)
+      account.setShowLoginWindow(true)
       return false
     }
     return true
@@ -377,32 +376,6 @@ const Create: FC = () => {
             onUpdate={ inputs.setFinetuneFiles }
             onClose={ () => setShowFileDrawer(false) }
           />
-        )
-      }
-
-      {
-        showLoginWindow && (
-          <Window
-            open
-            size="md"
-            title="Please login to continue"
-            onCancel={ () => {
-              setShowLoginWindow(false)
-            }}
-            onSubmit={ () => {
-              account.onLogin()
-            }}
-            withCancel
-            cancelTitle="Cancel"
-            submitTitle="Login / Register"
-          >
-            <Typography gutterBottom>
-              You can login with your Google account or with your email address.
-            </Typography>
-            <Typography>
-              We will keep what you've done here for you, so you may continue where you left off.
-            </Typography>
-          </Window>
         )
       }
 

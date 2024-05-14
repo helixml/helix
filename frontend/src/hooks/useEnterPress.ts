@@ -25,6 +25,8 @@ export const useEnterPress = ({
     }
   }, [
     value,
+    updateHandler,
+    triggerHandler,
   ])
 
   return handler

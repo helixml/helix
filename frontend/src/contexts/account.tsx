@@ -4,6 +4,7 @@ import Keycloak from 'keycloak-js'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
+import useRouter from '../hooks/useRouter'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 import {
@@ -29,6 +30,8 @@ export interface IAccountContext {
   apiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
+  showLoginWindow: boolean,
+  setShowLoginWindow: (val: boolean) => void,
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
@@ -51,6 +54,8 @@ export const AccountContext = createContext<IAccountContext>({
   apiKeys: [],
   mobileMenuOpen: false,
   setMobileMenuOpen: () => {},
+  showLoginWindow: false,
+  setShowLoginWindow: () => {},
   onLogin: () => {},
   onLogout: () => {},
   loadApiKeys: () => {},
@@ -60,8 +65,10 @@ export const useAccountContext = (): IAccountContext => {
   const api = useApi()
   const snackbar = useSnackbar()
   const loading = useLoading()
+  const router = useRouter()
   const [ admin, setAdmin ] = useState(false)
   const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
+  const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ credits, setCredits ] = useState(0)
@@ -137,6 +144,7 @@ export const useAccountContext = (): IAccountContext => {
   ])
 
   const onLogout = useCallback(() => {
+    router.navigate('home')
     keycloak.logout()
   }, [
     keycloak,
@@ -218,6 +226,8 @@ export const useAccountContext = (): IAccountContext => {
     userConfig,
     mobileMenuOpen,
     setMobileMenuOpen,
+    showLoginWindow,
+    setShowLoginWindow,
     credits,
     apiKeys,
     onLogin,
