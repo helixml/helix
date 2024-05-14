@@ -57,8 +57,22 @@ func NewSPAReverseProxyServer(frontend string) *SPAReverseProxyServer {
 		log.Error().Err(err).Msg("failed to parse frontend URL")
 	}
 
+	reverseProxy := httputil.NewSingleHostReverseProxy(u)
+
+	// Customize the Director to handle WebSocket headers
+	originalDirector := reverseProxy.Director
+	reverseProxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		if req.Header.Get("Upgrade") == "websocket" {
+			// For WebSocket connections, the proxy should use the target host.
+			req.Host = u.Host
+			req.URL.Host = u.Host
+			req.URL.Scheme = u.Scheme
+		}
+	}
+
 	return &SPAReverseProxyServer{
-		reverseProxy: httputil.NewSingleHostReverseProxy(u),
+		reverseProxy: reverseProxy,
 	}
 }
 

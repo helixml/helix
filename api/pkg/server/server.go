@@ -336,6 +336,10 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
+
+	// if we are in prod - then the frontend has been burned into the filesystem of the container
+	// and the FrontendURL will actually have the value "/www"
+	// so this switch is "are we in dev or not"
 	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
 
 		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(

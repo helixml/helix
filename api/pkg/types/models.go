@@ -24,6 +24,8 @@ const (
 
 	Model_Ollama_Llama3_8b  ModelName = "llama3:instruct"
 	Model_Ollama_Llama3_70b ModelName = "llama3:70b"
+
+	Model_Ollama_Phi3 ModelName = "phi3:instruct"
 )
 
 func NewModel(name string) ModelName {

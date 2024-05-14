@@ -1,20 +1,17 @@
 import React, { FC, useCallback, useEffect, useState, useMemo, useRef } from 'react'
-import { useTheme } from '@mui/material/styles'
 import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Divider from '@mui/material/Divider'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Checkbox from '@mui/material/Checkbox'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import SendIcon from '@mui/icons-material/Send'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
 
+import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import TextView from '../components/widgets/TextView'
 import Row from '../components/widgets/Row'
@@ -23,21 +20,17 @@ import Window from '../components/widgets/Window'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import StringMapEditor from '../components/widgets/StringMapEditor'
 import StringArrayEditor from '../components/widgets/StringArrayEditor'
-import ClickLink from '../components/widgets/ClickLink'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
 import ToolDetail from '../components/tools/ToolDetail'
 
 import useApps from '../hooks/useApps'
-import useTools from '../hooks/useTools'
 import useLoading from '../hooks/useLoading'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import useApi, { getTokenHeaders } from '../hooks/useApi'
-import useLayout from '../hooks/useLayout'
-import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 
 import {
@@ -58,7 +51,6 @@ const App: FC = () => {
   const loading = useLoading()
   const account = useAccount()
   const apps = useApps()
-  const layout = useLayout()
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
@@ -273,9 +265,14 @@ const App: FC = () => {
     }
   })
 
-  useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
-      return (
+  if(!account.user) return null
+  if(!app) return null
+  if(!hasLoaded) return null
+
+  return (
+    <Page
+      breadcrumbTitle="Edit App"
+      topbarContent={(
         <Box
           sx={{
             textAlign: 'right',
@@ -304,20 +301,8 @@ const App: FC = () => {
             Save
           </Button>
         </Box>
-      )
-    })
-
-    return () => layout.setToolbarRenderer(undefined)
-  }, [
-    onUpdate,
-  ])
-
-  if(!account.user) return null
-  if(!app) return null
-  if(!hasLoaded) return null
-
-  return (
-    <>
+      )}
+    >
       <Container
         maxWidth="xl"
         sx={{
@@ -524,94 +509,6 @@ const App: FC = () => {
                   }}
                 />
               </Box>
-              
-              {/* <Box
-                sx={{
-                  mb: 3,
-                }}
-              >
-                <Typography variant="h6" sx={{mb: 1}}>
-                  Preview
-                </Typography>
-                <Box
-                  sx={{
-                    width: '100%',
-                    flexGrow: 0,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <TextField
-                    id="textEntry"
-                    fullWidth
-                    inputRef={textFieldRef}
-                    autoFocus
-                    label="Message Helix"
-                    helperText="Prompt the AI with a message, tool decisions are taken based on action description"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    multiline={true}
-                    onKeyDown={handleKeyDown}
-                  />
-                  <Button
-                    id="sendButton"
-                    variant="outlined"
-                    color="primary"
-                    onClick={ onInference }
-                    sx={{
-                      color: themeConfig.darkText,
-                      ml: 2,
-                      mb: 3,
-                    }}
-                    endIcon={<SendIcon />}
-                  >
-                    Send
-                  </Button>
-                </Box>
-              </Box>
-              <Box
-                sx={{
-                  mb: 3,
-                  mt: 3,
-                }}
-              >
-                {
-                  session.data && (
-                    <>
-                      {
-                        session.data?.interactions.map((interaction: any, i: number) => {
-                          const interactionsLength = session.data?.interactions.length || 0
-                          const isLastInteraction = i == interactionsLength - 1
-                          const isLive = isLastInteraction && !interaction.finished
-
-                          if(!session.data) return null
-                          return (
-                            <Interaction
-                              key={ i }
-                              serverConfig={ account.serverConfig }
-                              interaction={ interaction }
-                              session={ session.data }
-                            >
-                              {
-                                isLive && (
-                                  <InteractionLiveStream
-                                    session_id={ session.data.id }
-                                    interaction={ interaction }
-                                    session={ session.data }
-                                    serverConfig={ account.serverConfig }
-                                  />
-                                )
-                              }
-                            </Interaction>
-                          )   
-                        })
-                      }
-                    </>
-                  )
-                }
-              </Box> */}
             </Grid>
           </Grid>
         </Box>
@@ -734,7 +631,7 @@ const App: FC = () => {
           />
         )
       }
-    </>
+    </Page>
   )
 }
 

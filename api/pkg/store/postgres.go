@@ -84,6 +84,11 @@ func NewPostgresStore(
 	return store, nil
 }
 
+type MigrationScript struct {
+	Name   string `gorm:"primaryKey"`
+	HasRun bool
+}
+
 func (s *PostgresStore) autoMigrate() error {
 	err := s.gdb.WithContext(context.Background()).AutoMigrate(
 		&types.App{},
@@ -91,6 +96,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.Tool{},
 		&types.SessionToolBinding{},
 		&types.GptScriptRunnerTask{},
+		&MigrationScript{},
 	)
 	if err != nil {
 		return err
@@ -108,6 +114,30 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
+	return s.runMigrationScripts(MIGRATION_SCRIPTS)
+}
+
+// loop over each migration script and run it only if it's not already been run
+func (s *PostgresStore) runMigrationScripts(migrationScripts map[string]func(*gorm.DB) error) error {
+	for name, script := range migrationScripts {
+		var ms MigrationScript
+		result := s.gdb.First(&ms, "name = ?", name)
+		if result.Error == gorm.ErrRecordNotFound {
+			if err := script(s.gdb); err != nil {
+				return err
+			}
+			ms.Name = name
+			ms.HasRun = true
+			if err := s.gdb.Create(&ms).Error; err != nil {
+				return err
+			}
+			log.Printf("Migration script '%s' executed and logged.", name)
+		} else if result.Error != nil {
+			return result.Error
+		} else {
+			log.Printf("Migration script '%s' already executed.", name)
+		}
+	}
 	return nil
 }
 

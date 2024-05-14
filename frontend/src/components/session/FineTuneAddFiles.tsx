@@ -8,7 +8,7 @@ import AddIcon from '@mui/icons-material/Add'
 
 import AddFilesWindow from './AddFilesWindow'
 
-import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useCreateInputs from '../../hooks/useCreateInputs'
 import useApi from '../../hooks/useApi'
 
 import {
@@ -25,7 +25,7 @@ export const FineTuneAddFiles: FC<{
   onReloadSession,
 }) => {
   const api = useApi()
-  const inputs = useFinetuneInputs()
+  const inputs = useCreateInputs()
   const [ addFilesMode, setAddFilesMode ] = useState(false)
 
   // this is for text finetune
@@ -36,8 +36,7 @@ export const FineTuneAddFiles: FC<{
       uploadedBytes: 0,
     })
     try {
-      let formData = new FormData()
-      formData = inputs.setFormData(formData)
+      const formData = inputs.getFormData(session.mode, session.type, session.model_name)
       await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
         params: {

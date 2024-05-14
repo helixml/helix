@@ -2,15 +2,17 @@ import React, { FC, createContext, useMemo, useCallback } from 'react'
 import { useRoute } from 'react-router5'
 import router, { useApplicationRoute } from '../router'
 
+import {
+  IRouterNavigateFunction,
+} from '../types'
+
 export interface IRouterContext {
   name: string,
   params: Record<string, string>,
   render: () => JSX.Element,
   getTitle?: () => JSX.Element,
   meta: Record<string, any>,
-  navigate: {
-    (name: string, params?: Record<string, any>): void,
-  },
+  navigate: IRouterNavigateFunction,
   setParams: {
     (params: Record<string, string>, replace?: boolean): void,
   },
@@ -34,11 +36,6 @@ export const useRouterContext = (): IRouterContext => {
   const appRoute = useApplicationRoute()
   const meta = useMemo(() => {
     return appRoute.meta
-  }, [
-    appRoute,
-  ])
-  const getTitle = useMemo(() => {
-    return appRoute.getTitle
   }, [
     appRoute,
   ])
@@ -76,7 +73,6 @@ export const useRouterContext = (): IRouterContext => {
     name: route.name,
     params: route.params,
     meta,
-    getTitle,
     navigate,
     setParams,
     removeParams,
@@ -85,7 +81,6 @@ export const useRouterContext = (): IRouterContext => {
     route.name,
     route.params,
     meta,
-    getTitle,
     navigate,
     setParams,
     removeParams,
