@@ -75,6 +75,8 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
         setParams({"model": "helix-code"})
     } else if (model == "Helix JSON") {
         setParams({"model": "helix-json"})
+    } else if (model == "Helix Small") {
+        setParams({"model": "helix-small"})
     }
   }
 
@@ -136,6 +138,9 @@ const NewAppBar: React.FC<NewAppBarProps> = ({
                 </MenuItem>
                 <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix JSON'); setModelMenuAnchorEl(null); }}>
                     Helix JSON &nbsp; <small>(Nous Hermes 2 Pro 7B, for function calling & JSON output)</small>
+                </MenuItem>
+                <MenuItem sx={{fontSize: "large"}} onClick={() => { updateModel('Helix Small'); setModelMenuAnchorEl(null); }}>
+                    Helix Small &nbsp; <small>(Phi-3 Mini 3.8B, fast and memory efficient)</small>
                 </MenuItem>
                 {/* TODO: Vision model */}
             </Menu>
