@@ -8,7 +8,10 @@ import ListItemText from '@mui/material/ListItemText'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 
-import { COLORS } from '../../config'
+import {
+  COLORS,
+  TOOLBAR_HEIGHT,
+} from '../../config'
 
 const SidebarMainLink: FC<{
   routeName: string,
@@ -28,7 +31,7 @@ const SidebarMainLink: FC<{
         selected={ isActive }
         sx={{
           // so it lines up with the toolbar
-          height: '77px',
+          height: `${TOOLBAR_HEIGHT}px`,
           '&:hover': {
             '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
             '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },

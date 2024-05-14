@@ -1,21 +1,20 @@
 import React from 'react'
 import MUIAppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
-import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
-import Box from '@mui/material/Box'
 
-import LoginIcon from '@mui/icons-material/Login'
 import MenuIcon from '@mui/icons-material/Menu'
 
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
-import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
-import useAccount from '../../hooks/useAccount'
+
+import {
+  TOOLBAR_HEIGHT,
+} from '../../config'
 
 const AppBar: React.FC<{
   height?: number,
@@ -23,14 +22,12 @@ const AppBar: React.FC<{
   title?: string,
   onOpenDrawer?: () => void,
 }> = ({
-  height = 78,
+  height = TOOLBAR_HEIGHT,
   px = 3,
   title,
   onOpenDrawer,
   children,
 }) => {
-  const account = useAccount()
-  const themeConfig = useThemeConfig()
   const lightTheme = useLightTheme()
   const isBigScreen = useIsBigScreen()
 
