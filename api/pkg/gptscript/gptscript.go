@@ -18,6 +18,8 @@ type Executor interface {
 	ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error)
 }
 
+// DefaultExecutor runs GPTScript scripts on the GPTScript cluster through the
+// Helix control-plane (runners need to be running and connected)
 type DefaultExecutor struct {
 	cfg    *config.ServerConfig
 	pubsub pubsub.PubSub
@@ -70,6 +72,7 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 	return &response, nil
 }
 
+// TestFasterExecutor runs GPTScript scripts on the TestFaster cluster
 type TestFasterExecutor struct{}
 
 var _ Executor = &TestFasterExecutor{}
@@ -84,4 +87,21 @@ func (e *TestFasterExecutor) ExecuteApp(ctx context.Context, app *types.GptScrip
 
 func (e *TestFasterExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
 	return RunGPTScriptTestfaster(ctx, script)
+}
+
+// DirectExecutor runs GPTScript scripts directly
+type DirectExecutor struct{}
+
+var _ Executor = &TestFasterExecutor{}
+
+func NewDirectExecutor() *DirectExecutor {
+	return &DirectExecutor{}
+}
+
+func (e *DirectExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	return RunGPTAppScript(ctx, app)
+}
+
+func (e *DirectExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+	return RunGPTScript(ctx, script)
 }

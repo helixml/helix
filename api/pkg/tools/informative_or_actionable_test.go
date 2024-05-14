@@ -39,7 +39,6 @@ func (suite *ActionTestSuite) SetupTest() {
 	suite.NoError(err)
 
 	strategy, err := NewChainStrategy(&cfg, nil, suite.executor, nil)
-	strategy.Local = true
 	suite.NoError(err)
 
 	suite.strategy = strategy

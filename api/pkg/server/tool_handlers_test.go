@@ -67,7 +67,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 			authenticator: auth.NewMockAuthenticator(&user),
 		},
 		Controller: &controller.Controller{
-			ToolsPlanner: &tools.ChainStrategy{Local: true},
+			ToolsPlanner: &tools.ChainStrategy{},
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,
