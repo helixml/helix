@@ -74,11 +74,14 @@ func (d *Runner) run(ctx context.Context) error {
 				continue
 			}
 
+			start := time.Now()
+
 			if err := d.processMessage(ctx, conn, message); err != nil {
 				log.Err(err).Msg("failed to process message")
 				return
 			}
-			log.Info().Msg("message processed")
+
+			log.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 		}
 	}()
 
@@ -161,7 +164,7 @@ func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 		return fmt.Errorf("failed to unmarshal GPTScript tool (%s): %w", string(req.Payload), err)
 	}
 
-	log.Info().Str("script", script.Input).Msg("processing GPTScript tool request")
+	log.Info().Str("script_input", script.Input).Msg("processing GPTScript tool request")
 
 	resp, err := RunGPTScript(ctx, &script)
 	if err != nil {
