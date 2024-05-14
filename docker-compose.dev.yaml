@@ -153,6 +153,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - API_HOST=http://api:80
       - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+    depends_on:
+      - api      
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:

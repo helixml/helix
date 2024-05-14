@@ -100,22 +100,23 @@ func (d *Runner) run(ctx context.Context) error {
 }
 
 func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
+	var apiHost string
 
 	if strings.HasPrefix(d.cfg.APIHost, "https://") {
-		d.cfg.APIHost = strings.Replace(d.cfg.APIHost, "https", "wss", 1)
+		apiHost = strings.Replace(d.cfg.APIHost, "https", "wss", 1)
 	}
 	if strings.HasPrefix(d.cfg.APIHost, "http://") {
-		d.cfg.APIHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
+		apiHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
 	}
 
 	if d.cfg.APIToken != "" {
-		d.cfg.APIHost = fmt.Sprintf("%s?access_token=%s", d.cfg.APIHost, d.cfg.APIToken)
+		apiHost = fmt.Sprintf("%s?access_token=%s", apiHost, d.cfg.APIToken)
 	}
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, d.cfg.APIHost, nil)
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, apiHost, nil)
 	if err != nil {
-		log.Error().Msgf("websocket dial to '%s' failed, error: %s", d.cfg.APIHost, err)
-		return nil, fmt.Errorf("websocket dial to '%s' failed, error: %s", d.cfg.APIHost, err)
+		log.Error().Msgf("websocket dial to '%s' failed, error: %s", apiHost, err)
+		return nil, fmt.Errorf("websocket dial to '%s' failed, error: %s", apiHost, err)
 	}
 
 	return conn, nil
