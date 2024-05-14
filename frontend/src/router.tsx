@@ -1,7 +1,6 @@
 import createRouter, { Route } from 'router5'
 import { useRoute } from 'react-router5'
 import browserPlugin from 'router5-plugin-browser'
-import Box from '@mui/material/Box'
 
 import Session from './pages/Session'
 import Account from './pages/Account'
@@ -10,12 +9,8 @@ import Tool from './pages/Tool'
 import Apps from './pages/Apps'
 import App from './pages/App'
 import Dashboard from './pages/Dashboard'
-import New from './pages/New'
+import Create from './pages/Create'
 import Home from './pages/Home'
-import Collection from './pages/Collection'
-
-import CollectionTitle from './components/collection/CollectionTitle'
-import SessionTitle from './components/session/SessionTitle'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -23,16 +18,13 @@ import Files from './pages/Files'
 // extend the base router5 route to add metadata and self rendering
 export interface IApplicationRoute extends Route {
   render: () => JSX.Element,
-  getTitle?: () => JSX.Element,
   meta: Record<string, any>,
 }
 
 export const NOT_FOUND_ROUTE: IApplicationRoute = {
   name: 'notfound',
   path: '/notfound',
-  meta: {
-    title: 'Page Not Found',
-  },
+  meta: {},
   render: () => <div>Page Not Found</div>,
 }
 
@@ -41,7 +33,7 @@ const routes: IApplicationRoute[] = [{
   path: '/',
   meta: {
     title: 'Home',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
       <Home />
@@ -51,42 +43,16 @@ const routes: IApplicationRoute[] = [{
   path: '/new',
   meta: {
     title: 'New Session',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
-      <New />
-  ),
-}, {
-  name: 'create-collection',
-  path: '/create-collection',
-  meta: {
-    title: 'Create Collection',
-    sidebar: true,
-  },
-  render: () => (
-      <New />
-  ),
-}, {
-  name: 'collection',
-  path: '/collection',
-  meta: {
-    title: 'Collection',
-    sidebar: true,
-  },
-  getTitle: () => {
-    return (
-      <CollectionTitle />
-    )
-  },
-  render: () => (
-      <Collection />
+      <Create />
   ),
 }, {
   name: 'files',
   path: '/files',
   meta: {
-    title: 'Files',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
     <FilestoreContextProvider>
@@ -97,8 +63,7 @@ const routes: IApplicationRoute[] = [{
   name: 'tools',
   path: '/tools',
   meta: {
-    title: 'Tools',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
     <Tools />
@@ -107,8 +72,7 @@ const routes: IApplicationRoute[] = [{
   name: 'apps',
   path: '/apps',
   meta: {
-    title: 'Apps',
-    sidebar: true,
+    drawer: true,
   },
   render: () => (
     <Apps />
@@ -117,8 +81,7 @@ const routes: IApplicationRoute[] = [{
   name: 'tool',
   path: '/tool/:tool_id',
   meta: {
-    title: 'Edit Tool',
-    sidebar: false,
+    drawer: false,
   },
   render: () => (
     <Tool />
@@ -127,8 +90,7 @@ const routes: IApplicationRoute[] = [{
   name: 'app',
   path: '/app/:app_id',
   meta: {
-    title: 'Edit App',
-    sidebar: false,
+    drawer: false,
   },
   render: () => (
     <App />
@@ -137,34 +99,27 @@ const routes: IApplicationRoute[] = [{
   name: 'session',
   path: '/session/:session_id',
   meta: {
-    title: 'Session',
-    sidebar: true,
-  },
-  getTitle: () => {
-    return (
-      <SessionTitle />
-    )
+    drawer: true,
+    topbar: false,
   },
   render: () => (
-      <Session />
+    <Session />
   ),
 }, {
   name: 'dashboard',
   path: '/dashboard',
   meta: {
-    title: 'Dashboard',
-    sidebar: true,
+    drawer: true,
     background: '#ffffff'
   },
   render: () => (
-      <Dashboard />
+    <Dashboard />
   ),
 }, {
   name: 'account',
   path: '/account',
   meta: {
-    title: 'Account',
-    sidebar: true,
+    drawer: true,
   },
   render: () => <Account />,
 }, NOT_FOUND_ROUTE]

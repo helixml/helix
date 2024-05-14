@@ -29,9 +29,8 @@ The interface for a data entity pipeline is:
 type DataEntity struct {
   // whatever fields the data entity needs go here
 }
-type DataEntityTransformer interface {
-	Transform(ctx context.Context, entity DataEntity) (DataEntity, error)
-}
+
+type DataEntityTransformer func(ctx context.Context, entity DataEntity) (DataEntity, error)
 ```
 
 Then we can have various pipelines by doing this:

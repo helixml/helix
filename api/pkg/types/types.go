@@ -874,3 +874,43 @@ type GptScriptResponse struct {
 	Output string `json:"output"`
 	Error  string `json:"error"`
 }
+
+type EntityConfig struct {
+	FilestorePath string `json:"filestore_path"`
+}
+
+func (m EntityConfig) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *EntityConfig) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result EntityConfig
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (EntityConfig) GormDataType() string {
+	return "json"
+}
+
+type Entity struct {
+	ID      string     `json:"id" gorm:"primaryKey"`
+	Created time.Time  `json:"created"`
+	Updated time.Time  `json:"updated"`
+	Name    string     `json:"name"`
+	Type    EntityType `json:"type"`
+	// some datasets are parents to others for example
+	// a folder of files can be the source of a RAG dataset
+	// or a qapairs dataset - a qapairs dataset can be the source
+	// of a lora dataset.
+	ParentEntity string       `json:"parent_entity"`
+	Config       EntityConfig `json:"config" gorm:"jsonb"`
+}

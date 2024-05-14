@@ -4,6 +4,7 @@ import Keycloak from 'keycloak-js'
 import useApi from '../hooks/useApi'
 import useSnackbar from '../hooks/useSnackbar'
 import useLoading from '../hooks/useLoading'
+import useRouter from '../hooks/useRouter'
 import { extractErrorMessage } from '../hooks/useErrorCallback'
 
 import {
@@ -24,11 +25,14 @@ export interface IAccountContext {
   admin: boolean,
   user?: IKeycloakUser,
   token?: string,
+  loggingOut?: boolean,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   apiKeys: IApiKey[],
   mobileMenuOpen: boolean,
   setMobileMenuOpen: (val: boolean) => void,
+  showLoginWindow: boolean,
+  setShowLoginWindow: (val: boolean) => void,
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
@@ -38,6 +42,7 @@ export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
   admin: false,
+  loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
     stripe_enabled: false,
@@ -51,6 +56,8 @@ export const AccountContext = createContext<IAccountContext>({
   apiKeys: [],
   mobileMenuOpen: false,
   setMobileMenuOpen: () => {},
+  showLoginWindow: false,
+  setShowLoginWindow: () => {},
   onLogin: () => {},
   onLogout: () => {},
   loadApiKeys: () => {},
@@ -60,11 +67,14 @@ export const useAccountContext = (): IAccountContext => {
   const api = useApi()
   const snackbar = useSnackbar()
   const loading = useLoading()
+  const router = useRouter()
   const [ admin, setAdmin ] = useState(false)
   const [ mobileMenuOpen, setMobileMenuOpen ] = useState(false)
+  const [ showLoginWindow, setShowLoginWindow ] = useState(false)
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
@@ -137,6 +147,8 @@ export const useAccountContext = (): IAccountContext => {
   ])
 
   const onLogout = useCallback(() => {
+    setLoggingOut(true)
+    router.navigate('home')
     keycloak.logout()
   }, [
     keycloak,
@@ -164,8 +176,10 @@ export const useAccountContext = (): IAccountContext => {
           win.setUser(user)
         }
 
-        win.$crisp.push(['set', 'user:email', user?.email])
-        win.$crisp.push(['set', 'user:nickname', user?.name])
+        if(win.$crisp) {
+          win.$crisp.push(['set', 'user:email', user?.email])
+          win.$crisp.push(['set', 'user:nickname', user?.name])
+        }
 
         api.setToken(keycloak.token)
         setUser(user)
@@ -212,10 +226,13 @@ export const useAccountContext = (): IAccountContext => {
     user,
     token,
     admin,
+    loggingOut,
     serverConfig,
     userConfig,
     mobileMenuOpen,
     setMobileMenuOpen,
+    showLoginWindow,
+    setShowLoginWindow,
     credits,
     apiKeys,
     onLogin,

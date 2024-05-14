@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 const DEFAULT_THEME_NAME = 'helix'
 
 export interface ITheme {
+  drawerWidth: number,
   company: string,
   url: string,
   primary: string,
@@ -18,6 +19,7 @@ export interface ITheme {
   darkBackgroundImage: string,
   darkBorder: string,
   darkText: string,
+  darkTextFaded: string,
   darkPanel: string,
   lightIcon: string,
   lightIconHover: string,
@@ -26,6 +28,7 @@ export interface ITheme {
   lightBackgroundImage: string,
   lightBorder: string,
   lightText: string,
+  lightTextFaded: string,
   lightPanel: string,
   neutral900: string,
   neutral800: string,
@@ -60,6 +63,7 @@ export interface ITheme {
 
 export const THEMES: Record<string, ITheme> = {
   helix: {
+    drawerWidth: 320,
     company: 'Helix',
     url: 'https://tryhelix.ai/',
     // primary: '#5d5d7b',
@@ -76,6 +80,7 @@ export const THEMES: Record<string, ITheme> = {
     darkBackgroundImage: "url('/img/nebula-dark.png')",
     darkBorder: "0.1rem solid #303047",
     darkText: "#ffffff",
+    darkTextFaded: "#b1b1d1",
     darkPanel: "#10101e",
     lightIcon: '#5d5d7b',
     lightIconHover: '#00d5ff',
@@ -84,6 +89,7 @@ export const THEMES: Record<string, ITheme> = {
     lightBackgroundImage: "url('/img/nebula-light.png')",
     lightBorder: "1px solid #aeaeae",
     lightText: "#333",
+    lightTextFaded: "#aeaeae",
     lightPanel: "#f4f4f4",
     // colors
     neutral900: '#000000',
