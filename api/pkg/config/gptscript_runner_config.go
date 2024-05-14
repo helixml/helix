@@ -6,8 +6,8 @@ type GPTScriptRunnerConfig struct {
 	OpenAIKey string `envconfig:"OPENAI_API_KEY" required:"true"`
 
 	// Control-plane connection
-	APIHost string `envconfig:"API_HOST" default:"localhost"`
-	APIPort string `envconfig:"API_PORT" default:"80"`
+	APIHost  string `envconfig:"API_HOST" default:"http://localhost:80"`
+	APIToken string `envconfig:"API_TOKEN" required:"true"`
 }
 
 func LoadGPTScriptRunnerConfig() (GPTScriptRunnerConfig, error) {
