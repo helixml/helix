@@ -84,8 +84,15 @@ const Home: FC = () => {
         </Box>
         <Box sx={{mb:4, mt: 4}}>
           <Alert variant="outlined" severity="info">
-            <strong>Calling all DevOps & platform engineers!</strong>&nbsp;
-            You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
+            <Box
+              component="span"
+              sx={{
+                fontWeight: 'bold',
+              }}
+            >
+              Calling all DevOps & platform engineers!
+            </Box>
+            &nbsp;You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
             &nbsp;<a href="mailto:founders@helix.ml" target="_blank" style={{"color": "white"}}>Email us</a> or <a href="https://discord.gg/VJftd844GE" target="_blank" style={{"color": "white"}}>join Discord</a> for help.
             {/* <AlertTitle sx={{fontSize: "15pt", marginTop: "-5px", fontWeight: "bold"}}> */}
               {/* </AlertTitle> */}
