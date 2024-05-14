@@ -36,6 +36,7 @@
     "axios": "^1.3.4",
     "bluebird": "^3.7.2",
     "keycloak-js": "^22.0.4",
+    "lang-detector": "^1.0.6",
     "localdata": "^0.1.4",
     "lodash": "^4.17.21",
     "pretty-bytes": "^6.0.0",
