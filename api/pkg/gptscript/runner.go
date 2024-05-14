@@ -109,15 +109,15 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 		apiHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
 	}
 
-	if d.cfg.APIToken != "" {
-		apiHost = fmt.Sprintf("%s?access_token=%s", apiHost, d.cfg.APIToken)
-	}
+	apiHost = fmt.Sprintf("%s/ws/gptscript-runner?access_token=%s", apiHost, d.cfg.APIToken)
 
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, apiHost, nil)
 	if err != nil {
 		log.Error().Msgf("websocket dial to '%s' failed, error: %s", apiHost, err)
 		return nil, fmt.Errorf("websocket dial to '%s' failed, error: %s", apiHost, err)
 	}
+
+	log.Info().Msg("🟢 connected to control plane")
 
 	return conn, nil
 }

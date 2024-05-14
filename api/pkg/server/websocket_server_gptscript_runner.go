@@ -41,8 +41,8 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 
 		runnerID := r.URL.Query().Get("runnerid")
 
-		log.Debug().
-			Str("action", "🟠 GPTScript runner ws CONNECT").
+		log.Info().
+			Str("action", "🟢 GPTScript runner connected").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
 		// TODO: switch to synchronous
@@ -87,7 +87,7 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			messageType, messageBytes, err := wsConn.ReadMessage()
 			log.Trace().Msgf("GPTScript runner websocket event: %s", string(messageBytes))
 			if err != nil || messageType == websocket.CloseMessage {
-				log.Debug().
+				log.Info().
 					Str("action", "🟠 runner ws DISCONNECT").
 					Msgf("disconnected runner websocket: %s\n", runnerID)
 				break
