@@ -48,7 +48,7 @@ const CHAT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/text-inference/")},
+    handler: () => window.open("https://docs.helix.ml/helix/using-helix/text-inference/"),
   }]
 }
 
@@ -66,7 +66,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/image-inference/")},
+    handler: () => window.open("https://docs.helix.ml/helix/using-helix/image-inference/"),
   }]
 }
 
@@ -123,7 +123,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/text-finetuning/")},
+    handler: () => window.open("https://docs.helix.ml/helix/using-helix/text-finetuning/"),
   }]
 }
 
@@ -145,7 +145,7 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/using-helix/image-finetuning/")},
+    handler: () => window.open("https://docs.helix.ml/helix/using-helix/image-finetuning/"),
   }]
 }
 
@@ -163,7 +163,7 @@ const JS_APP_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/develop/apps/")},
+    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
   }]
 }
 
@@ -199,7 +199,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/develop/apps/")},
+    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
   }]
 }
 
@@ -217,7 +217,7 @@ const DASHBOARD_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://docs.helix.ml/helix/private-deployment/")},
+    handler: () => window.open("https://docs.helix.ml/helix/private-deployment/"),
   }]
 }
 
@@ -235,7 +235,7 @@ const USERS_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {window.open("https://www.keycloak.org/docs/latest/server_admin/index.html")},
+    handler: () => window.open("https://www.keycloak.org/docs/latest/server_admin/index.html"),
   }]
 }
 
