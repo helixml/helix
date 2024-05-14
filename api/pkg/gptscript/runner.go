@@ -140,6 +140,13 @@ func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, re
 	}
 
 	log.Info().Str("repo", app.Repo).Msg("processing GPTScript app request")
+
+	resp, err := RunGPTAppScript(ctx, &app)
+	if err != nil {
+		return fmt.Errorf("failed to run GPTScript app: %w", err)
+	}
+
+	return d.respond(conn, req.Reply, resp)
 }
 
 func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
@@ -155,13 +162,17 @@ func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 		return fmt.Errorf("failed to run GPTScript tool: %w", err)
 	}
 
+	return d.respond(conn, req.Reply, resp)
+}
+
+func (r *Runner) respond(conn *websocket.Conn, reply string, resp interface{}) error {
 	bts, err := json.Marshal(resp)
 	if err != nil {
-		return fmt.Errorf("failed to marshal GPTScript tool response: %w", err)
+		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
 	env := types.RunnerEventResponseEnvelope{
-		Reply:   req.Reply,
+		Reply:   reply,
 		Payload: bts,
 	}
 
