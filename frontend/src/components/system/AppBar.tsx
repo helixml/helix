@@ -19,7 +19,7 @@ import {
 const AppBar: React.FC<{
   height?: number,
   px?: number,
-  title?: string,
+  title?: string | React.ReactNode,
   onOpenDrawer?: () => void,
 }> = ({
   height = TOOLBAR_HEIGHT,

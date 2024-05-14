@@ -94,7 +94,7 @@ const Dashboard: FC = () => {
 
   return (
     <Page
-      topbarTitle="Dashboard"
+      breadcrumbTitle="Dashboard"
       topbarContent={(
         <Box
           sx={{

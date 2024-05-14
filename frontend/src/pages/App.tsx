@@ -271,7 +271,7 @@ const App: FC = () => {
 
   return (
     <Page
-      topbarTitle="Edit App"
+      breadcrumbTitle="Edit App"
       topbarContent={(
         <Box
           sx={{

@@ -138,7 +138,7 @@ const Files: FC = () => {
   if(!account.user) return null
   return (
     <Page
-      topbarTitle="Files"
+      breadcrumbTitle="Files"
     >
       <Container
         maxWidth="xl"
