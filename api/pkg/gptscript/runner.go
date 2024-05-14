@@ -134,9 +134,45 @@ func (d *Runner) processMessage(ctx context.Context, conn *websocket.Conn, messa
 }
 
 func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	var app types.GptScriptGithubApp
+	if err := json.Unmarshal(req.Payload, &app); err != nil {
+		return fmt.Errorf("failed to unmarshal GPTScript app (%s): %w", string(req.Payload), err)
+	}
 
+	log.Info().Str("repo", app.Repo).Msg("processing GPTScript app request")
 }
 
 func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	var script types.GptScript
+	if err := json.Unmarshal(req.Payload, &script); err != nil {
+		return fmt.Errorf("failed to unmarshal GPTScript tool (%s): %w", string(req.Payload), err)
+	}
 
+	log.Info().Str("script", script.Input).Msg("processing GPTScript tool request")
+
+	resp, err := RunGPTScript(ctx, &script)
+	if err != nil {
+		return fmt.Errorf("failed to run GPTScript tool: %w", err)
+	}
+
+	bts, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("failed to marshal GPTScript tool response: %w", err)
+	}
+
+	env := types.RunnerEventResponseEnvelope{
+		Reply:   req.Reply,
+		Payload: bts,
+	}
+
+	bts, err = json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("failed to marshal GPTScript tool response envelope: %w", err)
+	}
+
+	if err := conn.WriteMessage(websocket.TextMessage, bts); err != nil {
+		return fmt.Errorf("failed to write message: %w", err)
+	}
+
+	return nil
 }
