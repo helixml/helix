@@ -275,6 +275,7 @@ const Create: FC = () => {
 
   return (
     <Page
+      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
       topbarContent={ topbar }
       headerContent={ headerContent }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }

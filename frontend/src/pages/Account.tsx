@@ -117,7 +117,7 @@ const Account: FC = () => {
 
   return (
     <Page
-      topbarTitle="Account"
+      breadcrumbTitle="Account"
     >
       <Container maxWidth="lg">
         <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>

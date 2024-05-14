@@ -228,7 +228,7 @@ const Tool: FC = () => {
 
   return (
     <Page
-      topbarTitle="Edit Tool"
+      breadcrumbTitle="Edit Tool"
       topbarContent={(
         <Box
           sx={{

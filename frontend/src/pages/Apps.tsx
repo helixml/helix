@@ -93,7 +93,7 @@ const Apps: FC = () => {
 
   return (
     <Page
-      topbarTitle="Apps"
+      breadcrumbTitle="Apps"
       topbarContent={(
         <div>
           <Button
