@@ -108,7 +108,7 @@ func (d *Runner) dial(ctx context.Context) (*websocket.Conn, error) {
 		d.cfg.APIHost = strings.Replace(d.cfg.APIHost, "http", "ws", 1)
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(d.cfg.APIHost, nil)
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, d.cfg.APIHost, nil)
 	if err != nil {
 		log.Error().Msgf("websocket dial to '%s' failed, error: %s", d.cfg.APIHost, err)
 		return nil, fmt.Errorf("websocket dial to '%s' failed, error: %s", d.cfg.APIHost, err)

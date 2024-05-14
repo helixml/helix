@@ -997,6 +997,17 @@ func (GptScriptRunnerRequest) GormDataType() string {
 
 type RunnerEventRequestType int
 
+func (r RunnerEventRequestType) String() string {
+	switch r {
+	case RunnerEventRequestTool:
+		return "tool"
+	case RunnerEventRequestApp:
+		return "app"
+	default:
+		return "unknown"
+	}
+}
+
 const (
 	RunnerEventRequestTool RunnerEventRequestType = iota
 	RunnerEventRequestApp
