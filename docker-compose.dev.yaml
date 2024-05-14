@@ -144,6 +144,11 @@ services:
     restart: always
     volumes:
       - ./llamaindex/src:/home/app/src
+  gptscript_runner:    
+    build:
+      context: .
+      dockerfile: Dockerfile.gptscript        
+    restart: always
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:
