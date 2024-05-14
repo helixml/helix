@@ -25,6 +25,7 @@ export interface IAccountContext {
   admin: boolean,
   user?: IKeycloakUser,
   token?: string,
+  loggingOut?: boolean,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
   apiKeys: IApiKey[],
@@ -41,6 +42,7 @@ export const AccountContext = createContext<IAccountContext>({
   initialized: false,
   credits: 0,
   admin: false,
+  loggingOut: false,
   serverConfig: {
     filestore_prefix: '',
     stripe_enabled: false,
@@ -72,6 +74,7 @@ export const useAccountContext = (): IAccountContext => {
   const [ initialized, setInitialized ] = useState(false)
   const [ user, setUser ] = useState<IKeycloakUser>()
   const [ credits, setCredits ] = useState(0)
+  const [ loggingOut, setLoggingOut ] = useState(false)
   const [ userConfig, setUserConfig ] = useState<IUserConfig>({})
   const [ serverConfig, setServerConfig ] = useState<IServerConfig>({
     filestore_prefix: '',
@@ -144,6 +147,7 @@ export const useAccountContext = (): IAccountContext => {
   ])
 
   const onLogout = useCallback(() => {
+    setLoggingOut(true)
     router.navigate('home')
     keycloak.logout()
   }, [
@@ -222,6 +226,7 @@ export const useAccountContext = (): IAccountContext => {
     user,
     token,
     admin,
+    loggingOut,
     serverConfig,
     userConfig,
     mobileMenuOpen,

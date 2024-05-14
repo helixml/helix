@@ -91,8 +91,6 @@ const Apps: FC = () => {
     params.snackbar_message,
   ])
 
-  if(!account.user) return null
-
   return (
     <Page
       topbarTitle="Apps"
@@ -103,6 +101,10 @@ const Apps: FC = () => {
               color="secondary"
               endIcon={<AddIcon />}
               onClick={ () => {
+                if(!account.user) {
+                  account.setShowLoginWindow(true)
+                  return false
+                }
                 setParams({add_app: 'true'})
               }}
             >

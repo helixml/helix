@@ -93,7 +93,7 @@ const Layout: FC = ({
             minHeight: '100%',
           }}
         >
-          { children }
+          { account.loggingOut ? null : children }
         </Box>
       </Box>
       <Snackbar />
