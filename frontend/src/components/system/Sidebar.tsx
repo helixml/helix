@@ -102,6 +102,7 @@ const Sidebar: React.FC<{
           boxShadow: 'none', // Remove shadow for a more flat/minimalist design
           borderRight: 'none', // Remove the border if present
           mr: 3,
+          mt: 1,
           ...lightTheme.scrollbar,
         }}
       >
