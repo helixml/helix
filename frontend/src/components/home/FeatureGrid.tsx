@@ -38,7 +38,7 @@ const CHAT_FEATURE: IFeature = {
   title: 'Chat with Helix',
   description: 'Everything you can do with ChatGPT, with open models',
   // image: '/img/servers.png',
-  icon: <ChatIcon sx={{color: '#fff'}} />,
+  icon: <ChatIcon sx={{color: '#fcdb05'}} />,
   actions: [{
     title: 'Chat',
     color: 'secondary',
@@ -56,7 +56,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
   title: 'Image Generation',
   description: 'Prompt an image model to generate photos, illustrations or logos',
   // image: '/img/servers.png',
-  icon: <ImageIcon sx={{color: '#fff'}} />,
+  icon: <ImageIcon sx={{color: '#3bf959'}} />,
   actions: [{
     title: 'Create',
     color: 'secondary',
@@ -74,7 +74,7 @@ const APPS_FEATURE: IFeature = {
   title: 'Browse Apps',
   description: 'AI Assistants and apps that you or other users have created (coming soon)',
   disabled: true,
-  icon: <AppsIcon sx={{color: '#fff'}} />,
+  icon: <AppsIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Browse',
@@ -94,7 +94,7 @@ const RAG_FEATURE: IFeature = {
   description: 'Upload documents and index them, then chat to your documents',
   disabled: true,
   // icon: <DocumentScannerIcon sx={{color: '#fff'}} />,
-  icon: <PlagiarismIcon sx={{color: '#fff'}} />,
+  icon: <PlagiarismIcon sx={{color: '#fcdb05'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Upload',
@@ -112,7 +112,7 @@ const RAG_FEATURE: IFeature = {
 const FINETUNE_TEXT_FEATURE: IFeature = {
   title: 'Finetune on Text',
   description: 'Train your own LLM on knowledge in your docs (soon: style and complex tools)',
-  icon: <ModelTrainingIcon sx={{color: '#fff'}} />,
+  icon: <ModelTrainingIcon sx={{color: '#fcdb05'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Finetune',
@@ -134,7 +134,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
 const FINETUNE_IMAGES_FEATURE: IFeature = {
   title: 'Finetune on Images',
   description: 'Train your own image model on the style of a set of images (e.g. style, objects)',
-  icon: <PermMediaIcon sx={{color: '#fff'}} />,
+  icon: <PermMediaIcon sx={{color: '#3bf959'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Finetune',
@@ -149,10 +149,16 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
   }]
 }
 
+// This needs some more thought. We should probably focus it around tasks, have like:
+// * Create & Publish App (Assistant?)
+// * Embed Widget
+// * Frontend App
+// We also need to make it clear that you can use the customized models in your apps/assistants
+
 const JS_APP_FEATURE: IFeature = {
   title: 'AI-Powered JS Apps',
   description: 'Create a Frontend App with AI powered UI or embed a chatbot, deploy with git push',
-  icon: <WebIcon sx={{color: '#fff'}} />,
+  icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Apps',
@@ -170,7 +176,7 @@ const JS_APP_FEATURE: IFeature = {
 const API_FEATURE: IFeature = {
   title: 'API Integration with LLM',
   description: 'Enable natural language interface to REST APIs with Swagger/OpenAPI specs',
-  icon: <ApiIcon sx={{color: '#fff'}} />,
+  icon: <ApiIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'API Tools',
@@ -188,7 +194,7 @@ const API_FEATURE: IFeature = {
 const GPTSCRIPT_FEATURE: IFeature = {
   title: 'GPTScript on the Server',
   description: 'Write backend logic in natural language, integrate with frontends or via API',
-  icon: <img src="/img/gptscript.png" style={{width:"30px", filter: "grayscale(1)"}} />,
+  icon: <img src="/img/gptscript.png" style={{width:"30px", filter: "grayscale(0)"}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'GPTScript Tools',
@@ -206,7 +212,7 @@ const GPTSCRIPT_FEATURE: IFeature = {
 const DASHBOARD_FEATURE: IFeature = {
   title: 'Dashboard',
   description: 'View connected GPU runners and check queue length',
-  icon: <DashboardIcon sx={{color: '#fff'}} />,
+  icon: <DashboardIcon sx={{color: '#00d5ff'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Dashboard',
@@ -224,7 +230,7 @@ const DASHBOARD_FEATURE: IFeature = {
 const USERS_FEATURE: IFeature = {
   title: 'User Management',
   description: 'Manage Users, Auth, SSO and OAuth, ActiveDirectory or LDAP integration',
-  icon: <GroupIcon sx={{color: '#fff'}} />,
+  icon: <GroupIcon sx={{color: '#fc3600'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Keycloak',
@@ -242,7 +248,7 @@ const USERS_FEATURE: IFeature = {
 const SETTINGS_FEATURE: IFeature = {
   title: 'Settings',
   description: 'Manage which models are enabled and other configuration (coming soon)',
-  icon: <SettingsIcon sx={{color: '#fff'}} />,
+  icon: <SettingsIcon sx={{color: '#00d5ff'}} />,
   // image: '/img/servers.png',
   disabled: true,
   actions: [{
@@ -303,7 +309,7 @@ const HomeFeatureCard: FC<{
                     sx={{
                       // width: 48,
                       // height: 48,
-                      backgroundColor: 'primary.main',
+                      backgroundColor: 'black',
                     }}
                   >
                     { feature.icon }
@@ -400,7 +406,7 @@ const HomeFeatureGrid: FC = ({
   return (
     <>
       <HomeFeatureSection
-        title="Use"
+        title="Use Generative AI"
         features={[
           CHAT_FEATURE,
           IMAGE_GEN_FEATURE,
@@ -412,7 +418,7 @@ const HomeFeatureGrid: FC = ({
       />
 
       <HomeFeatureSection
-        title="Customize"
+        title="Customize Models"
         features={[
           RAG_FEATURE,
           FINETUNE_TEXT_FEATURE,
@@ -424,7 +430,7 @@ const HomeFeatureGrid: FC = ({
       />
 
       <HomeFeatureSection
-        title="Develop"
+        title="Develop AI-Powered Apps"
         features={[
           API_FEATURE,
           GPTSCRIPT_FEATURE,
@@ -438,7 +444,7 @@ const HomeFeatureGrid: FC = ({
       {
         account.admin && (
           <HomeFeatureSection
-            title="Admin"
+            title="Admin Area"
             features={[
               DASHBOARD_FEATURE,
               USERS_FEATURE,
