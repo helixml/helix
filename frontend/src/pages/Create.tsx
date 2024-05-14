@@ -141,6 +141,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     inputs.setFinetuneFiles([])
+    router.removeParams(['imageFineTuneStep'])
   }, [
     mode,
     type,
