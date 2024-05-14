@@ -20,7 +20,7 @@ const Home: FC = () => {
 
   return (
     <Page
-      showTopbar={ isBigScreen }
+      showTopbar={ isBigScreen ? false : true }
     >
       <Container
         maxWidth="xl"
@@ -55,7 +55,7 @@ const Home: FC = () => {
                     ml: 4,
                   }}
                 >
-                  <Typography variant="h3" gutterBottom>
+                  <Typography variant={ isBigScreen ? 'h3' : 'h5' } gutterBottom>
                     Helix GenAI Stack
                   </Typography>
                   <Typography variant="body1">

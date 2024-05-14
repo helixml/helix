@@ -68,3 +68,5 @@ export const COLORS = {
   'GREEN_BUTTON_HOVER': '#00d5ff',
   'AI_BADGE': '#f0beb0',
 }
+
+export const TOOLBAR_HEIGHT = 78
