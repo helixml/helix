@@ -120,7 +120,6 @@ const Create: FC = () => {
 
   const onStartImageFunetune = async () => {
     const emptyLabel = inputs.finetuneFiles.find(file => {
-      console.log(inputs.labels[file.file.name])
       return inputs.labels[file.file.name] ? false : true
     })
     if(emptyLabel) {
@@ -141,6 +140,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     inputs.setFinetuneFiles([])
+    inputs.setLabels({})
     router.removeParams(['imageFineTuneStep'])
   }, [
     mode,
