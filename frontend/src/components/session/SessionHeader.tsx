@@ -147,6 +147,12 @@ export const SessionHeader: FC<{
                   size="small"
                   value={sessionName}
                   onChange={handleSessionNameChange}
+                  onBlur={handleSessionNameSubmit}
+                  onKeyUp={(event) => {
+                    if (event.key === 'Enter') {
+                      handleSessionNameSubmit()
+                    }
+                  }}
                   autoFocus
                   fullWidth
                   sx={{
