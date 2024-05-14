@@ -23,6 +23,8 @@ type DefaultExecutor struct {
 	pubsub pubsub.PubSub
 }
 
+var _ Executor = &DefaultExecutor{}
+
 func NewExecutor(cfg *config.ServerConfig, pubsub pubsub.PubSub) *DefaultExecutor {
 	return &DefaultExecutor{
 		cfg:    cfg,
@@ -66,4 +68,20 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 	}
 
 	return &response, nil
+}
+
+type TestFasterExecutor struct{}
+
+var _ Executor = &TestFasterExecutor{}
+
+func NewTestFasterExecutor() *TestFasterExecutor {
+	return &TestFasterExecutor{}
+}
+
+func (e *TestFasterExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	return RunGPTAppTestfaster(ctx, app)
+}
+
+func (e *TestFasterExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+	return RunGPTScriptTestfaster(ctx, script)
 }
