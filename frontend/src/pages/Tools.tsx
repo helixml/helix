@@ -3,11 +3,11 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
+import Page from '../components/system/Page'
 import CreateToolWindow from '../components/tools/CreateToolWindow'
 import CreateGPTScriptToolWindow from '../components/tools/CreateGPTScriptToolWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import ToolsTable from '../components/tools/ToolsTable'
-import useLayout from '../hooks/useLayout'
 import useTools from '../hooks/useTools'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
@@ -20,7 +20,6 @@ import {
 const Tools: FC = () => {
   const account = useAccount()
   const tools = useTools()
-  const layout = useLayout()
   const snackbar = useSnackbar()
   const {
     navigate,
@@ -90,9 +89,12 @@ const Tools: FC = () => {
     account.user,
   ])
 
-  useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
-      return (
+  // if(!account.user) return null
+
+  return (
+    <Page
+      topbarTitle="Tools"
+      topbarContent={(
         <div>
           <Button
             variant="contained"
@@ -102,6 +104,10 @@ const Tools: FC = () => {
               mr: 2,
             }}
             onClick={ () => {
+              if(!account.user) {
+                account.setShowLoginWindow(true)
+                return false
+              }
               setAddingGptScriptTool(true)
             }}
             >
@@ -113,28 +119,22 @@ const Tools: FC = () => {
               color="secondary"
               endIcon={<AddIcon />}
               onClick={ () => {
+                if(!account.user) {
+                  account.setShowLoginWindow(true)
+                  return false
+                }
                 setAddingApiTool(true)
               }}
             >
               New API tool
           </Button>
         </div>
-        
-      )
-    })
-
-    return () => layout.setToolbarRenderer(undefined)
-  }, [])
-
-  if(!account.user) return null
-
-  return (
-    <>
+      )}
+    >
       <Container
         maxWidth="xl"
         sx={{
-          mt: 12,
-          height: 'calc(100% - 100px)',
+          mb: 4,
         }}
       >
         <ToolsTable
@@ -168,7 +168,7 @@ const Tools: FC = () => {
           />
         )
       }
-    </>
+    </Page>
   )
 }
 

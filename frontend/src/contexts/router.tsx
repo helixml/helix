@@ -39,11 +39,6 @@ export const useRouterContext = (): IRouterContext => {
   }, [
     appRoute,
   ])
-  const getTitle = useMemo(() => {
-    return appRoute.getTitle
-  }, [
-    appRoute,
-  ])
   const navigate = useCallback((name: string, params?: Record<string, any>) => {
     params ?
       router.navigate(name, params) :
@@ -78,7 +73,6 @@ export const useRouterContext = (): IRouterContext => {
     name: route.name,
     params: route.params,
     meta,
-    getTitle,
     navigate,
     setParams,
     removeParams,
@@ -87,7 +81,6 @@ export const useRouterContext = (): IRouterContext => {
     route.name,
     route.params,
     meta,
-    getTitle,
     navigate,
     setParams,
     removeParams,

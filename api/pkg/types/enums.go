@@ -259,6 +259,47 @@ const (
 	APIKeyType_App APIKeyType = "app"
 )
 
+type EntityType string
+
+const (
+	EntityTypeNone EntityType = ""
+	// a collection of original documents intended for use with text fine tuning
+	EntityTypeFinetuneDocuments EntityType = "finetune_documents"
+	// a collection of images intended for use with image fine tuning
+	EntityTypeFinetuneImages EntityType = "finetune_images"
+	// a folder with plain text files inside - we have probably converted the source files into text files
+	EntityTypeFinetunePlainText EntityType = "finetune_plaintext"
+	// a folder with JSON files inside - these are probably the output of a data prep module
+	EntityTypeFinetuneQAPairs EntityType = "finetune_qapairs"
+	// a datastore with vectors
+	EntityTypeRAGDatabase EntityType = "rag_database"
+	// the output of a finetune
+	EntityTypeLora EntityType = "lora"
+)
+
+func ValidateEntityType(datasetType string, acceptEmpty bool) (EntityType, error) {
+	switch datasetType {
+	case string(EntityTypeFinetuneDocuments):
+		return EntityTypeFinetuneDocuments, nil
+	case string(EntityTypeFinetuneImages):
+		return EntityTypeFinetuneImages, nil
+	case string(EntityTypeFinetunePlainText):
+		return EntityTypeFinetunePlainText, nil
+	case string(EntityTypeFinetuneQAPairs):
+		return EntityTypeFinetuneQAPairs, nil
+	case string(EntityTypeRAGDatabase):
+		return EntityTypeRAGDatabase, nil
+	case string(EntityTypeLora):
+		return EntityTypeLora, nil
+	default:
+		if acceptEmpty && datasetType == string(EntityTypeNone) {
+			return EntityTypeNone, nil
+		} else {
+			return EntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
+		}
+	}
+}
+
 type TokenType string
 
 const (

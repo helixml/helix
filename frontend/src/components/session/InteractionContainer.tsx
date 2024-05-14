@@ -1,51 +1,77 @@
 import React, { FC } from 'react'
 import Typography from '@mui/material/Typography'
-import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
+import {
+  COLORS,
+}  from '../../config'
+
 export const InteractionContainer: FC<{
   name: string,
+  badge?: string,
+  background?: boolean,
   buttons?: React.ReactNode,
 }> = ({
   name,
+  badge,
+  background = false,
   buttons,
   children,
 }) => {
   return (
-    <Box sx={{
-      mb: 3,
-    }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', pb: 1, }}>
-        <Avatar className="interactionAvatar" sx={{ width: 24, height: 24 }}>{name.charAt(0).toUpperCase()}</Avatar>
-        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-          <Row>
-            <Cell flexGrow={1}>
-              <Typography
-                className="interactionName"
-                variant="subtitle2"
+    <Box
+      sx={{
+        px: 2,
+        py: 1,
+        borderRadius: 4,
+        backgroundColor: background ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
+      }}
+    >
+      <Row>
+        {
+          badge && (
+            <Cell
+              sx={{
+                mr: 1,
+              }}
+            >
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
                 sx={{
-                  // fontWeight: 'bold',
-                  color: '#aaa'
+                  textTransform: 'none',
+                  bgcolor: COLORS['AI_BADGE'],
+                  color: 'black',
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  minWidth: 'auto',
+                  height: 'auto'
                 }}
               >
-                { name.charAt(0).toUpperCase() + name.slice(1) }
-              </Typography>
+                { badge }
+              </Button>
             </Cell>
-            <Cell>
-              {
-                buttons
-              }
-            </Cell>
-          </Row>
-        </Box> 
-      </Box>
-      {
-        children
-      }
-    </Box>
-  )   
-}
+          )
+        }
+        <Cell>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+            { name }
+          </Typography>
+        </Cell>
+        <Cell grow />
+        <Cell>
+          {buttons}
+        </Cell>
+      </Row>
 
-export default InteractionContainer
+      {children}
+    </Box>
+  );
+};
+
+export default InteractionContainer;

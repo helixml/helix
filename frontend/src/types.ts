@@ -361,6 +361,11 @@ export interface ISessionMetaUpdate {
   owner_type?: string,
 }
 
+export interface IUploadFile {
+  // used for the file drawer - e.g. show the actual URL or a preview of the text
+  drawerLabel: string,
+  file: File,
+}
 
 export interface ISerlializedFile {
   filename: string
@@ -370,6 +375,7 @@ export interface ISerlializedFile {
 
 export interface ISerializedPage {
   files: ISerlializedFile[],
+  drawerLabels: Record<string, string>,
   labels: Record<string, string>,
   fineTuneStep: number,
   manualTextFileCounter: number,
@@ -457,7 +463,6 @@ export interface ITool {
   global: boolean,
   config: IToolConfig,
 }
-
 
 export interface IKeyPair {
 	type: string,
@@ -569,6 +574,24 @@ export interface IGptScriptRequest {
 export interface IGptScriptResponse {
   output: string,
   error: string,
+}
+
+export type IRagDistanceFunction = 'l2' | 'inner_product' | 'cosine'
+export interface ICreateSessionConfig {
+  activeToolIDs: string[],
+  finetuneEnabled: boolean,
+  ragEnabled: boolean,
+  ragDistanceFunction: IRagDistanceFunction, 
+  ragThreshold: number,
+  ragResultsCount: number,
+  ragChunkSize: number,
+  ragChunkOverflow: number,
+}
+
+export interface IHelixModel {
+  id: string,
+  title: string,
+  description: string,
 }
 
 export interface IRouterNavigateFunction {

@@ -11,6 +11,7 @@ import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import SendIcon from '@mui/icons-material/Send'
 
+import Page from '../components/system/Page'
 import Window from '../components/widgets/Window'
 import StringMapEditor from '../components/widgets/StringMapEditor'
 import ClickLink from '../components/widgets/ClickLink'
@@ -24,7 +25,6 @@ import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import useApi from '../hooks/useApi'
-import useLayout from '../hooks/useLayout'
 import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 
@@ -38,7 +38,6 @@ import {
 const Tool: FC = () => {
   const account = useAccount()
   const tools = useTools()
-  const layout = useLayout()
   const api = useApi()
   const snackbar = useSnackbar()
   const session = useSession()
@@ -223,9 +222,14 @@ const Tool: FC = () => {
     }
   })
 
-  useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
-      return (
+  if(!account.user) return null
+  if(!tool) return null
+  if(!hasLoaded) return null
+
+  return (
+    <Page
+      topbarTitle="Edit Tool"
+      topbarContent={(
         <Box
           sx={{
             textAlign: 'right',
@@ -254,20 +258,8 @@ const Tool: FC = () => {
             Save
           </Button>
         </Box>
-      )
-    })
-
-    return () => layout.setToolbarRenderer(undefined)
-  }, [
-    onUpdate,
-  ])
-
-  if(!account.user) return null
-  if(!tool) return null
-  if(!hasLoaded) return null
-
-  return (
-    <>
+      )}
+    >
       <Container
         maxWidth="xl"
         sx={{
@@ -576,7 +568,7 @@ const Tool: FC = () => {
           </Window>
         )
       }
-    </>
+    </Page>
   )
 }
 

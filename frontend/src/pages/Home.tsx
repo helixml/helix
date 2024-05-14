@@ -5,17 +5,23 @@ import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Alert from '@mui/material/Alert';
-import AlertTitle from '@mui/material/AlertTitle'
-import HomeFeatureGrid from '../components/home/FeatureGrid'
 
+import HomeFeatureGrid from '../components/home/FeatureGrid'
+import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
+
+import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const Home: FC = () => {
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
+  const isBigScreen = useIsBigScreen()
+
   return (
-    <>
+    <Page
+      showTopbar={ isBigScreen ? false : true }
+    >
       <Container
         maxWidth="xl"
         sx={{
@@ -49,7 +55,7 @@ const Home: FC = () => {
                     ml: 4,
                   }}
                 >
-                  <Typography variant="h3" gutterBottom>
+                  <Typography variant={ isBigScreen ? 'h3' : 'h5' } gutterBottom>
                     Helix GenAI Stack
                   </Typography>
                   <Typography variant="body1">
@@ -78,8 +84,15 @@ const Home: FC = () => {
         </Box>
         <Box sx={{mb:4, mt: 4}}>
           <Alert variant="outlined" severity="info">
-            <strong>Calling all DevOps & platform engineers!</strong>&nbsp;
-            You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
+            <Box
+              component="span"
+              sx={{
+                fontWeight: 'bold',
+              }}
+            >
+              Calling all DevOps & platform engineers!
+            </Box>
+            &nbsp;You can <a href="https://docs.helix.ml/helix/private-deployment/controlplane/" target="_blank" style={{"color": "white"}}>deploy Helix easily</a> on your own cloud, container or Kubernetes infrastructure.
             &nbsp;<a href="mailto:founders@helix.ml" target="_blank" style={{"color": "white"}}>Email us</a> or <a href="https://discord.gg/VJftd844GE" target="_blank" style={{"color": "white"}}>join Discord</a> for help.
             {/* <AlertTitle sx={{fontSize: "15pt", marginTop: "-5px", fontWeight: "bold"}}> */}
               {/* </AlertTitle> */}
@@ -87,7 +100,7 @@ const Home: FC = () => {
         </Box>
         <HomeFeatureGrid />
       </Container>
-    </>
+    </Page>
   )
 }
 

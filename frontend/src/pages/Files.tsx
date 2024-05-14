@@ -8,6 +8,7 @@ import AddIcon from '@mui/icons-material/Add'
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import Container from '@mui/material/Container'
 
+import Page from '../components/system/Page'
 import DataGridWithFilters from '../components/datagrid/DataGridWithFilters'
 import FileStoreGrid from '../components/datagrid/FileStore'
 import Window from '../components/widgets/Window'
@@ -136,13 +137,11 @@ const Files: FC = () => {
 
   if(!account.user) return null
   return (
-    <>
+    <Page
+      topbarTitle="Files"
+    >
       <Container
         maxWidth="xl"
-        sx={{
-          mt: 12,
-          height: 'calc(100% - 100px)',
-        }}
       >
         <Box
           sx={{
@@ -341,7 +340,7 @@ const Files: FC = () => {
           )
         }
       </Container>
-    </>
+    </Page>
   )
 }
 

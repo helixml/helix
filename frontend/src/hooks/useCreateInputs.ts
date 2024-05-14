@@ -1,9 +1,13 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, SetStateAction, Dispatch } from 'react'
 import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
 import {
+  ISessionMode,
+  ISessionType,
+  IUploadFile,
   ISerializedPage,
+  ICreateSessionConfig,
 } from '../types'
 
 import {
@@ -18,21 +22,27 @@ import {
   deleteFile,
 } from '../utils/filestore'
 
+import {
+  DEFAULT_SESSION_CONFIG,
+} from '../config'
+
 export interface IFinetuneInputs {
   inputValue: string,
-  setInputValue: (value: string) => void,
+  setInputValue: Dispatch<SetStateAction<string>>,
   manualTextFileCounter: number,
-  setManualTextFileCounter: (value: number) => void,
+  setManualTextFileCounter: Dispatch<SetStateAction<number>>,
   fineTuneStep: number,
-  setFineTuneStep: (value: number) => void,
+  setFineTuneStep: Dispatch<SetStateAction<number>>,
+  sessionConfig: ICreateSessionConfig,
+  setSessionConfig: Dispatch<SetStateAction<ICreateSessionConfig>>,
   showImageLabelErrors: boolean,
-  setShowImageLabelErrors: (value: boolean) => void,
-  files: File[],
-  setFiles: (value: File[]) => void,
+  setShowImageLabelErrors: Dispatch<SetStateAction<boolean>>,
+  finetuneFiles: IUploadFile[],
+  setFinetuneFiles: Dispatch<SetStateAction<IUploadFile[]>>,
   labels: Record<string, string>,
-  setLabels: (value: Record<string, string>) => void,
+  setLabels: Dispatch<SetStateAction<Record<string, string>>>,
   uploadProgress: IFilestoreUploadProgress | undefined,
-  setUploadProgress: (value: IFilestoreUploadProgress | undefined) => void,
+  setUploadProgress: Dispatch<SetStateAction<IFilestoreUploadProgress | undefined>>,
   serializePage: () => Promise<void>,
   loadFromLocalStorage: () => Promise<void>,
   setFormData: (formData: FormData) => FormData,
@@ -40,24 +50,28 @@ export interface IFinetuneInputs {
   reset: () => Promise<void>,
 }
 
-export const useFinetuneInputs = () => {
+export const useCreateInputs = () => {
   const [inputValue, setInputValue] = useState('')
+  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
-  const [files, setFiles] = useState<File[]>([])
+  const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
-  
+
   const serializePage = useCallback(async () => {
-    const serializedFiles = await bluebird.map(files, async (file) => {
-      const serializedFile = await serializeFile(file)
+    const drawerLabels: Record<string, string> = {}
+    const serializedFiles = await bluebird.map(finetuneFiles, async (file) => {
+      drawerLabels[file.file.name] = file.drawerLabel
+      const serializedFile = await serializeFile(file.file)
       await saveFile(serializedFile)
       serializedFile.content = ''
       return serializedFile
     })
     const data: ISerializedPage = {
       files: serializedFiles,
+      drawerLabels,
       labels,
       fineTuneStep,
       manualTextFileCounter,
@@ -65,24 +79,43 @@ export const useFinetuneInputs = () => {
     }
     localStorage.setItem('new-page', JSON.stringify(data))
   }, [
-    files,
+    finetuneFiles,
     labels,
     fineTuneStep,
     manualTextFileCounter,
     inputValue,
   ])
 
-  const setFormData = useCallback((formData: FormData) => {
-    files.forEach((file) => {
-      formData.append("files", file)
-      if(labels[file.name]) {
-        formData.set(file.name, labels[file.name])
+  const getFormData = useCallback((mode: ISessionMode, type: ISessionType, model: string): FormData => {
+    const formData = new FormData()
+
+    formData.set('input', inputValue)
+    formData.set('mode', mode)
+    formData.set('type', type)
+    formData.set('helixModel', model)
+
+    formData.set('active_tools', sessionConfig.activeToolIDs.join(','))
+    formData.set('text_finetune_enabled', sessionConfig.finetuneEnabled ? 'yes' : '')
+    formData.set('rag_enabled', sessionConfig.ragEnabled ? 'yes' : '')
+    formData.set('rag_distance_function', sessionConfig.ragDistanceFunction)
+    formData.set('rag_threshold', sessionConfig.ragThreshold.toString())
+    formData.set('rag_results_count', sessionConfig.ragResultsCount.toString())
+    formData.set('rag_chunk_size', sessionConfig.ragChunkSize.toString())
+    formData.set('rag_chunk_overflow', sessionConfig.ragChunkOverflow.toString())
+
+    finetuneFiles.forEach((file) => {
+      formData.append("files", file.file)
+      if(labels[file.file.name]) {
+        formData.set(file.file.name, labels[file.file.name])
       }
     })
+
     return formData
   }, [
-    files,
+    inputValue,
+    finetuneFiles,
     labels,
+    sessionConfig,
   ])
 
   const uploadProgressHandler = useCallback((progressEvent: AxiosProgressEvent) => {
@@ -109,9 +142,14 @@ export const useFinetuneInputs = () => {
     const loadedFiles = await bluebird.map(data.files, async file => {
       const loadedFile = await loadFile(file)
       await deleteFile(file)
-      return deserializeFile(loadedFile)
+      const deserializedFile = deserializeFile(loadedFile)
+      const uploadedFile: IUploadFile = {
+        drawerLabel: data.drawerLabels[deserializedFile.name],
+        file: deserializedFile,
+      }
+      return uploadedFile
     })
-    setFiles(loadedFiles)
+    setFinetuneFiles(loadedFiles)
     setLabels(data.labels)
     setFineTuneStep(data.fineTuneStep)
     setManualTextFileCounter(data.manualTextFileCounter)
@@ -119,7 +157,7 @@ export const useFinetuneInputs = () => {
   }, [])
 
   const reset = useCallback(async () => {
-    setFiles([])
+    setFinetuneFiles([])
     setLabels({})
     setFineTuneStep(0)
     setManualTextFileCounter(0)
@@ -131,15 +169,16 @@ export const useFinetuneInputs = () => {
     manualTextFileCounter, setManualTextFileCounter,
     fineTuneStep, setFineTuneStep,
     showImageLabelErrors, setShowImageLabelErrors,
-    files, setFiles,
+    sessionConfig, setSessionConfig,
+    finetuneFiles, setFinetuneFiles,
     labels, setLabels,
     uploadProgress, setUploadProgress,
     serializePage,
     loadFromLocalStorage,
-    setFormData,
+    getFormData,
     uploadProgressHandler,
     reset,
   }
 }
 
-export default useFinetuneInputs
+export default useCreateInputs

@@ -3,25 +3,23 @@ import Button from '@mui/material/Button'
 import AddIcon from '@mui/icons-material/Add'
 import Container from '@mui/material/Container'
 
+import Page from '../components/system/Page'
 import CreateAppWindow from '../components/apps/CreateAppWindow'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
 import AppsTable from '../components/apps/AppsTable'
-import useLayout from '../hooks/useLayout'
+
 import useApps from '../hooks/useApps'
 import useAccount from '../hooks/useAccount'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 
 import {
-  IAppType,
   IApp,
-  APP_TYPE_GITHUB,
 } from '../types'
 
 const Apps: FC = () => {
   const account = useAccount()
   const apps = useApps()
-  const layout = useLayout()
   const snackbar = useSnackbar()
   const {
     params,
@@ -87,43 +85,38 @@ const Apps: FC = () => {
   ])
 
   useEffect(() => {
-    layout.setToolbarRenderer(() => () => {
-      return (
-        <div>
-          <Button
-              variant="contained"
-              color="secondary"
-              endIcon={<AddIcon />}
-              onClick={ () => {
-                setParams({add_app: 'true'})
-              }}
-            >
-              New App
-          </Button>
-        </div>
-        
-      )
-    })
-
-    return () => layout.setToolbarRenderer(undefined)
-  }, [])
-
-  useEffect(() => {
     if(!params.snackbar_message) return
     snackbar.success(params.snackbar_message)
   }, [
     params.snackbar_message,
   ])
 
-  if(!account.user) return null
-
   return (
-    <>
+    <Page
+      topbarTitle="Apps"
+      topbarContent={(
+        <div>
+          <Button
+              variant="contained"
+              color="secondary"
+              endIcon={<AddIcon />}
+              onClick={ () => {
+                if(!account.user) {
+                  account.setShowLoginWindow(true)
+                  return false
+                }
+                setParams({add_app: 'true'})
+              }}
+            >
+              New App
+          </Button>
+        </div>
+      )}
+    >
       <Container
         maxWidth="xl"
         sx={{
-          mt: 12,
-          height: 'calc(100% - 100px)',
+          mb: 4,
         }}
       >
         <AppsTable
@@ -155,7 +148,7 @@ const Apps: FC = () => {
           />
         )
       }
-    </>
+    </Page>
   )
 }
 

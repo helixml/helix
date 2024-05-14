@@ -1,23 +1,24 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, SetStateAction, Dispatch } from 'react'
 
+export type IRagDistanceFunction = 'l2' | 'inner_product' | 'cosine'
 export interface ISessionConfig {
   setFormData: (formData: FormData) => FormData,
   activeToolIDs: string[],
-  setActiveToolIDs: (value: string[]) => void,
+  setActiveToolIDs: Dispatch<SetStateAction<string[]>>,
   finetuneEnabled: boolean,
-  setFinetuneEnabled: (value: boolean) => void,
+  setFinetuneEnabled: Dispatch<SetStateAction<boolean>>,
   ragEnabled: boolean,
-  setRagEnabled: (value: boolean) => void,
-  ragDistanceFunction: 'l2' | 'inner_product' | 'cosine',
-  setRagDistanceFunction: (value: 'l2' | 'inner_product' | 'cosine') => void,
+  setRagEnabled: Dispatch<SetStateAction<boolean>>,
+  ragDistanceFunction: IRagDistanceFunction,
+  setRagDistanceFunction: Dispatch<SetStateAction<IRagDistanceFunction>>,
   ragThreshold: number,
-  setRagThreshold: (value: number) => void,
+  setRagThreshold: Dispatch<SetStateAction<number>>,
   ragResultsCount: number,
-  setRagResultsCount: (value: number) => void,
+  setRagResultsCount: Dispatch<SetStateAction<number>>,
   ragChunkSize: number,
-  setRagChunkSize: (value: number) => void,
+  setRagChunkSize: Dispatch<SetStateAction<number>>,
   ragChunkOverflow: number,
-  setRagChunkOverflow: (value: number) => void,
+  setRagChunkOverflow: Dispatch<SetStateAction<number>>,
 }
 
 export const useSessionConfig = () => {
