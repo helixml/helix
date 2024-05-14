@@ -149,6 +149,10 @@ services:
       context: .
       dockerfile: Dockerfile.gptscript        
     restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - API_HOST=http://api:80
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:

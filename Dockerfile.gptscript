@@ -27,4 +27,4 @@ RUN --mount=type=cache,target=/var/cache/apt apt-get update -qq && apt-get insta
 COPY --from=go-build-env /helix /helix
 
 
-ENTRYPOINT ["/helix", "serve"]
+ENTRYPOINT ["/helix", "gptscript-runner"]
