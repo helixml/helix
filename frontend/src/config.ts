@@ -22,6 +22,10 @@ export const HELIX_TEXT_MODELS: IHelixModel[] = [{
   id: 'helix-json',
   title: 'Helix JSON',
   description: 'Nous Hermes 2 Pro 7B, for function calling & JSON output',
+}, {
+  id: 'helix-small',
+  title: 'Helix Small',
+  description: 'Phi-3 Mini 3.8B, fast and memory efficient',
 }]
 
 export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'
