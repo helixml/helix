@@ -89,7 +89,7 @@ const Tools: FC = () => {
     account.user,
   ])
 
-  if(!account.user) return null
+  // if(!account.user) return null
 
   return (
     <Page

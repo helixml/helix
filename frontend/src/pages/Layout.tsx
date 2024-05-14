@@ -1,6 +1,7 @@
 import React, { FC } from 'react'
 import { useTheme } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
+import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 
@@ -8,6 +9,7 @@ import Sidebar from '../components/system/Sidebar'
 import SessionsMenu from '../components/session/SessionsMenu'
 import Snackbar from '../components/system/Snackbar'
 import GlobalLoading from '../components/system/GlobalLoading'
+import Window from '../components/widgets/Window'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -96,6 +98,31 @@ const Layout: FC = ({
       </Box>
       <Snackbar />
       <GlobalLoading />
+      {
+        account.showLoginWindow && (
+          <Window
+            open
+            size="md"
+            title="Please login to continue"
+            onCancel={ () => {
+              account.setShowLoginWindow(false)
+            }}
+            onSubmit={ () => {
+              account.onLogin()
+            }}
+            withCancel
+            cancelTitle="Cancel"
+            submitTitle="Login / Register"
+          >
+            <Typography gutterBottom>
+              You can login with your Google account or with your email address.
+            </Typography>
+            <Typography>
+              We will keep what you've done here for you, so you may continue where you left off.
+            </Typography>
+          </Window>
+        )
+      }
     </Box>
   )
 }
