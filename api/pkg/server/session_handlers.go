@@ -50,7 +50,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	}
 
 	if startReq.Model == "" {
-		startReq.Model = string(types.Model_Axolotl_Mistral7b)
+		startReq.Model = string(types.Model_Ollama_Llama3_8b)
 	}
 
 	// Default to text
