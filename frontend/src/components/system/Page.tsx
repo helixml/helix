@@ -9,15 +9,18 @@ import useAccount from '../../hooks/useAccount'
 const Page: React.FC<{
   topbarTitle?: string,
   topbarContent?: ReactNode,
+  // in case there is no title or topbar content, but we still want to show the topbar
+  showTopbar?: boolean,
   headerContent?: ReactNode,
   footerContent?: ReactNode,
   px?: number,
   sx?: SxProps,
 }> = ({
-  topbarTitle,
-  topbarContent,
-  headerContent,
-  footerContent,
+  topbarTitle = '',
+  topbarContent = null,
+  showTopbar = false,
+  headerContent = null,
+  footerContent = null,
   px = 3,
   sx = {},
   children,
@@ -33,7 +36,7 @@ const Page: React.FC<{
       }}
     >
       {
-        (topbarTitle || topbarContent) && (
+        (topbarTitle || topbarContent || showTopbar) && (
           <Box
             sx={{
               flexGrow: 0,
