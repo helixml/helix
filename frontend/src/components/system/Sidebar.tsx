@@ -25,6 +25,7 @@ import AppsIcon from '@mui/icons-material/Apps'
 import Brightness7Icon from '@mui/icons-material/Brightness7'
 import Brightness4Icon from '@mui/icons-material/Brightness4'
 
+import SidebarMainLink from './SidebarMainLink'
 import useThemeConfig from '../../hooks/useThemeConfig'
 import useLightTheme from '../../hooks/useLightTheme'
 import useRouter from '../../hooks/useRouter'
@@ -79,63 +80,17 @@ const Sidebar: React.FC<{
         }}
       >
         <List disablePadding>
-          <ListItem disablePadding>
-            <ListItemButton
-              sx={{
-                // so it lines up with the toolbar
-                height: '77px',
-              }}
-              onClick={ () => {
-                navigateTo('home')
-                account.setMobileMenuOpen(false)
-              }}
-            >
-              <ListItemText
-                sx={{
-                  ml: 2,
-                  p: 1,
-                  fontWeight: 'heading',
-                  '&:hover': {
-                    color: themeConfig.darkHighlight,
-                  },
-                }}
-                primary="Home"
-              />
-              <ListItemIcon>
-                <HomeIcon color="primary" />
-              </ListItemIcon>
-            </ListItemButton>
-          </ListItem>
+          <SidebarMainLink
+            routeName="home"
+            title="Home"
+            icon={ <HomeIcon/> }
+          />
           <Divider />
-          <ListItem disablePadding>
-            <ListItemButton
-              sx={{
-                height: '77px',
-                '&:hover': {
-                  '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
-                  '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },
-                },
-              }}
-              onClick={ () => navigateTo('new') }
-            >
-              <ListItemText
-                sx={{
-                  ml: 2,
-                  p: 1,
-                }}
-                primaryTypographyProps={{
-                  sx: {
-                    fontWeight: 'bold',
-                    color: COLORS.GREEN_BUTTON,
-                  }
-                }}
-                primary="New Session"
-              />
-              <ListItemIcon sx={{color: COLORS.GREEN_BUTTON}}>
-                <AddIcon />
-              </ListItemIcon>
-            </ListItemButton>
-          </ListItem>
+          <SidebarMainLink
+            routeName="new"
+            title="New Session"
+            icon={ <AddIcon/> }
+          />
           <Divider />
         </List>
       </Box>
