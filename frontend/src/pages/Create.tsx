@@ -275,7 +275,6 @@ const Create: FC = () => {
 
   return (
     <Page
-      topbarTitle={ mode == SESSION_MODE_FINETUNE ? 'The start of something beautiful' : '' }
       topbarContent={ topbar }
       headerContent={ headerContent }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
