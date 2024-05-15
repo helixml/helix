@@ -10,6 +10,7 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/system"
@@ -61,6 +62,8 @@ func (d *Runner) run(ctx context.Context) error {
 
 	done := make(chan struct{})
 
+	pool := pool.New().WithMaxGoroutines(d.cfg.Concurrency)
+
 	go func() {
 		defer close(done)
 		for {
@@ -74,10 +77,15 @@ func (d *Runner) run(ctx context.Context) error {
 				continue
 			}
 
-			if err := d.processMessage(ctx, conn, message); err != nil {
-				log.Err(err).Msg("failed to process message")
-				return
-			}
+			// process message in a goroutine, if max goroutines are reached
+			// the call will block until a goroutine is available
+			pool.Go(func() {
+				if err := d.processMessage(ctx, conn, message); err != nil {
+					log.Err(err).Msg("failed to process message")
+					return
+				}
+			})
+
 		}
 	}()
 
