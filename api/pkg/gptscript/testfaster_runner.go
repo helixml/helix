@@ -11,10 +11,32 @@ import (
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/helixml/helix/api/pkg/config"
 	testfaster "github.com/helixml/helix/api/pkg/testfaster_client"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
+
+// TestFasterExecutor runs GPTScript scripts on the TestFaster cluster
+type TestFasterExecutor struct {
+	cfg *config.ServerConfig
+}
+
+var _ Executor = &TestFasterExecutor{}
+
+func NewTestFasterExecutor(cfg *config.ServerConfig) *TestFasterExecutor {
+	return &TestFasterExecutor{
+		cfg: cfg,
+	}
+}
+
+func (e *TestFasterExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	return e.runGPTAppTestfaster(ctx, app)
+}
+
+func (e *TestFasterExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+	return e.runGPTScriptTestfaster(ctx, script)
+}
 
 // TODO: delete
 type TestFasterCluster struct {
@@ -63,24 +85,24 @@ systemctl start gptscript.service
 `
 
 // TODO: delete
-func getTestfasterAPIHandler() (*testfaster.HttpApiHandler, error) {
-	if os.Getenv("HELIX_TESTFASTER_URL") == "" {
+func getTestfasterAPIHandler(cfg *config.ServerConfig) (*testfaster.HttpApiHandler, error) {
+	if cfg.GPTScript.TestFaster.URL == "" {
 		return nil, fmt.Errorf("Please set HELIX_TESTFASTER_URL to use remote gptscript execution - join the helix.ml discord for more info")
 	}
-	if os.Getenv("HELIX_TESTFASTER_TOKEN") == "" {
+	if cfg.GPTScript.TestFaster.Token == "" {
 		return nil, fmt.Errorf("Please set HELIX_TESTFASTER_TOKEN to use remote gptscript execution - join the helix.ml discord for more info")
 	}
 
 	apiHandler := testfaster.NewHttpApiHandler(
-		os.Getenv("HELIX_TESTFASTER_URL"),
-		os.Getenv("HELIX_TESTFASTER_TOKEN"),
+		cfg.GPTScript.TestFaster.URL,
+		cfg.GPTScript.TestFaster.Token,
 	)
 
 	return apiHandler, nil
 }
 
 // TODO: delete
-func getTestfasterCluster() (*TestFasterCluster, error) {
+func getTestfasterCluster(cfg *config.ServerConfig) (*TestFasterCluster, error) {
 	// used for iterating on the gptscript server code without
 	// having to keep pushing new testfaster configs
 	// shold be of the form http://localhost:8080
@@ -91,7 +113,7 @@ func getTestfasterCluster() (*TestFasterCluster, error) {
 		}, nil
 	}
 
-	apiHandler, err := getTestfasterAPIHandler()
+	apiHandler, err := getTestfasterAPIHandler(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -152,16 +174,15 @@ func getTestfasterCluster() (*TestFasterCluster, error) {
 	}, nil
 }
 
-// TODO: delete
-func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
-	cluster, err := getTestfasterCluster()
+func (e *TestFasterExecutor) runGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+	cluster, err := getTestfasterCluster(e.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get testfaster cluster: %w", err)
 	}
 
 	defer func() {
 		if cluster.PoolID != "" && cluster.LeaseID != "" {
-			apiHandler, err := getTestfasterAPIHandler()
+			apiHandler, err := getTestfasterAPIHandler(e.cfg)
 			if err != nil {
 				log.Error().Err(err).Msg("failed to release testfaster lease")
 			}
@@ -197,16 +218,15 @@ func RunGPTScriptTestfaster(ctx context.Context, script *types.GptScript) (*type
 	return &result, nil
 }
 
-// TODO: delete
-func RunGPTAppTestfaster(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
-	cluster, err := getTestfasterCluster()
+func (e *TestFasterExecutor) runGPTAppTestfaster(ctx context.Context, app *types.GptScriptGithubApp) (*types.GptScriptResponse, error) {
+	cluster, err := getTestfasterCluster(e.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get testfaster cluster: %w", err)
 	}
 
 	defer func() {
 		if cluster.PoolID != "" && cluster.LeaseID != "" {
-			apiHandler, err := getTestfasterAPIHandler()
+			apiHandler, err := getTestfasterAPIHandler(e.cfg)
 			if err != nil {
 				log.Error().Err(err).Msg("failed to release testfaster lease")
 			}
