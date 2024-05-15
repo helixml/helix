@@ -7,12 +7,15 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/helixml/helix/api/pkg/pubsub"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
-// StartRunnerWebSocketServer starts a WebSocket server
+// StartRunnerWebSocketServer starts a WebSocket server to which GPTScript runners can connect
+// and wait for the tasks to run
 func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Router, path string) {
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
@@ -50,9 +53,10 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 
 		appSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptAppQueue(), "runner", func(reply string, payload []byte) error {
 			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
-				Type:    types.RunnerEventRequestApp,
-				Payload: payload, // The actual payload (GPTScript request)
+				RequestID: system.GenerateRequestID(),
+				Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
+				Type:      types.RunnerEventRequestApp,
+				Payload:   payload, // The actual payload (GPTScript request)
 			})
 			if err != nil {
 				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
@@ -67,9 +71,10 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 
 		toolSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptToolQueue(), "runner", func(reply string, payload []byte) error {
 			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				Reply:   reply, // Runner will need this inbox channel to send messages back to the requestor
-				Type:    types.RunnerEventRequestTool,
-				Payload: payload, // The actual payload (GPTScript request)
+				RequestID: system.GenerateRequestID(),
+				Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
+				Type:      types.RunnerEventRequestTool,
+				Payload:   payload, // The actual payload (GPTScript request)
 			})
 			if err != nil {
 				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
