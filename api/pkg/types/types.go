@@ -1014,9 +1014,10 @@ const (
 )
 
 type RunnerEventRequestEnvelope struct {
-	Payload []byte
-	Type    RunnerEventRequestType
-	Reply   string // Where to send the reply
+	RequestID string
+	Payload   []byte
+	Type      RunnerEventRequestType
+	Reply     string // Where to send the reply
 }
 
 type RunnerEventResponseEnvelope struct {
