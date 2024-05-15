@@ -74,14 +74,10 @@ func (d *Runner) run(ctx context.Context) error {
 				continue
 			}
 
-			start := time.Now()
-
 			if err := d.processMessage(ctx, conn, message); err != nil {
 				log.Err(err).Msg("failed to process message")
 				return
 			}
-
-			log.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 		}
 	}()
 
@@ -143,33 +139,51 @@ func (d *Runner) processMessage(ctx context.Context, conn *websocket.Conn, messa
 }
 
 func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().Str("request_id", req.RequestID).Logger()
+
 	var app types.GptScriptGithubApp
 	if err := json.Unmarshal(req.Payload, &app); err != nil {
+		logger.Err(err).Msgf("failed to unmarshal GPTScript app (%s)", string(req.Payload))
 		return fmt.Errorf("failed to unmarshal GPTScript app (%s): %w", string(req.Payload), err)
 	}
 
-	log.Info().Str("repo", app.Repo).Msg("processing GPTScript app request")
+	logger.Debug().
+		Str("repo", app.Repo).
+		Str("script_input", app.Script.Input).
+		Msg("processing GPTScript app request")
+
+	start := time.Now()
 
 	resp, err := RunGPTAppScript(ctx, &app)
 	if err != nil {
 		return fmt.Errorf("failed to run GPTScript app: %w", err)
 	}
 
+	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
+
 	return d.respond(conn, req.Reply, resp)
 }
 
 func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
+	logger := log.With().Str("request_id", req.RequestID).Logger()
+
 	var script types.GptScript
 	if err := json.Unmarshal(req.Payload, &script); err != nil {
 		return fmt.Errorf("failed to unmarshal GPTScript tool (%s): %w", string(req.Payload), err)
 	}
 
-	log.Info().Str("script_input", script.Input).Msg("processing GPTScript tool request")
+	logger.Debug().
+		Str("script_input", script.Input).
+		Msg("processing GPTScript tool request")
+
+	start := time.Now()
 
 	resp, err := RunGPTScript(ctx, &script)
 	if err != nil {
 		return fmt.Errorf("failed to run GPTScript tool: %w", err)
 	}
+
+	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 
 	return d.respond(conn, req.Reply, resp)
 }
