@@ -23,6 +23,7 @@ type ServerConfig struct {
 	GitHub             GitHub
 	FineTuning         FineTuning
 	Apps               Apps
+	GPTScript          GPTScript
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -251,4 +252,13 @@ type Apps struct {
 	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
 	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
 	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
+}
+
+type GPTScript struct {
+	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
+
+	TestFaster struct {
+		URL   string `envconfig:"HELIX_TESTFASTER_URL" description:"The URL to the testfaster cluster."`
+		Token string `envconfig:"HELIX_TESTFASTER_TOKEN"`
+	}
 }

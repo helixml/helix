@@ -204,7 +204,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	gse := gptscript.NewExecutor(cfg, ps)
+	var gse gptscript.Executor
+
+	if cfg.GPTScript.TestFaster.URL != "" {
+		log.Info().Msg("using firecracker based GPTScript executor")
+		gse = gptscript.NewTestFasterExecutor(cfg)
+	} else {
+		log.Info().Msg("using runner based GPTScript executor")
+		gse = gptscript.NewExecutor(cfg, ps)
+	}
 
 	var appController *controller.Controller
 
