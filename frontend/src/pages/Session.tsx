@@ -7,11 +7,6 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
-import ThumbUpIcon from '@mui/icons-material/ThumbUp'
-import ThumbDownIcon from '@mui/icons-material/ThumbDown'
-import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
-import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
-import ShareIcon from '@mui/icons-material/Share'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'

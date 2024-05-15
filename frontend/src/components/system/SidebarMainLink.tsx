@@ -7,6 +7,7 @@ import ListItemText from '@mui/material/ListItemText'
 
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   COLORS,
@@ -24,14 +25,18 @@ const SidebarMainLink: FC<{
 }) => {
   const account = useAccount()
   const router = useRouter()
+  const isBigScreen = useIsBigScreen()
   const isActive = router.name == routeName
   return (
-    <ListItem disablePadding>
+    <ListItem
+      disablePadding
+      dense={ isBigScreen ? false : true }
+    >
       <ListItemButton
         selected={ isActive }
         sx={{
           // so it lines up with the toolbar
-          height: `${TOOLBAR_HEIGHT}px`,
+          height: isBigScreen ? `${TOOLBAR_HEIGHT}px` : '',
           '&:hover': {
             '.MuiListItemText-root .MuiTypography-root': { color: COLORS.GREEN_BUTTON_HOVER },
             '.MuiListItemIcon-root': { color: COLORS.GREEN_BUTTON_HOVER },

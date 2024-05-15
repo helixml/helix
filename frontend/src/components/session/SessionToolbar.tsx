@@ -397,23 +397,23 @@ export const SessionHeader: FC<{
             )
           }
           
-          </Box>
         </Box>
-      </Cell>
-      {
-        deletingSession && (
-          <DeleteConfirmWindow
-            title={`session ${deletingSession.name}?`}
-            onCancel={() => {
-              setDeletingSession(undefined) 
-            }}
-            onSubmit={() => {
-              onDeleteSessionConfirm(deletingSession.id)
-            }}
-          />
-        )
-      }
-    </Row> 
+      </Box>
+    </Cell>
+    {
+      deletingSession && (
+        <DeleteConfirmWindow
+          title={`session ${deletingSession.name}?`}
+          onCancel={() => {
+            setDeletingSession(undefined) 
+          }}
+          onSubmit={() => {
+            onDeleteSessionConfirm(deletingSession.id)
+          }}
+        />
+      )
+    }
+  </Row> 
   )
 }
 

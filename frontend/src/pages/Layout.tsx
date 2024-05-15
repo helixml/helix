@@ -49,7 +49,7 @@ const Layout: FC = ({
                 backgroundColor: lightTheme.backgroundColor,
                 position: 'relative',
                 whiteSpace: 'nowrap',
-                width: themeConfig.drawerWidth,
+                width: isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth,
                 transition: theme.transitions.create('width', {
                   easing: theme.transitions.easing.sharp,
                   duration: theme.transitions.duration.enteringScreen,

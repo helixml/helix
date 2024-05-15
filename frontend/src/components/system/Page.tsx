@@ -8,6 +8,7 @@ import AppBar from './AppBar'
 import useRouter from '../../hooks/useRouter'
 import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 const Page: React.FC<{
   topbarTitle?: string,
@@ -31,10 +32,11 @@ const Page: React.FC<{
   sx = {},
   children,
 }) => {
+  const isBigScreen = useIsBigScreen()
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
-  const useTopbarTitle = breadcrumbTitle ? (
+  let useTopbarTitle = breadcrumbTitle ? (
     <Box component="span">
       <Link
         component="a"
@@ -47,6 +49,10 @@ const Page: React.FC<{
       >Home</Link>&nbsp;&nbsp;&gt;&nbsp;&nbsp;{breadcrumbTitle}
     </Box>
   ) : topbarTitle
+
+  if(!isBigScreen) {
+    useTopbarTitle = ''
+  }
 
   return (
     <Box
