@@ -1014,13 +1014,14 @@ const (
 )
 
 type RunnerEventRequestEnvelope struct {
-	RequestID string
-	Payload   []byte
-	Type      RunnerEventRequestType
-	Reply     string // Where to send the reply
+	RequestID string                 `json:"request_id"`
+	Payload   []byte                 `json:"payload"`
+	Type      RunnerEventRequestType `json:"type"`
+	Reply     string                 `json:"reply"` // Where to send the reply
 }
 
 type RunnerEventResponseEnvelope struct {
-	Reply   string // Where to send the reply
-	Payload []byte
+	RequestID string `json:"request_id"`
+	Reply     string `json:"reply"` // Where to send the reply
+	Payload   []byte `json:"payload"`
 }

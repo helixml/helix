@@ -13,6 +13,7 @@ const (
 	SessionPrefix             = "ses_"
 	AppPrefix                 = "app_"
 	GptScriptRunnerTaskPrefix = "gst_"
+	RequestPrefix             = "req_"
 )
 
 func GenerateUUID() string {
@@ -36,5 +37,9 @@ func GenerateAppID() string {
 }
 
 func GenerateGptScriptTaskID() string {
-	return fmt.Sprintf("%s%s", AppPrefix, newID())
+	return fmt.Sprintf("%s%s", GptScriptRunnerTaskPrefix, newID())
+}
+
+func GenerateRequestID() string {
+	return fmt.Sprintf("%s%s", RequestPrefix, newID())
 }

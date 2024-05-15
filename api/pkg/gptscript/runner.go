@@ -161,7 +161,7 @@ func (d *Runner) processAppRequest(ctx context.Context, conn *websocket.Conn, re
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 
-	return d.respond(conn, req.Reply, resp)
+	return d.respond(conn, req.RequestID, req.Reply, resp)
 }
 
 func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, req *types.RunnerEventRequestEnvelope) error {
@@ -185,18 +185,19 @@ func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 
 	logger.Info().TimeDiff("duration", time.Now(), start).Msg("message processed")
 
-	return d.respond(conn, req.Reply, resp)
+	return d.respond(conn, req.RequestID, req.Reply, resp)
 }
 
-func (r *Runner) respond(conn *websocket.Conn, reply string, resp interface{}) error {
+func (r *Runner) respond(conn *websocket.Conn, reqID, reply string, resp interface{}) error {
 	bts, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
 
 	env := types.RunnerEventResponseEnvelope{
-		Reply:   reply,
-		Payload: bts,
+		RequestID: reqID,
+		Reply:     reply,
+		Payload:   bts,
 	}
 
 	bts, err = json.Marshal(env)
