@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/avast/retry-go/v4"
@@ -63,6 +64,9 @@ func (d *Runner) run(ctx context.Context) error {
 	done := make(chan struct{})
 
 	pool := pool.New().WithMaxGoroutines(d.cfg.Concurrency)
+	var ops atomic.Uint64
+
+	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
 		defer close(done)
@@ -83,6 +87,12 @@ func (d *Runner) run(ctx context.Context) error {
 				if err := d.processMessage(ctx, conn, message); err != nil {
 					log.Err(err).Msg("failed to process message")
 					return
+				}
+				ops.Add(1)
+
+				// cancel context if max tasks are reached
+				if d.cfg.MaxTasks > 0 && ops.Load() >= uint64(d.cfg.MaxTasks) {
+					cancel()
 				}
 			})
 
