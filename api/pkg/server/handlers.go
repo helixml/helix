@@ -264,10 +264,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	createRequest := types.CreateSessionRequest{
-		SessionID:               sessionID,
-		SessionMode:             sessionMode,
+		ID:                      sessionID,
+		Mode:                    sessionMode,
 		Stream:                  true,
-		SessionType:             sessionType,
+		Type:                    sessionType,
 		ModelName:               modelName,
 		Owner:                   reqContext.User.ID,
 		OwnerType:               reqContext.User.Type,
@@ -291,7 +291,11 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 }
 
 func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
-	return apiServer.getDataEntityFromForm(req)
+	entity, err := apiServer.getDataEntityFromForm(req)
+	if err != nil {
+		return nil, err
+	}
+	return apiServer.Store.CreateDataEntity(getRequestContext(req).Ctx, entity)
 }
 
 func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {

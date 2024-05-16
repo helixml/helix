@@ -69,6 +69,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	if startReq.LoraDir != "" {
 		// Basic validation on the lora dir path, it should be something like
 		// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
+		// this works for both session based file paths and data entity based file paths
 		ownerContext := types.OwnerContext{
 			Owner:     userContext.User.ID,
 			OwnerType: userContext.User.Type,
@@ -99,9 +100,9 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 
 		sessionID := system.GenerateSessionID()
 		newSession := types.CreateSessionRequest{
-			SessionID:        sessionID,
-			SessionMode:      types.SessionModeInference,
-			SessionType:      startReq.Type,
+			ID:               sessionID,
+			Mode:             types.SessionModeInference,
+			Type:             startReq.Type,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
