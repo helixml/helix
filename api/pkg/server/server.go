@@ -90,11 +90,12 @@ func NewServer(
 	}
 
 	return &HelixAPIServer{
-		Cfg:        cfg,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
+		Cfg:               cfg,
+		Store:             store,
+		Stripe:            stripe,
+		Controller:        controller,
+		Janitor:           janitor,
+		gptScriptExecutor: gptScriptExecutor,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,

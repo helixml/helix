@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -48,44 +49,49 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			Str("action", "🟢 GPTScript runner connected").
 			Msgf("connected runner websocket: %s\n", runnerID)
 
-		// TODO: switch to synchronous
-		// subscriptions https://docs.nats.io/using-nats/developer/receiving/sync
+			// TODO: switch to synchronous
+			// subscriptions https://docs.nats.io/using-nats/developer/receiving/sync
 
-		appSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptAppQueue(), "runner", func(reply string, payload []byte) error {
-			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				RequestID: system.GenerateRequestID(),
-				Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
-				Type:      types.RunnerEventRequestApp,
-				Payload:   payload, // The actual payload (GPTScript request)
+		p := pool.New().WithContext(ctx)
+
+		p.Go(func(ctx context.Context) error {
+			err = apiServer.pubsub.SynchronousSubscribe(ctx, pubsub.GetGPTScriptAppQueue(), "runner", func(reply string, payload []byte) error {
+				err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
+					RequestID: system.GenerateRequestID(),
+					Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
+					Type:      types.RunnerEventRequestApp,
+					Payload:   payload, // The actual payload (GPTScript request)
+				})
+				if err != nil {
+					log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
+				}
+				return err
 			})
 			if err != nil {
-				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
+				log.Error().Msgf("Error subscribing to GPTScript app queue: %s", err.Error())
 			}
 			return err
 		})
-		if err != nil {
-			log.Error().Msgf("Error subscribing to GPTScript app queue: %s", err.Error())
-			return
-		}
-		defer appSub.Unsubscribe()
 
-		toolSub, err := apiServer.pubsub.QueueSubscribe(ctx, pubsub.GetGPTScriptToolQueue(), "runner", func(reply string, payload []byte) error {
-			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
-				RequestID: system.GenerateRequestID(),
-				Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
-				Type:      types.RunnerEventRequestTool,
-				Payload:   payload, // The actual payload (GPTScript request)
+		p.Go(func(ctx context.Context) error {
+			err := apiServer.pubsub.SynchronousSubscribe(ctx, pubsub.GetGPTScriptToolQueue(), "runner", func(reply string, payload []byte) error {
+				err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
+					RequestID: system.GenerateRequestID(),
+					Reply:     reply, // Runner will need this inbox channel to send messages back to the requestor
+					Type:      types.RunnerEventRequestTool,
+					Payload:   payload, // The actual payload (GPTScript request)
+				})
+				if err != nil {
+					log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
+				}
+				return err
 			})
 			if err != nil {
-				log.Error().Msgf("Error writing to GPTScript runner websocket: %s", err.Error())
+				log.Error().Msgf("Error subscribing to GPTScript tools queue: %s", err.Error())
 			}
 			return err
 		})
-		if err != nil {
-			log.Error().Msgf("Error subscribing to GPTScript tools queue: %s", err.Error())
-			return
-		}
-		defer toolSub.Unsubscribe()
+		defer p.Wait()
 
 		// Block reads in order to detect disconnects
 		for {
