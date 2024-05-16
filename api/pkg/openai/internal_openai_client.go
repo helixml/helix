@@ -165,9 +165,9 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 	}
 
 	createSessionReq := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      types.SessionTypeText,
+		ID:               sessionID,
+		Mode:             sessionMode,
+		Type:             types.SessionTypeText,
 		Stream:           req.Stream,
 		ModelName:        types.ModelName(req.Model),
 		Owner:            c.cfg.Providers.Helix.OwnerID,

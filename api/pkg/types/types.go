@@ -161,6 +161,8 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
+// this is the incoming REST api struct sent from the outside world
+// we turn this into a CreateSessionRequest
 type SessionChatRequest struct {
 	SessionID    string      `json:"session_id"` // If empty, we will start a new session
 	Stream       bool        `json:"stream"`     // If true, we will stream the response
@@ -205,6 +207,35 @@ type MessageContent struct {
 	// 		"what is in the image?"
 	// ]
 	Parts []any `json:"parts"`
+}
+
+// this is the internal struct used to manage session creation
+type CreateSessionRequest struct {
+	ID                      string      `json:"session_id"` // If empty, we will start a new session
+	Stream                  bool        `json:"stream"`     // If true, we will stream the response
+	Mode                    SessionMode `json:"mode"`       // e.g. inference, finetune
+	Type                    SessionType `json:"type"`       // e.g. text, image
+	SystemPrompt            string      `json:"system"`     // System message, only applicable when starting a new session
+	LoraDir                 string      `json:"lora_dir"`
+	ParentSession           string
+	ParentApp               string
+	ModelName               ModelName
+	Owner                   string
+	OwnerType               OwnerType
+	UserInteractions        []*Interaction
+	Priority                bool
+	ManuallyReviewQuestions bool
+	RagEnabled              bool
+	TextFinetuneEnabled     bool
+	RagSettings             SessionRagSettings
+	ActiveTools             []string
+	ResponseFormat          ResponseFormat
+}
+
+type UpdateSessionRequest struct {
+	SessionID       string
+	UserInteraction *Interaction
+	SessionMode     SessionMode
 }
 
 type Session struct {
@@ -516,34 +547,6 @@ type ServerConfigForFrontend struct {
 	AppsEnabled             bool   `json:"apps_enabled"`
 	RudderStackWriteKey     string `json:"rudderstack_write_key"`
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
-}
-
-type CreateSessionRequest struct {
-	SessionID               string
-	SessionMode             SessionMode
-	SessionType             SessionType
-	SystemPrompt            string // System message
-	Stream                  bool
-	ParentSession           string
-	ParentApp               string
-	ModelName               ModelName
-	Owner                   string
-	OwnerType               OwnerType
-	UserInteractions        []*Interaction
-	Priority                bool
-	ManuallyReviewQuestions bool
-	RagEnabled              bool
-	TextFinetuneEnabled     bool
-	RagSettings             SessionRagSettings
-	ActiveTools             []string
-	LoraDir                 string
-	ResponseFormat          ResponseFormat
-}
-
-type UpdateSessionRequest struct {
-	SessionID       string
-	UserInteraction *Interaction
-	SessionMode     SessionMode
 }
 
 // a short version of a session that we keep for the dashboard

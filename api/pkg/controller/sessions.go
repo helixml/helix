@@ -32,7 +32,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Creator:        types.CreatorTypeSystem,
-		Mode:           req.SessionMode,
+		Mode:           req.Mode,
 		Message:        "",
 		Files:          []string{},
 		State:          types.InteractionStateWaiting,
@@ -48,11 +48,11 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 	}
 
 	newSession := types.Session{
-		ID:            req.SessionID,
+		ID:            req.ID,
 		Name:          system.GenerateAmusingName(),
 		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
+		Type:          req.Type,
+		Mode:          req.Mode,
 		ParentSession: req.ParentSession,
 		ParentApp:     req.ParentApp,
 		LoraDir:       req.LoraDir,
@@ -63,7 +63,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
 			Stream:       req.Stream,
-			OriginalMode: req.SessionMode,
+			OriginalMode: req.Mode,
 			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
@@ -88,7 +88,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 		if err != nil {
 			log.
 				Err(err).
-				Str("session_id", req.SessionID).
+				Str("session_id", req.ID).
 				Msg("failed to get sessions")
 			return nil, fmt.Errorf("failed to get sessions: %w", err)
 		}
