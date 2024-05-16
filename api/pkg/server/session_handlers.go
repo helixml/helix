@@ -49,14 +49,22 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	if startReq.Model == "" {
-		startReq.Model = string(types.Model_Ollama_Llama3_8b)
-	}
-
 	// Default to text
 	if startReq.Type == "" {
 		startReq.Type = types.SessionTypeText
 	}
+
+	// Default to inference
+	if startReq.Mode == "" {
+		startReq.Mode = types.SessionModeInference
+	}
+
+	model, err := types.ProcessModelName(startReq.Model, startReq.Mode, startReq.Type, startReq.LoraDir != "")
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	startReq.Model = model.String()
 
 	if startReq.LoraDir != "" {
 		// Basic validation on the lora dir path, it should be something like
@@ -78,9 +86,6 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 				http.StatusBadRequest)
 			return
 		}
-
-		// Enforcing model
-		startReq.Model = types.Model_Axolotl_Mistral7b.String()
 	}
 
 	var cfg *startSessionConfig

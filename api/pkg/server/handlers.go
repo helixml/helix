@@ -290,6 +290,10 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	return sessionData, nil
 }
 
+func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
+	return apiServer.getDataEntityFromForm(req)
+}
+
 func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
 	session, httpError := apiServer.sessionLoader(req, true)
 	if httpError != nil {

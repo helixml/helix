@@ -107,20 +107,30 @@ const Create: FC = () => {
       totalBytes: 0,
       uploadedBytes: 0,
     })
+
+    const uploadedFiles = inputs.getUploadedFiles()
     const formData = inputs.getFormData(mode, type, model)
-    const session = await api.post('/api/v1/sessions', formData, {
+
+    const dataEntity = await api.post('/api/v1/data_entities', uploadedFiles, {
       onUploadProgress: inputs.uploadProgressHandler,
     })
-    inputs.setUploadProgress(undefined)
-    if(!session) {
-      return
-    }
-    tracking.emitEvent({
-      name: eventName,
-      session,
-    })
-    await sessions.loadSessions()
-    router.navigate('session', {session_id: session.id})
+
+    console.log('--------------------------------------------')
+    console.dir(dataEntity)
+
+    // const session = await api.post('/api/v1/sessions', formData, {
+    //   onUploadProgress: inputs.uploadProgressHandler,
+    // })
+    // inputs.setUploadProgress(undefined)
+    // if(!session) {
+    //   return
+    // }
+    // tracking.emitEvent({
+    //   name: eventName,
+    //   session,
+    // })
+    // await sessions.loadSessions()
+    // router.navigate('session', {session_id: session.id})
   }
 
   const onStartTextFinetune = async () => {

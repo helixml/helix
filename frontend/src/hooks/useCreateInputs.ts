@@ -47,6 +47,8 @@ export interface IFinetuneInputs {
   loadFromLocalStorage: () => Promise<void>,
   setFormData: (formData: FormData) => FormData,
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
+  getFormData: (mode: ISessionMode, type: ISessionType, model: string) => FormData,
+  getUploadedFiles: () => FormData,
   reset: () => Promise<void>,
 }
 
@@ -118,6 +120,20 @@ export const useCreateInputs = () => {
     sessionConfig,
   ])
 
+  const getUploadedFiles = useCallback((): FormData => {
+    const formData = new FormData()
+    finetuneFiles.forEach((file) => {
+      formData.append("files", file.file)
+      if(labels[file.file.name]) {
+        formData.set(file.file.name, labels[file.file.name])
+      }
+    })
+    return formData
+  }, [
+    finetuneFiles,
+    labels,
+  ])
+
   const uploadProgressHandler = useCallback((progressEvent: AxiosProgressEvent) => {
     const percent = progressEvent.total && progressEvent.total > 0 ?
       Math.round((progressEvent.loaded * 100) / progressEvent.total) :
@@ -176,6 +192,7 @@ export const useCreateInputs = () => {
     serializePage,
     loadFromLocalStorage,
     getFormData,
+    getUploadedFiles,
     uploadProgressHandler,
     reset,
   }
