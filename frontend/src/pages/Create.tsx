@@ -54,7 +54,8 @@ import {
   COLORS,
 } from '../config'
 
-const PADDING_X = 6
+const PADDING_X_LARGE = 6
+const PADDING_X_SMALL = 4
 
 const Create: FC = () => {
   const router = useRouter()
@@ -75,6 +76,7 @@ const Create: FC = () => {
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
+  const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
@@ -155,7 +157,7 @@ const Create: FC = () => {
     type,
   ])
 
-  const topbar = isBigScreen ? (
+  const topbar = (
     <Toolbar
       mode={ mode }
       type={ type }
@@ -164,13 +166,16 @@ const Create: FC = () => {
       onSetMode={ mode => router.setParams({mode}) }
       onSetModel={ model => router.setParams({model}) }
     />
-  ) : (
-    // this is required so it shows the topbar with drawer open button
-    <Box />
   )
 
   const inferenceFooter = (
-    <Box sx={{ px: isBigScreen ? PADDING_X : 0, mt: 3 }}>
+    <Box
+      sx={{
+        px: PADDING_X,
+        pt: 3,
+        borderTop: isBigScreen ? '' : lightTheme.border,
+      }}
+    >
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           type={ type }
@@ -305,9 +310,21 @@ const Create: FC = () => {
       />
     </Box>
   )
+  
+  return (
+    <Page
+      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
+      topbarContent={ topbar }
+      footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
+      px={ PADDING_X }
+      sx={{
+        backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+        backgroundSize: '80%',
+        backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
 
-  const pageContent = isBigScreen ? (
-    <>
       {
         mode == SESSION_MODE_FINETUNE && (
           <Box
@@ -327,15 +344,13 @@ const Create: FC = () => {
       {
         mode == SESSION_MODE_INFERENCE && (
           <Row
-            sx={{
-              height: '100%',
-            }}
             vertical
             center
           >
             <Cell
               sx={{
                 pt: 4,
+                px: PADDING_X,
               }}
             >
               <CenterMessage
@@ -348,6 +363,7 @@ const Create: FC = () => {
               sx={{
                 px: PADDING_X,
                 py: 2,
+                maxWidth: '900px'
               }}
             >
               <ExamplePrompts
@@ -372,166 +388,6 @@ const Create: FC = () => {
       {
         finetuneLabelImagesForm
       }
-    </>
-  ) : (
-    <>
-      <Box
-        sx={{
-          px: PADDING_X,
-          mt: 2,
-        }}
-      >
-        <Typography
-          sx={{
-            textAlign: 'center',
-            fontWeight: 'bold',
-            mt: 3,
-            mb: 3,
-          }}
-          className="interactionMessage"
-        >
-          Choose the settings for your new session:
-        </Typography>
-        {/* <Box
-          sx={{
-            width: '100%',
-            display: 'flex',
-            justifyContent: 'center',
-            mb: 2,
-          }}
-        >
-          <Box>
-            <SessionTypeSwitch
-              type={ type }
-              cellWidth={ 100 }
-              onSetType={ type => router.setParams({type}) }
-            />
-          </Box>
-        </Box> */}
-        <Box
-          sx={{
-            width: '100%',
-            display: 'flex',
-            justifyContent: 'center',
-            mb: 2,
-          }}
-        >
-          <Box>
-            <SessionTypeButton
-              type={ type }
-              onSetType={ type => router.setParams({type}) }
-            />
-          </Box>
-        </Box>
-        <Box
-          sx={{
-            width: '100%',
-            display: 'flex',
-            justifyContent: 'center',
-            mb: 2,
-          }}
-        >
-          <Box>
-            <SessionModeButton
-              mode={ mode }
-              onSetMode={ mode => router.setParams({mode}) }
-            />
-          </Box>
-        </Box>
-        {
-          mode == SESSION_MODE_INFERENCE && type == SESSION_TYPE_TEXT && (
-            <Box
-              sx={{
-                width: '100%',
-                display: 'flex',
-                justifyContent: 'center',
-                mb: 2,
-              }}
-            >
-              <Box>
-                <ModelPicker
-                  model={ model }
-                  onSetModel={ model => router.setParams({model}) }
-                />
-              </Box>
-            </Box>
-            
-          )
-        }
-        
-        {
-          mode == SESSION_MODE_INFERENCE && inferenceFooter
-        }
-
-        <Box
-          sx={{
-            width: '100%',
-            display: 'flex',
-            justifyContent: 'center',
-            mb: 2,
-            mt: 4,
-          }}
-        >
-          <Box>
-            <Button
-              variant="outlined"
-              color="primary"
-              endIcon={ <ConstructionIcon /> }
-              onClick={ () => setShowConfigWindow(true) }
-            >
-              Settings
-            </Button>
-          </Box>
-        </Box>
-
-        {
-          mode == SESSION_MODE_INFERENCE && (
-            <ExamplePrompts
-              type={ type }
-              onChange={ (prompt) => {
-                inputs.setInputValue(prompt)
-              }}
-            />
-          )
-        }
-        
-      </Box>
-      <Box
-        sx={{
-          mb: 2,
-        }}
-      >
-        {
-          finetuneAddDocumentsForm
-        }
-
-        {
-          finetuneAddImagesForm
-        }
-
-        {
-          finetuneLabelImagesForm
-        }
-      </Box>
-
-    </>
-  )
-
-  return (
-    <Page
-      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
-      topbarContent={ topbar }
-      footerContent={ mode == SESSION_MODE_INFERENCE ? ( isBigScreen && inferenceFooter ) : finetuneFooter }
-      px={ PADDING_X }
-      sx={{
-        backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
-        backgroundSize: '80%',
-        backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
-        backgroundRepeat: 'no-repeat',
-      }}
-    >
-
-      { pageContent }
       
       {
         showConfigWindow && (
