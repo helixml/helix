@@ -68,6 +68,11 @@ func (d *Runner) run(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 
+	log.Info().
+		Int("concurrency", d.cfg.Concurrency).
+		Int("max_tasks", d.cfg.MaxTasks).
+		Msg("🟢 starting task processing")
+
 	go func() {
 		defer close(done)
 		for {
