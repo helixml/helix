@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -85,4 +86,34 @@ func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, handler 
 	}
 
 	return sub, nil
+}
+
+func (n *Nats) SynchronousSubscribe(ctx context.Context, topic, queue string, handler func(reply string, payload []byte) error) error {
+	sub, err := n.conn.SubscribeSync(topic)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to topic %s: %w", topic, err)
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// Wait for a message
+			msg, err := sub.NextMsg(10 * time.Second)
+			if err != nil {
+				if errors.Is(err, nats.ErrTimeout) {
+					continue
+				}
+				return fmt.Errorf("failed to get next message: %w", err)
+			}
+
+			// Handle message (in script runner case this writes the message into the websocket connection)
+			err = handler(msg.Reply, msg.Data)
+			if err != nil {
+				log.Err(err).Msg("error handling message")
+			}
+		}
+	}
 }
