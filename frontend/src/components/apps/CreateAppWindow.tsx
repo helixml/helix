@@ -187,8 +187,8 @@ export const CreateAppWindow: FC<{
                             <Typography gutterBottom variant="body1" component="div">
                               If you click "Connect Repo" - we will:
                               <ul>
-                                <li>Generate a key pair and upload the public key to the repo</li>
-                                <li>Create a new web-hook on the repo</li>
+                                <li>Add our public key to the repo so we can read the code</li>
+                                <li>Setup a webhook so we know when you push changes</li>
                               </ul>
                             </Typography>
                             <Typography gutterBottom variant="body1">
@@ -205,7 +205,7 @@ export const CreateAppWindow: FC<{
                                 setActiveRepo('')
                               }}
                             >
-                              Change Repo
+                              Back
                             </Button>
                             &nbsp;
                             <Button
