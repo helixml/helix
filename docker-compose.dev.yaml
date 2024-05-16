@@ -154,7 +154,7 @@ services:
       - API_HOST=http://api:80
       - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
       - CONCURRENCY=20 # number of tasks to run concurrently
-      - MAX_TASKS=100  # max number of tasks to run before exiting
+      - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
     depends_on:
       - api      
   dev_gpu_runner:
