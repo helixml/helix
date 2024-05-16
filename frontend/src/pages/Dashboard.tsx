@@ -13,7 +13,7 @@ import Interaction from '../components/session/Interaction'
 import Window from '../components/widgets/Window'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import SessionSummary from '../components/session/SessionSummary'
-import SessionHeader from '../components/session/SessionHeader'
+import SessionToolbar from '../components/session/SessionToolbar'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 import SessionBadgeKey from '../components/session/SessionBadgeKey'
@@ -275,7 +275,7 @@ const Dashboard: FC = () => {
                 cancelTitle="Close"
                 onCancel={ onCloseViewingSession }
               >  
-                <SessionHeader
+                <SessionToolbar
                   session={ viewingSession }
                 />
                 {

@@ -4,24 +4,31 @@ import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
 
+import ConstructionIcon from '@mui/icons-material/Construction'
+
 import Page from '../components/system/Page'
 import Toolbar from '../components/create/Toolbar'
 import ConfigWindow from '../components/create/ConfigWindow'
-import SessionTypeTabs from '../components/create/SessionTypeTabs'
-import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
+
 import CenterMessage from '../components/create/CenterMessage'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import InferenceTextField from '../components/create/InferenceTextField'
 import Disclaimer from '../components/widgets/Disclaimer'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
-import Window from '../components/widgets/Window'
 
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
 import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
+import ModelPicker from '../components/create/ModelPicker'
+
+import SessionModeSwitch from '../components/create/SessionModeSwitch'
+import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
+import SessionTypeTabs from '../components/create/SessionTypeTabs'
+import SessionTypeButton from '../components/create/SessionTypeButton'
+import SessionModeButton from '../components/create/SessionModeButton'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
@@ -31,6 +38,7 @@ import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
 import useTracking from '../hooks/useTracking'
 import useSessions from '../hooks/useSessions'
+import useIsBigScreen from '../hooks/useIsBigScreen'
 
 import {
   ISessionMode,
@@ -42,12 +50,12 @@ import {
 } from '../types'
 
 import {
-  DEFAULT_SESSION_CONFIG,
   HELIX_DEFAULT_TEXT_MODEL,
   COLORS,
 } from '../config'
 
-const PADDING_X = 6
+const PADDING_X_LARGE = 6
+const PADDING_X_SMALL = 4
 
 const Create: FC = () => {
   const router = useRouter()
@@ -58,6 +66,7 @@ const Create: FC = () => {
   const api = useApi()
   const tracking = useTracking()
   const sessions = useSessions()
+  const isBigScreen = useIsBigScreen()
 
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
@@ -67,6 +76,7 @@ const Create: FC = () => {
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
+  const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
@@ -158,37 +168,21 @@ const Create: FC = () => {
     />
   )
 
-  const headerContent = mode == SESSION_MODE_FINETUNE && (
+  const inferenceFooter = (
     <Box
       sx={{
-        mt: 3,
         px: PADDING_X,
+        pt: 3,
+        borderTop: isBigScreen ? '' : lightTheme.border,
       }}
     >
-      <SessionTypeTabs
-        type={ type }
-        onSetType={ type => router.setParams({type}) }
-      />
-    </Box>
-  )
-
-  const inferenceFooter = (
-    <Box sx={{ px: PADDING_X }}>
-      <Box sx={{ mb: 3 }}>
-        <ExamplePrompts
-          type={ type }
-          onChange={ (prompt) => {
-            inputs.setInputValue(prompt)
-          }}
-        />
-      </Box>
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           type={ type }
           value={ inputs.inputValue }
           disabled={ mode == SESSION_MODE_FINETUNE }
-          startAdornment={(
-            <SessionTypeSwitch
+          startAdornment={ isBigScreen && (
+            <SessionTypeButton
               type={ type }
               onSetType={ type => router.setParams({type}) }
             />
@@ -273,33 +267,73 @@ const Create: FC = () => {
     </Box>
   )
 
+  const finetuneAddDocumentsForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_TEXT && (
+    <Box
+      sx={{
+        pt: 2,
+        px: PADDING_X,
+      }}
+    >
+      <AddDocumentsForm
+        files={ inputs.finetuneFiles }
+        onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+      />
+    </Box>
+  )
+
+  const finetuneAddImagesForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'upload' && (
+    <Box
+      sx={{
+        pt: 2,
+        px: PADDING_X,
+      }}
+    >
+      <AddImagesForm
+        files={ inputs.finetuneFiles }
+        onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+      />
+    </Box>
+  )
+
+  const finetuneLabelImagesForm = mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' && (
+    <Box
+      sx={{
+        pt: 2,
+        px: PADDING_X,
+      }}
+    >
+      <LabelImagesForm
+        files={ inputs.finetuneFiles }
+        labels={ inputs.labels }
+        showEmptyErrors={ showImageLabelsEmptyError }
+        onSetLabels={ inputs.setLabels }
+      />
+    </Box>
+  )
+  
   return (
     <Page
       breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
       topbarContent={ topbar }
-      headerContent={ headerContent }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }
       sx={{
         backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
         backgroundSize: '80%',
-        backgroundPosition: mode == SESSION_MODE_INFERENCE ? 'center center' : `center ${window.innerHeight - 280}px`,
+        backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
         backgroundRepeat: 'no-repeat',
       }}
     >
 
       {
-        mode == SESSION_MODE_INFERENCE && (
+        mode == SESSION_MODE_FINETUNE && (
           <Box
             sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              pt: 10,
+              mt: 3,
+              px: PADDING_X,
             }}
           >
-            <CenterMessage
+            <SessionTypeTabs
               type={ type }
               onSetType={ type => router.setParams({type}) }
             />
@@ -308,55 +342,53 @@ const Create: FC = () => {
       }
 
       {
-        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_TEXT && (
-          <Box
-            sx={{
-              pt: 2,
-              px: PADDING_X,
-            }}
+        mode == SESSION_MODE_INFERENCE && (
+          <Row
+            vertical
+            center
           >
-            <AddDocumentsForm
-              files={ inputs.finetuneFiles }
-              onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
-            />
-          </Box>
+            <Cell
+              sx={{
+                pt: 4,
+                px: PADDING_X,
+              }}
+            >
+              <CenterMessage
+                type={ type }
+                onSetType={ type => router.setParams({type}) }
+              />
+            </Cell>
+            <Cell grow />
+            <Cell
+              sx={{
+                px: PADDING_X,
+                py: 2,
+                maxWidth: '900px'
+              }}
+            >
+              <ExamplePrompts
+                type={ type }
+                onChange={ (prompt) => {
+                  inputs.setInputValue(prompt)
+                }}
+              />
+            </Cell>
+          </Row>
         )
       }
 
       {
-        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'upload' && (
-          <Box
-            sx={{
-              pt: 2,
-              px: PADDING_X,
-            }}
-          >
-            <AddImagesForm
-              files={ inputs.finetuneFiles }
-              onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
-            />
-          </Box>
-        )
+        finetuneAddDocumentsForm
       }
 
       {
-        mode == SESSION_MODE_FINETUNE && type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' && (
-          <Box
-            sx={{
-              pt: 2,
-              px: PADDING_X,
-            }}
-          >
-            <LabelImagesForm
-              files={ inputs.finetuneFiles }
-              labels={ inputs.labels }
-              showEmptyErrors={ showImageLabelsEmptyError }
-              onSetLabels={ inputs.setLabels }
-            />
-          </Box>
-        )
+        finetuneAddImagesForm
       }
 
+      {
+        finetuneLabelImagesForm
+      }
+      
       {
         showConfigWindow && (
           <ConfigWindow

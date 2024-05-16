@@ -5,6 +5,7 @@ const DEFAULT_THEME_NAME = 'helix'
 
 export interface ITheme {
   drawerWidth: number,
+  smallDrawerWidth: number,
   company: string,
   url: string,
   primary: string,
@@ -64,6 +65,7 @@ export interface ITheme {
 export const THEMES: Record<string, ITheme> = {
   helix: {
     drawerWidth: 320,
+    smallDrawerWidth: 240,
     company: 'Helix',
     url: 'https://tryhelix.ai/',
     // primary: '#5d5d7b',

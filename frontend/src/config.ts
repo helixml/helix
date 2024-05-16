@@ -3,6 +3,8 @@ import {
   ICreateSessionConfig,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  SESSION_MODE_INFERENCE,
+  SESSION_MODE_FINETUNE,
   ISessionType,
 } from './types'
 
@@ -63,6 +65,11 @@ export const EXAMPLE_PROMPTS = {
 export const PROMPT_LABELS = {
   [SESSION_TYPE_TEXT]: 'Chat with Helix...',
   [SESSION_TYPE_IMAGE]: 'Describe what you want to see in an image...',
+}
+
+export const MODE_LABELS = {
+  [SESSION_MODE_INFERENCE]: 'Inference',
+  [SESSION_MODE_FINETUNE]: 'Fine Tune',
 }
 
 export const COLORS = {
