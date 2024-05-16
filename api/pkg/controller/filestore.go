@@ -44,6 +44,10 @@ func GetSessionFolder(sessionID string) string {
 	return filepath.Join("sessions", sessionID)
 }
 
+func GetDataEntityFolder(ID string) string {
+	return filepath.Join("data", ID)
+}
+
 func GetInteractionInputsFolder(sessionID string, interactionID string) string {
 	return filepath.Join(GetSessionFolder(sessionID), "inputs", interactionID)
 }

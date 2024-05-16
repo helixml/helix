@@ -28,6 +28,26 @@ const (
 	Model_Ollama_Phi3 ModelName = "phi3:instruct"
 )
 
+// if no model is provided then what do we default to?
+var DefaultModels = map[SessionType]map[SessionMode]ModelName{
+	SessionTypeText: {
+		SessionModeInference: Model_Ollama_Llama3_8b,
+		SessionModeFinetune:  Model_Ollama_Mistral7b,
+	},
+	SessionTypeImage: {
+		SessionModeInference: Model_Cog_SDXL,
+		SessionModeFinetune:  Model_Cog_SDXL,
+	},
+}
+
+var ModelAliases = map[string]ModelName{
+	"helix-4":    Model_Ollama_Llama3_70b,
+	"helix-3.5":  Model_Ollama_Llama3_8b,
+	"helix-code": Model_Ollama_CodeLlama,
+	"helix-json": Model_Ollama_NousHermes2ProLlama3,
+	"helix-phi3": Model_Ollama_Phi3,
+}
+
 func NewModel(name string) ModelName {
 	return ModelName(name)
 }
@@ -49,4 +69,28 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	// All model names are valid for now.
 	return ModelName(modelName), nil
+}
+
+// this will handle aliases and defaults
+func ProcessModelName(
+	modelName string,
+	sessionMode SessionMode,
+	sessionType SessionType,
+	hasFinetune bool,
+) (ModelName, error) {
+	// fine tuning doesn't work with ollama yet
+	if sessionType == SessionTypeText && hasFinetune {
+		return Model_Axolotl_Mistral7b, nil
+	}
+
+	if modelName != "" {
+		// check for aliases
+		aliasedModel, ok := ModelAliases[modelName]
+		if ok {
+			return aliasedModel, nil
+		}
+		return ValidateModelName(modelName, false)
+	} else {
+		return DefaultModels[sessionType][sessionMode], nil
+	}
 }
