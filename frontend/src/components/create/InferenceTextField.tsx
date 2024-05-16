@@ -7,6 +7,7 @@ import SendIcon from '@mui/icons-material/Send'
 
 import useLightTheme from '../../hooks/useLightTheme'
 import useEnterPress from '../../hooks/useEnterPress'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   ISessionType,
@@ -30,6 +31,7 @@ const InferenceTextField: FC<{
   onInference,
 }) => {
   const lightTheme = useLightTheme()
+  const isBigScreen = useIsBigScreen()
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const handleKeyDown = useEnterPress({
     value,
@@ -53,7 +55,7 @@ const InferenceTextField: FC<{
       fullWidth
       inputRef={ textFieldRef }
       autoFocus
-      label={ `${PROMPT_LABELS[type]} (shift+enter to add a newline)` }
+      label={ isBigScreen ? `${PROMPT_LABELS[type]} (shift+enter to add a newline)` : '' }
       value={ value }
       disabled={ disabled }
       onChange={ handleInputChange }
@@ -61,6 +63,9 @@ const InferenceTextField: FC<{
       multiline={ true }
       onKeyDown={ handleKeyDown }
       InputProps={{
+        sx: {
+          backgroundColor: lightTheme.backgroundColor,
+        },
         startAdornment: startAdornment ? (
           <InputAdornment position="start">
             { startAdornment }

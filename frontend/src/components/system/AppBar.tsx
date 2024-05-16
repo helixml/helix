@@ -67,7 +67,7 @@ const AppBar: React.FC<{
                   edge="start"
                   onClick={ onOpenDrawer }
                   sx={{
-                    mx: .5,
+                    mr: 1,
                   }}
                 >
                   <MenuIcon />

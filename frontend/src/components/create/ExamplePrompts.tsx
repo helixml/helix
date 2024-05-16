@@ -26,9 +26,8 @@ const ExamplePrompts: FC<{
 
   const examplePrompts = useMemo(() => {
     const usePrompts = EXAMPLE_PROMPTS[type] || []
-    return usePrompts.sort(() => Math.random() - 0.5).slice(0, isBigScreen ? 3 : 2)
+    return usePrompts.sort(() => Math.random() - 0.5).slice(0, 3)
   }, [
-    isBigScreen,
     type,
   ])
   
@@ -44,7 +43,7 @@ const ExamplePrompts: FC<{
       </Typography>
       <Grid container spacing={2}>
         {examplePrompts.map((prompt, index) => (
-          <Grid item xs={12} sm={4} key={index}>
+          <Grid item xs={12} sm={12} md={12} lg={4} key={index}>
             <Box
               sx={{
                 width: '100%',
@@ -55,6 +54,7 @@ const ExamplePrompts: FC<{
                 padding: 1.5,
                 fontSize: 'small',
                 lineHeight: 1.4,
+                backgroundColor: `${lightTheme.isLight ? '#ADD8E630' : '#000020A0'}`
               }}
               onClick={() => onChange(prompt)}
             >

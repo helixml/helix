@@ -25,9 +25,7 @@ const Home: FC = () => {
       <Container
         maxWidth="xl"
         sx={{
-          // mt: 12,
-          pt: 3,
-          height: 'calc(100% - 100px)',
+          py: 3,
         }}
       >
         <Box>

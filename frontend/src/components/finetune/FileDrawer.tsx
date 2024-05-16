@@ -17,6 +17,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import FileIcon from './FileIcon'
 
 import useLightTheme from '../../hooks/useLightTheme'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
 import {
   IUploadFile,
@@ -34,6 +35,7 @@ export const FileDrawer: FC<{
   onClose,
 }) => {
   const lightTheme = useLightTheme()
+  const isBigScreen = useIsBigScreen()
   
   return (
     <Drawer
@@ -41,16 +43,19 @@ export const FileDrawer: FC<{
       open={ open }
       onClose={ onClose }
       sx={{
+        
         '& .MuiDrawer-paper': {
           backgroundColor: lightTheme.backgroundColor,
           overflowY: 'auto',
+          width: '50%',
+          minWidth: '100px',
+          maxWidth: '300px',
         },
       }}
      >
       <Box
         sx={{
-          width: '50vh', 
-          maxWidth: '100%', 
+          width: '100%',
         }}
         role="presentation"
       >
@@ -122,11 +127,15 @@ export const FileDrawer: FC<{
                       </Box>
                     }
                   >
-                    <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
-                      <FileIcon
-                        name={file.file.name}
-                      />
-                    </ListItemIcon>
+                    {
+                      isBigScreen && (
+                        <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
+                          <FileIcon
+                            name={file.file.name}
+                          />
+                        </ListItemIcon>
+                      )
+                    }
                     <ListItemText
                       primary={ file.drawerLabel }
                       sx={{

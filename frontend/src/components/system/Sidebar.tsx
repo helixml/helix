@@ -113,7 +113,7 @@ const Sidebar: React.FC<{
           flexGrow: 0,
           width: '100%',
           backgroundColor: lightTheme.backgroundColor,
-          mt: 2,
+          mt: 0,
           p: 2,
         }}
       >

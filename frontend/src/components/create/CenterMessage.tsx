@@ -2,7 +2,7 @@ import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 
-import SessionTypeSwitch from './SessionTypeSwitch'
+import SessionTypeButton from './SessionTypeButton'
 
 import useLightTheme from '../../hooks/useLightTheme'
 
@@ -23,16 +23,11 @@ const CenterMessage: FC<{
     <Box
       sx={{
         textAlign: 'left',
-        zIndex: 2, // Ensure it's above other elements
         border: lightTheme.border,
         borderRadius: 3, // Rounded corners
         padding: {
           xs: 2,
           md: 4,
-        },
-        mt: {
-          xs: 0,
-          md: 13,
         },
         backgroundColor: `${lightTheme.isLight ? '#ADD8E630' : '#000020A0'}`
       }}
@@ -62,7 +57,7 @@ const CenterMessage: FC<{
         <Box component="ul" sx={{pl:2, pr: 1, pt:1, mx: .5, my:0, lineHeight: 1.1 }}>
           <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Generate new content based on your prompt</Box>
           <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Click
-            <SessionTypeSwitch
+            <SessionTypeButton
               type={ type }
               onSetType={ onSetType }
             />

@@ -37,8 +37,13 @@ import useSessions from '../../hooks/useSessions'
 import useSnackbar from '../../hooks/useSnackbar'
 import useLoading from '../../hooks/useLoading'
 import useAccount from '../../hooks/useAccount'
+import useIsBigScreen from '../../hooks/useIsBigScreen'
 
-export const SessionHeader: FC<{
+import {
+  TOOLBAR_HEIGHT,
+} from '../../config'
+
+export const SessionToolbar: FC<{
   session: ISession,
   onReload?: () => void,
   onOpenMobileMenu?: () => void,
@@ -57,6 +62,7 @@ export const SessionHeader: FC<{
   const theme = useTheme()
   const themeConfig = useThemeConfig()
   const account = useAccount()
+  const isBigScreen = useIsBigScreen()
 
   const isOwner = account.user?.id === session.owner
 
@@ -114,7 +120,7 @@ export const SessionHeader: FC<{
   return (
     <Row
       sx={{
-        height: '78px',
+        height: `${TOOLBAR_HEIGHT}px`,
       }}
     >
       <IconButton
@@ -123,7 +129,7 @@ export const SessionHeader: FC<{
         edge="start"
         color="inherit"
         aria-label="menu"
-        sx={{ mr: 2, display: { sm: 'block', md: 'none' } }}
+        sx={{ mr: 2, display: { sm: 'block', lg: 'none' } }}
       >
         <MenuIcon />
       </IconButton>
@@ -233,177 +239,100 @@ export const SessionHeader: FC<{
           />
         )}
       </Cell>
-      <Cell>
-      <Box sx={{ display: { xs: 'block', sm: 'flex' }, alignItems: 'center' }}>
-      <IconButton
-            aria-label="session actions"
-            aria-controls="session-menu"
-            aria-haspopup="true"
-            onClick={(e) => setAnchorEl(e.currentTarget)}
-            sx={{ display: { xs: 'inline', sm: 'none' } }}
-          >
-            <MoreVertIcon />
-          </IconButton>
-          <Menu
-            id="session-menu"
-            anchorEl={anchorEl}
-            keepMounted
-            open={Boolean(anchorEl)}
-            onClose={() => setAnchorEl(null)}
-            sx={{ display: { xs: 'block', sm: 'none' } }}
-          >
-            <MenuItem onClick={(e) => {
-              e.preventDefault()
-              navigate('files', {
-                path: `/sessions/${session?.id}`
-              })
-              setAnchorEl(null)
-            }}>
-              <ListItemIcon>
-                <FolderOpenIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
-            </MenuItem>
-            <JsonWindowLink data={session}>
-              <MenuItem>
-                <ListItemIcon>
-                  <InfoIcon />
-                </ListItemIcon>
-                <ListItemText primary="Show Info" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
-              </MenuItem>
-            </JsonWindowLink>
-            <MenuItem onClick={(e) => {
-              e.preventDefault()
-              setDeletingSession(session)
-              setAnchorEl(null)
-            }}>
-              <ListItemIcon>
-                <DeleteIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
-            </MenuItem>
-            {isOwner && (
-              <MenuItem onClick={(e) => {
-                e.preventDefault()
-                onShare()
-                setAnchorEl(null)
-              }}>
-                <ListItemIcon>
-                  <ShareIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
-              </MenuItem>
-            )}
-          </Menu>
-  
-        <Box sx={{ display: { xs: 'block', sm: 'flex' }, alignItems: 'center' }}>
-          {/* "Share Session" is the first item if `isOwner` is true */}
-          {isOwner && (
-            <Cell>
-              <Tooltip title="Share Session">
-                <IconButton
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onShare();
-                  }}
-                  size="small"
-                  sx={{
-                    color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                    '&:hover': {
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                    },
-                  }}
-                >
-                  <ShareIcon />
-                </IconButton>
-              </Tooltip>
-            </Cell>
-          )}
-        
-          {/* The rest of the icons follow */}
-          <Cell>
-            <Tooltip title="Files">
-              <IconButton
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate('files', {
-                    path: `/sessions/${session?.id}`
-                  });
-                }}
-                size="small"
-                sx={{
-                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                  '&:hover': {
-                    color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                  },
-                }}
-              >
-                <FolderOpenIcon />
-              </IconButton>
-            </Tooltip>
-          </Cell>
-          <Cell>
-            <JsonWindowLink data={session}>
-              <Tooltip title="Show Info">
-                <IconButton
-                  size="small"
-                  sx={{
-                    color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                    '&:hover': {
-                      color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
-                    },
-                  }}
-                >
-                  <InfoIcon />
-                </IconButton>
-              </Tooltip>
-            </JsonWindowLink>
-          </Cell>
-          <Cell>
-            <Tooltip title="Delete Session">
-              <IconButton
-                onClick={(e) => {
-                  e.preventDefault();
-                  setDeletingSession(session);
-                }}
-                size="small"
-                sx={{
-                  color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
-                  '&:hover': {
-                    color: theme.palette.mode === 'light' ? '#FF0000' : '#FF0000',
-                  },
-                }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </Cell>
-          
-                  {
-                    deletingSession && (
-                      <DeleteConfirmWindow
-                        title={`session ${deletingSession.name}?`}
-                        onCancel={ () => {
-                          setDeletingSession(undefined) 
-                        }}
-                        onSubmit={ () => {
-                          onDeleteSessionConfirm(deletingSession.id)
-                        }}
-                      />
-                    )
-                  }
-                  
-                  </Box>
-                </Box>
+      {
+        isBigScreen ? (
+          <Box sx={{ alignItems: 'center' }}>
+            <Row>
+              {/* "Share Session" is the first item if `isOwner` is true */}
+              {isOwner && (
+                <Cell>
+                  <Tooltip title="Share Session">
+                    <IconButton
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onShare();
+                      }}
+                      size="small"
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        },
+                      }}
+                    >
+                      <ShareIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Cell>
+              )}
+            
+              {/* The rest of the icons follow */}
+              <Cell>
+                <Tooltip title="Files">
+                  <IconButton
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate('files', {
+                        path: `/sessions/${session?.id}`
+                      });
+                    }}
+                    size="small"
+                    sx={{
+                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      '&:hover': {
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                      },
+                    }}
+                  >
+                    <FolderOpenIcon />
+                  </IconButton>
+                </Tooltip>
               </Cell>
+              <Cell>
+                <JsonWindowLink data={session}>
+                  <Tooltip title="Show Info">
+                    <IconButton
+                      size="small"
+                      sx={{
+                        color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                        '&:hover': {
+                          color: theme.palette.mode === 'light' ? themeConfig.lightIconHover : themeConfig.darkIconHover,
+                        },
+                      }}
+                    >
+                      <InfoIcon />
+                    </IconButton>
+                  </Tooltip>
+                </JsonWindowLink>
+              </Cell>
+              <Cell>
+                <Tooltip title="Delete Session">
+                  <IconButton
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setDeletingSession(session);
+                    }}
+                    size="small"
+                    sx={{
+                      color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
+                      '&:hover': {
+                        color: theme.palette.mode === 'light' ? '#FF0000' : '#FF0000',
+                      },
+                    }}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </Tooltip>
+              </Cell>
+              
               {
                 deletingSession && (
                   <DeleteConfirmWindow
                     title={`session ${deletingSession.name}?`}
-                    onCancel={() => {
+                    onCancel={ () => {
                       setDeletingSession(undefined) 
                     }}
-                    onSubmit={() => {
+                    onSubmit={ () => {
                       onDeleteSessionConfirm(deletingSession.id)
                     }}
                   />
@@ -411,9 +340,87 @@ export const SessionHeader: FC<{
               }
             </Row>
             
-          )
-        }
-        
-        export default SessionHeader
+          </Box>
+        ) : (
+          <>
+            <IconButton
+              aria-label="session actions"
+              aria-controls="session-menu"
+              aria-haspopup="true"
+              onClick={(e) => setAnchorEl(e.currentTarget)}
+            >
+              <MoreVertIcon />
+            </IconButton>
+            <Menu
+              id="session-menu"
+              anchorEl={anchorEl}
+              keepMounted
+              open={Boolean(anchorEl)}
+              onClose={() => setAnchorEl(null)}
+            >
+              <MenuItem onClick={(e) => {
+                e.preventDefault()
+                navigate('files', {
+                  path: `/sessions/${session?.id}`
+                })
+                setAnchorEl(null)
+              }}>
+                <ListItemIcon>
+                  <FolderOpenIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Files" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+              </MenuItem>
+              {/* <JsonWindowLink data={session}>
+                <MenuItem>
+                  <ListItemIcon>
+                    <InfoIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Show Info" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                </MenuItem>
+              </JsonWindowLink> */}
+              <MenuItem onClick={(e) => {
+                e.preventDefault()
+                setDeletingSession(session)
+                setAnchorEl(null)
+              }}>
+                <ListItemIcon>
+                  <DeleteIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Delete Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+              </MenuItem>
+              {isOwner && (
+                <MenuItem onClick={(e) => {
+                  e.preventDefault()
+                  onShare()
+                  setAnchorEl(null)
+                }}>
+                  <ListItemIcon>
+                    <ShareIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Share Session" sx={{ color: theme.palette.mode === 'light' ? themeConfig.lightText : themeConfig.darkText }} />
+                </MenuItem>
+              )}
+            </Menu>
+          </>
+        )
+      }
+      {
+        deletingSession && (
+          <DeleteConfirmWindow
+            title={`session ${deletingSession.name}?`}
+            onCancel={() => {
+              setDeletingSession(undefined) 
+            }}
+            onSubmit={() => {
+              onDeleteSessionConfirm(deletingSession.id)
+            }}
+          />
+        )
+      }
+    </Row> 
+  )
+}
+
+export default SessionToolbar
         
         

@@ -31,7 +31,7 @@ const Layout: FC = ({
     <Box
       id="root-container"
       sx={{
-        height: '100vh',
+        height: '100%',
         display: 'flex',
       }}
       component="div"
@@ -44,12 +44,12 @@ const Layout: FC = ({
             open={ isBigScreen || account.mobileMenuOpen }
             onClose={ () => account.setMobileMenuOpen(false) }
             sx={{
-              height: '100vh',
+              height: '100%',
               '& .MuiDrawer-paper': {
                 backgroundColor: lightTheme.backgroundColor,
                 position: 'relative',
                 whiteSpace: 'nowrap',
-                width: themeConfig.drawerWidth,
+                width: isBigScreen ? themeConfig.drawerWidth : themeConfig.smallDrawerWidth,
                 transition: theme.transitions.create('width', {
                   easing: theme.transitions.easing.sharp,
                   duration: theme.transitions.duration.enteringScreen,
@@ -79,7 +79,7 @@ const Layout: FC = ({
             return lightTheme.backgroundColor
           },
           flexGrow: 1,
-          height: '100vh',
+          height: '100%',
           display: 'flex',
           flexDirection: 'column',
         }}
