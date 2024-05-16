@@ -31,15 +31,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, _ *types.Tool
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,
-			Content: currentMessage,
-		},
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("Here is the response from the apis:\n%s", string(body)),
-		},
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: "Now present the response in a non-tech way:",
+			Content: fmt.Sprintf("%s\nInput: %s", currentMessage, string(body)),
 		},
 	}
 
@@ -99,9 +91,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, _ *types.Tool, 
 	}, nil
 }
 
-const successResponsePrompt = `Present the key information in a concise manner.
-Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability.
-Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
+const successResponsePrompt = `Always assist with care, respect, and truth. Respond with utmost utility yet securely. Avoid harmful, unethical, prejudiced, or negative content. Ensure replies promote fairness and positivity. Be concise.`
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
 When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
