@@ -875,21 +875,21 @@ type GptScriptResponse struct {
 	Error  string `json:"error"`
 }
 
-type EntityConfig struct {
+type DataEntityConfig struct {
 	FilestorePath string `json:"filestore_path"`
 }
 
-func (m EntityConfig) Value() (driver.Value, error) {
+func (m DataEntityConfig) Value() (driver.Value, error) {
 	j, err := json.Marshal(m)
 	return j, err
 }
 
-func (t *EntityConfig) Scan(src interface{}) error {
+func (t *DataEntityConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
 		return errors.New("type assertion .([]byte) failed.")
 	}
-	var result EntityConfig
+	var result DataEntityConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
@@ -897,20 +897,24 @@ func (t *EntityConfig) Scan(src interface{}) error {
 	return nil
 }
 
-func (EntityConfig) GormDataType() string {
+func (DataEntityConfig) GormDataType() string {
 	return "json"
 }
 
-type Entity struct {
-	ID      string     `json:"id" gorm:"primaryKey"`
-	Created time.Time  `json:"created"`
-	Updated time.Time  `json:"updated"`
-	Name    string     `json:"name"`
-	Type    EntityType `json:"type"`
+type DataEntity struct {
+	ID      string         `json:"id" gorm:"primaryKey"`
+	Created time.Time      `json:"created"`
+	Updated time.Time      `json:"updated"`
+	Name    string         `json:"name"`
+	Type    DataEntityType `json:"type"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType OwnerType `json:"owner_type"`
 	// some datasets are parents to others for example
 	// a folder of files can be the source of a RAG dataset
 	// or a qapairs dataset - a qapairs dataset can be the source
 	// of a lora dataset.
-	ParentEntity string       `json:"parent_entity"`
-	Config       EntityConfig `json:"config" gorm:"jsonb"`
+	ParentDataEntity string           `json:"parent_entity"`
+	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
 }
