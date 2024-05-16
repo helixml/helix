@@ -7,6 +7,7 @@ import LoginIcon from '@mui/icons-material/Login'
 import Cell from '../widgets/Cell'
 import Row from '../widgets/Row'
 import SessionModeSwitch from './SessionModeSwitch'
+import SessionModeDropdown from './SessionModeDropdown'
 import ModelPicker from './ModelPicker'
 
 import useIsBigScreen from '../../hooks/useIsBigScreen'
@@ -59,10 +60,19 @@ const CreateToolbar: FC<{
         </IconButton>
       </Cell>
       <Cell>
-        <SessionModeSwitch
-          mode={ mode }
-          onSetMode={ onSetMode }
-        />
+        {
+          bigScreen ? (
+            <SessionModeSwitch
+              mode={ mode }
+              onSetMode={ onSetMode }
+            />
+          ) : (
+            <SessionModeDropdown
+              mode={ mode }
+              onSetMode={ onSetMode }
+            />
+          )
+        }
       </Cell>
       <Cell>
         {

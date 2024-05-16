@@ -11,8 +11,7 @@ import SendIcon from '@mui/icons-material/Send'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
 import Disclaimer from '../components/widgets/Disclaimer'
-import SessionHeader from '../components/session/SessionHeader'
-import SessionButtons from '../components/session/SessionButtons'
+import SessionToolbar from '../components/session/SessionToolbar'
 import ShareSessionWindow from '../components/session/ShareSessionWindow'
 import AddFilesWindow from '../components/session/AddFilesWindow'
 
@@ -477,7 +476,7 @@ const Session: FC = () => {
       >
         {
           (isOwner || account.admin) && (
-            <SessionHeader
+            <SessionToolbar
               session={ session.data }
               onReload={ session.reload }
               onOpenMobileMenu={ () => account.setMobileMenuOpen(true) }
