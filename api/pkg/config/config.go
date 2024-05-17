@@ -18,6 +18,7 @@ type ServerConfig struct {
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
+	PubSub             PubSub
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
 	GitHub             GitHub
@@ -173,6 +174,10 @@ type FileStore struct {
 	GCSKeyBase64 string              `envconfig:"FILESTORE_GCS_KEY_BASE64" description:"The base64 encoded service account json file for GCS."`
 	GCSKeyFile   string              `envconfig:"FILESTORE_GCS_KEY_FILE" description:"The local path to the service account json file for GCS."`
 	GCSBucket    string              `envconfig:"FILESTORE_GCS_BUCKET" description:"The bucket we are storing things in GCS."`
+}
+
+type PubSub struct {
+	StoreDir string `envconfig:"NATS_STORE_DIR" default:"/filestore/nats" description:"The directory to store nats data."`
 }
 
 type Store struct {
