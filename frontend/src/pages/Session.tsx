@@ -7,6 +7,10 @@ import Container from '@mui/material/Container'
 import Box from '@mui/material/Box'
 
 import SendIcon from '@mui/icons-material/Send'
+import ThumbUpOnIcon from '@mui/icons-material/ThumbUp'
+import ThumbUpOffIcon from '@mui/icons-material/ThumbUpOffAlt'
+import ThumbDownOnIcon from '@mui/icons-material/ThumbDownAlt'
+import ThumbDownOffIcon from '@mui/icons-material/ThumbDownOffAlt'
 
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import Interaction from '../components/session/Interaction'
@@ -593,7 +597,7 @@ const Session: FC = () => {
                       }, `Thank you for your feedback!`)
                     }}
                   >
-                    {/* { session.data?.config.eval_user_score == "1.0" ? <ThumbUpIcon /> : <ThumbUpOffIcon /> } */}
+                    { session.data?.config.eval_user_score == "1.0" ? <ThumbUpOnIcon /> : <ThumbUpOffIcon /> }
                   </Button>
                   <Button
                     onClick={ () => {
@@ -602,7 +606,7 @@ const Session: FC = () => {
                       }, `Sorry! We will use your feedback to improve`)
                     }}
                   >
-                    {/* { session.data?.config.eval_user_score == "0.0" ? <ThumbDownIcon /> : <ThumbDownOffIcon /> } */}
+                    { session.data?.config.eval_user_score == "0.0" ? <ThumbDownOnIcon /> : <ThumbDownOffIcon /> }
                   </Button>
                 </Box>
                 {

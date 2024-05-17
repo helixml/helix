@@ -251,11 +251,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
 
-	// Helix create session route
-	authRouter.HandleFunc("/sessions/chat", apiServer.startSessionHandler).Methods("POST")
+	// Helix inference route
+	authRouter.HandleFunc("/sessions/chat", apiServer.startChatSessionHandler).Methods("POST")
+
+	// Helix learn route (i.e. create fine tune and/or RAG source)
+	authRouter.HandleFunc("/sessions/learn", apiServer.startLearnSessionHandler).Methods("POST")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
-	authRouter.HandleFunc("/sessions/old", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
+	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
 
 	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
 	subRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")

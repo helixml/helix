@@ -222,6 +222,41 @@ func (apiServer *HelixAPIServer) getUserInteractionFromForm(
 	}, nil
 }
 
+// given a data entity that is the uploaded files from a user
+// return a user interaction that is the old style of interaction
+// that has files inside
+// TODO: we won't need this once we have data entity pipelines
+func (apiServer *HelixAPIServer) getUserInteractionFromDataEntity(
+	dataEntity *types.DataEntity,
+	ownerContext types.OwnerContext,
+) (*types.Interaction, error) {
+	filePaths := []string{}
+	dataEntityPath := controller.GetDataEntityFolder(dataEntity.ID)
+	files, err := apiServer.Controller.FilestoreList(ownerContext, dataEntityPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range files {
+		filePaths = append(filePaths, file.Path)
+	}
+
+	return &types.Interaction{
+		ID:             system.GenerateUUID(),
+		Created:        time.Now(),
+		Updated:        time.Now(),
+		Scheduled:      time.Now(),
+		Completed:      time.Now(),
+		Creator:        types.CreatorTypeUser,
+		Mode:           types.SessionModeFinetune,
+		Files:          filePaths,
+		State:          types.InteractionStateComplete,
+		Finished:       true,
+		Metadata:       map[string]string{},
+		DataPrepChunks: map[string][]types.DataPrepChunk{},
+	}, nil
+}
+
 func (apiServer *HelixAPIServer) convertFilestorePath(ctx context.Context, sessionID string, filePath string) (string, types.OwnerContext, error) {
 	session, err := apiServer.Store.GetSession(ctx, sessionID)
 	if err != nil {

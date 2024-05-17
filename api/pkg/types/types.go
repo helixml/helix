@@ -162,8 +162,10 @@ type SessionsList struct {
 }
 
 // this is the incoming REST api struct sent from the outside world
-// we turn this into a CreateSessionRequest
+// the user wants to do inference against a model
+// we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
+	AppID        string      `json:"app_id"`     // Assign the session settings from the specified app
 	SessionID    string      `json:"session_id"` // If empty, we will start a new session
 	Stream       bool        `json:"stream"`     // If true, we will stream the response
 	Mode         SessionMode `json:"mode"`       // e.g. inference, finetune
@@ -173,6 +175,22 @@ type SessionChatRequest struct {
 	Messages     []*Message  `json:"messages"` // Initial messages
 	Tools        []string    `json:"tools"`    // Available tools to use in the session
 	Model        string      `json:"model"`    // The model to use
+}
+
+// the user wants to create a Lora or RAG source
+// we turn this into a InternalSessionRequest
+type SessionLearnRequest struct {
+	Type SessionType `json:"type"` // e.g. text, image
+	// FINE-TUNE MODE ONLY
+	DataEntityID string `json:"data_entity_id"` // The uploaded files we want to use for fine-tuning and/or RAG
+	// Do we want to create a RAG data entity from this session?
+	// You must provide a data entity ID for the uploaded documents if yes
+	RagEnabled bool `json:"rag_enabled"`
+	// Do we want to create a lora output from this session?
+	// You must provide a data entity ID for the uploaded documents if yes
+	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
+	// The settings we use for the RAG source
+	RagSettings SessionRagSettings `json:"rag_settings"`
 }
 
 type Message struct {
@@ -210,13 +228,13 @@ type MessageContent struct {
 }
 
 // this is the internal struct used to manage session creation
-type CreateSessionRequest struct {
-	ID                      string      `json:"session_id"` // If empty, we will start a new session
-	Stream                  bool        `json:"stream"`     // If true, we will stream the response
-	Mode                    SessionMode `json:"mode"`       // e.g. inference, finetune
-	Type                    SessionType `json:"type"`       // e.g. text, image
-	SystemPrompt            string      `json:"system"`     // System message, only applicable when starting a new session
-	LoraDir                 string      `json:"lora_dir"`
+type InternalSessionRequest struct {
+	ID                      string
+	Stream                  bool
+	Mode                    SessionMode
+	Type                    SessionType
+	SystemPrompt            string
+	LoraDir                 string
 	ParentSession           string
 	ParentApp               string
 	ModelName               ModelName
