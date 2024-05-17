@@ -362,7 +362,6 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		return session, 0, nil
 	}
 
-	// like this
 	// create a new data entity that is the RAG source
 	ragDataEntity, err := c.Options.Store.CreateDataEntity(context.Background(), &types.DataEntity{
 		ID:        system.GenerateUUID(),

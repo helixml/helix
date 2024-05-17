@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -27,26 +28,6 @@ const (
 
 	Model_Ollama_Phi3 ModelName = "phi3:instruct"
 )
-
-// if no model is provided then what do we default to?
-var DefaultModels = map[SessionType]map[SessionMode]ModelName{
-	SessionTypeText: {
-		SessionModeInference: Model_Ollama_Llama3_8b,
-		SessionModeFinetune:  Model_Axolotl_Mistral7b,
-	},
-	SessionTypeImage: {
-		SessionModeInference: Model_Cog_SDXL,
-		SessionModeFinetune:  Model_Cog_SDXL,
-	},
-}
-
-var ModelAliases = map[string]ModelName{
-	"helix-4":    Model_Ollama_Llama3_70b,
-	"helix-3.5":  Model_Ollama_Llama3_8b,
-	"helix-code": Model_Ollama_CodeLlama,
-	"helix-json": Model_Ollama_NousHermes2ProLlama3,
-	"helix-phi3": Model_Ollama_Phi3,
-}
 
 func NewModel(name string) ModelName {
 	return ModelName(name)
@@ -78,19 +59,39 @@ func ProcessModelName(
 	sessionType SessionType,
 	hasFinetune bool,
 ) (ModelName, error) {
-	// fine tuning doesn't work with ollama yet
-	if sessionType == SessionTypeText && hasFinetune {
-		return Model_Axolotl_Mistral7b, nil
+	switch sessionType {
+	case SessionTypeText:
+		if sessionType == SessionTypeText && hasFinetune {
+			// fine tuning doesn't work with ollama yet
+			return Model_Axolotl_Mistral7b, nil
+		}
+
+		// switch based on user toggle
+		switch modelName {
+		case "helix-4":
+			return Model_Ollama_Llama3_70b, nil
+		case "helix-3.5":
+			return Model_Ollama_Llama3_8b, nil
+		case "helix-mixtral":
+			return Model_Ollama_Mixtral, nil
+		case "helix-json":
+			return Model_Ollama_NousHermes2ProLlama3, nil // TODO: change to Theta after merging main
+		case "helix-small":
+			return Model_Ollama_Phi3, nil
+		default:
+			if modelName == "" {
+				// default text model for non-finetune inference
+				return Model_Ollama_Llama3_8b, nil
+			} else {
+				// allow user-provided model name (e.g. assume API users
+				// know what they're doing)
+				return ValidateModelName(modelName, false)
+			}
+		}
+	case SessionTypeImage:
+		return Model_Cog_SDXL, nil
 	}
 
-	if modelName != "" {
-		// check for aliases
-		aliasedModel, ok := ModelAliases[modelName]
-		if ok {
-			return aliasedModel, nil
-		}
-		return ValidateModelName(modelName, false)
-	} else {
-		return DefaultModels[sessionType][sessionMode], nil
-	}
+	// shouldn't get here
+	return "", fmt.Errorf("don't know what model to provide for args %v %v %v", sessionMode, sessionType, hasFinetune)
 }
