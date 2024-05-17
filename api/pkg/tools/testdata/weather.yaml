@@ -27,7 +27,7 @@ servers:
 security:
 - app_id: []
 
-# Path Defination for API
+# Path Definition for API
 
 paths:
   /weather:
