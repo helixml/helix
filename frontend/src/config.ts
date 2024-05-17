@@ -17,13 +17,13 @@ export const HELIX_TEXT_MODELS: IHelixModel[] = [{
   title: 'Helix 4',
   description: 'Llama3 70B, smarter but a bit slower',
 }, {
-  id: 'helix-code',
-  title: 'Helix Code',
-  description: 'CodeLlama 70B from Meta, better than GPT-4 at code',
+  id: 'helix-mixtral',
+  title: 'Helix Mixtral',
+  description: 'Mistral 8x7B MoE, we rely on this for some use cases',
 }, {
   id: 'helix-json',
   title: 'Helix JSON',
-  description: 'Nous Hermes 2 Pro 7B, for function calling & JSON output',
+  description: 'Nous-Hermes 2 Theta, for function calling & JSON output',
 }, {
   id: 'helix-small',
   title: 'Helix Small',
