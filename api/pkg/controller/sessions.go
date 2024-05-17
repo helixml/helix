@@ -81,6 +81,11 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 		},
 	}
 
+	// if we have a rag source ID then it also means rag is enabled (for inference)
+	if newSession.Metadata.RAGSourceID != "" {
+		newSession.Metadata.RagEnabled = true
+	}
+
 	if c.Options.Config.SubscriptionQuotas.Enabled && newSession.Mode == types.SessionModeFinetune {
 		// Check for max concurrent finetuning sessions
 		var currentlyRunningFinetuneSessions int
