@@ -245,7 +245,7 @@ type InternalSessionRequest struct {
 	SystemPrompt            string
 	LoraDir                 string
 	ParentSession           string
-	ParentApp               string
+	ParentApp               string // tools will get pulled in from here in the controller
 	ModelName               ModelName
 	Owner                   string
 	OwnerType               OwnerType

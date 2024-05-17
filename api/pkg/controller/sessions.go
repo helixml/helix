@@ -848,7 +848,25 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 
 			// only notify the user that the fine tune was completed if there was not an error
 			if taskResponse.Error == "" {
-				err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+
+				// create a new data entity that is the RAG source
+				loraDataEntity, err := c.Options.Store.CreateDataEntity(context.Background(), &types.DataEntity{
+					ID:        system.GenerateUUID(),
+					Created:   time.Now(),
+					Updated:   time.Now(),
+					Type:      types.DataEntityTypeLora,
+					Owner:     session.Owner,
+					OwnerType: session.OwnerType,
+					Config: types.DataEntityConfig{
+						FilestorePath: taskResponse.LoraDir,
+					},
+				})
+				if err != nil {
+					return nil, err
+				}
+				session.Metadata.LoraID = loraDataEntity.ID
+
+				err = c.Options.Notifier.Notify(ctx, &notification.Notification{
 					Event:   notification.EventFinetuningComplete,
 					Session: session,
 				})

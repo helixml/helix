@@ -191,6 +191,17 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			newSession.RAGSettings = ragSource.Config.RAGSettings
 		}
 
+		// we need to load the lora source and apply the lora settings to the session
+		if newSession.LoraID != "" {
+			loraSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.LoraID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			newSession.LoraDir = loraSource.Config.FilestorePath
+		}
+
 		fmt.Printf("newSession --------------------------------------\n")
 		spew.Dump(newSession)
 		// we are still in the old frontend mode where it's listening to the websocket
