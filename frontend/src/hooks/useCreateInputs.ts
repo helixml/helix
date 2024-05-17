@@ -8,6 +8,7 @@ import {
   IUploadFile,
   ISerializedPage,
   ICreateSessionConfig,
+  ISessionLearnRequest,
 } from '../types'
 
 import {
@@ -48,6 +49,7 @@ export interface IFinetuneInputs {
   setFormData: (formData: FormData) => FormData,
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
   getFormData: (mode: ISessionMode, type: ISessionType, model: string) => FormData,
+  getSessionLearnRequest: (type: ISessionType, data_entity_id: string) => ISessionLearnRequest,
   getUploadedFiles: () => FormData,
   reset: () => Promise<void>,
 }
@@ -117,6 +119,26 @@ export const useCreateInputs = () => {
     inputValue,
     finetuneFiles,
     labels,
+    sessionConfig,
+  ])
+
+  const getSessionLearnRequest = useCallback((type: ISessionType, data_entity_id: string): ISessionLearnRequest => {
+    const req: ISessionLearnRequest = {
+      type,
+      data_entity_id,
+      text_finetune_enabled: sessionConfig.finetuneEnabled,
+      rag_enabled: sessionConfig.ragEnabled,
+      rag_settings: {
+        distance_function: sessionConfig.ragDistanceFunction,
+        threshold: sessionConfig.ragThreshold,
+        results_count: sessionConfig.ragResultsCount,
+        chunk_size: sessionConfig.ragChunkSize,
+        chunk_overflow: sessionConfig.ragChunkOverflow,
+      },
+    }
+
+    return req
+  }, [
     sessionConfig,
   ])
 
@@ -192,6 +214,7 @@ export const useCreateInputs = () => {
     serializePage,
     loadFromLocalStorage,
     getFormData,
+    getSessionLearnRequest,
     getUploadedFiles,
     uploadProgressHandler,
     reset,

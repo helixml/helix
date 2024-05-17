@@ -41,6 +41,7 @@ import useSessions from '../hooks/useSessions'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 import {
+  IDataEntity,
   ISessionMode,
   ISessionType,
   SESSION_MODE_INFERENCE,
@@ -102,35 +103,43 @@ const Create: FC = () => {
   }
 
   const onStartFinetune = async (eventName: string) => {
-    inputs.setUploadProgress({
-      percent: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-    })
+    try {
+      inputs.setUploadProgress({
+        percent: 0,
+        totalBytes: 0,
+        uploadedBytes: 0,
+      })
 
-    const uploadedFiles = inputs.getUploadedFiles()
-    const formData = inputs.getFormData(mode, type, model)
+      const dataEntity = await api.post<any, IDataEntity>('/api/v1/data_entities', inputs.getUploadedFiles(), {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
 
-    const dataEntity = await api.post('/api/v1/data_entities', uploadedFiles, {
-      onUploadProgress: inputs.uploadProgressHandler,
-    })
+      if(!dataEntity) {
+        snackbar.error('Failed to upload data entity')
+        throw new Error('Failed to upload data entity')
+      }
 
-    console.log('--------------------------------------------')
-    console.dir(dataEntity)
+      const sessionLearnRequest = inputs.getSessionLearnRequest(type, dataEntity.id)
+      console.log('--------------------------------------------')
+      console.dir(sessionLearnRequest)
+      const session = await api.post('/api/v1/sessions/learn', sessionLearnRequest, {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+      inputs.setUploadProgress(undefined)
+      if(!session) {
+        snackbar.error('Failed to get new session')
+        throw new Error('Failed to get new session')
+      }
+      tracking.emitEvent({
+        name: eventName,
+        session,
+      })
+      await sessions.loadSessions()
+      router.navigate('session', {session_id: session.id})
 
-    // const session = await api.post('/api/v1/sessions', formData, {
-    //   onUploadProgress: inputs.uploadProgressHandler,
-    // })
-    // inputs.setUploadProgress(undefined)
-    // if(!session) {
-    //   return
-    // }
-    // tracking.emitEvent({
-    //   name: eventName,
-    //   session,
-    // })
-    // await sessions.loadSessions()
-    // router.navigate('session', {session_id: session.id})
+    } catch(e) {
+      inputs.setUploadProgress(undefined)
+    }
   }
 
   const onStartTextFinetune = async () => {

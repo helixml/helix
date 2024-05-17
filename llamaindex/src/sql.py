@@ -159,7 +159,7 @@ def queryPrompt(data_entity_id, query_embedding, distance_function, distance_thr
 
   raw_sql = text(f"""
 select
-  id, data_entity_id, interaction_id, document_id, document_group_id, filename, content_offset, content,
+  id, data_entity_id, document_id, document_group_id, filename, content_offset, content,
   {embedding_str} as distance
 from 
   {TABLE_NAME}

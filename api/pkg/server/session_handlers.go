@@ -296,17 +296,27 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
+	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, false)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	sessionID := system.GenerateSessionID()
 	createRequest := types.InternalSessionRequest{
-		ID:               sessionID,
-		Mode:             types.SessionModeInference,
-		Type:             startReq.Type,
-		Stream:           false,
-		Owner:            userContext.User.ID,
-		OwnerType:        userContext.User.Type,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
-		UploadedDataID:   dataEntity.ID,
+		ID:                  sessionID,
+		Mode:                types.SessionModeFinetune,
+		ModelName:           model,
+		Type:                startReq.Type,
+		Stream:              false,
+		Owner:               userContext.User.ID,
+		OwnerType:           userContext.User.Type,
+		UserInteractions:    []*types.Interaction{userInteraction},
+		Priority:            status.Config.StripeSubscriptionActive,
+		UploadedDataID:      dataEntity.ID,
+		RagEnabled:          startReq.RagEnabled,
+		TextFinetuneEnabled: startReq.TextFinetuneEnabled,
+		RagSettings:         startReq.RagSettings,
 	}
 
 	sessionData, err := s.Controller.StartSession(userContext, createRequest)

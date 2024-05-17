@@ -35,7 +35,7 @@ export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'
 export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   activeToolIDs: [],
   finetuneEnabled: true,
-  ragEnabled: false,
+  ragEnabled: true,
   ragDistanceFunction: 'cosine', 
   ragThreshold: 0.2,
   ragResultsCount: 3,

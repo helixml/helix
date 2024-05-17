@@ -172,13 +172,13 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		newSession.LoraID = req.URL.Query().Get("lora_id")
 	}
 
-	// this handles all the defaults and alising for the model name
-	model, err := types.ProcessModelName(useModel, types.SessionModeInference, types.SessionTypeText, false)
+	// this handles all the defaults and alising for the processedModel name
+	processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, types.SessionTypeText, false)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	newSession.ModelName = model
+	newSession.ModelName = processedModel
 
 	if chatCompletionRequest.ResponseFormat != nil {
 		newSession.ResponseFormat = types.ResponseFormat{
