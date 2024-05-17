@@ -377,7 +377,7 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	}
 
 	// update the session with the RAG source data entity ID that we have created
-	session.Metadata.RagSourceDataEntityID = ragDataEntity.ID
+	session.Metadata.RAGSourceID = ragDataEntity.ID
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
@@ -393,7 +393,7 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	for i, chunk := range chunksToProcess {
 		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
 
-		convertError := c.indexChunkForRag(session, systemInteraction, chunk)
+		convertError := c.indexChunkForRag(session, chunk)
 
 		if convertError != nil {
 			atomic.AddInt64(&errorCounter, 1)
@@ -428,12 +428,12 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	return session, len(chunksToProcess), nil
 }
 
-func (c *Controller) indexChunkForRag(session *types.Session, interaction *types.Interaction, chunk *text.DataPrepTextSplitterChunk) error {
+func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPrepTextSplitterChunk) error {
 	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
 		system.ClientOptions{},
 		c.Options.Config.Controller.RAGIndexingURL,
 		types.SessionRagIndexChunk{
-			DataEntityID:    session.Metadata.RagSourceDataEntityID,
+			DataEntityID:    session.Metadata.RAGSourceID,
 			Filename:        chunk.Filename,
 			DocumentID:      chunk.DocumentID,
 			DocumentGroupID: chunk.DocumentGroupID,
@@ -459,7 +459,7 @@ func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagRe
 		c.Options.Config.Controller.RAGQueryURL,
 		types.SessionRagQuery{
 			Prompt:            userInteraction.Message,
-			DataEntityID:      session.Metadata.RagSourceDataEntityID,
+			DataEntityID:      session.Metadata.RAGSourceID,
 			DistanceThreshold: session.Metadata.RagSettings.Threshold,
 			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
 			MaxResults:        session.Metadata.RagSettings.ResultsCount,

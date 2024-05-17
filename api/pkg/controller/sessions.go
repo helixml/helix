@@ -75,9 +75,9 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 			TextFinetuneEnabled:     req.TextFinetuneEnabled,
 			RagSettings:             req.RagSettings,
 			ActiveTools:             activeTools,
-			UploadedDataEntityID:    req.UploadedDataEntityID,
-			RagSourceDataEntityID:   req.RagSourceDataEntityID,
-			FinetuneDataEntityID:    req.FinetuneDataEntityID,
+			UploadedDataID:          req.UploadedDataID,
+			RAGSourceID:             req.RAGSourceID,
+			LoraID:                  req.LoraID,
 		},
 	}
 
@@ -537,6 +537,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		}
 
 		if len(app.Config.Helix.Assistants) > 0 {
+			// TODO: support > 1 assistant
 			assistant := app.Config.Helix.Assistants[0]
 			for _, tool := range assistant.Tools {
 				tools = append(tools, &tool)

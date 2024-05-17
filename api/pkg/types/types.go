@@ -151,11 +151,11 @@ type SessionMetadata struct {
 	RagSettings         SessionRagSettings `json:"rag_settings"`
 	ActiveTools         []string           `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
-	UploadedDataEntityID string `json:"uploaded_data_entity_id"`
+	UploadedDataID string `json:"uploaded_data_entity_id"`
 	// the RAG source data entity we produced from this session
-	RagSourceDataEntityID string `json:"rag_source_data_entity_id"`
+	RAGSourceID string `json:"rag_source_data_entity_id"`
 	// the fine tuned data entity we produced from this session
-	FinetuneDataEntityID string `json:"finetune_data_entity_id"`
+	LoraID string `json:"finetune_data_entity_id"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -180,6 +180,9 @@ type SessionChatRequest struct {
 	Messages     []*Message  `json:"messages"` // Initial messages
 	Tools        []string    `json:"tools"`    // Available tools to use in the session
 	Model        string      `json:"model"`    // The model to use
+	RAGSourceID  string      `json:"rag_source_id"`
+	// the fine tuned data entity we produced from this session
+	LoraID string `json:"lora_id"`
 }
 
 // the user wants to create a Lora or RAG source
@@ -253,9 +256,9 @@ type InternalSessionRequest struct {
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
 	ResponseFormat          ResponseFormat
-	UploadedDataEntityID    string
-	RagSourceDataEntityID   string
-	FinetuneDataEntityID    string
+	UploadedDataID          string
+	RAGSourceID             string
+	LoraID                  string
 }
 
 type UpdateSessionRequest struct {
@@ -782,13 +785,19 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	Name         string               `json:"name" yaml:"name"`
-	Description  string               `json:"description" yaml:"description"`
-	Avatar       string               `json:"avatar" yaml:"avatar"`
-	Model        string               `json:"model" yaml:"model"`
-	SystemPrompt string               `json:"system_prompt" yaml:"system_prompt"`
-	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
-	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+	Name         string `json:"name" yaml:"name"`
+	Description  string `json:"description" yaml:"description"`
+	Avatar       string `json:"avatar" yaml:"avatar"`
+	Model        string `json:"model" yaml:"model"`
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+	// the data entity ID that we have created as the RAG source
+	RAGSourceID string `json:"rag_source_id" yaml:"rag_source_id"`
+	// the data entity ID that we have created for the lora fine tune
+	LoraID string `json:"lora_id" yaml:"lora_id"`
+	// the list of api tools this assistant will use
+	APIs []AssistantAPI `json:"apis" yaml:"apis"`
+	// the list of gpt scripts this assistant will use
+	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because
