@@ -32,7 +32,7 @@ const (
 var DefaultModels = map[SessionType]map[SessionMode]ModelName{
 	SessionTypeText: {
 		SessionModeInference: Model_Ollama_Llama3_8b,
-		SessionModeFinetune:  Model_Ollama_Mistral7b,
+		SessionModeFinetune:  Model_Axolotl_Mistral7b,
 	},
 	SessionTypeImage: {
 		SessionModeInference: Model_Cog_SDXL,
