@@ -421,8 +421,8 @@ const HomeFeatureGrid: FC = ({
         title="Customize Models"
         features={[
           RAG_FEATURE,
-          FINETUNE_TEXT_FEATURE,
           FINETUNE_IMAGES_FEATURE,
+          FINETUNE_TEXT_FEATURE,
         ]}
         sx={{
           mb: 4,
