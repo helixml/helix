@@ -96,7 +96,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		interactions = append(interactions, interaction)
 	}
 
-	newSession := types.CreateSessionRequest{
+	newSession := types.InternalSessionRequest{
 		ID:               sessionID,
 		Mode:             sessionMode,
 		Type:             types.SessionTypeText,

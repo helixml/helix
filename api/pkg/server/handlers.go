@@ -263,7 +263,7 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		}
 	}
 
-	createRequest := types.CreateSessionRequest{
+	createRequest := types.InternalSessionRequest{
 		ID:                      sessionID,
 		Mode:                    sessionMode,
 		Stream:                  true,

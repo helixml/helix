@@ -21,7 +21,7 @@ import (
 // @Param request    body types.SessionChatRequest true "Request body with the message and model to start chat completion.")
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.Request) {
+func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
 
 	var startReq types.SessionChatRequest
 	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
@@ -99,7 +99,7 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 		}
 
 		sessionID := system.GenerateSessionID()
-		newSession := types.CreateSessionRequest{
+		newSession := types.InternalSessionRequest{
 			ID:               sessionID,
 			Mode:             types.SessionModeInference,
 			Type:             startReq.Type,
@@ -169,6 +169,88 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	}
 
 	s.handleBlockingResponse(rw, req, userContext, cfg)
+}
+
+// startLearnSessionHandler godoc
+// @Summary Start new fine tuning and/or rag source generation session
+// @Description Start new fine tuning and/or RAG source generation session
+// @Tags    learn
+
+// @Success 200 {object} types.Session
+// @Param request    body types.SessionLearnRequest true "Request body with settings for the learn session.")
+// @Router /api/v1/sessions/learn [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *http.Request) {
+
+	var startReq types.SessionLearnRequest
+	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
+	if err != nil {
+		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if startReq.DataEntityID == "" {
+		http.Error(rw, "data entity ID not be empty", http.StatusBadRequest)
+		return
+	}
+
+	userContext := getRequestContext(req)
+	ownerContext := getOwnerContext(req)
+
+	status, err := s.Controller.GetStatus(userContext)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Default to text
+	if startReq.Type == "" {
+		startReq.Type = types.SessionTypeText
+	}
+
+	dataEntity, err := s.Store.GetDataEntity(userContext.Ctx, startReq.DataEntityID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if dataEntity.Owner != userContext.User.ID {
+		http.Error(rw, "you must own the data entity", http.StatusBadRequest)
+		return
+	}
+
+	userInteraction, err := s.getUserInteractionFromDataEntity(dataEntity, ownerContext)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sessionID := system.GenerateSessionID()
+	createRequest := types.InternalSessionRequest{
+		ID:               sessionID,
+		Mode:             types.SessionModeInference,
+		Type:             startReq.Type,
+		Stream:           false,
+		Owner:            userContext.User.ID,
+		OwnerType:        userContext.User.Type,
+		UserInteractions: []*types.Interaction{userInteraction},
+		Priority:         status.Config.StripeSubscriptionActive,
+	}
+
+	sessionData, err := s.Controller.StartSession(userContext, createRequest)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sessionDataJSON, err := json.Marshal(sessionData)
+	if err != nil {
+		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(sessionDataJSON)
 }
 
 func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {
