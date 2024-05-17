@@ -75,6 +75,9 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 			TextFinetuneEnabled:     req.TextFinetuneEnabled,
 			RagSettings:             req.RagSettings,
 			ActiveTools:             activeTools,
+			UploadedDataEntityID:    req.UploadedDataEntityID,
+			RagSourceDataEntityID:   req.RagSourceDataEntityID,
+			FinetuneDataEntityID:    req.FinetuneDataEntityID,
 		},
 	}
 
