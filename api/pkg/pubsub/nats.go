@@ -2,7 +2,6 @@ package pubsub
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -13,10 +12,17 @@ import (
 
 type Nats struct {
 	conn *nats.Conn
+	js   nats.JetStreamContext
 }
 
-func NewInMemoryNats() (*Nats, error) {
-	opts := &server.Options{Host: "127.0.0.1", Port: server.RANDOM_PORT, NoSigs: true}
+func NewInMemoryNats(storeDir string) (*Nats, error) {
+	opts := &server.Options{
+		Host:      "127.0.0.1",
+		Port:      server.RANDOM_PORT,
+		NoSigs:    true,
+		JetStream: true,
+		StoreDir:  storeDir,
+	}
 
 	// Initialize new server with options
 	ns, err := server.NewServer(opts)
@@ -38,8 +44,27 @@ func NewInMemoryNats() (*Nats, error) {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
 
+	// Use the JetStream context to produce and consumer messages
+	// that have been persisted.
+	js, err := nc.JetStream(nats.PublishAsyncMaxPending(256))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jetstream context: %w", err)
+	}
+
+	js.AddStream(&nats.StreamConfig{
+		Name: "GPTSCRIPT",
+		// Subjects: []string{GetGPTScriptAppQueue(), GetGPTScriptToolQueue()},
+		Subjects: []string{GetGPTScriptAppQueue()},
+		ConsumerLimits: nats.StreamConsumerLimits{
+			MaxAckPending: 20,
+		},
+	})
+
+	// TODO: add inference queue
+
 	return &Nats{
 		conn: nc,
+		js:   js,
 	}, nil
 }
 
@@ -64,56 +89,50 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
 func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeout time.Duration) ([]byte, error) {
-	msg, err := n.conn.Request(topic, payload, timeout)
+	replyInbox := nats.NewInbox()
+	var dataCh = make(chan []byte)
+
+	fmt.Println("XXX WAITING FOR", replyInbox)
+
+	sub, err := n.conn.Subscribe(replyInbox, func(msg *nats.Msg) {
+		dataCh <- msg.Data
+	})
 	if err != nil {
 		return nil, err
 	}
+	defer sub.Unsubscribe()
 
-	return msg.Data, nil
+	hdr := nats.Header{}
+	hdr.Set("reply", replyInbox)
+
+	// Publish the message to the jetsream
+	_, err = n.js.PublishMsg(&nats.Msg{
+		Subject: topic,
+		Data:    payload,
+		Header:  hdr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
+	}
+
+	data := <-dataCh
+
+	return data, nil
 }
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
-func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, handler func(reply string, payload []byte) error) (Subscription, error) {
-	sub, err := n.conn.QueueSubscribe(topic, queue, func(msg *nats.Msg) {
-		err := handler(msg.Reply, msg.Data)
+func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, conc int, handler func(reply string, payload []byte) error) (Subscription, error) {
+	sub, err := n.js.QueueSubscribe(topic, queue, func(msg *nats.Msg) {
+		err := handler(msg.Header.Get("reply"), msg.Data)
 		if err != nil {
 			log.Err(err).Msg("error handling message")
 		}
-	})
+		msg.Ack()
+	}, nats.ManualAck(), nats.MaxAckPending(20))
 	if err != nil {
 		return nil, err
 	}
 
 	return sub, nil
-}
-
-func (n *Nats) SynchronousSubscribe(ctx context.Context, topic, queue string, handler func(reply string, payload []byte) error) error {
-	sub, err := n.conn.SubscribeSync(topic)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to topic %s: %w", topic, err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			// Wait for a message
-			msg, err := sub.NextMsg(10 * time.Second)
-			if err != nil {
-				if errors.Is(err, nats.ErrTimeout) {
-					continue
-				}
-				return fmt.Errorf("failed to get next message: %w", err)
-			}
-
-			// Handle message (in script runner case this writes the message into the websocket connection)
-			err = handler(msg.Reply, msg.Data)
-			if err != nil {
-				log.Err(err).Msg("error handling message")
-			}
-		}
-	}
 }
