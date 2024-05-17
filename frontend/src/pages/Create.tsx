@@ -120,8 +120,6 @@ const Create: FC = () => {
       }
 
       const sessionLearnRequest = inputs.getSessionLearnRequest(type, dataEntity.id)
-      console.log('--------------------------------------------')
-      console.dir(sessionLearnRequest)
       const session = await api.post('/api/v1/sessions/learn', sessionLearnRequest, {
         onUploadProgress: inputs.uploadProgressHandler,
       })
