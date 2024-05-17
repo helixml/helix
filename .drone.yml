@@ -127,12 +127,13 @@ steps:
   settings:
     dockerfile: Dockerfile.runner
     tags:
-    - "${DRONE_TAG:-main}-llama3-8b" # Default to branch
-    - "latest-llama3-8b"
+    - "${DRONE_TAG:-main}-small" # Default to branch
+    - "latest-small"
     repo: helixml/helix/runner
     location: europe
     build_args:
-      - PULL_LLAMA3_8B=true
+      # Small models only
+      - "PULL_OLLAMA_MODELS=llama3:instruct,phi3:instruct"
     json_key:
       from_secret: gar_json_key_b64
   volumes:
@@ -149,7 +150,7 @@ depends_on:
 - default
 - build-runner
 
-# llama3 70B
+# llama3 70B + the whole cake
 ---
 kind: pipeline
 type: docker
@@ -167,13 +168,13 @@ steps:
   settings:
     dockerfile: Dockerfile.runner
     tags:
-    - "${DRONE_TAG:-main}-llama3-70b"
-    - "latest-llama3-70b"
+    - "${DRONE_TAG:-main}-large"
+    - "latest-large"
     repo: helixml/helix/runner
     location: europe
     build_args:
-      - PULL_LLAMA3_8B=true
-      - PULL_LLAMA3_70B=true
+      # Small and big models
+      - "PULL_OLLAMA_MODELS=llama3:instruct,llama3:70b,mixtral:instruct,adrienbrault/nous-hermes2theta-llama3-8b:q8_0,phi3:instruct"
     json_key:
       from_secret: gar_json_key_b64
   volumes:
