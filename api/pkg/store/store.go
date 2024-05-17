@@ -91,8 +91,8 @@ type Store interface {
 	DeleteApp(ctx context.Context, id string) error
 
 	// data entities
-	CreateDataEntity(ctx context.Context, tool *types.DataEntity) (*types.DataEntity, error)
-	UpdateDataEntity(ctx context.Context, tool *types.DataEntity) (*types.DataEntity, error)
+	CreateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
+	UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error

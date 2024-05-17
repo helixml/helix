@@ -362,6 +362,23 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		return session, 0, nil
 	}
 
+	// create a new data entity that is the RAG source
+	ragDataEntity, err := c.Options.Store.CreateDataEntity(context.Background(), &types.DataEntity{
+		ID:        system.GenerateUUID(),
+		Created:   time.Now(),
+		Updated:   time.Now(),
+		Type:      types.DataEntityTypeRAGSource,
+		Owner:     session.Owner,
+		OwnerType: session.OwnerType,
+		Config:    types.DataEntityConfig{},
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// update the session with the RAG source data entity ID that we have created
+	session.Metadata.RagSourceDataEntityID = ragDataEntity.ID
+
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
 	systemInteraction.Status = initialMessage
@@ -416,8 +433,7 @@ func (c *Controller) indexChunkForRag(session *types.Session, interaction *types
 		system.ClientOptions{},
 		c.Options.Config.Controller.RAGIndexingURL,
 		types.SessionRagIndexChunk{
-			SessionID:       session.ID,
-			InteractionID:   interaction.ID,
+			DataEntityID:    session.Metadata.RagSourceDataEntityID,
 			Filename:        chunk.Filename,
 			DocumentID:      chunk.DocumentID,
 			DocumentGroupID: chunk.DocumentGroupID,
@@ -443,7 +459,7 @@ func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagRe
 		c.Options.Config.Controller.RAGQueryURL,
 		types.SessionRagQuery{
 			Prompt:            userInteraction.Message,
-			SessionID:         session.ID,
+			DataEntityID:      session.Metadata.RagSourceDataEntityID,
 			DistanceThreshold: session.Metadata.RagSettings.Threshold,
 			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
 			MaxResults:        session.Metadata.RagSettings.ResultsCount,

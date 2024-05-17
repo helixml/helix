@@ -219,6 +219,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
+	// TODO: data entity pipelines where we don't even need a session
 	userInteraction, err := s.getUserInteractionFromDataEntity(dataEntity, ownerContext)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -227,14 +228,15 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 
 	sessionID := system.GenerateSessionID()
 	createRequest := types.InternalSessionRequest{
-		ID:               sessionID,
-		Mode:             types.SessionModeInference,
-		Type:             startReq.Type,
-		Stream:           false,
-		Owner:            userContext.User.ID,
-		OwnerType:        userContext.User.Type,
-		UserInteractions: []*types.Interaction{userInteraction},
-		Priority:         status.Config.StripeSubscriptionActive,
+		ID:                   sessionID,
+		Mode:                 types.SessionModeInference,
+		Type:                 startReq.Type,
+		Stream:               false,
+		Owner:                userContext.User.ID,
+		OwnerType:            userContext.User.Type,
+		UserInteractions:     []*types.Interaction{userInteraction},
+		Priority:             status.Config.StripeSubscriptionActive,
+		UploadedDataEntityID: dataEntity.ID,
 	}
 
 	sessionData, err := s.Controller.StartSession(userContext, createRequest)

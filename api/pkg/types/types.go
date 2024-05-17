@@ -86,8 +86,7 @@ type SessionRagSettings struct {
 
 // the data we send off to llamaindex to be indexed in the db
 type SessionRagIndexChunk struct {
-	SessionID       string `json:"session_id"`
-	InteractionID   string `json:"interaction_id"`
+	DataEntityID    string `json:"data_entity_id"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
 	DocumentGroupID string `json:"document_group_id"`
@@ -99,7 +98,7 @@ type SessionRagIndexChunk struct {
 // prompt against a rag enabled session
 type SessionRagQuery struct {
 	Prompt            string  `json:"prompt"`
-	SessionID         string  `json:"session_id"`
+	DataEntityID      string  `json:"data_entity_id"`
 	DistanceThreshold float64 `json:"distance_threshold"`
 	DistanceFunction  string  `json:"distance_function"`
 	MaxResults        int     `json:"max_results"`
@@ -151,6 +150,12 @@ type SessionMetadata struct {
 	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
 	RagSettings         SessionRagSettings `json:"rag_settings"`
 	ActiveTools         []string           `json:"active_tools"`
+	// when we do fine tuning or RAG, we need to know which data entity we used
+	UploadedDataEntityID string `json:"uploaded_data_entity_id"`
+	// the RAG source data entity we produced from this session
+	RagSourceDataEntityID string `json:"rag_source_data_entity_id"`
+	// the fine tuned data entity we produced from this session
+	FinetuneDataEntityID string `json:"finetune_data_entity_id"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -248,6 +253,9 @@ type InternalSessionRequest struct {
 	RagSettings             SessionRagSettings
 	ActiveTools             []string
 	ResponseFormat          ResponseFormat
+	UploadedDataEntityID    string
+	RagSourceDataEntityID   string
+	FinetuneDataEntityID    string
 }
 
 type UpdateSessionRequest struct {
