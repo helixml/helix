@@ -9,6 +9,7 @@ import {
   ISerializedPage,
   ICreateSessionConfig,
   ISessionLearnRequest,
+  ISessionChatRequest,
 } from '../types'
 
 import {
@@ -50,6 +51,7 @@ export interface IFinetuneInputs {
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
   getFormData: (mode: ISessionMode, type: ISessionType, model: string) => FormData,
   getSessionLearnRequest: (type: ISessionType, data_entity_id: string) => ISessionLearnRequest,
+  getSessionChatRequest: (type: ISessionType) => ISessionChatRequest,
   getUploadedFiles: () => FormData,
   reset: () => Promise<void>,
 }
@@ -142,6 +144,35 @@ export const useCreateInputs = () => {
     sessionConfig,
   ])
 
+  const getSessionChatRequest = useCallback((type: ISessionType, model: string): ISessionChatRequest => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const appID = urlParams.get('app_id') || ''
+    const ragSourceID = urlParams.get('rag_source_id') || ''
+
+    const req: ISessionChatRequest = {
+      type,
+      model,
+      legacy: true,
+      app_id: appID,
+      rag_source_id: ragSourceID,
+      tools: sessionConfig.activeToolIDs,
+      messages: [{
+        role: 'user',
+        content: {
+          content_type: 'text',
+          parts: [
+            inputValue,
+          ]
+        },
+      }]
+    }
+
+    return req
+  }, [
+    sessionConfig,
+    inputValue,
+  ])
+
   const getUploadedFiles = useCallback((): FormData => {
     const formData = new FormData()
     finetuneFiles.forEach((file) => {
@@ -215,6 +246,7 @@ export const useCreateInputs = () => {
     loadFromLocalStorage,
     getFormData,
     getSessionLearnRequest,
+    getSessionChatRequest,
     getUploadedFiles,
     uploadProgressHandler,
     reset,

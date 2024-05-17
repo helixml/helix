@@ -630,6 +630,32 @@ export interface ISessionLearnRequest {
   rag_settings: ISessionLearnRequestRAGSettings,
 }
 
+export interface IMessageContent {
+  content_type: string,
+  parts: any[],
+}
+
+export type IMessageRole = 'user' | 'system' | 'assistant'
+export interface IMessage {
+  role: IMessageRole,
+  content: IMessageContent,
+}
+
+export interface ISessionChatRequest {
+  app_id?: string,
+  session_id?: string,
+  stream?: boolean,
+  legacy?: boolean,
+  type?: ISessionType,
+  lora_dir?: string,
+  system?: string,
+  messages?: IMessage[],
+  tools?: string[],
+  model?: string,
+  rag_source_id?: string,
+  lora_id?: string,
+}
+
 export interface IDataEntity {
   id: string,
   // TODO: the rest
