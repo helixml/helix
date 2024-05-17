@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 func TestNatsPubsub(t *testing.T) {
 
 	t.Run("Subscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
+		pubsub, err := NewInMemoryNats(t.TempDir())
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -40,7 +41,7 @@ func TestNatsPubsub(t *testing.T) {
 	})
 
 	t.Run("Subscribe_Wildcard", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
+		pubsub, err := NewInMemoryNats(t.TempDir())
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -69,7 +70,7 @@ func TestNatsPubsub(t *testing.T) {
 	})
 
 	t.Run("Subscribe_Resubscribe", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats()
+		pubsub, err := NewInMemoryNats(t.TempDir())
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -115,5 +116,40 @@ func TestNatsPubsub(t *testing.T) {
 		// Unsubscribe
 		err = consumer.Unsubscribe()
 		require.NoError(t, err)
+	})
+}
+
+func TestNatsStreaming(t *testing.T) {
+	t.Run("SubscribeLater", func(t *testing.T) {
+		pubsub, err := NewInMemoryNats(t.TempDir())
+		require.NoError(t, err)
+
+		ctx := context.Background()
+
+		receivedCh := make(chan []byte, 1)
+
+		go func() {
+			data, err := pubsub.Request(ctx, GetGPTScriptAppQueue(), []byte("hello"), 10*time.Second)
+			require.NoError(t, err)
+
+			receivedCh <- data
+		}()
+
+		// Wait a bit before starting the work
+		time.Sleep(5 * time.Second)
+
+		sub, err := pubsub.QueueSubscribe(ctx, GetGPTScriptAppQueue(), "worker", 10, func(reply string, payload []byte) error {
+			fmt.Println("MSG RECEIVED, REPLYING TO", reply)
+
+			err := pubsub.Publish(ctx, reply, []byte("world"))
+			require.NoError(t, err)
+
+			return nil
+		})
+		require.NoError(t, err)
+		defer sub.Unsubscribe()
+
+		result := <-receivedCh
+		require.Equal(t, "world", string(result))
 	})
 }
