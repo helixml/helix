@@ -50,7 +50,7 @@ type Interaction struct {
 	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
-	RagResults []SessionRagResult `json:"rag_results"`
+	RagResults []SessionRAGResult `json:"rag_results"`
 }
 
 type ResponseFormatType string
@@ -76,7 +76,7 @@ type SessionOrigin struct {
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
-type SessionRagSettings struct {
+type SessionRAGSettings struct {
 	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
 	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
 	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
@@ -85,7 +85,7 @@ type SessionRagSettings struct {
 }
 
 // the data we send off to llamaindex to be indexed in the db
-type SessionRagIndexChunk struct {
+type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
@@ -96,7 +96,7 @@ type SessionRagIndexChunk struct {
 
 // the query we post to llamaindex to get results back from a user
 // prompt against a rag enabled session
-type SessionRagQuery struct {
+type SessionRAGQuery struct {
 	Prompt            string  `json:"prompt"`
 	DataEntityID      string  `json:"data_entity_id"`
 	DistanceThreshold float64 `json:"distance_threshold"`
@@ -106,7 +106,7 @@ type SessionRagQuery struct {
 
 // the thing we load from llamaindex when we send the user prompt
 // there and it does a lookup
-type SessionRagResult struct {
+type SessionRAGResult struct {
 	ID              string  `json:"id"`
 	SessionID       string  `json:"session_id"`
 	InteractionID   string  `json:"interaction_id"`
@@ -148,7 +148,7 @@ type SessionMetadata struct {
 	// and what the threshold for a "good" answer is
 	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
 	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
-	RagSettings         SessionRagSettings `json:"rag_settings"`
+	RagSettings         SessionRAGSettings `json:"rag_settings"`
 	ActiveTools         []string           `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
 	UploadedDataID string `json:"uploaded_data_entity_id"`
@@ -170,11 +170,12 @@ type SessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID        string      `json:"app_id"`     // Assign the session settings from the specified app
-	SessionID    string      `json:"session_id"` // If empty, we will start a new session
-	Stream       bool        `json:"stream"`     // If true, we will stream the response
-	Mode         SessionMode `json:"mode"`       // e.g. inference, finetune
-	Type         SessionType `json:"type"`       // e.g. text, image
+	AppID     string `json:"app_id"`     // Assign the session settings from the specified app
+	SessionID string `json:"session_id"` // If empty, we will start a new session
+	Stream    bool   `json:"stream"`     // If true, we will stream the response
+	// If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses
+	Legacy       bool        `json:"legacy"`
+	Type         SessionType `json:"type"` // e.g. text, image
 	LoraDir      string      `json:"lora_dir"`
 	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
 	Messages     []*Message  `json:"messages"` // Initial messages
@@ -198,7 +199,7 @@ type SessionLearnRequest struct {
 	// You must provide a data entity ID for the uploaded documents if yes
 	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
 	// The settings we use for the RAG source
-	RagSettings SessionRagSettings `json:"rag_settings"`
+	RagSettings SessionRAGSettings `json:"rag_settings"`
 }
 
 type Message struct {
@@ -251,9 +252,9 @@ type InternalSessionRequest struct {
 	UserInteractions        []*Interaction
 	Priority                bool
 	ManuallyReviewQuestions bool
-	RagEnabled              bool
+	RAGEnabled              bool
 	TextFinetuneEnabled     bool
-	RagSettings             SessionRagSettings
+	RAGSettings             SessionRAGSettings
 	ActiveTools             []string
 	ResponseFormat          ResponseFormat
 	UploadedDataID          string
@@ -914,7 +915,8 @@ type GptScriptResponse struct {
 }
 
 type DataEntityConfig struct {
-	FilestorePath string `json:"filestore_path"`
+	FilestorePath string             `json:"filestore_path"`
+	RAGSettings   SessionRAGSettings `json:"rag_settings"`
 }
 
 func (m DataEntityConfig) Value() (driver.Value, error) {

@@ -370,7 +370,9 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		Type:      types.DataEntityTypeRAGSource,
 		Owner:     session.Owner,
 		OwnerType: session.OwnerType,
-		Config:    types.DataEntityConfig{},
+		Config: types.DataEntityConfig{
+			RAGSettings: session.Metadata.RagSettings,
+		},
 	})
 	if err != nil {
 		return nil, 0, err
@@ -431,10 +433,10 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 }
 
 func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPrepTextSplitterChunk) error {
-	_, err := system.PostRequest[types.SessionRagIndexChunk, types.SessionRagResult](
+	_, err := system.PostRequest[types.SessionRAGIndexChunk, types.SessionRAGResult](
 		system.ClientOptions{},
 		c.Options.Config.Controller.RAGIndexingURL,
-		types.SessionRagIndexChunk{
+		types.SessionRAGIndexChunk{
 			DataEntityID:    session.Metadata.RAGSourceID,
 			Filename:        chunk.Filename,
 			DocumentID:      chunk.DocumentID,
@@ -451,15 +453,15 @@ func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPr
 
 // given a user prompt and an existing session id
 // let's load from the vector store
-func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRagResult, error) {
+func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRAGResult, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
-	result, err := system.PostRequest[types.SessionRagQuery, []types.SessionRagResult](
+	result, err := system.PostRequest[types.SessionRAGQuery, []types.SessionRAGResult](
 		system.ClientOptions{},
 		c.Options.Config.Controller.RAGQueryURL,
-		types.SessionRagQuery{
+		types.SessionRAGQuery{
 			Prompt:            userInteraction.Message,
 			DataEntityID:      session.Metadata.RAGSourceID,
 			DistanceThreshold: session.Metadata.RagSettings.Threshold,

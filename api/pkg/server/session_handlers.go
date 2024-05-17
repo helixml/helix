@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // startSessionHandler godoc
@@ -52,11 +54,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	// Default to text
 	if startReq.Type == "" {
 		startReq.Type = types.SessionTypeText
-	}
-
-	// Default to inference
-	if startReq.Mode == "" {
-		startReq.Mode = types.SessionModeInference
 	}
 
 	var cfg *startSessionConfig
@@ -116,6 +113,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
 			ActiveTools:      startReq.Tools,
+			RAGSourceID:      startReq.RAGSourceID,
 		}
 
 		// if we have an app then let's populate the InternalSessionRequest with values from it
@@ -171,12 +169,46 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			newSession.LoraID = req.URL.Query().Get("lora_id")
 		}
 
-		processedModel, err := types.ProcessModelName(useModel, startReq.Mode, startReq.Type, startReq.LoraDir != "")
+		processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, startReq.Type, startReq.LoraDir != "")
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		newSession.ModelName = processedModel
+
+		// we need to load the rag source and apply the rag settings to the session
+		if newSession.RAGSourceID != "" {
+			ragSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.RAGSourceID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			newSession.RAGSettings = ragSource.Config.RAGSettings
+		}
+
+		fmt.Printf("newSession --------------------------------------\n")
+		spew.Dump(newSession)
+		// we are still in the old frontend mode where it's listening to the websocket
+		// TODO: get the frontend to stream using the streaming api below
+		if startReq.Legacy {
+			sessionData, err := s.Controller.StartSession(userContext, newSession)
+			if err != nil {
+				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
+				log.Error().Err(err).Msg("failed to start session")
+				return
+			}
+
+			sessionDataJSON, err := json.Marshal(sessionData)
+			if err != nil {
+				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			rw.Write(sessionDataJSON)
+			return
+		}
 
 		cfg = &startSessionConfig{
 			sessionID: sessionID,
@@ -211,6 +243,31 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Only user interactions are allowed for existing sessions
 		if interactions[0].Creator != types.CreatorTypeUser {
 			http.Error(rw, "only user interactions are allowed for existing sessions", http.StatusBadRequest)
+			return
+		}
+
+		// we are still in the old frontend mode where it's listening to the websocket
+		// TODO: get the frontend to stream using the streaming api below
+		if startReq.Legacy {
+			updatedSession, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
+				SessionID:       startReq.SessionID,
+				UserInteraction: interactions[0],
+				SessionMode:     types.SessionModeInference,
+			})
+			if err != nil {
+				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
+				log.Error().Err(err).Msg("failed to start session")
+				return
+			}
+
+			sessionDataJSON, err := json.Marshal(updatedSession)
+			if err != nil {
+				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			rw.Write(sessionDataJSON)
 			return
 		}
 
@@ -314,9 +371,9 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		UserInteractions:    []*types.Interaction{userInteraction},
 		Priority:            status.Config.StripeSubscriptionActive,
 		UploadedDataID:      dataEntity.ID,
-		RagEnabled:          startReq.RagEnabled,
+		RAGEnabled:          startReq.RagEnabled,
 		TextFinetuneEnabled: startReq.TextFinetuneEnabled,
-		RagSettings:         startReq.RagSettings,
+		RAGSettings:         startReq.RagSettings,
 	}
 
 	sessionData, err := s.Controller.StartSession(userContext, createRequest)

@@ -116,7 +116,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRagSettings, error) {
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRAGSettings, error) {
 	var err error
 	ragDistanceFunction := req.FormValue("rag_distance_function")
 	if ragDistanceFunction == "" {
@@ -159,7 +159,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 		}
 	}
 
-	settings := &types.SessionRagSettings{
+	settings := &types.SessionRAGSettings{
 		DistanceFunction: ragDistanceFunction,
 		Threshold:        ragThreshold,
 		ResultsCount:     ragResultsCount,
@@ -275,9 +275,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Priority:                status.Config.StripeSubscriptionActive,
 		ParentSession:           req.FormValue("parent_session"),
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		RagEnabled:              ragEnable,
+		RAGEnabled:              ragEnable,
 		TextFinetuneEnabled:     finetuneEnable,
-		RagSettings:             *ragSettings,
+		RAGSettings:             *ragSettings,
 		ActiveTools:             activeTools,
 	}
 

@@ -77,7 +77,7 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
-func RAGInferencePrompt(userPrompt string, ragResults []types.SessionRagResult) (string, error) {
+func RAGInferencePrompt(userPrompt string, ragResults []types.SessionRAGResult) (string, error) {
 	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
 	if err != nil {
 		return "", err
