@@ -59,43 +59,46 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Mode = types.SessionModeInference
 	}
 
-	model, err := types.ProcessModelName(startReq.Model, startReq.Mode, startReq.Type, startReq.LoraDir != "")
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	startReq.Model = model.String()
-
-	if startReq.LoraDir != "" {
-		// Basic validation on the lora dir path, it should be something like
-		// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
-		// this works for both session based file paths and data entity based file paths
-		ownerContext := types.OwnerContext{
-			Owner:     userContext.User.ID,
-			OwnerType: userContext.User.Type,
-		}
-		userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if !strings.HasPrefix(startReq.LoraDir, userPath) {
-			http.Error(rw,
-				fmt.Sprintf(
-					"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
-				http.StatusBadRequest)
-			return
-		}
-	}
-
 	var cfg *startSessionConfig
 
 	if startReq.SessionID == "" {
+		if startReq.LoraDir != "" {
+			// Basic validation on the lora dir path, it should be something like
+			// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
+			// this works for both session based file paths and data entity based file paths
+			ownerContext := types.OwnerContext{
+				Owner:     userContext.User.ID,
+				OwnerType: userContext.User.Type,
+			}
+			userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			if !strings.HasPrefix(startReq.LoraDir, userPath) {
+				http.Error(rw,
+					fmt.Sprintf(
+						"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
+					http.StatusBadRequest)
+				return
+			}
+		}
+
+		useModel := startReq.Model
+
 		interactions, err := messagesToInteractions(startReq.Messages)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
+		}
+
+		// this will be assigned if the token being used is an app token
+		appID := userContext.User.AppID
+
+		// or we could be using a normal token and passing the app_id in the query string
+		if req.URL.Query().Get("app_id") != "" {
+			appID = req.URL.Query().Get("app_id")
 		}
 
 		sessionID := system.GenerateSessionID()
@@ -103,6 +106,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			ID:               sessionID,
 			Mode:             types.SessionModeInference,
 			Type:             startReq.Type,
+			ParentApp:        appID,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
@@ -114,9 +118,69 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			ActiveTools:      startReq.Tools,
 		}
 
+		// if we have an app then let's populate the InternalSessionRequest with values from it
+		if newSession.ParentApp != "" {
+			app, err := s.Store.GetApp(userContext.Ctx, appID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// TODO: support > 1 assistant
+			if len(app.Config.Helix.Assistants) <= 0 {
+				http.Error(rw, "there are no assistants found in that app", http.StatusInternalServerError)
+				return
+			}
+
+			assistant := app.Config.Helix.Assistants[0]
+
+			if assistant.SystemPrompt != "" {
+				newSession.SystemPrompt = assistant.SystemPrompt
+			}
+
+			if assistant.Model != "" {
+				useModel = assistant.Model
+			}
+
+			if assistant.RAGSourceID != "" {
+				newSession.RAGSourceID = assistant.RAGSourceID
+			}
+
+			if assistant.LoraID != "" {
+				newSession.LoraID = assistant.LoraID
+			}
+
+			// tools will be assigned by the app inside the controller
+			// TODO: refactor so all "get settings from the app" code is in the same place
+		}
+
+		// now we add any query params we have gotten
+		if req.URL.Query().Get("model") != "" {
+			useModel = req.URL.Query().Get("model")
+		}
+
+		if req.URL.Query().Get("system_prompt") != "" {
+			newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
+		}
+
+		if req.URL.Query().Get("rag_source_id") != "" {
+			newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
+		}
+
+		if req.URL.Query().Get("lora_id") != "" {
+			newSession.LoraID = req.URL.Query().Get("lora_id")
+		}
+
+		processedModel, err := types.ProcessModelName(useModel, startReq.Mode, startReq.Type, startReq.LoraDir != "")
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		newSession.ModelName = processedModel
+
 		cfg = &startSessionConfig{
 			sessionID: sessionID,
-			modelName: startReq.Model,
+			modelName: string(newSession.ModelName),
 			start: func() error {
 				_, err := s.Controller.StartSession(userContext, newSession)
 				if err != nil {
@@ -126,6 +190,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			},
 		}
 	} else {
+		existingSession, err := s.Store.GetSession(userContext.Ctx, startReq.SessionID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Existing session
 		interactions, err := messagesToInteractions(startReq.Messages)
 		if err != nil {
@@ -146,7 +216,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		cfg = &startSessionConfig{
 			sessionID: startReq.SessionID,
-			modelName: startReq.Model,
+			modelName: string(existingSession.ModelName),
 			start: func() error {
 
 				_, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
@@ -228,15 +298,15 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 
 	sessionID := system.GenerateSessionID()
 	createRequest := types.InternalSessionRequest{
-		ID:                   sessionID,
-		Mode:                 types.SessionModeInference,
-		Type:                 startReq.Type,
-		Stream:               false,
-		Owner:                userContext.User.ID,
-		OwnerType:            userContext.User.Type,
-		UserInteractions:     []*types.Interaction{userInteraction},
-		Priority:             status.Config.StripeSubscriptionActive,
-		UploadedDataEntityID: dataEntity.ID,
+		ID:               sessionID,
+		Mode:             types.SessionModeInference,
+		Type:             startReq.Type,
+		Stream:           false,
+		Owner:            userContext.User.ID,
+		OwnerType:        userContext.User.Type,
+		UserInteractions: []*types.Interaction{userInteraction},
+		Priority:         status.Config.StripeSubscriptionActive,
+		UploadedDataID:   dataEntity.ID,
 	}
 
 	sessionData, err := s.Controller.StartSession(userContext, createRequest)
