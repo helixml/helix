@@ -93,6 +93,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// this will be assigned if the token being used is an app token
 		appID := userContext.User.AppID
 
+		if startReq.AppID != "" {
+			appID = startReq.AppID
+		}
+
 		// or we could be using a normal token and passing the app_id in the query string
 		if req.URL.Query().Get("app_id") != "" {
 			appID = req.URL.Query().Get("app_id")
