@@ -56,3 +56,7 @@ const (
 func getStreamSub(stream, sub string) string {
 	return stream + "." + sub
 }
+
+func getStreamSubV2(stream, sub, id string) string {
+	return stream + "." + sub + "." + id
+}
