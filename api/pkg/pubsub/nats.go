@@ -109,6 +109,9 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 	streamTopic := getStreamSub(stream, subject)
 
+	fmt.Printf("XX sending message to %s\n", streamTopic)
+	fmt.Println(string(payload))
+
 	// Publish the message to the JetStream stream,
 	// one of the consumer will pick it up
 	_, err = n.js.PublishMsg(ctx, &nats.Msg{
@@ -136,12 +139,16 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		return nil, fmt.Errorf("failed to get stream info: %w", err)
 	}
 
+	filter := getStreamSub(stream, subject)
+
+	fmt.Println("XX filter", filter)
+
 	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:        "durable",
+		// Durable:        "durable",
 		AckPolicy:      jetstream.AckExplicitPolicy,
-		FilterSubjects: []string{getStreamSub(stream, subject)},
+		FilterSubjects: []string{filter},
 		AckWait:        5 * time.Second,
-		MemoryStorage:  true,
+		// MemoryStorage:  true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer")
