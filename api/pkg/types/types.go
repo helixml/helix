@@ -944,25 +944,26 @@ const (
 	// TODO: add more types
 )
 
-// GptScriptRunnerTask is an internal type that is used when GPTScript
-// tasks are invoked by the user and the runner needs to run them
-type GptScriptRunnerTask struct {
-	ID        string                   `json:"id" gorm:"primaryKey"`
-	Created   time.Time                `json:"created"`
-	Updated   time.Time                `json:"updated"`
-	Owner     string                   `json:"owner" gorm:"index"` // uuid of owner entity
-	OwnerType OwnerType                `json:"owner_type"`         // e.g. user, system, org
-	AppID     string                   `json:"app_id"`
-	State     GptScriptRunnerTaskState `json:"state"`
-	Type      GptScriptRunnerTaskType  `json:"type"`
-	Retries   int                      `json:"retries"`
-	Duration
+// GptScriptRun is an internal type that is used when GPTScript
+// tasks are invoked by the user and the runner runs
+type GptScriptRun struct {
+	ID         string                   `json:"id" gorm:"primaryKey"`
+	Created    time.Time                `json:"created"`
+	Updated    time.Time                `json:"updated"`
+	Owner      string                   `json:"owner" gorm:"index"` // uuid of owner entity
+	OwnerType  OwnerType                `json:"owner_type"`         // e.g. user, system, org
+	AppID      string                   `json:"app_id"`
+	State      GptScriptRunnerTaskState `json:"state"`
+	Type       GptScriptRunnerTaskType  `json:"type"`
+	Retries    int                      `json:"retries"`
+	DurationMs int                      `json:"duration_ms"`
 
-	Request  *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
-	Response *GptScriptResponse      `json:"response" gorm:"jsonb"`
+	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
+	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
+	SystemError string                  `json:"system_error"` // If we didn't get the response from the runner
 }
 
-type GptScriptRunnerTasksQuery struct {
+type GptScriptRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
 	AppID     string

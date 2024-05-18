@@ -9,7 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (s *PostgresStore) CreateGptScriptRunnerTask(ctx context.Context, task *types.GptScriptRunnerTask) (*types.GptScriptRunnerTask, error) {
+func (s *PostgresStore) CreateGptScriptRun(ctx context.Context, task *types.GptScriptRun) (*types.GptScriptRun, error) {
 	if task.ID == "" {
 		task.ID = system.GenerateGptScriptTaskID()
 	}
@@ -28,8 +28,8 @@ func (s *PostgresStore) CreateGptScriptRunnerTask(ctx context.Context, task *typ
 	return task, nil
 }
 
-func (s *PostgresStore) ListGptScriptRunnerTasks(ctx context.Context, q *types.GptScriptRunnerTasksQuery) ([]*types.GptScriptRunnerTask, error) {
-	var tasks []*types.GptScriptRunnerTask
+func (s *PostgresStore) ListGptScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.GptScriptRun, error) {
+	var tasks []*types.GptScriptRun
 	query := s.gdb.WithContext(ctx)
 
 	if q.AppID != "" {
@@ -52,12 +52,12 @@ func (s *PostgresStore) ListGptScriptRunnerTasks(ctx context.Context, q *types.G
 	return tasks, nil
 }
 
-func (s *PostgresStore) DeleteGptScriptRunnerTask(ctx context.Context, id string) error {
+func (s *PostgresStore) DeleteGptScriptRun(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
 	}
 
-	err := s.gdb.WithContext(ctx).Delete(&types.GptScriptRunnerTask{
+	err := s.gdb.WithContext(ctx).Delete(&types.GptScriptRun{
 		ID: id,
 	}).Error
 	if err != nil {
