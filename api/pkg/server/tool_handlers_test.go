@@ -41,7 +41,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New()
+	ps, err := pubsub.New(suite.T().TempDir())
 	suite.NoError(err)
 
 	suite.pubsub = ps

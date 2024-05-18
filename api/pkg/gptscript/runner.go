@@ -3,6 +3,7 @@ package gptscript
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -78,6 +79,9 @@ func (d *Runner) run(ctx context.Context) error {
 		for {
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
+				if errors.Is(ctx.Err(), context.Canceled) {
+					return
+				}
 				log.Err(err).Msg("failed to read websocket message")
 				return
 			}
@@ -97,6 +101,7 @@ func (d *Runner) run(ctx context.Context) error {
 
 				// cancel context if max tasks are reached
 				if d.cfg.MaxTasks > 0 && ops.Load() >= uint64(d.cfg.MaxTasks) {
+					log.Info().Msg("max tasks reached, cancelling context")
 					cancel()
 				}
 			})
