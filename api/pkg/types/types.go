@@ -871,8 +871,9 @@ type GptScriptRequest struct {
 }
 
 type GptScriptResponse struct {
-	Output string `json:"output"`
-	Error  string `json:"error"`
+	Output  string `json:"output"`
+	Error   string `json:"error"`
+	Retries int    `json:"retries"`
 }
 
 func (m GptScriptResponse) Value() (driver.Value, error) {
