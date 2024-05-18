@@ -27,8 +27,16 @@ type Message struct {
 	msg jetstream.Msg
 }
 
+// Ack acknowledges a message
+// This tells the server that the message was successfully processed and it can move on to the next message
 func (m *Message) Ack() error {
 	return m.msg.Ack()
+}
+
+// Nak negatively acknowledges a message
+// This tells the server to redeliver the message
+func (m *Message) Nak() error {
+	return m.msg.Nak()
 }
 
 type Subscription interface {
