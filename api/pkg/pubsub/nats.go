@@ -109,9 +109,6 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 	streamTopic := getStreamSub(stream, subject)
 
-	fmt.Printf("XX sending message to %s\n", streamTopic)
-	fmt.Println(string(payload))
-
 	// Publish the message to the JetStream stream,
 	// one of the consumer will pick it up
 	_, err = n.js.PublishMsg(ctx, &nats.Msg{

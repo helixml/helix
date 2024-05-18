@@ -60,7 +60,6 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			Msgf("connected runner websocket: %s\n", runnerID)
 
 		appSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, concurrency, func(msg *pubsub.Message) error {
-			fmt.Println("XX sending message to runner", string(msg.Data))
 			err := wsConn.WriteJSON(&types.RunnerEventRequestEnvelope{
 				RequestID: system.GenerateRequestID(),
 				Reply:     msg.Reply, // Runner will need this inbox channel to send messages back to the requestor
