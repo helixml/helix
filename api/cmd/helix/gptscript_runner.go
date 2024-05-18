@@ -2,6 +2,7 @@ package helix
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,7 +21,14 @@ func newGptScriptRunnerCmd() *cobra.Command {
 		Long:    "Start the helix gptscript runner.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return gptScriptRunner(cmd)
+			err := gptScriptRunner(cmd)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					log.Info().Msg("gptscript runner stopped")
+					return nil
+				}
+			}
+			return err
 		},
 	}
 	return runCmd

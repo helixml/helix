@@ -40,7 +40,7 @@ func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGi
 		return nil, err
 	}
 
-	resp, err := e.pubsub.Request(ctx, pubsub.GetGPTScriptAppQueue(), bts, 30*time.Second)
+	resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
 	}
@@ -59,7 +59,7 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 		return nil, err
 	}
 
-	resp, err := e.pubsub.Request(ctx, pubsub.GetGPTScriptToolQueue(), bts, 30*time.Second)
+	resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
 	}
