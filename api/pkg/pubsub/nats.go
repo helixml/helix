@@ -137,9 +137,11 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 	}
 
 	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		Durable:        "durable",
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		FilterSubjects: []string{getStreamSub(stream, subject)},
 		AckWait:        5 * time.Second,
+		MemoryStorage:  true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer")
