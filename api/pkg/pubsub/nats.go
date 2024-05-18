@@ -138,8 +138,6 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 
 	filter := getStreamSub(stream, subject)
 
-	fmt.Println("XX filter", filter)
-
 	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		// Durable:        "durable",
 		AckPolicy:      jetstream.AckExplicitPolicy,
