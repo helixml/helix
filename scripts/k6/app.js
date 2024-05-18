@@ -11,7 +11,7 @@ export default function () {
   const params = {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer hl-3NkF6yvHqaNPQOs1LcFyr7zJykeAZ50oKEaRJ9PXSRg='
+      'Authorization': 'Bearer ' + __ENV.HELIX_TOKEN,
     },
   };
 

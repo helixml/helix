@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -117,7 +116,6 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			fmt.Println("XX response received", string(messageBytes))
 			var resp types.RunnerEventResponseEnvelope
 			err = json.Unmarshal(messageBytes, &resp)
 			if err != nil {
