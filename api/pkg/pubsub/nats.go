@@ -24,7 +24,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		Port:      server.RANDOM_PORT,
 		NoSigs:    true,
 		JetStream: true,
-		StoreDir:  storeDir,
+		// StoreDir:  storeDir,
 	}
 
 	// Initialize new server with options
@@ -53,8 +53,10 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 	}
 
 	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
-		Name:     ScriptRunnerStream,
-		Subjects: []string{"SCRIPTS.*"},
+		Name:      ScriptRunnerStream,
+		Subjects:  []string{"SCRIPTS.*"},
+		Retention: jetstream.WorkQueuePolicy,
+		Storage:   jetstream.MemoryStorage,
 		// ConsumerLimits: jetstream.StreamConsumerLimits{
 		// 	MaxAckPending: 20,
 		// },
@@ -107,6 +109,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	hdr := nats.Header{}
 	hdr.Set(jetstreamReplyHeader, replyInbox)
 
+	// streamTopic := getStreamSub(stream, subject) + "." + nuid.Next()
 	streamTopic := getStreamSub(stream, subject)
 
 	// Publish the message to the JetStream stream,
@@ -123,9 +126,12 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
 	}
 
-	data := <-dataCh
-
-	return data, nil
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case data := <-dataCh:
+		return data, nil
+	}
 }
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
@@ -139,17 +145,22 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 	filter := getStreamSub(stream, subject)
 
 	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:        "durable",
-		AckPolicy:      jetstream.AckExplicitPolicy,
+		// Name: "worker",
+		// Durable:        "durable",
+		AckPolicy: jetstream.AckExplicitPolicy,
+		// FilterSubjects: []string{filter + ".>"},
 		FilterSubjects: []string{filter},
 		AckWait:        5 * time.Second,
 		MemoryStorage:  true,
+		ReplayPolicy:   jetstream.ReplayInstantPolicy,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create consumer")
+		return nil, fmt.Errorf("failed to create consumer: %w", err)
 	}
 
 	cons, err := c.Consume(func(msg jetstream.Msg) {
+		log.Trace().Str("subject", msg.Subject()).Msg("received message from jetstream")
+
 		err := handler(&Message{
 			Reply: msg.Headers().Get(jetstreamReplyHeader),
 			Data:  msg.Data(),
