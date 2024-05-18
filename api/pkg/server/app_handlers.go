@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // listApps godoc
@@ -333,12 +335,31 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		KeyPair:    appRecord.Config.Github.KeyPair,
 	}
 
+	start := time.Now()
+
 	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	s.Store.CreateScriptRun(r.Context(), &types.ScriptRun{})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = s.Store.CreateScriptRun(ctx, &types.ScriptRun{
+		Owner:      userContext.User.ID,
+		OwnerType:  userContext.User.Type,
+		AppID:      userContext.User.AppID,
+		State:      types.ScriptRunStateComplete,
+		Type:       types.GptScriptRunnerTaskTypeGithubApp,
+		DurationMs: int(time.Since(start).Milliseconds()),
+		Request: &types.GptScriptRunnerRequest{
+			GithubApp: app,
+		},
+		Response: result,
+	})
+	if err != nil {
+		log.Err(err).Msg("failed to create script run")
+	}
 
 	return result, nil
 }

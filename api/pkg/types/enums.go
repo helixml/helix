@@ -312,7 +312,7 @@ const (
 type ScriptRunState string
 
 const (
-	GptScriptRunnerTaskStateNone     InteractionState = ""
-	GptScriptRunnerTaskStateComplete InteractionState = "complete"
-	GptScriptRunnerTaskStateError    InteractionState = "error"
+	ScriptRunStateNone     ScriptRunState = ""
+	ScriptRunStateComplete ScriptRunState = "complete"
+	ScriptRunStateError    ScriptRunState = "error"
 )

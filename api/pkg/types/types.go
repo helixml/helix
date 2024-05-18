@@ -942,7 +942,7 @@ type ScriptRunType string
 const (
 	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
 	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
-	// TODO: add more types
+	// TODO: add more types, like python script, etc.
 )
 
 // ScriptRun is an internal type that is used when GPTScript
