@@ -95,7 +95,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.APIKey{},
 		&types.Tool{},
 		&types.SessionToolBinding{},
-		&types.GptScriptRunnerTask{},
+		&types.GptScriptRun{},
 		&MigrationScript{},
 	)
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
-	if err := createFK(s.gdb, types.GptScriptRunnerTask{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
+	if err := createFK(s.gdb, types.GptScriptRun{}, types.App{}, "app_id", "id", "CASCADE", "CASCADE"); err != nil {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
