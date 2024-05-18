@@ -126,21 +126,23 @@ func TestNatsStreaming(t *testing.T) {
 
 		ctx := context.Background()
 
-		receivedCh := make(chan []byte, 1)
+		messageCounter := 0
 
 		go func() {
-			data, err := pubsub.Request(ctx, GetGPTScriptAppQueue(), []byte("hello"), 10*time.Second)
-			require.NoError(t, err)
+			for i := 0; i < 100; i++ {
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
+				require.NoError(t, err)
 
-			receivedCh <- data
+				require.Equal(t, "world", string(data))
+
+				messageCounter++
+			}
 		}()
 
 		// Wait a bit before starting the work
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
-		sub, err := pubsub.QueueSubscribe(ctx, GetGPTScriptAppQueue(), "worker", 10, func(reply string, payload []byte) error {
-			fmt.Println("MSG RECEIVED, REPLYING TO", reply)
-
+		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(reply string, payload []byte) error {
 			err := pubsub.Publish(ctx, reply, []byte("world"))
 			require.NoError(t, err)
 
@@ -149,7 +151,30 @@ func TestNatsStreaming(t *testing.T) {
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		result := <-receivedCh
-		require.Equal(t, "world", string(result))
+		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(reply string, payload []byte) error {
+			err := pubsub.Publish(ctx, reply, []byte("world"))
+			require.NoError(t, err)
+
+			return nil
+		})
+		require.NoError(t, err)
+		defer sub2.Unsubscribe()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				require.Fail(t, "timeout")
+			default:
+				if messageCounter < 100 {
+					time.Sleep(100 * time.Millisecond)
+					fmt.Printf("waiting for messages %d/%d\n", messageCounter, 100)
+				} else {
+					return
+				}
+			}
+		}
 	})
 }
