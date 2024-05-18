@@ -309,7 +309,7 @@ const (
 	TokenTypeAPIKey   TokenType = "api_key"
 )
 
-type GptScriptRunnerTaskState string
+type ScriptRunState string
 
 const (
 	GptScriptRunnerTaskStateNone     InteractionState = ""

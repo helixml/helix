@@ -449,46 +449,46 @@ func (mr *MockStoreMockRecorder) DeleteApp(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
 }
 
-// CreateGptScriptRun mocks base method
-func (m *MockStore) CreateGptScriptRun(ctx context.Context, task *types.GptScriptRun) (*types.GptScriptRun, error) {
+// CreateScriptRun mocks base method
+func (m *MockStore) CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateGptScriptRun", ctx, task)
-	ret0, _ := ret[0].(*types.GptScriptRun)
+	ret := m.ctrl.Call(m, "CreateScriptRun", ctx, task)
+	ret0, _ := ret[0].(*types.ScriptRun)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CreateGptScriptRun indicates an expected call of CreateGptScriptRun
-func (mr *MockStoreMockRecorder) CreateGptScriptRun(ctx, task interface{}) *gomock.Call {
+// CreateScriptRun indicates an expected call of CreateScriptRun
+func (mr *MockStoreMockRecorder) CreateScriptRun(ctx, task interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGptScriptRun", reflect.TypeOf((*MockStore)(nil).CreateGptScriptRun), ctx, task)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateScriptRun", reflect.TypeOf((*MockStore)(nil).CreateScriptRun), ctx, task)
 }
 
-// ListGptScriptRuns mocks base method
-func (m *MockStore) ListGptScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.GptScriptRun, error) {
+// ListScriptRuns mocks base method
+func (m *MockStore) ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListGptScriptRuns", ctx, q)
-	ret0, _ := ret[0].([]*types.GptScriptRun)
+	ret := m.ctrl.Call(m, "ListScriptRuns", ctx, q)
+	ret0, _ := ret[0].([]*types.ScriptRun)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListGptScriptRuns indicates an expected call of ListGptScriptRuns
-func (mr *MockStoreMockRecorder) ListGptScriptRuns(ctx, q interface{}) *gomock.Call {
+// ListScriptRuns indicates an expected call of ListScriptRuns
+func (mr *MockStoreMockRecorder) ListScriptRuns(ctx, q interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListGptScriptRuns", reflect.TypeOf((*MockStore)(nil).ListGptScriptRuns), ctx, q)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListScriptRuns", reflect.TypeOf((*MockStore)(nil).ListScriptRuns), ctx, q)
 }
 
-// DeleteGptScriptRun mocks base method
-func (m *MockStore) DeleteGptScriptRun(ctx context.Context, id string) error {
+// DeleteScriptRun mocks base method
+func (m *MockStore) DeleteScriptRun(ctx context.Context, id string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteGptScriptRun", ctx, id)
+	ret := m.ctrl.Call(m, "DeleteScriptRun", ctx, id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// DeleteGptScriptRun indicates an expected call of DeleteGptScriptRun
-func (mr *MockStoreMockRecorder) DeleteGptScriptRun(ctx, id interface{}) *gomock.Call {
+// DeleteScriptRun indicates an expected call of DeleteScriptRun
+func (mr *MockStoreMockRecorder) DeleteScriptRun(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteGptScriptRun", reflect.TypeOf((*MockStore)(nil).DeleteGptScriptRun), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteScriptRun", reflect.TypeOf((*MockStore)(nil).DeleteScriptRun), ctx, id)
 }
