@@ -177,62 +177,66 @@ func TestNatsStreaming(t *testing.T) {
 			}
 		}
 	})
+}
 
-	t.Run("MessageRetries", func(t *testing.T) {
-		pubsub, err := NewInMemoryNats(t.TempDir())
-		require.NoError(t, err)
+func TestStreamRetries(t *testing.T) {
+	pubsub, err := NewInMemoryNats(t.TempDir())
+	require.NoError(t, err)
 
-		ctx := context.Background()
+	ctx := context.Background()
 
-		messageCounter := 0
+	messageCounter := 0
 
-		go func() {
-			for i := 0; i < 10; i++ {
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
-				require.NoError(t, err)
-
-				require.Equal(t, "world", string(data))
-
-				messageCounter++
-			}
-		}()
-
-		// Wait a bit before starting the work
-		time.Sleep(1 * time.Second)
-
-		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
-			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+	go func() {
+		for i := 0; i < 10; i++ {
+			data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
 			require.NoError(t, err)
 
-			return nil
-		})
+			require.Equal(t, "world", string(data))
+
+			messageCounter++
+		}
+	}()
+
+	// Wait a bit before starting the work
+	time.Sleep(1 * time.Second)
+
+	var nacks int
+
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		// Nack 5 messages and don't reply anything, they should be retried
+		if nacks < 5 {
+			nacks++
+			t.Logf("Nack %d", nacks)
+			return msg.Nak()
+		}
+
+		t.Logf("Ack %d", nacks)
+
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 		require.NoError(t, err)
-		defer sub.Unsubscribe()
 
-		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(msg *Message) error {
-			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
-			require.NoError(t, err)
+		msg.Ack()
 
-			return nil
-		})
-		require.NoError(t, err)
-		defer sub2.Unsubscribe()
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-		for {
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "timeout")
-			default:
-				if messageCounter < 10 {
-					time.Sleep(100 * time.Millisecond)
-					fmt.Printf("waiting for messages %d/%d\n", messageCounter, 100)
-				} else {
-					return
-				}
+	for {
+		select {
+		case <-ctx.Done():
+			require.Fail(t, "timeout")
+		default:
+			if messageCounter < 10 {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
+			} else {
+				return
 			}
 		}
-	})
+	}
 }
