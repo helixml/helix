@@ -343,7 +343,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		_, err = s.Store.CreateScriptRun(ctx, &types.ScriptRun{
+		_, runErr := s.Store.CreateScriptRun(ctx, &types.ScriptRun{
 			Owner:       userContext.User.ID,
 			OwnerType:   userContext.User.Type,
 			AppID:       userContext.User.AppID,
@@ -355,8 +355,8 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 				GithubApp: app,
 			},
 		})
-		if err != nil {
-			log.Err(err).Msg("failed to create script run")
+		if runErr != nil {
+			log.Err(runErr).Msg("failed to create script run")
 		}
 
 		return nil, system.NewHTTPError500(err.Error())
