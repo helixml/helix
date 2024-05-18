@@ -115,7 +115,10 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 		Subject: streamTopic,
 		Data:    payload,
 		Header:  hdr,
-	})
+	},
+		jetstream.WithRetryWait(100*time.Millisecond),
+		jetstream.WithRetryAttempts(10),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
 	}
@@ -136,6 +139,7 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		FilterSubjects: []string{getStreamSub(stream, subject)},
+		AckWait:        5 * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer")
@@ -150,7 +154,6 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		if err != nil {
 			log.Err(err).Msg("error handling message")
 		}
-		msg.Ack()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start msg consumer: %w", err)

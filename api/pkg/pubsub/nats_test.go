@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,6 +210,145 @@ func TestStreamRetries(t *testing.T) {
 			nacks++
 			t.Logf("Nack %d", nacks)
 			return msg.Nak()
+		}
+
+		t.Logf("Ack %d", nacks)
+
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+
+		msg.Ack()
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			require.Fail(t, "timeout")
+		default:
+			if messageCounter < 10 {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
+			} else {
+				return
+			}
+		}
+	}
+}
+
+func TestStreamMultipleSubs(t *testing.T) {
+	pubsub, err := NewInMemoryNats(t.TempDir())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	messageCounter := 0
+
+	// Wait a bit before starting the work
+	time.Sleep(1 * time.Second)
+
+	// Start two workers
+	var (
+		worker1 int
+		worker2 int
+	)
+
+	sub1, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+		msg.Ack()
+
+		worker1++
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub1.Unsubscribe()
+
+	sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+		msg.Ack()
+
+		worker2++
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub2.Unsubscribe()
+
+	for i := 0; i < 100; i++ {
+		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
+		require.NoError(t, err)
+
+		require.Equal(t, "world", string(data))
+
+		messageCounter++
+	}
+
+	fmt.Println("worker1 :", worker1)
+	fmt.Println("worker2 :", worker2)
+
+	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// defer cancel()
+
+	// for {
+	// 	select {
+	// 	case <-ctx.Done():
+	// 		require.Fail(t, "timeout")
+	// 	default:
+	// 		if messageCounter < 100 {
+	// 			time.Sleep(100 * time.Millisecond)
+	// 			fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
+	// 		} else {
+	// 			return
+	// 		}
+	// 	}
+	// }
+}
+
+func TestStreamRetriesAfterDelay(t *testing.T) {
+	pubsub, err := NewInMemoryNats(t.TempDir())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	messageCounter := 0
+
+	go func() {
+		for i := 0; i < 10; i++ {
+			data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
+			require.NoError(t, err)
+
+			require.Equal(t, "world", string(data))
+
+			messageCounter++
+		}
+	}()
+
+	// Wait a bit before starting the work
+	time.Sleep(1 * time.Second)
+
+	var (
+		nacks   int
+		nacksMu sync.Mutex
+	)
+
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		nacksMu.Lock()
+		defer nacksMu.Unlock()
+
+		// Ignore some messages
+		if nacks < 5 {
+			nacks++
+			fmt.Printf("Message '%s', do nothing on %d\n", string(msg.Data), nacks)
+			return nil
 		}
 
 		t.Logf("Ack %d", nacks)
