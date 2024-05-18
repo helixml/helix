@@ -43,15 +43,38 @@ func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGi
 		return nil, err
 	}
 
-	resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, 30*time.Second)
+	var retries int
+
+	resp, err := retry.DoWithData(func() ([]byte, error) {
+		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, 30*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
+		}
+		return resp, nil
+	},
+		retry.Attempts(executeRetries),
+		retry.Delay(delayBetweenExecuteRetries),
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			retries = int(n)
+			log.Warn().
+				Err(err).
+				Str("app_repo", app.Repo).
+				Uint("retry_number", n).
+				Msg("retrying app execution")
+		}),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
+		return nil, err
 	}
 
 	var response types.GptScriptResponse
 	if err := json.Unmarshal(resp, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal GPTScript app response: %w", err)
 	}
+
+	response.Retries = retries
 
 	return &response, nil
 }
@@ -67,6 +90,8 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 		return nil, err
 	}
 
+	var retries int
+
 	resp, err := retry.DoWithData(func() ([]byte, error) {
 		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, 30*time.Second)
 		if err != nil {
@@ -77,19 +102,26 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 		retry.Attempts(executeRetries),
 		retry.Delay(delayBetweenExecuteRetries),
 		retry.Context(ctx),
+		retry.LastErrorOnly(true),
 		retry.OnRetry(func(n uint, err error) {
+			retries = int(n)
 			log.Warn().
 				Err(err).
 				Str("script_input", script.Input).
 				Uint("retry_number", n).
-				Msg("retrying isActionable")
+				Msg("retrying script execution")
 		}),
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	var response types.GptScriptResponse
 	if err := json.Unmarshal(resp, &response); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal GPTScript app response: %w", err)
 	}
+
+	response.Retries = retries
 
 	return &response, nil
 }

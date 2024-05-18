@@ -339,6 +339,26 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
+		// Log error
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, err = s.Store.CreateScriptRun(ctx, &types.ScriptRun{
+			Owner:       userContext.User.ID,
+			OwnerType:   userContext.User.Type,
+			AppID:       userContext.User.AppID,
+			State:       types.ScriptRunStateError,
+			Type:        types.GptScriptRunnerTaskTypeGithubApp,
+			SystemError: err.Error(),
+			DurationMs:  int(time.Since(start).Milliseconds()),
+			Request: &types.GptScriptRunnerRequest{
+				GithubApp: app,
+			},
+		})
+		if err != nil {
+			log.Err(err).Msg("failed to create script run")
+		}
+
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
@@ -351,6 +371,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		AppID:      userContext.User.AppID,
 		State:      types.ScriptRunStateComplete,
 		Type:       types.GptScriptRunnerTaskTypeGithubApp,
+		Retries:    result.Retries,
 		DurationMs: int(time.Since(start).Milliseconds()),
 		Request: &types.GptScriptRunnerRequest{
 			GithubApp: app,
