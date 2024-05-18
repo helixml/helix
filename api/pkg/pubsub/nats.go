@@ -7,12 +7,15 @@ import (
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog/log"
 )
 
 type Nats struct {
 	conn *nats.Conn
-	js   nats.JetStreamContext
+	js   jetstream.JetStream
+
+	stream jetstream.Stream
 }
 
 func NewInMemoryNats(storeDir string) (*Nats, error) {
@@ -44,27 +47,26 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		return nil, fmt.Errorf("failed to connect to nats: %w", err)
 	}
 
-	// Use the JetStream context to produce and consumer messages
-	// that have been persisted.
-	js, err := nc.JetStream(nats.PublishAsyncMaxPending(256))
+	js, err := jetstream.New(nc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create jetstream context: %w", err)
 	}
 
-	js.AddStream(&nats.StreamConfig{
-		Name: "GPTSCRIPT",
-		// Subjects: []string{GetGPTScriptAppQueue(), GetGPTScriptToolQueue()},
-		Subjects: []string{GetGPTScriptAppQueue()},
-		ConsumerLimits: nats.StreamConsumerLimits{
-			MaxAckPending: 20,
-		},
+	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
+		Name:     ScriptRunnerStream,
+		Subjects: []string{"SCRIPTS.*"},
+		// ConsumerLimits: jetstream.StreamConsumerLimits{
+		// 	MaxAckPending: 20,
+		// },
 	})
-
-	// TODO: add inference queue
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jetstream stream: %w", err)
+	}
 
 	return &Nats{
-		conn: nc,
-		js:   js,
+		conn:   nc,
+		js:     js,
+		stream: stream,
 	}, nil
 }
 
@@ -88,11 +90,9 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
-func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeout time.Duration) ([]byte, error) {
+func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
 	var dataCh = make(chan []byte)
-
-	fmt.Println("XXX WAITING FOR", replyInbox)
 
 	sub, err := n.conn.Subscribe(replyInbox, func(msg *nats.Msg) {
 		dataCh <- msg.Data
@@ -105,9 +105,12 @@ func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeou
 	hdr := nats.Header{}
 	hdr.Set("reply", replyInbox)
 
-	// Publish the message to the jetsream
-	_, err = n.js.PublishMsg(&nats.Msg{
-		Subject: topic,
+	streamTopic := getStreamSub(stream, subject)
+
+	// Publish the message to the JetStream stream,
+	// one of the consumer will pick it up
+	_, err = n.js.PublishMsg(ctx, &nats.Msg{
+		Subject: streamTopic,
 		Data:    payload,
 		Header:  hdr,
 	})
@@ -122,17 +125,39 @@ func (n *Nats) Request(ctx context.Context, topic string, payload []byte, timeou
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
-func (n *Nats) QueueSubscribe(ctx context.Context, topic, queue string, conc int, handler func(reply string, payload []byte) error) (Subscription, error) {
-	sub, err := n.js.QueueSubscribe(topic, queue, func(msg *nats.Msg) {
-		err := handler(msg.Header.Get("reply"), msg.Data)
+func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(reply string, payload []byte) error) (Subscription, error) {
+	s, err := n.js.Stream(ctx, stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stream info: %w", err)
+	}
+
+	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		AckPolicy:      jetstream.AckExplicitPolicy,
+		FilterSubjects: []string{getStreamSub(stream, subject)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create consumer")
+	}
+
+	cons, err := c.Consume(func(msg jetstream.Msg) {
+		err := handler(msg.Headers().Get("reply"), msg.Data())
 		if err != nil {
 			log.Err(err).Msg("error handling message")
 		}
 		msg.Ack()
-	}, nats.ManualAck(), nats.MaxAckPending(20))
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start msg consumer: %w", err)
 	}
 
-	return sub, nil
+	return &consumerWrapper{consumer: cons}, nil
+}
+
+type consumerWrapper struct {
+	consumer jetstream.ConsumeContext
+}
+
+func (c *consumerWrapper) Unsubscribe() error {
+	c.consumer.Stop()
+	return nil
 }
