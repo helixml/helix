@@ -3,6 +3,8 @@ package pubsub
 import (
 	"context"
 	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type Publisher interface {
@@ -15,7 +17,18 @@ type PubSub interface {
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte) error) (Subscription, error)
 
 	StreamRequest(ctx context.Context, stream, sub string, payload []byte, timeout time.Duration) ([]byte, error)
-	StreamConsume(ctx context.Context, stream, sub string, conc int, handler func(reply string, payload []byte) error) (Subscription, error)
+	StreamConsume(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
+}
+
+type Message struct {
+	Reply string
+	Data  []byte
+
+	msg jetstream.Msg
+}
+
+func (m *Message) Ack() error {
+	return m.msg.Ack()
 }
 
 type Subscription interface {

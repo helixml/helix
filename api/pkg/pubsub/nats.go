@@ -88,6 +88,8 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 	return n.conn.Publish(topic, payload)
 }
 
+const jetstreamReplyHeader = "helix-reply"
+
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
 func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
@@ -103,7 +105,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	defer sub.Unsubscribe()
 
 	hdr := nats.Header{}
-	hdr.Set("reply", replyInbox)
+	hdr.Set(jetstreamReplyHeader, replyInbox)
 
 	streamTopic := getStreamSub(stream, subject)
 
@@ -125,7 +127,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
-func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(reply string, payload []byte) error) (Subscription, error) {
+func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
 	s, err := n.js.Stream(ctx, stream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream info: %w", err)
@@ -140,7 +142,11 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 	}
 
 	cons, err := c.Consume(func(msg jetstream.Msg) {
-		err := handler(msg.Headers().Get("reply"), msg.Data())
+		err := handler(&Message{
+			Reply: msg.Headers().Get(jetstreamReplyHeader),
+			Data:  msg.Data(),
+			msg:   msg,
+		})
 		if err != nil {
 			log.Err(err).Msg("error handling message")
 		}

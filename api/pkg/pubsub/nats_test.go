@@ -140,10 +140,10 @@ func TestNatsStreaming(t *testing.T) {
 		}()
 
 		// Wait a bit before starting the work
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Second)
 
-		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(reply string, payload []byte) error {
-			err := pubsub.Publish(ctx, reply, []byte("world"))
+		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
 			return nil
@@ -151,8 +151,8 @@ func TestNatsStreaming(t *testing.T) {
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(reply string, payload []byte) error {
-			err := pubsub.Publish(ctx, reply, []byte("world"))
+		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(msg *Message) error {
+			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
 			return nil
@@ -169,6 +169,64 @@ func TestNatsStreaming(t *testing.T) {
 				require.Fail(t, "timeout")
 			default:
 				if messageCounter < 100 {
+					time.Sleep(100 * time.Millisecond)
+					fmt.Printf("waiting for messages %d/%d\n", messageCounter, 100)
+				} else {
+					return
+				}
+			}
+		}
+	})
+
+	t.Run("MessageRetries", func(t *testing.T) {
+		pubsub, err := NewInMemoryNats(t.TempDir())
+		require.NoError(t, err)
+
+		ctx := context.Background()
+
+		messageCounter := 0
+
+		go func() {
+			for i := 0; i < 10; i++ {
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
+				require.NoError(t, err)
+
+				require.Equal(t, "world", string(data))
+
+				messageCounter++
+			}
+		}()
+
+		// Wait a bit before starting the work
+		time.Sleep(1 * time.Second)
+
+		sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+			require.NoError(t, err)
+
+			return nil
+		})
+		require.NoError(t, err)
+		defer sub.Unsubscribe()
+
+		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(msg *Message) error {
+			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+			require.NoError(t, err)
+
+			return nil
+		})
+		require.NoError(t, err)
+		defer sub2.Unsubscribe()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				require.Fail(t, "timeout")
+			default:
+				if messageCounter < 10 {
 					time.Sleep(100 * time.Millisecond)
 					fmt.Printf("waiting for messages %d/%d\n", messageCounter, 100)
 				} else {
