@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Nerzal/gocloak/v13"
@@ -16,6 +17,10 @@ import (
 type KeycloakAuthenticator struct {
 	cfg     *config.Keycloak
 	gocloak *gocloak.GoCloak
+
+	adminTokenMu      *sync.Mutex
+	adminToken        *gocloak.JWT
+	adminTokenExpires time.Time
 }
 
 func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
@@ -59,8 +64,9 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 	}
 
 	return &KeycloakAuthenticator{
-		cfg:     cfg,
-		gocloak: gck,
+		cfg:          cfg,
+		gocloak:      gck,
+		adminTokenMu: &sync.Mutex{},
 	}, nil
 }
 
@@ -84,11 +90,24 @@ func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
 }
 
 func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT, error) {
+	k.adminTokenMu.Lock()
+	defer k.adminTokenMu.Unlock()
+
+	if k.adminToken != nil {
+		if k.adminTokenExpires.After(time.Now().Add(5 * time.Second)) {
+			return k.adminToken, nil
+		}
+	}
+
 	token, err := k.gocloak.LoginAdmin(ctx, k.cfg.Username, k.cfg.Password, k.cfg.AdminRealm)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Sprintln("expires in: ", token.ExpiresIn)
+
+	k.adminToken = token
+	k.adminTokenExpires = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+
+	fmt.Println("XXX expires in: ", token.ExpiresIn)
 	return token, nil
 }
 
