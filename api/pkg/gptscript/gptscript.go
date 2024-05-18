@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/avast/retry-go/v4"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
@@ -53,16 +56,35 @@ func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGi
 	return &response, nil
 }
 
+const (
+	executeRetries             = 3
+	delayBetweenExecuteRetries = 50 * time.Millisecond
+)
+
 func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
 	bts, err := json.Marshal(script)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, 30*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
-	}
+	resp, err := retry.DoWithData(func() ([]byte, error) {
+		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, 30*time.Second)
+		if err != nil {
+			return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
+		}
+		return resp, nil
+	},
+		retry.Attempts(executeRetries),
+		retry.Delay(delayBetweenExecuteRetries),
+		retry.Context(ctx),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Str("script_input", script.Input).
+				Uint("retry_number", n).
+				Msg("retrying isActionable")
+		}),
+	)
 
 	var response types.GptScriptResponse
 	if err := json.Unmarshal(resp, &response); err != nil {
