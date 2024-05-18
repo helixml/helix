@@ -937,26 +937,27 @@ type Entity struct {
 	Config       EntityConfig `json:"config" gorm:"jsonb"`
 }
 
-type GptScriptRunnerTaskType string
+type ScriptRunType string
 
 const (
-	GptScriptRunnerTaskTypeGithubApp GptScriptRunnerTaskType = "github_app"
+	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
+	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
 	// TODO: add more types
 )
 
-// GptScriptRun is an internal type that is used when GPTScript
+// ScriptRun is an internal type that is used when GPTScript
 // tasks are invoked by the user and the runner runs
-type GptScriptRun struct {
-	ID         string                   `json:"id" gorm:"primaryKey"`
-	Created    time.Time                `json:"created"`
-	Updated    time.Time                `json:"updated"`
-	Owner      string                   `json:"owner" gorm:"index"` // uuid of owner entity
-	OwnerType  OwnerType                `json:"owner_type"`         // e.g. user, system, org
-	AppID      string                   `json:"app_id"`
-	State      GptScriptRunnerTaskState `json:"state"`
-	Type       GptScriptRunnerTaskType  `json:"type"`
-	Retries    int                      `json:"retries"`
-	DurationMs int                      `json:"duration_ms"`
+type ScriptRun struct {
+	ID         string         `json:"id" gorm:"primaryKey"`
+	Created    time.Time      `json:"created"`
+	Updated    time.Time      `json:"updated"`
+	Owner      string         `json:"owner" gorm:"index"` // uuid of owner entity
+	OwnerType  OwnerType      `json:"owner_type"`         // e.g. user, system, org
+	AppID      string         `json:"app_id"`
+	State      ScriptRunState `json:"state"`
+	Type       ScriptRunType  `json:"type"`
+	Retries    int            `json:"retries"`
+	DurationMs int            `json:"duration_ms"`
 
 	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
 	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
@@ -967,7 +968,7 @@ type GptScriptRunsQuery struct {
 	Owner     string
 	OwnerType OwnerType
 	AppID     string
-	State     GptScriptRunnerTaskState
+	State     ScriptRunState
 }
 
 type GptScriptRunnerRequest struct {

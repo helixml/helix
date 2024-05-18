@@ -338,5 +338,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	s.Store.CreateScriptRun(r.Context(), &types.ScriptRun{})
+
 	return result, nil
 }
