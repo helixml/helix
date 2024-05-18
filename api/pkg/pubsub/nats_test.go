@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -187,7 +188,7 @@ func TestStreamRetries(t *testing.T) {
 
 	ctx := context.Background()
 
-	messageCounter := 0
+	var messageCounter atomic.Int32
 
 	go func() {
 		for i := 0; i < 10; i++ {
@@ -196,7 +197,7 @@ func TestStreamRetries(t *testing.T) {
 
 			require.Equal(t, "world", string(data))
 
-			messageCounter++
+			messageCounter.Add(1)
 		}
 	}()
 
@@ -233,9 +234,11 @@ func TestStreamRetries(t *testing.T) {
 		case <-ctx.Done():
 			require.Fail(t, "timeout")
 		default:
-			if messageCounter < 10 {
+			val := messageCounter.Load()
+
+			if val < 10 {
 				time.Sleep(100 * time.Millisecond)
-				fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
+				fmt.Printf("waiting for messages %d/%d\n", val, 10)
 			} else {
 				return
 			}
@@ -300,7 +303,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 	t.Logf("worker2: %d", worker2)
 }
 
-func TestStreamRetriesAfterDelay(t *testing.T) {
+func TestStreamAfterDelay(t *testing.T) {
 	pubsub, err := NewInMemoryNats(t.TempDir())
 	require.NoError(t, err)
 
@@ -310,10 +313,13 @@ func TestStreamRetriesAfterDelay(t *testing.T) {
 
 	go func() {
 		for i := 0; i < 10; i++ {
+			fmt.Println("publishing msg")
 			data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
 			require.NoError(t, err)
 
 			require.Equal(t, "world", string(data))
+
+			fmt.Println("received", string(data))
 
 			messageCounter++
 		}
@@ -335,7 +341,7 @@ func TestStreamRetriesAfterDelay(t *testing.T) {
 		if nacks < 5 {
 			nacks++
 			fmt.Printf("Message '%s', do nothing on %d\n", string(msg.Data), nacks)
-			return nil
+			return msg.Nak()
 		}
 
 		t.Logf("Ack %d", nacks)
