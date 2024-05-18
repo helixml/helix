@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -292,25 +293,11 @@ func TestStreamMultipleSubs(t *testing.T) {
 		messageCounter++
 	}
 
-	fmt.Println("worker1 :", worker1)
-	fmt.Println("worker2 :", worker2)
+	assert.True(t, worker1 > 0)
+	assert.True(t, worker2 > 0)
 
-	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// defer cancel()
-
-	// for {
-	// 	select {
-	// 	case <-ctx.Done():
-	// 		require.Fail(t, "timeout")
-	// 	default:
-	// 		if messageCounter < 100 {
-	// 			time.Sleep(100 * time.Millisecond)
-	// 			fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
-	// 		} else {
-	// 			return
-	// 		}
-	// 	}
-	// }
+	t.Logf("worker1: %d", worker1)
+	t.Logf("worker2: %d", worker2)
 }
 
 func TestStreamRetriesAfterDelay(t *testing.T) {
