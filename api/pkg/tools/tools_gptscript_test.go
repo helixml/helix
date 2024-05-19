@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -12,6 +14,12 @@ args: input: Any string
 echo "${input}"`
 
 func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
+	suite.executor.EXPECT().ExecuteScript(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+			return &types.GptScriptResponse{
+				Output: `Hello World!`,
+			}, nil
+		})
 
 	echoGptScript := &types.Tool{
 		Name:        "echo",
@@ -48,6 +56,13 @@ args: question: The question to ask Jarvis about trucks.
 When asked about trucks, respond with "Thanks for asking "${question}", I'm am looking into it and will send you an email once I am done!"`
 
 func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
+
+	suite.executor.EXPECT().ExecuteScript(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, script *types.GptScript) (*types.GptScriptResponse, error) {
+			return &types.GptScriptResponse{
+				Output: `Thanks for asking "can I get info about the volvo truck?", I'm am looking into it and will send you an email once I am done!`,
+			}, nil
+		})
 
 	echoGptScript := &types.Tool{
 		Name:        "jarvis",
