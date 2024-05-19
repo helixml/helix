@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
@@ -21,12 +22,13 @@ import (
 )
 
 type ControllerOptions struct {
-	Config    *config.ServerConfig
-	Store     store.Store
-	PubSub    pubsub.PubSub
-	Filestore filestore.FileStore
-	Janitor   *janitor.Janitor
-	Notifier  notification.Notifier
+	Config            *config.ServerConfig
+	Store             store.Store
+	PubSub            pubsub.PubSub
+	GPTScriptExecutor gptscript.Executor
+	Filestore         filestore.FileStore
+	Janitor           *janitor.Janitor
+	Notifier          notification.Notifier
 }
 
 type Controller struct {
@@ -93,7 +95,7 @@ func NewController(
 		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.PubSub, controller)
+	planner, err := tools.NewChainStrategy(options.Config, options.PubSub, options.GPTScriptExecutor, controller)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}
