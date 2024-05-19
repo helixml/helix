@@ -58,6 +58,8 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		Subjects:  []string{"SCRIPTS.*"},
 		Retention: jetstream.WorkQueuePolicy,
 		Storage:   jetstream.MemoryStorage,
+		Discard:   jetstream.DiscardOld,
+		MaxAge:    5 * time.Minute, // Discard messages older than 5 minutes
 		// ConsumerLimits: jetstream.StreamConsumerLimits{
 		// 	MaxAckPending: 20,
 		// },
@@ -104,7 +106,7 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 	return n.conn.Publish(topic, payload)
 }
 
-func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
 	var dataCh = make(chan []byte)
 
@@ -117,8 +119,13 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, t
 	defer sub.Unsubscribe()
 
 	hdr := nats.Header{}
+
+	for k, v := range header {
+		hdr.Set(k, v)
+	}
+
 	hdr.Set(helixNatsReplyHeader, replyInbox)
-	hdr.Set(helixNatsTypeHeader, subject)
+	hdr.Set(helixNatsSubjectHeader, subject)
 
 	// Publish the message to NATS
 	err = n.conn.PublishMsg(&nats.Msg{
@@ -141,10 +148,11 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, t
 func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
 	sub, err := n.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		err := handler(&Message{
-			Reply: msg.Header.Get(helixNatsReplyHeader),
-			Data:  msg.Data,
-			Type:  msg.Header.Get(helixNatsTypeHeader),
-			msg:   &natsMsgWrapper{msg},
+			Reply:  msg.Header.Get(helixNatsReplyHeader),
+			Data:   msg.Data,
+			Type:   msg.Header.Get(helixNatsSubjectHeader),
+			Header: msg.Header,
+			msg:    &natsMsgWrapper{msg},
 		})
 		if err != nil {
 			log.Err(err).Msg("error handling message")
@@ -158,13 +166,13 @@ func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc i
 }
 
 const (
-	helixNatsReplyHeader = "helix-reply"
-	helixNatsTypeHeader  = "helix-type"
+	helixNatsReplyHeader   = "helix-reply"
+	helixNatsSubjectHeader = "helix-subject"
 )
 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
-func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
 	var dataCh = make(chan []byte)
 
@@ -177,8 +185,13 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	defer sub.Unsubscribe()
 
 	hdr := nats.Header{}
+
+	for k, v := range header {
+		hdr.Set(k, v)
+	}
+
 	hdr.Set(helixNatsReplyHeader, replyInbox)
-	hdr.Set(helixNatsTypeHeader, subject)
+	hdr.Set(helixNatsSubjectHeader, subject)
 
 	// streamTopic := getStreamSub(stream, subject) + "." + nuid.Next()
 	streamTopic := getStreamSub(stream, subject)
@@ -212,10 +225,11 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		log.Trace().Str("subject", msg.Subject()).Msg("received message from jetstream")
 
 		err := handler(&Message{
-			Type:  msg.Headers().Get(helixNatsTypeHeader),
-			Reply: msg.Headers().Get(helixNatsReplyHeader),
-			Data:  msg.Data(),
-			msg:   msg,
+			Type:   msg.Headers().Get(helixNatsSubjectHeader),
+			Reply:  msg.Headers().Get(helixNatsReplyHeader),
+			Data:   msg.Data(),
+			Header: msg.Headers(),
+			msg:    msg,
 		})
 		if err != nil {
 			log.Err(err).Msg("error handling message")

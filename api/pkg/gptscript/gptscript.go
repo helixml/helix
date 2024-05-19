@@ -49,7 +49,11 @@ func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGi
 		ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 
-		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, e.cfg.GPTScript.Runner.RequestTimeout)
+		header := map[string]string{
+			"kind": "app",
+		}
+
+		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, header, e.cfg.GPTScript.Runner.RequestTimeout)
 		if err != nil {
 			log.Warn().Err(err).Str("app_repo", app.Repo).Msg("failed to request GPTScript app")
 			return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
@@ -96,8 +100,12 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 
 	var retries int
 
+	header := map[string]string{
+		"kind": "tool",
+	}
+
 	resp, err := retry.DoWithData(func() ([]byte, error) {
-		resp, err := e.pubsub.Request(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, 30*time.Second)
+		resp, err := e.pubsub.Request(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, header, 30*time.Second)
 		if err != nil {
 			return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
 		}
