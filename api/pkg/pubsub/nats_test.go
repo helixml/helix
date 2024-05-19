@@ -387,15 +387,12 @@ func TestStreamMultipleSubs(t *testing.T) {
 }
 
 func TestStreamAfterDelay(t *testing.T) {
-	// TODO: fix this test
-	t.Skip()
-
 	pubsub, err := NewInMemoryNats(t.TempDir())
 	require.NoError(t, err)
 
 	ctx := context.Background()
 
-	messageCounter := 0
+	var messageCounter atomic.Int32
 
 	go func() {
 		wg := conc.NewWaitGroup()
@@ -410,7 +407,7 @@ func TestStreamAfterDelay(t *testing.T) {
 
 				fmt.Println("received", string(data))
 
-				messageCounter++
+				messageCounter.Add(1)
 			})
 		}
 
@@ -418,7 +415,7 @@ func TestStreamAfterDelay(t *testing.T) {
 	}()
 
 	// Wait a bit before starting the work
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	var (
 		nacks   int
@@ -456,9 +453,11 @@ func TestStreamAfterDelay(t *testing.T) {
 		case <-ctx.Done():
 			require.Fail(t, "timeout")
 		default:
-			if messageCounter < 10 {
+			val := messageCounter.Load()
+
+			if val < 10 {
 				time.Sleep(100 * time.Millisecond)
-				fmt.Printf("waiting for messages %d/%d\n", messageCounter, 10)
+				fmt.Printf("waiting for messages %d/%d\n", val, 10)
 			} else {
 				return
 			}
