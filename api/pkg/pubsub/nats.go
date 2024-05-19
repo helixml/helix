@@ -221,6 +221,7 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
 func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+
 	cons, err := n.consumer.Consume(func(msg jetstream.Msg) {
 		log.Trace().Str("subject", msg.Subject()).Msg("received message from jetstream")
 

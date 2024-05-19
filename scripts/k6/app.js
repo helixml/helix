@@ -18,7 +18,7 @@ export default function () {
   const res = http.post(url, payload, params);
   check(res, {
     'is status 200': (r) => r.status === 200,
-    'verify homepage text': (r) =>
+    'verify app response text': (r) =>
       r.body.includes('going to sleep for a bit'),
   });
 }
