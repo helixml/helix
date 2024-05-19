@@ -324,6 +324,12 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		envPairs = append(envPairs, key+"="+value)
 	}
 
+	logger := log.With().
+		Str("app_id", userContext.User.AppID).
+		Str("user_id", userContext.User.ID).Logger()
+
+	logger.Info().Msg("starting app execution")
+
 	app := &types.GptScriptGithubApp{
 		Script: types.GptScript{
 			FilePath: req.FilePath,
@@ -339,6 +345,9 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
+
+		logger.Warn().Err(err).TimeDiff("time_taken", start, time.Now()).Msg("app execution failed")
+
 		// Log error
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -361,6 +370,8 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	logger.Info().TimeDiff("time_taken", start, time.Now()).Msg("app executed")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
