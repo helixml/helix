@@ -90,7 +90,7 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 	return n.conn.Publish(topic, payload)
 }
 
-func (n *Nats) Request(ctx context.Context, queue, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
 	replyInbox := nats.NewInbox()
 	var dataCh = make(chan []byte)
 
@@ -105,12 +105,9 @@ func (n *Nats) Request(ctx context.Context, queue, subject string, payload []byt
 	hdr := nats.Header{}
 	hdr.Set(jetstreamReplyHeader, replyInbox)
 
-	streamTopic := getStreamSub(queue, subject)
-
-	// Publish the message to the JetStream stream,
-	// one of the consumer will pick it up
+	// Publish the message to NATS
 	err = n.conn.PublishMsg(&nats.Msg{
-		Subject: streamTopic,
+		Subject: subject,
 		Data:    payload,
 		Header:  hdr,
 	})
