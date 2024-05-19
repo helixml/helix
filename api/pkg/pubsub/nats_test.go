@@ -464,3 +464,79 @@ func TestStreamAfterDelay(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamFailOne(t *testing.T) {
+	pubsub, err := NewInMemoryNats(t.TempDir())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	var messageCounter atomic.Int32
+
+	go func() {
+		wg := conc.NewWaitGroup()
+
+		for i := 0; i < 10; i++ {
+			// Dispatch 10 requests
+			wg.Go(func() {
+				if i == 0 {
+					// This one will fail on purpose
+					_, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("work-%d", i)), map[string]string{}, 10*time.Second)
+					require.Error(t, err)
+					return
+				}
+				// Others should succeed
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("work-%d", i)), map[string]string{}, 10*time.Second)
+				require.NoError(t, err)
+
+				require.Equal(t, "world", string(data))
+				fmt.Println("received", string(data))
+				messageCounter.Add(1)
+			})
+
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		wg.Wait()
+	}()
+
+	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		if string(msg.Data) == "work-0" {
+			// Don't ack or nack
+			t.Log("will not process this message")
+			return fmt.Errorf("failed to process")
+		}
+
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+
+		msg.Ack()
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub.Unsubscribe()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			require.Fail(t, "timeout")
+		default:
+			val := messageCounter.Load()
+
+			if val == 10 {
+				t.Fatalf("should not have received all messages")
+			}
+
+			if val < 9 {
+				time.Sleep(500 * time.Millisecond)
+				fmt.Printf("waiting for messages %d/%d\n", val, 9)
+			} else {
+				return
+			}
+		}
+	}
+}
