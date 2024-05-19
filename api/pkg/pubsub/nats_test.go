@@ -221,7 +221,7 @@ func TestNatsStreaming(t *testing.T) {
 		require.NoError(t, err)
 		defer sub.Unsubscribe()
 
-		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(msg *Message) error {
+		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
