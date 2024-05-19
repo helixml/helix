@@ -328,6 +328,11 @@ func TestStreamMultipleSubs(t *testing.T) {
 	pubsub, err := NewInMemoryNats(t.TempDir())
 	require.NoError(t, err)
 
+	// Leaving a little bit of time to go into inactive state,
+	// this was giving some flakiness in real deployment
+	// vs tests
+	time.Sleep(5 * time.Second)
+
 	ctx := context.Background()
 
 	messageCounter := 0
