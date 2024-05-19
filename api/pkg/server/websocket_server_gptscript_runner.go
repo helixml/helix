@@ -61,10 +61,10 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 		appSub, err := apiServer.pubsub.StreamConsume(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, concurrency, func(msg *pubsub.Message) error {
 			var messageType types.RunnerEventRequestType
 
-			switch msg.Type {
-			case pubsub.AppQueue:
+			switch msg.Header.Get("kind") {
+			case "app":
 				messageType = types.RunnerEventRequestApp
-			case pubsub.ToolQueue:
+			case "tool":
 				messageType = types.RunnerEventRequestTool
 			}
 

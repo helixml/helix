@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sourcegraph/conc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,7 +165,7 @@ func TestQueueMultipleSubs(t *testing.T) {
 	defer sub2.Unsubscribe()
 
 	for i := 0; i < 100; i++ {
-		data, err := pubsub.Request(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
+		data, err := pubsub.Request(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
 		require.NoError(t, err)
 
 		require.Equal(t, "world", string(data))
@@ -195,7 +196,9 @@ func TestNatsStreaming(t *testing.T) {
 
 		go func() {
 			for i := 0; i < 100; i++ {
-				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), map[string]string{
+					"foo": "bar",
+				}, 10*time.Second)
 				require.NoError(t, err)
 
 				require.Equal(t, "world", string(data))
@@ -211,6 +214,8 @@ func TestNatsStreaming(t *testing.T) {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
 
+			assert.Equal(t, "bar", msg.Header.Get("foo"))
+
 			return nil
 		})
 		require.NoError(t, err)
@@ -219,6 +224,8 @@ func TestNatsStreaming(t *testing.T) {
 		sub2, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, ToolQueue, 10, func(msg *Message) error {
 			err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
 			require.NoError(t, err)
+
+			assert.Equal(t, "bar", msg.Header.Get("foo"))
 
 			return nil
 		})
@@ -253,14 +260,21 @@ func TestStreamRetries(t *testing.T) {
 	var messageCounter atomic.Int32
 
 	go func() {
+		wg := conc.NewWaitGroup()
+
 		for i := 0; i < 10; i++ {
-			data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte("hello"), 10*time.Second)
-			require.NoError(t, err)
+			i := i
+			wg.Go(func() {
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("data-%d", i)), map[string]string{}, 10*time.Second)
+				require.NoError(t, err)
 
-			require.Equal(t, "world", string(data))
+				require.Equal(t, "world", string(data))
 
-			messageCounter.Add(1)
+				messageCounter.Add(1)
+			})
 		}
+
+		wg.Wait()
 	}()
 
 	// Wait a bit before starting the work
@@ -269,9 +283,11 @@ func TestStreamRetries(t *testing.T) {
 	var nacks int
 
 	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		fmt.Println("consume", string(msg.Data))
 		// Nack 5 messages and don't reply anything, they should be retried
 		if nacks < 5 {
 			nacks++
+			fmt.Println("nack", string(msg.Data))
 			t.Logf("Nack %d", nacks)
 			return msg.Nak()
 		}
@@ -350,7 +366,7 @@ func TestStreamMultipleSubs(t *testing.T) {
 	defer sub2.Unsubscribe()
 
 	for i := 0; i < 100; i++ {
-		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
+		data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
 		require.NoError(t, err)
 
 		require.Equal(t, "world", string(data))
@@ -382,17 +398,23 @@ func TestStreamAfterDelay(t *testing.T) {
 	messageCounter := 0
 
 	go func() {
+		wg := conc.NewWaitGroup()
+
 		for i := 0; i < 10; i++ {
-			fmt.Println("publishing msg")
-			data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
-			require.NoError(t, err)
 
-			require.Equal(t, "world", string(data))
+			wg.Go(func() {
+				data, err := pubsub.StreamRequest(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), map[string]string{}, 10*time.Second)
+				require.NoError(t, err)
 
-			fmt.Println("received", string(data))
+				require.Equal(t, "world", string(data))
 
-			messageCounter++
+				fmt.Println("received", string(data))
+
+				messageCounter++
+			})
 		}
+
+		wg.Wait()
 	}()
 
 	// Wait a bit before starting the work

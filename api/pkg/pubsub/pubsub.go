@@ -17,19 +17,20 @@ type PubSub interface {
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte) error) (Subscription, error)
 
 	// Request sends a request to a topic and waits for a response. Should be used for fast, ephemeral workloads
-	Request(ctx context.Context, stream, sub string, payload []byte, timeout time.Duration) ([]byte, error)
+	Request(ctx context.Context, stream, sub string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error)
 	// QueueSubscribe subscribes to a topic with a queue group. Should be used for fast workloads, failed
 	// messages will not be redelivered. Slow consumers will block the queue group.
 	QueueSubscribe(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
 
-	StreamRequest(ctx context.Context, stream, sub string, payload []byte, timeout time.Duration) ([]byte, error)
+	StreamRequest(ctx context.Context, stream, sub string, payload []byte, header map[string]string, timeout time.Duration) ([]byte, error)
 	StreamConsume(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
 }
 
 type Message struct {
-	Type  string
-	Reply string
-	Data  []byte
+	Type   string
+	Reply  string
+	Data   []byte
+	Header nats.Header
 
 	msg acker
 }
