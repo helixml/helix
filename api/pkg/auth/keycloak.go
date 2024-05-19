@@ -107,7 +107,6 @@ func (k *KeycloakAuthenticator) getAdminToken(ctx context.Context) (*gocloak.JWT
 	k.adminToken = token
 	k.adminTokenExpires = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
 
-	fmt.Println("XXX expires in: ", token.ExpiresIn)
 	return token, nil
 }
 
