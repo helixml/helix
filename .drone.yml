@@ -133,7 +133,7 @@ steps:
     location: europe
     build_args:
       # Small models only
-      - PULL_OLLAMA_MODELS="llama3:instruct,phi3:instruct"
+      - PULL_OLLAMA_MODELS=llama3:instruct;phi3:instruct
     json_key:
       from_secret: gar_json_key_b64
   volumes:
@@ -174,7 +174,7 @@ steps:
     location: europe
     build_args:
       # Small and big models
-      - PULL_OLLAMA_MODELS="llama3:instruct,llama3:70b,mixtral:instruct,adrienbrault/nous-hermes2theta-llama3-8b:q8_0,phi3:instruct"
+      - PULL_OLLAMA_MODELS=llama3:instruct;llama3:70b;mixtral:instruct;adrienbrault/nous-hermes2theta-llama3-8b:q8_0;phi3:instruct
     json_key:
       from_secret: gar_json_key_b64
   volumes:
