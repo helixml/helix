@@ -3,6 +3,8 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats-server/v2/server"
@@ -15,17 +17,20 @@ type Nats struct {
 	conn *nats.Conn
 	js   jetstream.JetStream
 
-	stream   jetstream.Stream
-	consumer jetstream.Consumer
+	stream jetstream.Stream
+
+	consumerMu sync.Mutex
+	consumer   jetstream.Consumer
 }
 
 func NewInMemoryNats(storeDir string) (*Nats, error) {
+	tmpDir, _ := os.MkdirTemp(os.TempDir(), "helix-nats")
 	opts := &server.Options{
 		Host:      "127.0.0.1",
 		Port:      server.RANDOM_PORT,
 		NoSigs:    true,
 		JetStream: true,
-		// StoreDir:  storeDir,
+		StoreDir:  tmpDir,
 	}
 
 	// Initialize new server with options
@@ -54,12 +59,12 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 	}
 
 	stream, err := js.CreateOrUpdateStream(context.Background(), jetstream.StreamConfig{
-		Name:      ScriptRunnerStream,
+		Name:      "SCRIPTS_STREAM",
 		Subjects:  []string{"SCRIPTS.*"},
 		Retention: jetstream.WorkQueuePolicy,
-		Storage:   jetstream.MemoryStorage,
-		Discard:   jetstream.DiscardOld,
-		MaxAge:    5 * time.Minute, // Discard messages older than 5 minutes
+		// Storage:   jetstream.MemoryStorage,
+		Discard: jetstream.DiscardOld,
+		MaxAge:  5 * time.Minute, // Discard messages older than 5 minutes
 		// ConsumerLimits: jetstream.StreamConsumerLimits{
 		// 	MaxAckPending: 20,
 		// },
@@ -73,12 +78,24 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
 		AckWait:        5 * time.Second,
-		MemoryStorage:  true,
-		ReplayPolicy:   jetstream.ReplayInstantPolicy,
+		// MemoryStorage:  true,
+		ReplayPolicy: jetstream.ReplayInstantPolicy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create consumer: %w", err)
 	}
+
+	go func() {
+		for {
+			info, err := stream.Info(ctx)
+			if err != nil {
+				log.Err(err).Msg("failed to get stream info")
+				continue
+			}
+			fmt.Println("Stream info", "msgs:", info.State.Msgs, "consumers:", info.State.Consumers)
+			time.Sleep(3 * time.Second)
+		}
+	}()
 
 	return &Nats{
 		conn:     nc,
@@ -212,6 +229,15 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 
 	select {
 	case <-ctx.Done():
+		info, err := n.stream.Info(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stream info: %w", err)
+		}
+
+		if info.State.Consumers == 0 {
+			return nil, fmt.Errorf("no consumers available to process the request, are there any runner connected?")
+		}
+
 		return nil, ctx.Err()
 	case data := <-dataCh:
 		return data, nil
@@ -221,33 +247,66 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
 func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+	n.consumerMu.Lock()
+	defer n.consumerMu.Unlock()
 
-	cons, err := n.consumer.Consume(func(msg jetstream.Msg) {
-		log.Trace().Str("subject", msg.Subject()).Msg("received message from jetstream")
-
-		err := handler(&Message{
-			Type:   msg.Headers().Get(helixNatsSubjectHeader),
-			Reply:  msg.Headers().Get(helixNatsReplyHeader),
-			Data:   msg.Data(),
-			Header: msg.Headers(),
-			msg:    msg,
-		})
-		if err != nil {
-			log.Err(err).Msg("error handling message")
-		}
-	})
+	info, err := n.stream.Info(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start msg consumer: %w", err)
+		return nil, fmt.Errorf("failed to get stream info: %w", err)
 	}
 
-	return &consumerWrapper{consumer: cons}, nil
+	if info.State.Consumers == 0 {
+		// Creating consumer
+		ctx := context.Background()
+		c, err := n.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+			AckPolicy:      jetstream.AckExplicitPolicy,
+			FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
+			AckWait:        5 * time.Second,
+			// MemoryStorage:  true,
+			ReplayPolicy: jetstream.ReplayInstantPolicy,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create consumer: %w", err)
+		}
+		n.consumer = c
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+				// return nil, ctx.Err()
+			default:
+				batch, err := n.consumer.FetchNoWait(conc)
+				if err != nil {
+					log.Err(err).Msg("failed to fetch messages")
+					continue
+				}
+
+				for msg := range batch.Messages() {
+					err := handler(&Message{
+						Type:   msg.Headers().Get(helixNatsSubjectHeader),
+						Reply:  msg.Headers().Get(helixNatsReplyHeader),
+						Data:   msg.Data(),
+						Header: msg.Headers(),
+						msg:    msg,
+					})
+					if err != nil {
+						log.Err(err).Msg("error handling message")
+					}
+				}
+			}
+		}
+
+	}()
+
+	// Consumer wrapper noop
+	return &consumerWrapper{}, nil
 }
 
-type consumerWrapper struct {
-	consumer jetstream.ConsumeContext
-}
+type consumerWrapper struct{}
 
 func (c *consumerWrapper) Unsubscribe() error {
-	c.consumer.Stop()
 	return nil
 }
