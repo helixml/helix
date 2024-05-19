@@ -262,6 +262,11 @@ type Apps struct {
 type GPTScript struct {
 	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
 
+	Runner struct {
+		RequestTimeout time.Duration `envconfig:"GPTSCRIPT_RUNNER_REQUEST_TIMEOUT" default:"10s" description:"How long to wait for the script response."`
+		Retries        uint          `envconfig:"GPTSCRIPT_RUNNER_RETRIES" default:"3" description:"How many retries."`
+	}
+
 	TestFaster struct {
 		URL   string `envconfig:"HELIX_TESTFASTER_URL" description:"The URL to the testfaster cluster."`
 		Token string `envconfig:"HELIX_TESTFASTER_TOKEN"`
