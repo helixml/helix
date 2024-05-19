@@ -20,6 +20,9 @@ if [ -n "$PULL_OLLAMA_MODELS" ]; then
 
     # Iterate over each model and pull it
     for model in "${models[@]}"; do
+        # drone requires variable to have double quotes to avoid splitting on
+        # commas, but, we end up with the double quotes here. Remove them
+        model=$(echo "$model" | tr -d '"')
         echo "Pulling $model"
         ollama pull "$model"
     done
