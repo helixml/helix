@@ -56,7 +56,7 @@ func (e *DefaultExecutor) ExecuteApp(ctx context.Context, app *types.GptScriptGi
 		}
 		return resp, nil
 	},
-		retry.Attempts(executeRetries),
+		retry.Attempts(e.cfg.GPTScript.Runner.Retries),
 		retry.Delay(delayBetweenExecuteRetries),
 		retry.Context(ctx),
 		retry.LastErrorOnly(true),
