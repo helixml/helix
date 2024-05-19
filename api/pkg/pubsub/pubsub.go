@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nats.go"
 )
 
 type Publisher interface {
@@ -16,6 +16,9 @@ type PubSub interface {
 	Publisher
 	Subscribe(ctx context.Context, topic string, handler func(payload []byte) error) (Subscription, error)
 
+	Request(ctx context.Context, stream, sub string, payload []byte, timeout time.Duration) ([]byte, error)
+	QueueSubscribe(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
+
 	StreamRequest(ctx context.Context, stream, sub string, payload []byte, timeout time.Duration) ([]byte, error)
 	StreamConsume(ctx context.Context, stream, sub string, conc int, handler func(msg *Message) error) (Subscription, error)
 }
@@ -24,7 +27,26 @@ type Message struct {
 	Reply string
 	Data  []byte
 
-	msg jetstream.Msg
+	msg acker
+}
+
+type acker interface {
+	Ack() error
+	Nak() error
+}
+
+// natsMsgWrapper is used to wrap nats msg to ensure
+// interface compatibility
+type natsMsgWrapper struct {
+	msg *nats.Msg
+}
+
+func (a *natsMsgWrapper) Ack() error {
+	return a.msg.Ack()
+}
+
+func (a *natsMsgWrapper) Nak() error {
+	return a.msg.Nak()
 }
 
 // Ack acknowledges a message
