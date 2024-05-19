@@ -15,7 +15,8 @@ type Nats struct {
 	conn *nats.Conn
 	js   jetstream.JetStream
 
-	stream jetstream.Stream
+	stream   jetstream.Stream
+	consumer jetstream.Consumer
 }
 
 func NewInMemoryNats(storeDir string) (*Nats, error) {
@@ -65,10 +66,23 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		return nil, fmt.Errorf("failed to create jetstream stream: %w", err)
 	}
 
+	ctx := context.Background()
+	c, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		AckPolicy:      jetstream.AckExplicitPolicy,
+		FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
+		AckWait:        5 * time.Second,
+		MemoryStorage:  true,
+		ReplayPolicy:   jetstream.ReplayInstantPolicy,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create consumer: %w", err)
+	}
+
 	return &Nats{
-		conn:   nc,
-		js:     js,
-		stream: stream,
+		conn:     nc,
+		js:       js,
+		stream:   stream,
+		consumer: c,
 	}, nil
 }
 
@@ -103,7 +117,8 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, t
 	defer sub.Unsubscribe()
 
 	hdr := nats.Header{}
-	hdr.Set(jetstreamReplyHeader, replyInbox)
+	hdr.Set(helixNatsReplyHeader, replyInbox)
+	hdr.Set(helixNatsTypeHeader, subject)
 
 	// Publish the message to NATS
 	err = n.conn.PublishMsg(&nats.Msg{
@@ -126,8 +141,9 @@ func (n *Nats) Request(ctx context.Context, _, subject string, payload []byte, t
 func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
 	sub, err := n.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		err := handler(&Message{
-			Reply: msg.Header.Get(jetstreamReplyHeader),
+			Reply: msg.Header.Get(helixNatsReplyHeader),
 			Data:  msg.Data,
+			Type:  msg.Header.Get(helixNatsTypeHeader),
 			msg:   &natsMsgWrapper{msg},
 		})
 		if err != nil {
@@ -141,7 +157,10 @@ func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc i
 	return sub, nil
 }
 
-const jetstreamReplyHeader = "helix-reply"
+const (
+	helixNatsReplyHeader = "helix-reply"
+	helixNatsTypeHeader  = "helix-type"
+)
 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
 // received within the timeout, an error is returned.
@@ -158,7 +177,8 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 	defer sub.Unsubscribe()
 
 	hdr := nats.Header{}
-	hdr.Set(jetstreamReplyHeader, replyInbox)
+	hdr.Set(helixNatsReplyHeader, replyInbox)
+	hdr.Set(helixNatsTypeHeader, subject)
 
 	// streamTopic := getStreamSub(stream, subject) + "." + nuid.Next()
 	streamTopic := getStreamSub(stream, subject)
@@ -188,32 +208,12 @@ func (n *Nats) StreamRequest(ctx context.Context, stream, subject string, payloa
 // QueueSubscribe is similar to Subscribe, but it will only deliver a message to one subscriber in the group. This way you can
 // have multiple subscribers to the same subject, but only one gets it.
 func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
-	s, err := n.js.Stream(ctx, stream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stream info: %w", err)
-	}
-
-	filter := getStreamSub(stream, subject)
-
-	c, err := s.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		// Name: "worker",
-		// Durable:        "durable",
-		AckPolicy: jetstream.AckExplicitPolicy,
-		// FilterSubjects: []string{filter + ".>"},
-		FilterSubjects: []string{filter},
-		AckWait:        5 * time.Second,
-		MemoryStorage:  true,
-		ReplayPolicy:   jetstream.ReplayInstantPolicy,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create consumer: %w", err)
-	}
-
-	cons, err := c.Consume(func(msg jetstream.Msg) {
+	cons, err := n.consumer.Consume(func(msg jetstream.Msg) {
 		log.Trace().Str("subject", msg.Subject()).Msg("received message from jetstream")
 
 		err := handler(&Message{
-			Reply: msg.Headers().Get(jetstreamReplyHeader),
+			Type:  msg.Headers().Get(helixNatsTypeHeader),
+			Reply: msg.Headers().Get(helixNatsReplyHeader),
 			Data:  msg.Data(),
 			msg:   msg,
 		})
