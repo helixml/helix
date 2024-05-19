@@ -85,6 +85,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		return nil, fmt.Errorf("failed to create consumer: %w", err)
 	}
 
+	// Basic monitoring of the stream
 	go func() {
 		for {
 			info, err := stream.Info(ctx)
@@ -92,7 +93,12 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 				log.Err(err).Msg("failed to get stream info")
 				continue
 			}
-			fmt.Println("Stream info", "msgs:", info.State.Msgs, "consumers:", info.State.Consumers)
+			log.Debug().
+				Int("messages", int(info.State.Msgs)).
+				Int("consumers", int(info.State.Consumers)).
+				Time("oldest_message", info.State.FirstTime).
+				Time("newest_message", info.State.LastTime).
+				Msg("Stream info")
 			time.Sleep(3 * time.Second)
 		}
 	}()
@@ -260,8 +266,9 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		ctx := context.Background()
 		c, err := n.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 			AckPolicy:      jetstream.AckExplicitPolicy,
-			FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
-			AckWait:        5 * time.Second,
+			FilterSubjects: []string{getStreamSub(stream, subject)},
+			// FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
+			AckWait: 5 * time.Second,
 			// MemoryStorage:  true,
 			ReplayPolicy: jetstream.ReplayInstantPolicy,
 		})
