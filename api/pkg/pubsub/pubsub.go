@@ -27,6 +27,7 @@ type PubSub interface {
 }
 
 type Message struct {
+	Type  string
 	Reply string
 	Data  []byte
 
