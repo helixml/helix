@@ -242,7 +242,7 @@ func TestNatsStreaming(t *testing.T) {
 			default:
 				if messageCounter < 100 {
 					time.Sleep(100 * time.Millisecond)
-					fmt.Printf("waiting for messages %d/%d\n", messageCounter, 100)
+					t.Logf("waiting for messages %d/%d\n", messageCounter, 100)
 				} else {
 					return
 				}
@@ -283,11 +283,11 @@ func TestStreamRetries(t *testing.T) {
 	var nacks int
 
 	sub, err := pubsub.StreamConsume(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
-		fmt.Println("consume", string(msg.Data))
+		t.Log("consume", string(msg.Data))
 		// Nack 5 messages and don't reply anything, they should be retried
 		if nacks < 5 {
 			nacks++
-			fmt.Println("nack", string(msg.Data))
+
 			t.Logf("Nack %d", nacks)
 			return msg.Nak()
 		}
@@ -316,7 +316,7 @@ func TestStreamRetries(t *testing.T) {
 
 			if val < 10 {
 				time.Sleep(100 * time.Millisecond)
-				fmt.Printf("waiting for messages %d/%d\n", val, 10)
+				t.Logf("waiting for messages %d/%d", val, 10)
 			} else {
 				return
 			}
@@ -410,7 +410,7 @@ func TestStreamAfterDelay(t *testing.T) {
 
 				require.Equal(t, "world", string(data))
 
-				fmt.Println("received", string(data))
+				t.Log("received", string(data))
 
 				messageCounter.Add(1)
 			})
@@ -434,7 +434,7 @@ func TestStreamAfterDelay(t *testing.T) {
 		// Ignore some messages
 		if nacks < 5 {
 			nacks++
-			fmt.Printf("Message '%s', do nothing on %d\n", string(msg.Data), nacks)
+			t.Logf("Message '%s', do nothing on %d\n", string(msg.Data), nacks)
 			return msg.Nak()
 		}
 
@@ -462,7 +462,7 @@ func TestStreamAfterDelay(t *testing.T) {
 
 			if val < 10 {
 				time.Sleep(100 * time.Millisecond)
-				fmt.Printf("waiting for messages %d/%d\n", val, 10)
+				t.Logf("waiting for messages %d/%d\n", val, 10)
 			} else {
 				return
 			}
@@ -495,7 +495,7 @@ func TestStreamFailOne(t *testing.T) {
 				require.NoError(t, err)
 
 				require.Equal(t, "world", string(data))
-				fmt.Println("received", string(data))
+
 				messageCounter.Add(1)
 			})
 
@@ -538,7 +538,7 @@ func TestStreamFailOne(t *testing.T) {
 
 			if val < 9 {
 				time.Sleep(500 * time.Millisecond)
-				fmt.Printf("waiting for messages %d/%d\n", val, 9)
+				t.Logf("waiting for messages %d/%d\n", val, 9)
 			} else {
 				return
 			}
