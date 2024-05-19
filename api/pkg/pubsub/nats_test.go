@@ -122,6 +122,68 @@ func TestNatsPubsub(t *testing.T) {
 	})
 }
 
+func TestQueueMultipleSubs(t *testing.T) {
+	pubsub, err := NewInMemoryNats(t.TempDir())
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	messageCounter := 0
+
+	// Wait a bit before starting the work
+	time.Sleep(1 * time.Second)
+
+	// Start two workers
+	var (
+		worker1 int
+		worker2 int
+	)
+
+	sub1, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+		msg.Ack()
+
+		worker1++
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub1.Unsubscribe()
+
+	sub2, err := pubsub.QueueSubscribe(ctx, ScriptRunnerStream, AppQueue, 10, func(msg *Message) error {
+		err := pubsub.Publish(ctx, msg.Reply, []byte("world"))
+		require.NoError(t, err)
+		msg.Ack()
+
+		worker2++
+
+		return nil
+	})
+	require.NoError(t, err)
+	defer sub2.Unsubscribe()
+
+	for i := 0; i < 100; i++ {
+		data, err := pubsub.Request(ctx, ScriptRunnerStream, AppQueue, []byte(fmt.Sprintf("hello-%d", i)), 10*time.Second)
+		require.NoError(t, err)
+
+		require.Equal(t, "world", string(data))
+
+		messageCounter++
+	}
+
+	assert.True(t, worker1 > 0)
+	assert.True(t, worker2 > 0)
+
+	assert.True(t, worker1 < 100)
+	assert.True(t, worker2 < 100)
+
+	assert.Equal(t, worker1+worker2, messageCounter, "should have the total 100 messages")
+
+	t.Logf("worker1: %d", worker1)
+	t.Logf("worker2: %d", worker2)
+}
+
 func TestNatsStreaming(t *testing.T) {
 	t.Run("SubscribeLater", func(t *testing.T) {
 		pubsub, err := NewInMemoryNats(t.TempDir())
