@@ -211,6 +211,8 @@ func (d *Runner) processToolRequest(ctx context.Context, conn *websocket.Conn, r
 
 	logger.Debug().
 		Str("script_input", script.Input).
+		Str("file_path", script.FilePath).
+		Str("source", script.Source).
 		Msg("processing GPTScript tool request")
 
 	start := time.Now()
