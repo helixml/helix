@@ -77,13 +77,8 @@ func GetSessionQueue(ownerID, sessionID string) string {
 const (
 	ScriptRunnerStream = "SCRIPTS"
 	AppQueue           = "apps"
-	ToolQueue          = "tools"
 )
 
 func getStreamSub(stream, sub string) string {
 	return stream + "." + sub
-}
-
-func getStreamSubV2(stream, sub, id string) string {
-	return stream + "." + sub + "." + id
 }

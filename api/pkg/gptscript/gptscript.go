@@ -105,7 +105,7 @@ func (e *DefaultExecutor) ExecuteScript(ctx context.Context, script *types.GptSc
 	}
 
 	resp, err := retry.DoWithData(func() ([]byte, error) {
-		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.ToolQueue, bts, header, 30*time.Second)
+		resp, err := e.pubsub.StreamRequest(ctx, pubsub.ScriptRunnerStream, pubsub.AppQueue, bts, header, 30*time.Second)
 		if err != nil {
 			return nil, fmt.Errorf("failed to request GPTScript app: %w", err)
 		}
