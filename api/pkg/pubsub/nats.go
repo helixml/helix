@@ -90,6 +90,60 @@ func (n *Nats) Publish(ctx context.Context, topic string, payload []byte) error 
 	return n.conn.Publish(topic, payload)
 }
 
+func (n *Nats) Request(ctx context.Context, queue, subject string, payload []byte, timeout time.Duration) ([]byte, error) {
+	replyInbox := nats.NewInbox()
+	var dataCh = make(chan []byte)
+
+	sub, err := n.conn.Subscribe(replyInbox, func(msg *nats.Msg) {
+		dataCh <- msg.Data
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Unsubscribe()
+
+	hdr := nats.Header{}
+	hdr.Set(jetstreamReplyHeader, replyInbox)
+
+	streamTopic := getStreamSub(queue, subject)
+
+	// Publish the message to the JetStream stream,
+	// one of the consumer will pick it up
+	err = n.conn.PublishMsg(&nats.Msg{
+		Subject: streamTopic,
+		Data:    payload,
+		Header:  hdr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish message to jetstream: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case data := <-dataCh:
+		return data, nil
+	}
+}
+
+func (n *Nats) QueueSubscribe(ctx context.Context, queue, subject string, conc int, handler func(msg *Message) error) (Subscription, error) {
+	sub, err := n.conn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		err := handler(&Message{
+			Reply: msg.Header.Get(jetstreamReplyHeader),
+			Data:  msg.Data,
+			msg:   &natsMsgWrapper{msg},
+		})
+		if err != nil {
+			log.Err(err).Msg("error handling message")
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sub, nil
+}
+
 const jetstreamReplyHeader = "helix-reply"
 
 // Request publish a message to the given subject and creates an inbox to receive the response. If response is not
