@@ -109,7 +109,7 @@ func (d *Runner) run(ctx context.Context) error {
 		}
 	}()
 
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -120,6 +120,10 @@ func (d *Runner) run(ctx context.Context) error {
 		case <-ticker.C:
 			err := conn.WriteMessage(websocket.PingMessage, []byte{})
 			if err != nil {
+				if strings.Contains(err.Error(), "broken pipe") {
+					return fmt.Errorf("Helix control-plane has closed connection, restarting (%s)", err)
+				}
+
 				log.Err(err).Msg("failed to write ping message, closing connection")
 				return fmt.Errorf("failed to write ping message (%w), closing connection", err)
 			}
