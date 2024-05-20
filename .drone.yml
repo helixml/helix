@@ -97,7 +97,6 @@ steps:
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
-    registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     username: admin
     password:
@@ -132,6 +131,8 @@ steps:
   settings:
     dockerfile: Dockerfile.gptscript
     auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
     repo: registry.helix.ml/helix/gptscript-runner
     username: admin
     password:
@@ -168,6 +169,8 @@ steps:
     tags:
     - "${DRONE_TAG:-main}-small" # Default to branch
     - "latest-small"
+    daemon_off: true
+    registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     build_args:
       # Small models only
@@ -209,6 +212,8 @@ steps:
     tags:
     - "${DRONE_TAG:-main}-large"
     - "latest-large"
+    daemon_off: true
+    registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     build_args:
       # Small and big models
