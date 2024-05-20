@@ -34,42 +34,21 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 		return nil, err
 	}
 
-	err = setRealmConfiguration(gck, token.AccessToken, cfg)
+	err = setRealmConfigurations(gck, token.AccessToken, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	err = setFrontEndClientConfigurations(gck, token.AccessToken, cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	if cfg.ClientSecret == "" {
-		log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
-
-		// Lookup
-		apiClients, err := gck.GetClients(context.Background(), token.AccessToken, cfg.Realm, gocloak.GetClientsParams{ClientID: &cfg.ClientID})
+		err = setAPIClientConfigurations(gck, token.AccessToken, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("GetClients: error getting clients: %s", err.Error())
+			return nil, err
 		}
-
-		numAPIClients := len(apiClients)
-		if numAPIClients == 1 { //API client exists, do nothing and get details
-			creds, err := gck.GetClientSecret(context.Background(), token.AccessToken, cfg.Realm, *apiClients[0].ID)
-
-			if err != nil {
-				return nil, fmt.Errorf("GetClientSecret: error getting client secret: %s", err.Error())
-			}
-
-			cfg.ClientSecret = *creds.Value
-			log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Msg("found client secret in already configured keycloak")
-
-		} else if numAPIClients == 0 { // API client does not exist, create new client
-			creds, err := createAPIClient(gck, token.AccessToken, cfg)
-			if err != nil {
-				return nil, err
-			}
-			cfg.ClientSecret = *creds.Value
-			log.Info().Str("client_id", cfg.ClientID).Str("realm", cfg.Realm).Str("secret", cfg.ClientSecret).Msg("GetClientSecret: no Keycloak client found, created client, obtained new client secret")
-		} else {
-			return nil, fmt.Errorf("GetClientSecret: error getting client secret: found multiple %d config(s) for %s", len(apiClients), cfg.ClientID)
-		}
-
 	}
 
 	return &KeycloakAuthenticator{
@@ -78,19 +57,63 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 	}, nil
 }
 
-func createAPIClient(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) (*gocloak.CredentialRepresentation, error) {
-	clientID, err := gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.ClientID})
+func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
+	log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
+
+	client, err := getKeycloakClient(gck, token, cfg.Realm, cfg.APIClientID)
 	if err != nil {
-		return nil, fmt.Errorf("CreateClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+		return fmt.Errorf("setAPIClientConfigurations: error getting clients: %s", err.Error())
 	}
-	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, clientID)
+
+	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, *client.ID)
 	if err != nil {
-		return nil, fmt.Errorf("GetClientSecret: no Keycloak client found, attempt to create and fetch client secret failed with: %s", err.Error())
+		return fmt.Errorf("setAPIClientConfigurations: error updating client secret: %s", err.Error())
 	}
-	return creds, nil
+
+	cfg.ClientSecret = *creds.Value
+	return nil
 }
 
-func setRealmConfiguration(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) (error){
+func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
+	log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("Configuring Frontend client")
+
+	client, err := getKeycloakClient(gck, token, cfg.Realm, cfg.FrontEndClientID)
+	if err != nil {
+		return fmt.Errorf("setFrontEndClientConfigurations: error getting clients: %s", err.Error())
+	}
+
+	log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Str("server URL", cfg.URL).Msg("Setting Base URL for Frontend client")
+	*client.BaseURL = cfg.URL
+	err = gck.UpdateClient(context.Background(), token, cfg.Realm, *client)
+	if err != nil {
+		return fmt.Errorf("setFrontEndClientConfigurations: error updating clients: %s", err.Error())
+	}
+
+	return nil
+}
+
+func getKeycloakClient(gck *gocloak.GoCloak, token string, realm string, clientName string) (*gocloak.Client, error) {
+	clients, err := gck.GetClients(context.Background(), token, realm, gocloak.GetClientsParams{ClientID: &clientName})
+	if err != nil {
+		return nil, fmt.Errorf("getKeycloakClient: error getting clients: %s", err.Error())
+	}
+
+	if len(clients) == 1 { //client exists, do nothing and get details
+		log.Info().Str("client_id", clientName).Str("realm", realm).Msg("found client in already configured keycloak")
+		return clients[0], nil
+	} else if len(clients) == 0 { //client does not exist, create new client
+		clientID, err := gck.CreateClient(context.Background(), token, realm, gocloak.Client{ClientID: &clientName})
+		if err != nil {
+			return nil, fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
+		}
+		log.Info().Str("client_id", clientName).Str("realm", realm).Msg("GetClientSecret: no Keycloak client found, created client, obtained new client secret")
+		return &gocloak.Client{ClientID: &clientID}, nil
+	}
+
+	return nil, fmt.Errorf("getKeycloakClient: lookup client failed, attempt to create client failed with: %s", err.Error())
+}
+
+func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
 	realm, err := gck.GetRealm(context.Background(), token, cfg.Realm)
 	if err != nil {
 		return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to update realm config failed with: %s", err.Error())
@@ -160,12 +183,12 @@ func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token str
 		return nil, fmt.Errorf("DecodeAccessToken: invalid or malformed token: %s", err.Error())
 	}
 
-	result, err := k.gocloak.RetrospectToken(ctx, token, k.cfg.ClientID, k.cfg.ClientSecret, k.cfg.Realm)
+	result, err := k.gocloak.RetrospectToken(ctx, token, k.cfg.APIClientID, k.cfg.ClientSecret, k.cfg.Realm)
 	if err != nil {
 		log.Warn().
 			Err(err).
 			Str("token", token).
-			Str("client_id", k.cfg.ClientID).
+			Str("client_id", k.cfg.APIClientID).
 			Str("realm", k.cfg.Realm).
 			Msg("failed getting admin token")
 		return nil, fmt.Errorf("RetrospectToken: invalid or malformed token: %w", err)
