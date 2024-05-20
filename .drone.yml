@@ -61,7 +61,7 @@ steps:
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
-    repo: helix/controlplane
+    repo: registry.helix.ml/helix/controlplane
     username: admin
     password:
       from_secret: helix_registry_password
@@ -98,7 +98,7 @@ steps:
     daemon_off: true
     registry: registry.helix.ml
     registry: registry.helix.ml
-    repo: helix/runner
+    repo: registry.helix.ml/helix/runner
     username: admin
     password:
       from_secret: helix_registry_password
@@ -132,7 +132,7 @@ steps:
   settings:
     dockerfile: Dockerfile.gptscript
     auto_tag: true
-    repo: helix/gptscript-runner
+    repo: registry.helix.ml/helix/gptscript-runner
     username: admin
     password:
       from_secret: helix_registry_password
@@ -168,7 +168,7 @@ steps:
     tags:
     - "${DRONE_TAG:-main}-small" # Default to branch
     - "latest-small"
-    repo: helix/runner
+    repo: registry.helix.ml/helix/runner
     build_args:
       # Small models only
       - PULL_OLLAMA_MODELS=llama3:instruct;phi3:instruct
@@ -209,7 +209,7 @@ steps:
     tags:
     - "${DRONE_TAG:-main}-large"
     - "latest-large"
-    repo: helix/runner
+    repo: registry.helix.ml/helix/runner
     build_args:
       # Small and big models
       - PULL_OLLAMA_MODELS=llama3:instruct;llama3:70b;mixtral:instruct;adrienbrault/nous-hermes2theta-llama3-8b:q8_0;phi3:instruct
@@ -249,7 +249,7 @@ steps:
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
-    repo: helix/gptscript_devserver
+    repo: registry.helix.ml/helix/gptscript_devserver
     username: admin
     password:
       from_secret: helix_registry_password
@@ -286,7 +286,7 @@ steps:
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
-    repo: helix/llamaindex
+    repo: registry.helix.ml/helix/llamaindex
     username: admin
     password:
       from_secret: helix_registry_password
@@ -322,7 +322,7 @@ steps:
     auto_tag: true
     daemon_off: true
     registry: registry.helix.ml
-    repo: helix/demos
+    repo: registry.helix.ml/helix/demos
     username: admin
     password:
       from_secret: helix_registry_password
