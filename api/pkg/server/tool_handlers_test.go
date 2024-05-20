@@ -41,7 +41,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
 	suite.store = store.NewMockStore(ctrl)
-	ps, err := pubsub.New()
+	ps, err := pubsub.New(suite.T().TempDir())
 	suite.NoError(err)
 
 	suite.pubsub = ps
@@ -67,7 +67,7 @@ func (suite *ToolsTestSuite) SetupTest() {
 			authenticator: auth.NewMockAuthenticator(&user),
 		},
 		Controller: &controller.Controller{
-			ToolsPlanner: &tools.ChainStrategy{Local: true},
+			ToolsPlanner: &tools.ChainStrategy{},
 			Options: controller.ControllerOptions{
 				Store:   suite.store,
 				Janitor: janitor,

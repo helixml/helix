@@ -96,6 +96,11 @@ type Store interface {
 	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
+
+	// GPTScript runs history table
+	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
+	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
+	DeleteScriptRun(ctx context.Context, id string) error
 }
 
 var ErrNotFound = errors.New("not found")

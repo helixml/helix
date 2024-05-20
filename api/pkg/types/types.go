@@ -910,8 +910,31 @@ type GptScriptRequest struct {
 }
 
 type GptScriptResponse struct {
-	Output string `json:"output"`
-	Error  string `json:"error"`
+	Output  string `json:"output"`
+	Error   string `json:"error"`
+	Retries int    `json:"retries"`
+}
+
+func (m GptScriptResponse) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *GptScriptResponse) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result GptScriptResponse
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (GptScriptResponse) GormDataType() string {
+	return "json"
 }
 
 type DataEntityConfig struct {
@@ -957,4 +980,95 @@ type DataEntity struct {
 	// of a lora dataset.
 	ParentDataEntity string           `json:"parent_entity"`
 	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
+}
+
+type ScriptRunType string
+
+const (
+	GptScriptRunnerTaskTypeGithubApp ScriptRunType = "github_app"
+	GptScriptRunnerTaskTypeTool      ScriptRunType = "tool"
+	// TODO: add more types, like python script, etc.
+)
+
+// ScriptRun is an internal type that is used when GPTScript
+// tasks are invoked by the user and the runner runs
+type ScriptRun struct {
+	ID         string         `json:"id" gorm:"primaryKey"`
+	Created    time.Time      `json:"created"`
+	Updated    time.Time      `json:"updated"`
+	Owner      string         `json:"owner" gorm:"index"` // uuid of owner entity
+	OwnerType  OwnerType      `json:"owner_type"`         // e.g. user, system, org
+	AppID      string         `json:"app_id"`
+	State      ScriptRunState `json:"state"`
+	Type       ScriptRunType  `json:"type"`
+	Retries    int            `json:"retries"`
+	DurationMs int            `json:"duration_ms"`
+
+	Request     *GptScriptRunnerRequest `json:"request" gorm:"jsonb"`
+	Response    *GptScriptResponse      `json:"response" gorm:"jsonb"`
+	SystemError string                  `json:"system_error"` // If we didn't get the response from the runner
+}
+
+type GptScriptRunsQuery struct {
+	Owner     string
+	OwnerType OwnerType
+	AppID     string
+	State     ScriptRunState
+}
+
+type GptScriptRunnerRequest struct {
+	GithubApp *GptScriptGithubApp `json:"github_app"`
+}
+
+func (m GptScriptRunnerRequest) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *GptScriptRunnerRequest) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result GptScriptRunnerRequest
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (GptScriptRunnerRequest) GormDataType() string {
+	return "json"
+}
+
+type RunnerEventRequestType int
+
+func (r RunnerEventRequestType) String() string {
+	switch r {
+	case RunnerEventRequestTool:
+		return "tool"
+	case RunnerEventRequestApp:
+		return "app"
+	default:
+		return "unknown"
+	}
+}
+
+const (
+	RunnerEventRequestTool RunnerEventRequestType = iota
+	RunnerEventRequestApp
+)
+
+type RunnerEventRequestEnvelope struct {
+	RequestID string                 `json:"request_id"`
+	Payload   []byte                 `json:"payload"`
+	Type      RunnerEventRequestType `json:"type"`
+	Reply     string                 `json:"reply"` // Where to send the reply
+}
+
+type RunnerEventResponseEnvelope struct {
+	RequestID string `json:"request_id"`
+	Reply     string `json:"reply"` // Where to send the reply
+	Payload   []byte `json:"payload"`
 }
