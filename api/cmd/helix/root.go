@@ -22,6 +22,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(newServeCmd())
 	RootCmd.AddCommand(newGptScriptCmd())
 	RootCmd.AddCommand(newRunnerCmd())
+	RootCmd.AddCommand(newGptScriptRunnerCmd())
 	RootCmd.AddCommand(newRunCmd())
 	RootCmd.AddCommand(newQapairCommand())
 	RootCmd.AddCommand(newEvalsCommand())

@@ -180,6 +180,8 @@ func RunGPTAppScript(ctx context.Context, app *types.GptScriptGithubApp) (*types
 	if err != nil {
 		return nil, err
 	}
+	defer os.RemoveAll(tempDir)
+
 	// we need the folder to not exist so that CloneOrUpdateRepo clones rather than tries to update
 	repoDir := path.Join(tempDir, "repo")
 
