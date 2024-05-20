@@ -54,7 +54,7 @@ volumes:
 
 steps:
 - name: publish-image
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile
@@ -90,7 +90,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -126,7 +126,7 @@ volumes:
 
 steps:
 - name: publish-image
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.gptscript
@@ -162,7 +162,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -205,7 +205,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -251,7 +251,7 @@ volumes:
 
 steps:
 - name: publish-gptscript_devserver
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.gptscript_devserver
@@ -287,7 +287,7 @@ volumes:
 
 steps:
 - name: publish-llamaindex
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: llamaindex/Dockerfile
@@ -324,7 +324,7 @@ volumes:
 
 steps:
 - name: publish-demos
-  image: plugins/docker
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-1
   pull: always
   settings:
     dockerfile: Dockerfile.demos
