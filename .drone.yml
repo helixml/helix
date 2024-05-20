@@ -59,6 +59,7 @@ steps:
   settings:
     dockerfile: Dockerfile
     auto_tag: true
+    daemon_off: true
     repo: helixml/helix/controlplane
     location: europe
     json_key:
@@ -93,6 +94,7 @@ steps:
   settings:
     dockerfile: Dockerfile.runner
     auto_tag: true
+    daemon_off: true
     repo: helixml/helix/runner
     location: europe
     json_key:
@@ -208,6 +210,7 @@ steps:
   settings:
     dockerfile: Dockerfile.gptscript_devserver
     auto_tag: true
+    daemon_off: true
     repo: helixml/helix/gptscript_devserver
     location: europe
     json_key:
@@ -243,6 +246,7 @@ steps:
     dockerfile: llamaindex/Dockerfile
     context: llamaindex
     auto_tag: true
+    daemon_off: true
     repo: helixml/helix/llamaindex
     location: europe
     json_key:
@@ -277,6 +281,7 @@ steps:
   settings:
     dockerfile: Dockerfile.demos
     auto_tag: true
+    daemon_off: true
     repo: helixml/helix/demos
     location: europe
     json_key:
