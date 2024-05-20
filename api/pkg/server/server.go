@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/spa"
@@ -51,20 +52,22 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Cfg            *config.ServerConfig
-	Store          store.Store
-	Stripe         *stripe.Stripe
-	Controller     *controller.Controller
-	Janitor        *janitor.Janitor
-	authMiddleware *authMiddleware
-	pubsub         pubsub.PubSub
-	router         *mux.Router
+	Cfg               *config.ServerConfig
+	Store             store.Store
+	Stripe            *stripe.Stripe
+	Controller        *controller.Controller
+	Janitor           *janitor.Janitor
+	authMiddleware    *authMiddleware
+	pubsub            pubsub.PubSub
+	gptScriptExecutor gptscript.Executor
+	router            *mux.Router
 }
 
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
+	gptScriptExecutor gptscript.Executor,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
@@ -87,11 +90,12 @@ func NewServer(
 	}
 
 	return &HelixAPIServer{
-		Cfg:        cfg,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
+		Cfg:               cfg,
+		Store:             store,
+		Stripe:            stripe,
+		Controller:        controller,
+		Janitor:           janitor,
+		gptScriptExecutor: gptScriptExecutor,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
@@ -120,6 +124,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		ctx,
 		apiRouter,
 		"/ws/runner",
+	)
+
+	apiServer.startGptScriptRunnerWebSocketServer(
+		apiRouter,
+		"/ws/gptscript-runner",
 	)
 
 	srv := &http.Server{

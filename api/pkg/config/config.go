@@ -18,11 +18,13 @@ type ServerConfig struct {
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
+	PubSub             PubSub
 	WebServer          WebServer
 	SubscriptionQuotas SubscriptionQuotas
 	GitHub             GitHub
 	FineTuning         FineTuning
 	Apps               Apps
+	GPTScript          GPTScript
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -65,13 +67,13 @@ const (
 )
 
 type Tools struct {
-	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
-	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"`
+	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"`        // Enable/disable tools for the server
+	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"` // TODO: switch this to helix after thorough testing with adrienbrault/nous-hermes2theta-llama3-8b:q8_0
 
 	// Suggestions based on provider:
 	// - OpenAI: gpt-4-1106-preview
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
-	// - Helix: llama3:instruct or adrienbrault/nous-hermes2pro:Q5_K_S
+	// - Helix: llama3:instruct or adrienbrault/nous-hermes2pro:Q5_K_S or maybe adrienbrault/nous-hermes2theta-llama3-8b:q8_0
 	Model string `envconfig:"TOOLS_MODEL" default:"meta-llama/Llama-3-8b-chat-hf"`
 }
 
@@ -174,6 +176,10 @@ type FileStore struct {
 	GCSBucket    string              `envconfig:"FILESTORE_GCS_BUCKET" description:"The bucket we are storing things in GCS."`
 }
 
+type PubSub struct {
+	StoreDir string `envconfig:"NATS_STORE_DIR" default:"/filestore/nats" description:"The directory to store nats data."`
+}
+
 type Store struct {
 	Host     string `envconfig:"POSTGRES_HOST" description:"The host to connect to the postgres server."`
 	Port     int    `envconfig:"POSTGRES_PORT" default:"5432" description:"The port to connect to the postgres server."`
@@ -251,4 +257,18 @@ type Apps struct {
 	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
 	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
 	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
+}
+
+type GPTScript struct {
+	Enabled bool `envconfig:"GPTSCRIPT_ENABLED" default:"true" description:"Enable gptscript."` // Enable/disable gptscript for the server
+
+	Runner struct {
+		RequestTimeout time.Duration `envconfig:"GPTSCRIPT_RUNNER_REQUEST_TIMEOUT" default:"10s" description:"How long to wait for the script response."`
+		Retries        uint          `envconfig:"GPTSCRIPT_RUNNER_RETRIES" default:"3" description:"How many retries."`
+	}
+
+	TestFaster struct {
+		URL   string `envconfig:"HELIX_TESTFASTER_URL" description:"The URL to the testfaster cluster."`
+		Token string `envconfig:"HELIX_TESTFASTER_TOKEN"`
+	}
 }

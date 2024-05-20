@@ -304,3 +304,11 @@ const (
 	TokenTypeKeycloak TokenType = "keycloak"
 	TokenTypeAPIKey   TokenType = "api_key"
 )
+
+type ScriptRunState string
+
+const (
+	ScriptRunStateNone     ScriptRunState = ""
+	ScriptRunStateComplete ScriptRunState = "complete"
+	ScriptRunStateError    ScriptRunState = "error"
+)
