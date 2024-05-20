@@ -216,8 +216,12 @@ steps:
     registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     build_args:
-      # Small and big models
-      - PULL_OLLAMA_MODELS=llama3:instruct;llama3:70b;mixtral:instruct;adrienbrault/nous-hermes2theta-llama3-8b:q8_0;phi3:instruct
+      # We put models we're confident in keeping around for a long time in a
+      # big base layer, and have a smaller layer on top for models that might
+      # change more frequently and that we can add to without churning the
+      # 100GB base
+      - PULL_OLLAMA_MODELS=llama3:instruct;llama3:70b;mixtral:instruct;phi3:instruct
+      - PULL_OLLAMA_MODELS_PHASE_2=adrienbrault/nous-hermes2theta-llama3-8b:q8_0
     username: admin
     password:
       from_secret: helix_registry_password
