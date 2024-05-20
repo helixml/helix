@@ -28,13 +28,13 @@ func newGptScriptCmd() *cobra.Command {
 		Long:    "Start the helix gptscript server.",
 		Example: "TBD",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return gptscript(cmd)
+			return gptscriptServer(cmd)
 		},
 	}
 	return serveCmd
 }
 
-func gptscript(_ *cobra.Command) error {
+func gptscriptServer(_ *cobra.Command) error {
 
 	// this is populated by a testfaster secret which is written into /root/secrets and then hoisted
 	// as the environment file for the gptscript systemd service which runs this

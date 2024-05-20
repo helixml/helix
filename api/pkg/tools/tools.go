@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -27,13 +28,13 @@ type Planner interface {
 var _ Planner = &ChainStrategy{}
 
 type ChainStrategy struct {
-	cfg        *config.ServerConfig
-	apiClient  openai.Client
-	httpClient *http.Client
-	Local      bool // run locally for tests XXX security risk, never set this to true in production
+	cfg               *config.ServerConfig
+	apiClient         openai.Client
+	httpClient        *http.Client
+	gptScriptExecutor gptscript.Executor
 }
 
-func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, controller openai.Controller) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, gptScriptExecutor gptscript.Executor, controller openai.Controller) (*ChainStrategy, error) {
 	var apiClient openai.Client
 
 	switch cfg.Tools.Provider {
@@ -74,8 +75,9 @@ func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, controller ope
 
 	retryClient := system.NewRetryClient(3)
 	return &ChainStrategy{
-		cfg:        cfg,
-		apiClient:  apiClient,
-		httpClient: retryClient.StandardClient(),
+		cfg:               cfg,
+		apiClient:         apiClient,
+		gptScriptExecutor: gptScriptExecutor,
+		httpClient:        retryClient.StandardClient(),
 	}, nil
 }
