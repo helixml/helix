@@ -75,7 +75,7 @@ func ProcessModelName(
 		case "helix-mixtral":
 			return Model_Ollama_Mixtral, nil
 		case "helix-json":
-			return Model_Ollama_NousHermes2ThetaLlama3, nil // TODO: change to Theta after merging main
+			return Model_Ollama_NousHermes2ThetaLlama3, nil
 		case "helix-small":
 			return Model_Ollama_Phi3, nil
 		default:
