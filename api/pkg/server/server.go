@@ -314,7 +314,7 @@ func getID(r *http.Request) string {
 }
 
 func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
-	u, err := url.Parse(apiServer.Cfg.Keycloak.URL)
+	u, err := url.Parse(apiServer.Cfg.Keycloak.KEYCLOAK_URL)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to parse keycloak URL, authentication might not work")
 		return
