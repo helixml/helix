@@ -54,7 +54,7 @@ volumes:
 
 steps:
 - name: publish-image
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile
@@ -90,7 +90,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -102,7 +102,7 @@ steps:
       # Runner with no baked models = empty
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-21b-empty
+      - TAG=2024-05-21c-empty
     username: admin
     password:
       from_secret: helix_registry_password
@@ -131,7 +131,7 @@ volumes:
 
 steps:
 - name: publish-image
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.gptscript
@@ -167,7 +167,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -181,7 +181,7 @@ steps:
       # Runner with small models = small
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-21b-small
+      - TAG=2024-05-21c-small
     username: admin
     password:
       from_secret: helix_registry_password
@@ -210,7 +210,7 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.runner
@@ -224,7 +224,7 @@ steps:
       # Runner with large models = large
       # See https://github.com/helixml/base-images
       # and https://github.com/helixml/base-images/releases
-      - TAG=2024-05-21b-large
+      - TAG=2024-05-21c-large
     username: admin
     password:
       from_secret: helix_registry_password
@@ -253,7 +253,7 @@ volumes:
 
 steps:
 - name: publish-gptscript_devserver
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.gptscript_devserver
@@ -289,7 +289,7 @@ volumes:
 
 steps:
 - name: publish-llamaindex
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: llamaindex/Dockerfile
@@ -326,7 +326,7 @@ volumes:
 
 steps:
 - name: publish-demos
-  image: registry.helix.ml/drone-plugins/docker:luke-dev-2
+  image: registry.helix.ml/drone-plugins/docker:luke-dev-3
   pull: always
   settings:
     dockerfile: Dockerfile.demos
