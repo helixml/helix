@@ -1,5 +1,7 @@
 #syntax=docker/dockerfile:1.4
 
+ARG TAG=latest-empty
+
 ### BUILD
 
 FROM golang:1.22 AS go-build-env
@@ -24,7 +26,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
 
 ### RUNNER CONTAINER
 
-ARG TAG=latest-empty
 FROM registry.helix.ml/helix/runner-base:${TAG}
 
 RUN mkdir -p /workspace/helix
