@@ -2,7 +2,7 @@ version: '3'
 
 services:
   demos:
-    image: europe-docker.pkg.dev/helixml/helix/demos:latest
+    image: registry.helix.ml/helix/demos:latest
     restart: always
     environment:
       - PORT=80
