@@ -5,7 +5,7 @@
 replicaCount: 1
 
 image:
-  repository: europe-docker.pkg.dev/helixml/helix/runner
+  repository: registry.helix.ml/helix/runner
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
