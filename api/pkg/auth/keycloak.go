@@ -91,7 +91,15 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 
 	if clientID == "" {
 		log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
-		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.FrontEndClientID, BaseURL: &cfg.SERVER_URL})
+		frontendClient := gocloak.Client{
+			ClientID: &cfg.FrontEndClientID,
+			BaseURL: &cfg.SERVER_URL,
+			RedirectURIs: &[]string{"*"},
+			WebOrigins: &[]string{"*"},
+			DirectAccessGrantsEnabled: addr(true),
+			PublicClient: addr(true),
+		}
+		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, frontendClient)
 		if err != nil {
 			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
 		}
@@ -199,6 +207,8 @@ func (k *KeycloakAuthenticator) ValidateUserToken(ctx context.Context, token str
 
 	return j, nil
 }
+
+func addr[T any](t T) *T { return &t }
 
 // Compile-time interface check:
 var _ Authenticator = (*KeycloakAuthenticator)(nil)
