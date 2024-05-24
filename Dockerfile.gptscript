@@ -1,0 +1,30 @@
+# Backend build
+FROM golang:1.22 AS go-build-env
+WORKDIR /app
+
+# <- COPY go.mod and go.sum files to the workspace
+COPY go.mod .
+COPY go.sum .
+
+RUN go mod download
+
+# COPY the source code as the last step
+COPY api ./api
+COPY .git /.git
+
+WORKDIR /app/api
+
+# Build the Go app
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+
+FROM ubuntu:22.04
+# RUN apk --update add ca-certificates
+
+RUN --mount=type=cache,target=/var/cache/apt,id=apt_gptscript apt-get update -qq && apt-get install -qqy \
+    wget git unzip wget sqlite curl && \    
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=go-build-env /helix /helix
+
+
+ENTRYPOINT ["/helix", "gptscript-runner"]

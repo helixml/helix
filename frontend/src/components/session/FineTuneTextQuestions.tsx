@@ -64,9 +64,10 @@ export const FineTuneTextQuestions: FC<{
         color="primary"
         size={ onlyShowEditMode ? "medium" : "small" }
         sx={{
-          width: '100%',
+        
+          mt: 2, // Added margin-top for spacing
         }}
-        endIcon={<EditIcon />}
+       
         onClick={ () => setEditMode(true) }
       >
         Edit Questions
@@ -95,7 +96,7 @@ export const FineTuneTextQuestions: FC<{
   return (
     <>
       <Grid container spacing={ 0 }>
-        <Grid item sm={ 12 } md={ 6 } sx={{pr:2}}>
+        <Grid item xs={ 12 }>
           <Typography gutterBottom>
             Your documents have been turned into question answer pairs ready for fine tuning.
           </Typography>
@@ -110,27 +111,19 @@ export const FineTuneTextQuestions: FC<{
               </Typography>
             )
           }
-        </Grid>
-        <Grid item sm={ 12 } md={ 6 } sx={{
-          textAlign: 'right',
-          pt: 2,
-        }}>
-          {
-            editButton
-          }
+          {/* Moved the buttons under the text */}
+          {editButton}
           <Button
             variant="contained"
             color="secondary"
             size="small"
-            endIcon={<NavigateNextIcon />}
+            sx={{ mt: 2 }} // Added margin-top for spacing
             onClick={ startFinetuning }
           >
             Start Training
           </Button>
         </Grid>
-
       </Grid>
-      
     </>
   )  
 }

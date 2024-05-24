@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -19,11 +20,13 @@ const (
 	Model_Ollama_Mixtral   ModelName = "mixtral:instruct"
 	Model_Ollama_CodeLlama ModelName = "codellama:70b-instruct-q2_K"
 
-	Model_Ollama_NousHermes2Pro       ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
-	Model_Ollama_NousHermes2ProLlama3 ModelName = "adrienbrault/nous-hermes2pro-llama3-8b:q8_0"
+	Model_Ollama_NousHermes2Pro         ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
+	Model_Ollama_NousHermes2ThetaLlama3 ModelName = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
 
 	Model_Ollama_Llama3_8b  ModelName = "llama3:instruct"
 	Model_Ollama_Llama3_70b ModelName = "llama3:70b"
+
+	Model_Ollama_Phi3 ModelName = "phi3:instruct"
 )
 
 func NewModel(name string) ModelName {
@@ -47,4 +50,56 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 func ValidateModelName(modelName string, acceptEmpty bool) (ModelName, error) {
 	// All model names are valid for now.
 	return ModelName(modelName), nil
+}
+
+// this will handle aliases and defaults
+func ProcessModelName(
+	modelName string,
+	sessionMode SessionMode,
+	sessionType SessionType,
+	hasFinetune bool,
+) (ModelName, error) {
+	switch sessionType {
+	case SessionTypeText:
+		if sessionType == SessionTypeText && hasFinetune {
+			// fine tuning doesn't work with ollama yet
+			return Model_Axolotl_Mistral7b, nil
+		}
+
+		// switch based on user toggle
+		switch modelName {
+		case "helix-4":
+			return Model_Ollama_Llama3_70b, nil
+		case "helix-3.5":
+			return Model_Ollama_Llama3_8b, nil
+		case "helix-mixtral":
+			return Model_Ollama_Mixtral, nil
+		case "helix-json":
+			return Model_Ollama_NousHermes2ThetaLlama3, nil
+		case "helix-small":
+			return Model_Ollama_Phi3, nil
+		default:
+			if modelName == "" {
+				// default text model for non-finetune inference
+				return Model_Ollama_Llama3_8b, nil
+
+			} else if strings.HasPrefix(modelName, "gpt-3.5") {
+				// pseudo-compatibility with OpenAI API
+				return Model_Ollama_Llama3_8b, nil
+
+			} else if strings.HasPrefix(modelName, "gpt-4") {
+				return Model_Ollama_Llama3_70b, nil
+
+			} else {
+				// allow user-provided model name (e.g. assume API users
+				// know what they're doing)
+				return ValidateModelName(modelName, false)
+			}
+		}
+	case SessionTypeImage:
+		return Model_Cog_SDXL, nil
+	}
+
+	// shouldn't get here
+	return "", fmt.Errorf("don't know what model to provide for args %v %v %v", sessionMode, sessionType, hasFinetune)
 }

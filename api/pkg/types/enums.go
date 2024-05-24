@@ -259,6 +259,43 @@ const (
 	APIKeyType_App APIKeyType = "app"
 )
 
+type DataEntityType string
+
+const (
+	DataEntityTypeNone DataEntityType = ""
+	// a collection of original documents intended for use with text fine tuning
+	DataEntityTypeUploadedDocuments DataEntityType = "uploaded_documents"
+	// a folder with plain text files inside - we have probably converted the source files into text files
+	DataEntityTypePlainText DataEntityType = "plaintext"
+	// a folder with JSON files inside - these are probably the output of a data prep module
+	DataEntityTypeQAPairs DataEntityType = "qapairs"
+	// a datastore with vectors
+	DataEntityTypeRAGSource DataEntityType = "rag_source"
+	// the output of a finetune
+	DataEntityTypeLora DataEntityType = "lora"
+)
+
+func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, error) {
+	switch datasetType {
+	case string(DataEntityTypeUploadedDocuments):
+		return DataEntityTypeUploadedDocuments, nil
+	case string(DataEntityTypePlainText):
+		return DataEntityTypePlainText, nil
+	case string(DataEntityTypeQAPairs):
+		return DataEntityTypeQAPairs, nil
+	case string(DataEntityTypeRAGSource):
+		return DataEntityTypeRAGSource, nil
+	case string(DataEntityTypeLora):
+		return DataEntityTypeLora, nil
+	default:
+		if acceptEmpty && datasetType == string(DataEntityTypeNone) {
+			return DataEntityTypeNone, nil
+		} else {
+			return DataEntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
+		}
+	}
+}
+
 type TokenType string
 
 const (
@@ -266,4 +303,12 @@ const (
 	TokenTypeRunner   TokenType = "runner"
 	TokenTypeKeycloak TokenType = "keycloak"
 	TokenTypeAPIKey   TokenType = "api_key"
+)
+
+type ScriptRunState string
+
+const (
+	ScriptRunStateNone     ScriptRunState = ""
+	ScriptRunStateComplete ScriptRunState = "complete"
+	ScriptRunStateError    ScriptRunState = "error"
 )

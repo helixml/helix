@@ -15,12 +15,15 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+
+	_ "net/http/pprof"
 )
 
 const API_PREFIX = "/api/v1"
@@ -51,20 +54,22 @@ type ServerOptions struct {
 }
 
 type HelixAPIServer struct {
-	Cfg            *config.ServerConfig
-	Store          store.Store
-	Stripe         *stripe.Stripe
-	Controller     *controller.Controller
-	Janitor        *janitor.Janitor
-	authMiddleware *authMiddleware
-	pubsub         pubsub.PubSub
-	router         *mux.Router
+	Cfg               *config.ServerConfig
+	Store             store.Store
+	Stripe            *stripe.Stripe
+	Controller        *controller.Controller
+	Janitor           *janitor.Janitor
+	authMiddleware    *authMiddleware
+	pubsub            pubsub.PubSub
+	gptScriptExecutor gptscript.Executor
+	router            *mux.Router
 }
 
 func NewServer(
 	cfg *config.ServerConfig,
 	store store.Store,
 	ps pubsub.PubSub,
+	gptScriptExecutor gptscript.Executor,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
@@ -87,11 +92,12 @@ func NewServer(
 	}
 
 	return &HelixAPIServer{
-		Cfg:        cfg,
-		Store:      store,
-		Stripe:     stripe,
-		Controller: controller,
-		Janitor:    janitor,
+		Cfg:               cfg,
+		Store:             store,
+		Stripe:            stripe,
+		Controller:        controller,
+		Janitor:           janitor,
+		gptScriptExecutor: gptScriptExecutor,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
@@ -120,6 +126,11 @@ func (apiServer *HelixAPIServer) ListenAndServe(ctx context.Context, cm *system.
 		ctx,
 		apiRouter,
 		"/ws/runner",
+	)
+
+	apiServer.startGptScriptRunnerWebSocketServer(
+		apiRouter,
+		"/ws/gptscript-runner",
 	)
 
 	srv := &http.Server{
@@ -194,6 +205,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/filestore/rename", system.DefaultWrapper(apiServer.filestoreRename)).Methods("PUT")
 	authRouter.HandleFunc("/filestore/delete", system.DefaultWrapper(apiServer.filestoreDelete)).Methods("DELETE")
 
+	authRouter.HandleFunc("/data_entities", system.DefaultWrapper(apiServer.createDataEntity)).Methods("POST")
+
 	authRouter.HandleFunc("/subscription/new", system.DefaultWrapper(apiServer.subscriptionCreate)).Methods("POST")
 	authRouter.HandleFunc("/subscription/manage", system.DefaultWrapper(apiServer.subscriptionManage)).Methods("POST")
 
@@ -249,11 +262,14 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
 
+	// Helix inference route
+	authRouter.HandleFunc("/sessions/chat", apiServer.startChatSessionHandler).Methods("POST")
+
+	// Helix learn route (i.e. create fine tune and/or RAG source)
+	authRouter.HandleFunc("/sessions/learn", apiServer.startLearnSessionHandler).Methods("POST")
+
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
-
-	// api/v1beta/sessions is the new route for creating sessions
-	authRouter.HandleFunc("/sessions/chat", apiServer.startSessionHandler).Methods("POST")
 
 	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
 	subRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")
@@ -297,6 +313,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
+	// register pprof routes
+	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
@@ -328,6 +347,10 @@ func (apiServer *HelixAPIServer) registerKeycloakHandler(router *mux.Router) {
 
 // Static files router
 func (apiServer *HelixAPIServer) registerDefaultHandler(router *mux.Router) {
+
+	// if we are in prod - then the frontend has been burned into the filesystem of the container
+	// and the FrontendURL will actually have the value "/www"
+	// so this switch is "are we in dev or not"
 	if strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "http://") || strings.HasPrefix(apiServer.Cfg.WebServer.FrontendURL, "https://") {
 
 		router.PathPrefix("/").Handler(spa.NewSPAReverseProxyServer(

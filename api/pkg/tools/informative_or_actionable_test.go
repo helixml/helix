@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -21,6 +22,7 @@ func TestActionTestSuite(t *testing.T) {
 type ActionTestSuite struct {
 	suite.Suite
 	ctrl     *gomock.Controller
+	executor *gptscript.MockExecutor
 	ctx      context.Context
 	strategy *ChainStrategy
 }
@@ -30,12 +32,13 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	suite.ctrl = gomock.NewController(suite.T())
 
+	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
+
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
-	strategy, err := NewChainStrategy(&cfg, nil, nil)
-	strategy.Local = true
+	strategy, err := NewChainStrategy(&cfg, nil, suite.executor, nil)
 	suite.NoError(err)
 
 	suite.strategy = strategy

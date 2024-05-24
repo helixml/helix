@@ -36,22 +36,12 @@ export const useTools = () => {
     setData(result)
   }, [])
 
-  // const createTool = useCallback(async (url: string, schema: string): Promise<ITool | undefined> => {
   const createTool = useCallback(async (name: string, tool_type: IToolType, description: string, config: IToolConfig): Promise<ITool | undefined> => {
     const result = await api.post<Partial<ITool>, ITool>(`/api/v1/tools`, {
       name: name ? name: generateAmusingName(),
       description: description,
       tool_type: tool_type,
       config: config,
-      // config: {
-      //   api: {
-      //     url,
-      //     schema,
-      //     actions: [],
-      //     headers: {},
-      //     query: {},
-      //   }
-      // }
     }, {}, {
       snackbar: true,
     })

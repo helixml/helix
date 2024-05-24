@@ -1,4 +1,7 @@
 [{
   "name": "sessions",
   "readonly": true
+}, {
+  "name": "data",
+  "readonly": true
 }]

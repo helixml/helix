@@ -35,21 +35,6 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 	return m.recorder
 }
 
-// CheckAPIKey mocks base method.
-func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
-	ret0, _ := ret[0].(*types.APIKey)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CheckAPIKey indicates an expected call of CheckAPIKey.
-func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
-}
-
 // CreateAPIKey mocks base method.
 func (m *MockStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*types.APIKey, error) {
 	m.ctrl.T.Helper()
@@ -60,9 +45,54 @@ func (m *MockStore) CreateAPIKey(ctx context.Context, apiKey *types.APIKey) (*ty
 }
 
 // CreateAPIKey indicates an expected call of CreateAPIKey.
-func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, owner, name interface{}, key interface{}, apiKeyType interface{}) *gomock.Call {
+func (mr *MockStoreMockRecorder) CreateAPIKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, owner, name)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAPIKey", reflect.TypeOf((*MockStore)(nil).CreateAPIKey), ctx, apiKey)
+}
+
+// CreateApp mocks base method.
+func (m *MockStore) CreateApp(ctx context.Context, tool *types.App) (*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateApp", ctx, tool)
+	ret0, _ := ret[0].(*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateApp indicates an expected call of CreateApp.
+func (mr *MockStoreMockRecorder) CreateApp(ctx, tool interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, tool)
+}
+
+// CreateDataEntity mocks base method.
+func (m *MockStore) CreateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDataEntity", ctx, dataEntity)
+	ret0, _ := ret[0].(*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateDataEntity indicates an expected call of CreateDataEntity.
+func (mr *MockStoreMockRecorder) CreateDataEntity(ctx, dataEntity interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDataEntity", reflect.TypeOf((*MockStore)(nil).CreateDataEntity), ctx, dataEntity)
+}
+
+// CreateScriptRun mocks base method.
+func (m *MockStore) CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateScriptRun", ctx, task)
+	ret0, _ := ret[0].(*types.ScriptRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateScriptRun indicates an expected call of CreateScriptRun.
+func (mr *MockStoreMockRecorder) CreateScriptRun(ctx, task interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateScriptRun", reflect.TypeOf((*MockStore)(nil).CreateScriptRun), ctx, task)
 }
 
 // CreateSession mocks base method.
@@ -109,21 +139,6 @@ func (mr *MockStoreMockRecorder) CreateTool(ctx, tool interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTool", reflect.TypeOf((*MockStore)(nil).CreateTool), ctx, tool)
 }
 
-// CreateApp mocks base method.
-func (m *MockStore) CreateApp(ctx context.Context, app *types.App) (*types.App, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateApp", ctx, app)
-	ret0, _ := ret[0].(*types.App)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateApp indicates an expected call of CreateApp.
-func (mr *MockStoreMockRecorder) CreateApp(ctx, app interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateApp", reflect.TypeOf((*MockStore)(nil).CreateApp), ctx, app)
-}
-
 // CreateUserMeta mocks base method.
 func (m *MockStore) CreateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -151,6 +166,48 @@ func (m *MockStore) DeleteAPIKey(ctx context.Context, apiKey string) error {
 func (mr *MockStoreMockRecorder) DeleteAPIKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAPIKey", reflect.TypeOf((*MockStore)(nil).DeleteAPIKey), ctx, apiKey)
+}
+
+// DeleteApp mocks base method.
+func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteApp", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteApp indicates an expected call of DeleteApp.
+func (mr *MockStoreMockRecorder) DeleteApp(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
+}
+
+// DeleteDataEntity mocks base method.
+func (m *MockStore) DeleteDataEntity(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteDataEntity", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteDataEntity indicates an expected call of DeleteDataEntity.
+func (mr *MockStoreMockRecorder) DeleteDataEntity(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDataEntity", reflect.TypeOf((*MockStore)(nil).DeleteDataEntity), ctx, id)
+}
+
+// DeleteScriptRun mocks base method.
+func (m *MockStore) DeleteScriptRun(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteScriptRun", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteScriptRun indicates an expected call of DeleteScriptRun.
+func (mr *MockStoreMockRecorder) DeleteScriptRun(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteScriptRun", reflect.TypeOf((*MockStore)(nil).DeleteScriptRun), ctx, id)
 }
 
 // DeleteSession mocks base method.
@@ -196,20 +253,6 @@ func (mr *MockStoreMockRecorder) DeleteTool(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTool", reflect.TypeOf((*MockStore)(nil).DeleteTool), ctx, id)
 }
 
-// DeleteApp mocks base method.
-func (m *MockStore) DeleteApp(ctx context.Context, id string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteApp", ctx, id)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteApp indicates an expected call of DeleteTool.
-func (mr *MockStoreMockRecorder) DeleteApp(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteApp", reflect.TypeOf((*MockStore)(nil).DeleteApp), ctx, id)
-}
-
 // EnsureUserMeta mocks base method.
 func (m *MockStore) EnsureUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -225,19 +268,49 @@ func (mr *MockStoreMockRecorder) EnsureUserMeta(ctx, UserMeta interface{}) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsureUserMeta", reflect.TypeOf((*MockStore)(nil).EnsureUserMeta), ctx, UserMeta)
 }
 
-// GetAPIKeys mocks base method.
-func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error) {
+// GetAPIKey mocks base method.
+func (m *MockStore) GetAPIKey(ctx context.Context, apiKey string) (*types.APIKey, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListAPIKeys", ctx, query)
-	ret0, _ := ret[0].([]*types.APIKey)
+	ret := m.ctrl.Call(m, "GetAPIKey", ctx, apiKey)
+	ret0, _ := ret[0].(*types.APIKey)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetAPIKeys indicates an expected call of GetAPIKeys.
-func (mr *MockStoreMockRecorder) ListAPIKeys(ctx, query interface{}) *gomock.Call {
+// GetAPIKey indicates an expected call of GetAPIKey.
+func (mr *MockStoreMockRecorder) GetAPIKey(ctx, apiKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAPIKeys", reflect.TypeOf((*MockStore)(nil).ListAPIKeys), ctx, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAPIKey", reflect.TypeOf((*MockStore)(nil).GetAPIKey), ctx, apiKey)
+}
+
+// GetApp mocks base method.
+func (m *MockStore) GetApp(ctx context.Context, id string) (*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetApp", ctx, id)
+	ret0, _ := ret[0].(*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetApp indicates an expected call of GetApp.
+func (mr *MockStoreMockRecorder) GetApp(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApp", reflect.TypeOf((*MockStore)(nil).GetApp), ctx, id)
+}
+
+// GetDataEntity mocks base method.
+func (m *MockStore) GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDataEntity", ctx, id)
+	ret0, _ := ret[0].(*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDataEntity indicates an expected call of GetDataEntity.
+func (mr *MockStoreMockRecorder) GetDataEntity(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDataEntity", reflect.TypeOf((*MockStore)(nil).GetDataEntity), ctx, id)
 }
 
 // GetSession mocks base method.
@@ -300,21 +373,6 @@ func (mr *MockStoreMockRecorder) GetTool(ctx, id interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTool", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
 }
 
-// GetApp mocks base method.
-func (m *MockStore) GetApp(ctx context.Context, id string) (*types.App, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetApp", ctx, id)
-	ret0, _ := ret[0].(*types.App)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetApp indicates an expected call of GetTool.
-func (mr *MockStoreMockRecorder) GetApp(ctx, id interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetApp", reflect.TypeOf((*MockStore)(nil).GetTool), ctx, id)
-}
-
 // GetUserMeta mocks base method.
 func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -328,6 +386,66 @@ func (m *MockStore) GetUserMeta(ctx context.Context, id string) (*types.UserMeta
 func (mr *MockStoreMockRecorder) GetUserMeta(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMeta", reflect.TypeOf((*MockStore)(nil).GetUserMeta), ctx, id)
+}
+
+// ListAPIKeys mocks base method.
+func (m *MockStore) ListAPIKeys(ctx context.Context, query *ListApiKeysQuery) ([]*types.APIKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAPIKeys", ctx, query)
+	ret0, _ := ret[0].([]*types.APIKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAPIKeys indicates an expected call of ListAPIKeys.
+func (mr *MockStoreMockRecorder) ListAPIKeys(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAPIKeys", reflect.TypeOf((*MockStore)(nil).ListAPIKeys), ctx, query)
+}
+
+// ListApps mocks base method.
+func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListApps", ctx, q)
+	ret0, _ := ret[0].([]*types.App)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListApps indicates an expected call of ListApps.
+func (mr *MockStoreMockRecorder) ListApps(ctx, q interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListApps), ctx, q)
+}
+
+// ListDataEntities mocks base method.
+func (m *MockStore) ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDataEntities", ctx, q)
+	ret0, _ := ret[0].([]*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDataEntities indicates an expected call of ListDataEntities.
+func (mr *MockStoreMockRecorder) ListDataEntities(ctx, q interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDataEntities", reflect.TypeOf((*MockStore)(nil).ListDataEntities), ctx, q)
+}
+
+// ListScriptRuns mocks base method.
+func (m *MockStore) ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListScriptRuns", ctx, q)
+	ret0, _ := ret[0].([]*types.ScriptRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListScriptRuns indicates an expected call of ListScriptRuns.
+func (mr *MockStoreMockRecorder) ListScriptRuns(ctx, q interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListScriptRuns", reflect.TypeOf((*MockStore)(nil).ListScriptRuns), ctx, q)
 }
 
 // ListSessionTools mocks base method.
@@ -360,19 +478,34 @@ func (mr *MockStoreMockRecorder) ListTools(ctx, q interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTools", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
 }
 
-// ListTools mocks base method.
-func (m *MockStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error) {
+// UpdateApp mocks base method.
+func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListApps", ctx, q)
-	ret0, _ := ret[0].([]*types.App)
+	ret := m.ctrl.Call(m, "UpdateApp", ctx, tool)
+	ret0, _ := ret[0].(*types.App)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListApps indicates an expected call of ListApps.
-func (mr *MockStoreMockRecorder) ListApps(ctx, q interface{}) *gomock.Call {
+// UpdateApp indicates an expected call of UpdateApp.
+func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApps", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
+}
+
+// UpdateDataEntity mocks base method.
+func (m *MockStore) UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDataEntity", ctx, dataEntity)
+	ret0, _ := ret[0].(*types.DataEntity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateDataEntity indicates an expected call of UpdateDataEntity.
+func (mr *MockStoreMockRecorder) UpdateDataEntity(ctx, dataEntity interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDataEntity", reflect.TypeOf((*MockStore)(nil).UpdateDataEntity), ctx, dataEntity)
 }
 
 // UpdateSession mocks base method.
@@ -420,21 +553,6 @@ func (mr *MockStoreMockRecorder) UpdateTool(ctx, tool interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTool", reflect.TypeOf((*MockStore)(nil).UpdateTool), ctx, tool)
 }
 
-// UpdateApp mocks base method.
-func (m *MockStore) UpdateApp(ctx context.Context, tool *types.App) (*types.App, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateApp", ctx, tool)
-	ret0, _ := ret[0].(*types.App)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateApp indicates an expected call of UpdateApp.
-func (mr *MockStoreMockRecorder) UpdateApp(ctx, tool interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateApp", reflect.TypeOf((*MockStore)(nil).UpdateApp), ctx, tool)
-}
-
 // UpdateUserMeta mocks base method.
 func (m *MockStore) UpdateUserMeta(ctx context.Context, UserMeta types.UserMeta) (*types.UserMeta, error) {
 	m.ctrl.T.Helper()
@@ -449,6 +567,3 @@ func (mr *MockStoreMockRecorder) UpdateUserMeta(ctx, UserMeta interface{}) *gomo
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserMeta", reflect.TypeOf((*MockStore)(nil).UpdateUserMeta), ctx, UserMeta)
 }
-
-// Compile-time interface check:
-var _ Store = (*MockStore)(nil)
