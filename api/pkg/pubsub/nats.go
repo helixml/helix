@@ -31,6 +31,8 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 		NoSigs:    true,
 		JetStream: true,
 		StoreDir:  tmpDir,
+		// Setting payload to 32 MB
+		MaxPayload: 32 * 1024 * 1024,
 	}
 
 	// Initialize new server with options
