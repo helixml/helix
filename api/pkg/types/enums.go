@@ -259,43 +259,39 @@ const (
 	APIKeyType_App APIKeyType = "app"
 )
 
-type EntityType string
+type DataEntityType string
 
 const (
-	EntityTypeNone EntityType = ""
+	DataEntityTypeNone DataEntityType = ""
 	// a collection of original documents intended for use with text fine tuning
-	EntityTypeFinetuneDocuments EntityType = "finetune_documents"
-	// a collection of images intended for use with image fine tuning
-	EntityTypeFinetuneImages EntityType = "finetune_images"
+	DataEntityTypeUploadedDocuments DataEntityType = "uploaded_documents"
 	// a folder with plain text files inside - we have probably converted the source files into text files
-	EntityTypeFinetunePlainText EntityType = "finetune_plaintext"
+	DataEntityTypePlainText DataEntityType = "plaintext"
 	// a folder with JSON files inside - these are probably the output of a data prep module
-	EntityTypeFinetuneQAPairs EntityType = "finetune_qapairs"
+	DataEntityTypeQAPairs DataEntityType = "qapairs"
 	// a datastore with vectors
-	EntityTypeRAGDatabase EntityType = "rag_database"
+	DataEntityTypeRAGSource DataEntityType = "rag_source"
 	// the output of a finetune
-	EntityTypeLora EntityType = "lora"
+	DataEntityTypeLora DataEntityType = "lora"
 )
 
-func ValidateEntityType(datasetType string, acceptEmpty bool) (EntityType, error) {
+func ValidateEntityType(datasetType string, acceptEmpty bool) (DataEntityType, error) {
 	switch datasetType {
-	case string(EntityTypeFinetuneDocuments):
-		return EntityTypeFinetuneDocuments, nil
-	case string(EntityTypeFinetuneImages):
-		return EntityTypeFinetuneImages, nil
-	case string(EntityTypeFinetunePlainText):
-		return EntityTypeFinetunePlainText, nil
-	case string(EntityTypeFinetuneQAPairs):
-		return EntityTypeFinetuneQAPairs, nil
-	case string(EntityTypeRAGDatabase):
-		return EntityTypeRAGDatabase, nil
-	case string(EntityTypeLora):
-		return EntityTypeLora, nil
+	case string(DataEntityTypeUploadedDocuments):
+		return DataEntityTypeUploadedDocuments, nil
+	case string(DataEntityTypePlainText):
+		return DataEntityTypePlainText, nil
+	case string(DataEntityTypeQAPairs):
+		return DataEntityTypeQAPairs, nil
+	case string(DataEntityTypeRAGSource):
+		return DataEntityTypeRAGSource, nil
+	case string(DataEntityTypeLora):
+		return DataEntityTypeLora, nil
 	default:
-		if acceptEmpty && datasetType == string(EntityTypeNone) {
-			return EntityTypeNone, nil
+		if acceptEmpty && datasetType == string(DataEntityTypeNone) {
+			return DataEntityTypeNone, nil
 		} else {
-			return EntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
+			return DataEntityTypeNone, fmt.Errorf("invalid session type: %s", datasetType)
 		}
 	}
 }

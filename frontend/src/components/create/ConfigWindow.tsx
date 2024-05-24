@@ -46,6 +46,12 @@ const CreateSettingsWindow: FC<{
   const tools = useTools()
   const [activeSettingsTab, setActiveSettingsTab] = useState(0)
 
+  const showTools = mode == 'inference' && account.serverConfig.tools_enabled && tools.userTools.length > 0
+  const showLearn = mode == 'finetune'
+
+  const toolsTab = showTools ? 0 : -1
+  const learnTab = showTools ? 1 : 0
+
   const handleToolsCheckboxChange = (id: string, event: React.ChangeEvent<HTMLInputElement>) => {
     if(event.target.checked) {
       onSetSessionConfig(config => ({
@@ -81,20 +87,20 @@ const CreateSettingsWindow: FC<{
           setActiveSettingsTab(newValue)
         }}>
           {
-            account.serverConfig.tools_enabled && (
+            showTools && (
               <Tab label="Active Tools" />
             )
           }
           {
-            mode == SESSION_MODE_FINETUNE && account.admin && (
-              <Tab label="Admin" />
+            showLearn && (
+              <Tab label="Finetune & RAG" />
             )
           }
         </Tabs>
       </Box>
       <Box>
         {
-          account.serverConfig.tools_enabled && activeSettingsTab == 0 && (
+          showTools && activeSettingsTab == toolsTab && (
             <Box sx={{ mt: 2 }}>
               <Grid container spacing={3}>
                 <Grid item xs={ 12 } md={ 6 }>
@@ -168,7 +174,7 @@ const CreateSettingsWindow: FC<{
         }
 
         {
-          activeSettingsTab == (account.serverConfig.tools_enabled ? 1 : 0) && (
+          showLearn && activeSettingsTab == learnTab && (
             <Box sx={{ mt: 2 }}>
               {
                 mode == SESSION_MODE_FINETUNE && (
@@ -180,6 +186,8 @@ const CreateSettingsWindow: FC<{
                           onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             finetuneEnabled: event.target.checked,
+                            // if you're disabling the finetune, enable the RAG. it's not valid to have both disabled
+                            ragEnabled: !event.target.checked || sessionConfig.ragEnabled,
                           }))}
                         />
                       }
@@ -194,6 +202,8 @@ const CreateSettingsWindow: FC<{
                               onChange={(event) => onSetSessionConfig(config => ({
                                 ...config,
                                 ragEnabled: event.target.checked,
+                                // if you're disabling the rag, enable the finetune. it's not valid to have both disabled
+                                finetuneEnabled: !event.target.checked || sessionConfig.finetuneEnabled,
                               }))}
                             />
                           }
@@ -205,7 +215,7 @@ const CreateSettingsWindow: FC<{
                 )
               }
               {
-                sessionConfig.ragEnabled && (
+                type == 'text' && sessionConfig.ragEnabled && (
                   <>
                     <Divider sx={{mt:2,mb:2}} />
                     <Typography variant="h6" gutterBottom sx={{mb: 2}}>RAG Settings</Typography>

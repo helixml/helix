@@ -1,4 +1,5 @@
-import { useState, useCallback, SetStateAction, Dispatch } from 'react'
+import { useState, useEffect, useCallback, SetStateAction, Dispatch } from 'react'
+import useRouter from '../hooks/useRouter'
 import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
@@ -8,6 +9,8 @@ import {
   IUploadFile,
   ISerializedPage,
   ICreateSessionConfig,
+  ISessionLearnRequest,
+  ISessionChatRequest,
 } from '../types'
 
 import {
@@ -47,18 +50,55 @@ export interface IFinetuneInputs {
   loadFromLocalStorage: () => Promise<void>,
   setFormData: (formData: FormData) => FormData,
   uploadProgressHandler: (progressEvent: AxiosProgressEvent) => void,
+  getFormData: (mode: ISessionMode, type: ISessionType, model: string) => FormData,
+  getSessionLearnRequest: (type: ISessionType, data_entity_id: string) => ISessionLearnRequest,
+  getSessionChatRequest: (type: ISessionType) => ISessionChatRequest,
+  getUploadedFiles: () => FormData,
   reset: () => Promise<void>,
+}
+
+export const getDefaultSessionConfig = (): ICreateSessionConfig => {
+  // change the default based on the query params
+  let config = DEFAULT_SESSION_CONFIG
+  config.ragEnabled = window.location.search.includes('rag=true')
+  config.finetuneEnabled = window.location.search.includes('finetune=true')
+  return config
 }
 
 export const useCreateInputs = () => {
   const [inputValue, setInputValue] = useState('')
-  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
+  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(getDefaultSessionConfig())
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
+  const {
+    navigate,
+    params,
+  } = useRouter()
+
+  useEffect(() => {
+    console.log('sessionConfig updated:', sessionConfig);
+    const queryParams = new URLSearchParams(window.location.search);
+    if (sessionConfig.ragEnabled) {
+      queryParams.set('rag', 'true');
+    } else {
+      queryParams.delete('rag');
+    }
+    if (sessionConfig.finetuneEnabled) {
+      queryParams.set('finetune', 'true');
+    } else {
+      queryParams.delete('finetune');
+    }
+    const qp = Object.fromEntries(queryParams);
+    console.log("qp", JSON.stringify(qp), "p", JSON.stringify(params))
+    if (JSON.stringify(qp) !== JSON.stringify(params)) {
+      console.log("DIFFERS")
+      navigate("new", qp)
+    }
+  }, [sessionConfig]);
 
   const serializePage = useCallback(async () => {
     const drawerLabels: Record<string, string> = {}
@@ -116,6 +156,69 @@ export const useCreateInputs = () => {
     finetuneFiles,
     labels,
     sessionConfig,
+  ])
+
+  const getSessionLearnRequest = useCallback((type: ISessionType, data_entity_id: string): ISessionLearnRequest => {
+    const req: ISessionLearnRequest = {
+      type,
+      data_entity_id,
+      text_finetune_enabled: sessionConfig.finetuneEnabled,
+      rag_enabled: sessionConfig.ragEnabled,
+      rag_settings: {
+        distance_function: sessionConfig.ragDistanceFunction,
+        threshold: sessionConfig.ragThreshold,
+        results_count: sessionConfig.ragResultsCount,
+        chunk_size: sessionConfig.ragChunkSize,
+        chunk_overflow: sessionConfig.ragChunkOverflow,
+      },
+    }
+
+    return req
+  }, [
+    sessionConfig,
+  ])
+
+  const getSessionChatRequest = useCallback((type: ISessionType, model: string): ISessionChatRequest => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const appID = urlParams.get('app_id') || ''
+    const ragSourceID = urlParams.get('rag_source_id') || ''
+
+    const req: ISessionChatRequest = {
+      type,
+      model,
+      legacy: true,
+      app_id: appID,
+      rag_source_id: ragSourceID,
+      tools: sessionConfig.activeToolIDs,
+      messages: [{
+        role: 'user',
+        content: {
+          content_type: 'text',
+          parts: [
+            inputValue,
+          ]
+        },
+      }]
+    }
+
+    return req
+  }, [
+    sessionConfig,
+    inputValue,
+  ])
+
+  const getUploadedFiles = useCallback((): FormData => {
+    const formData = new FormData()
+    finetuneFiles.forEach((file) => {
+      formData.append("files", file.file)
+      if(labels[file.file.name]) {
+        formData.set(file.file.name, labels[file.file.name])
+      }
+    })
+    return formData
+  }, [
+    finetuneFiles,
+    labels,
   ])
 
   const uploadProgressHandler = useCallback((progressEvent: AxiosProgressEvent) => {
@@ -176,6 +279,9 @@ export const useCreateInputs = () => {
     serializePage,
     loadFromLocalStorage,
     getFormData,
+    getSessionLearnRequest,
+    getSessionChatRequest,
+    getUploadedFiles,
     uploadProgressHandler,
     reset,
   }

@@ -53,7 +53,7 @@ const CenterMessage: FC<{
         What do you want to do?
       </Typography>
       <Typography variant="subtitle1" sx={{ mt: 2 }}>
-        You are in <strong>Inference</strong> mode:
+        You are in <strong>Chat</strong> mode:
         <Box component="ul" sx={{pl:2, pr: 1, pt:1, mx: .5, my:0, lineHeight: 1.1 }}>
           <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Generate new content based on your prompt</Box>
           <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Click
@@ -71,9 +71,9 @@ const CenterMessage: FC<{
           lineHeight: 1.1,
         }}
       >
-        <br/>You can use the toggle at the top to switch to <strong>Fine-tuning</strong> mode:<br/>
+        <br/>You can use the toggle at the top to switch to <strong>Learn</strong> mode:<br/>
         <Box component="ul" sx={{pl:2, pr: 1, pt: 1, mx: .5, my:0, lineHeight: 1.1 }}>
-          <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Customize your own AI by training it on your own text or images</Box>
+          <Box component="li" sx={{pl:0, pr: 1, py: .5, m: 0}}>Customize your own AI by teaching it your own text or images</Box>
         </Box>
       </Typography>
     </Box>

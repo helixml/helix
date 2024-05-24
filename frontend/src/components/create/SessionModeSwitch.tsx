@@ -38,7 +38,7 @@ const SessionModeSwitch: FC<{
           }}
           onClick={() => onSetMode(SESSION_MODE_INFERENCE)}
         >
-            Inference
+            Chat
         </Typography>
       </Cell>
       <Cell
@@ -76,7 +76,7 @@ const SessionModeSwitch: FC<{
           }}
           onClick={() => onSetMode(SESSION_MODE_FINETUNE)}
         >
-          Fine-tuning
+          Learn
         </Typography>
       </Cell>
     </Row>

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // startSessionHandler godoc
@@ -21,7 +23,7 @@ import (
 // @Param request    body types.SessionChatRequest true "Request body with the message and model to start chat completion.")
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.Request) {
+func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
 
 	var startReq types.SessionChatRequest
 	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
@@ -49,54 +51,63 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 		return
 	}
 
-	if startReq.Model == "" {
-		startReq.Model = string(types.Model_Ollama_Llama3_8b)
-	}
-
 	// Default to text
 	if startReq.Type == "" {
 		startReq.Type = types.SessionTypeText
 	}
 
-	if startReq.LoraDir != "" {
-		// Basic validation on the lora dir path, it should be something like
-		// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
-		ownerContext := types.OwnerContext{
-			Owner:     userContext.User.ID,
-			OwnerType: userContext.User.Type,
-		}
-		userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if !strings.HasPrefix(startReq.LoraDir, userPath) {
-			http.Error(rw,
-				fmt.Sprintf(
-					"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
-				http.StatusBadRequest)
-			return
-		}
-
-		// Enforcing model
-		startReq.Model = types.Model_Axolotl_Mistral7b.String()
-	}
-
 	var cfg *startSessionConfig
 
 	if startReq.SessionID == "" {
+		if startReq.LoraDir != "" {
+			// Basic validation on the lora dir path, it should be something like
+			// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
+			// this works for both session based file paths and data entity based file paths
+			ownerContext := types.OwnerContext{
+				Owner:     userContext.User.ID,
+				OwnerType: userContext.User.Type,
+			}
+			userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			if !strings.HasPrefix(startReq.LoraDir, userPath) {
+				http.Error(rw,
+					fmt.Sprintf(
+						"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
+					http.StatusBadRequest)
+				return
+			}
+		}
+
+		useModel := startReq.Model
+
 		interactions, err := messagesToInteractions(startReq.Messages)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		// this will be assigned if the token being used is an app token
+		appID := userContext.User.AppID
+
+		if startReq.AppID != "" {
+			appID = startReq.AppID
+		}
+
+		// or we could be using a normal token and passing the app_id in the query string
+		if req.URL.Query().Get("app_id") != "" {
+			appID = req.URL.Query().Get("app_id")
+		}
+
 		sessionID := system.GenerateSessionID()
-		newSession := types.CreateSessionRequest{
-			SessionID:        sessionID,
-			SessionMode:      types.SessionModeInference,
-			SessionType:      startReq.Type,
+		newSession := types.InternalSessionRequest{
+			ID:               sessionID,
+			Mode:             types.SessionModeInference,
+			Type:             startReq.Type,
+			ParentApp:        appID,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
@@ -106,11 +117,117 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
 			ActiveTools:      startReq.Tools,
+			RAGSourceID:      startReq.RAGSourceID,
+		}
+
+		// if we have an app then let's populate the InternalSessionRequest with values from it
+		if newSession.ParentApp != "" {
+			app, err := s.Store.GetApp(userContext.Ctx, appID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// TODO: support > 1 assistant
+			if len(app.Config.Helix.Assistants) <= 0 {
+				http.Error(rw, "there are no assistants found in that app", http.StatusInternalServerError)
+				return
+			}
+
+			assistant := app.Config.Helix.Assistants[0]
+
+			if assistant.SystemPrompt != "" {
+				newSession.SystemPrompt = assistant.SystemPrompt
+			}
+
+			if assistant.Model != "" {
+				useModel = assistant.Model
+			}
+
+			if assistant.RAGSourceID != "" {
+				newSession.RAGSourceID = assistant.RAGSourceID
+			}
+
+			if assistant.LoraID != "" {
+				newSession.LoraID = assistant.LoraID
+			}
+
+			// tools will be assigned by the app inside the controller
+			// TODO: refactor so all "get settings from the app" code is in the same place
+		}
+
+		// now we add any query params we have gotten
+		if req.URL.Query().Get("model") != "" {
+			useModel = req.URL.Query().Get("model")
+		}
+
+		if req.URL.Query().Get("system_prompt") != "" {
+			newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
+		}
+
+		if req.URL.Query().Get("rag_source_id") != "" {
+			newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
+		}
+
+		if req.URL.Query().Get("lora_id") != "" {
+			newSession.LoraID = req.URL.Query().Get("lora_id")
+		}
+
+		processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, startReq.Type, startReq.LoraDir != "")
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		newSession.ModelName = processedModel
+
+		// we need to load the rag source and apply the rag settings to the session
+		if newSession.RAGSourceID != "" {
+			ragSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.RAGSourceID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			newSession.RAGSettings = ragSource.Config.RAGSettings
+		}
+
+		// we need to load the lora source and apply the lora settings to the session
+		if newSession.LoraID != "" {
+			loraSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.LoraID)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			newSession.LoraDir = loraSource.Config.FilestorePath
+		}
+
+		fmt.Printf("newSession --------------------------------------\n")
+		spew.Dump(newSession)
+		// we are still in the old frontend mode where it's listening to the websocket
+		// TODO: get the frontend to stream using the streaming api below
+		if startReq.Legacy {
+			sessionData, err := s.Controller.StartSession(userContext, newSession)
+			if err != nil {
+				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
+				log.Error().Err(err).Msg("failed to start session")
+				return
+			}
+
+			sessionDataJSON, err := json.Marshal(sessionData)
+			if err != nil {
+				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			rw.Write(sessionDataJSON)
+			return
 		}
 
 		cfg = &startSessionConfig{
 			sessionID: sessionID,
-			modelName: startReq.Model,
+			modelName: string(newSession.ModelName),
 			start: func() error {
 				_, err := s.Controller.StartSession(userContext, newSession)
 				if err != nil {
@@ -120,6 +237,12 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			},
 		}
 	} else {
+		existingSession, err := s.Store.GetSession(userContext.Ctx, startReq.SessionID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		// Existing session
 		interactions, err := messagesToInteractions(startReq.Messages)
 		if err != nil {
@@ -138,9 +261,34 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 			return
 		}
 
+		// we are still in the old frontend mode where it's listening to the websocket
+		// TODO: get the frontend to stream using the streaming api below
+		if startReq.Legacy {
+			updatedSession, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
+				SessionID:       startReq.SessionID,
+				UserInteraction: interactions[0],
+				SessionMode:     types.SessionModeInference,
+			})
+			if err != nil {
+				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
+				log.Error().Err(err).Msg("failed to start session")
+				return
+			}
+
+			sessionDataJSON, err := json.Marshal(updatedSession)
+			if err != nil {
+				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			rw.WriteHeader(http.StatusOK)
+			rw.Write(sessionDataJSON)
+			return
+		}
+
 		cfg = &startSessionConfig{
 			sessionID: startReq.SessionID,
-			modelName: startReq.Model,
+			modelName: string(existingSession.ModelName),
 			start: func() error {
 
 				_, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
@@ -163,6 +311,100 @@ func (s *HelixAPIServer) startSessionHandler(rw http.ResponseWriter, req *http.R
 	}
 
 	s.handleBlockingResponse(rw, req, userContext, cfg)
+}
+
+// startLearnSessionHandler godoc
+// @Summary Start new fine tuning and/or rag source generation session
+// @Description Start new fine tuning and/or RAG source generation session
+// @Tags    learn
+
+// @Success 200 {object} types.Session
+// @Param request    body types.SessionLearnRequest true "Request body with settings for the learn session.")
+// @Router /api/v1/sessions/learn [post]
+// @Security BearerAuth
+func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *http.Request) {
+
+	var startReq types.SessionLearnRequest
+	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
+	if err != nil {
+		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if startReq.DataEntityID == "" {
+		http.Error(rw, "data entity ID not be empty", http.StatusBadRequest)
+		return
+	}
+
+	userContext := getRequestContext(req)
+	ownerContext := getOwnerContext(req)
+
+	status, err := s.Controller.GetStatus(userContext)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Default to text
+	if startReq.Type == "" {
+		startReq.Type = types.SessionTypeText
+	}
+
+	dataEntity, err := s.Store.GetDataEntity(userContext.Ctx, startReq.DataEntityID)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if dataEntity.Owner != userContext.User.ID {
+		http.Error(rw, "you must own the data entity", http.StatusBadRequest)
+		return
+	}
+
+	// TODO: data entity pipelines where we don't even need a session
+	userInteraction, err := s.getUserInteractionFromDataEntity(dataEntity, ownerContext)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, false)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sessionID := system.GenerateSessionID()
+	createRequest := types.InternalSessionRequest{
+		ID:                  sessionID,
+		Mode:                types.SessionModeFinetune,
+		ModelName:           model,
+		Type:                startReq.Type,
+		Stream:              false,
+		Owner:               userContext.User.ID,
+		OwnerType:           userContext.User.Type,
+		UserInteractions:    []*types.Interaction{userInteraction},
+		Priority:            status.Config.StripeSubscriptionActive,
+		UploadedDataID:      dataEntity.ID,
+		RAGEnabled:          startReq.RagEnabled,
+		TextFinetuneEnabled: startReq.TextFinetuneEnabled,
+		RAGSettings:         startReq.RagSettings,
+	}
+
+	sessionData, err := s.Controller.StartSession(userContext, createRequest)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sessionDataJSON, err := json.Marshal(sessionData)
+	if err != nil {
+		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(sessionDataJSON)
 }
 
 func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {

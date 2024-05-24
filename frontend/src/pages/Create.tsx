@@ -41,6 +41,7 @@ import useSessions from '../hooks/useSessions'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 import {
+  IDataEntity,
   ISessionMode,
   ISessionType,
   SESSION_MODE_INFERENCE,
@@ -90,8 +91,19 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if(!checkLoginStatus()) return
-    const formData = inputs.getFormData(mode, type, model)
-    const session = await api.post('/api/v1/sessions', formData)
+    // const formData = inputs.getFormData(mode, type, model)
+    // const session = await api.post('/api/v1/sessions', formData)
+    // if(!session) return
+    // tracking.emitEvent({
+    //   name: 'inference',
+    //   session,
+    // })
+    // await sessions.loadSessions()
+    // router.navigate('session', {session_id: session.id})
+
+    const sessionChatRequest = inputs.getSessionChatRequest(type, model)
+    const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+
     if(!session) return
     tracking.emitEvent({
       name: 'inference',
@@ -102,25 +114,41 @@ const Create: FC = () => {
   }
 
   const onStartFinetune = async (eventName: string) => {
-    inputs.setUploadProgress({
-      percent: 0,
-      totalBytes: 0,
-      uploadedBytes: 0,
-    })
-    const formData = inputs.getFormData(mode, type, model)
-    const session = await api.post('/api/v1/sessions', formData, {
-      onUploadProgress: inputs.uploadProgressHandler,
-    })
-    inputs.setUploadProgress(undefined)
-    if(!session) {
-      return
+    try {
+      inputs.setUploadProgress({
+        percent: 0,
+        totalBytes: 0,
+        uploadedBytes: 0,
+      })
+
+      const dataEntity = await api.post<any, IDataEntity>('/api/v1/data_entities', inputs.getUploadedFiles(), {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+
+      if(!dataEntity) {
+        snackbar.error('Failed to upload data entity')
+        throw new Error('Failed to upload data entity')
+      }
+
+      const sessionLearnRequest = inputs.getSessionLearnRequest(type, dataEntity.id)
+      const session = await api.post('/api/v1/sessions/learn', sessionLearnRequest, {
+        onUploadProgress: inputs.uploadProgressHandler,
+      })
+      inputs.setUploadProgress(undefined)
+      if(!session) {
+        snackbar.error('Failed to get new session')
+        throw new Error('Failed to get new session')
+      }
+      tracking.emitEvent({
+        name: eventName,
+        session,
+      })
+      await sessions.loadSessions()
+      router.navigate('session', {session_id: session.id})
+
+    } catch(e) {
+      inputs.setUploadProgress(undefined)
     }
-    tracking.emitEvent({
-      name: eventName,
-      session,
-    })
-    await sessions.loadSessions()
-    router.navigate('session', {session_id: session.id})
   }
 
   const onStartTextFinetune = async () => {
@@ -310,10 +338,25 @@ const Create: FC = () => {
       />
     </Box>
   )
-  
+
+
+  let ragEnabled = window.location.search.includes('rag=true')
+  let finetuneEnabled = window.location.search.includes('finetune=true')
+
+  let txt = "Learn"
+  if (type == SESSION_TYPE_IMAGE) {
+    txt += " (image style and objects)"
+  } else if (ragEnabled && finetuneEnabled) {
+    txt += " (hybrid RAG + Fine-tuning)"
+  } else if (ragEnabled) {
+    txt += " (RAG)"
+  } else if (finetuneEnabled) {
+    txt += " (Fine-tuning on knowledge)"
+  }
+
   return (
     <Page
-      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
+      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? txt : "" }
       topbarContent={ topbar }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }
