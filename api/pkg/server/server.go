@@ -22,6 +22,8 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+
+	_ "net/http/pprof"
 )
 
 const API_PREFIX = "/api/v1"
