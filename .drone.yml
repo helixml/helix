@@ -98,6 +98,11 @@ steps:
     daemon_off: true
     registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with no baked models = empty
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-empty
     username: admin
     password:
       from_secret: helix_registry_password
@@ -153,7 +158,7 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-runner-with-llama-8b
+name: build-runner-small
 
 volumes:
   - name: dockersocket
@@ -173,8 +178,10 @@ steps:
     registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     build_args:
-      # Small models only
-      - PULL_OLLAMA_MODELS=llama3:instruct;phi3:instruct
+      # Runner with small models = small
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-small
     username: admin
     password:
       from_secret: helix_registry_password
@@ -190,13 +197,11 @@ steps:
 
 depends_on:
 - default
-- build-runner
 
-# llama3 70B + the whole cake
 ---
 kind: pipeline
 type: docker
-name: build-runner-with-llama-70b
+name: build-runner-large
 
 volumes:
   - name: dockersocket
@@ -216,8 +221,10 @@ steps:
     registry: registry.helix.ml
     repo: registry.helix.ml/helix/runner
     build_args:
-      # Small and big models
-      - PULL_OLLAMA_MODELS=llama3:instruct;llama3:70b;mixtral:instruct;adrienbrault/nous-hermes2theta-llama3-8b:q8_0;phi3:instruct
+      # Runner with large models = large
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-large
     username: admin
     password:
       from_secret: helix_registry_password
@@ -233,7 +240,6 @@ steps:
 
 depends_on:
 - default
-- build-runner-with-llama-8b
 
 ---
 kind: pipeline

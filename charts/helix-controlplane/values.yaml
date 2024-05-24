@@ -13,7 +13,7 @@ global:
   serverUrl: http://localhost:8844
 
 image:
-  repository: europe-docker.pkg.dev/helixml/helix/controlplane
+  repository: registry.helix.ml/helix/controlplane
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
@@ -21,7 +21,7 @@ image:
 llamaindex:
   enabled: false
   image:
-    repository: europe-docker.pkg.dev/helixml/helix/llamaindex
+    repository: registry.helix.ml/helix/llamaindex
     tag: "latest"
 
 imagePullSecrets: []
