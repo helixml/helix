@@ -60,8 +60,8 @@ export interface IFinetuneInputs {
 export const getDefaultSessionConfig = (): ICreateSessionConfig => {
   // change the default based on the query params
   let config = DEFAULT_SESSION_CONFIG
-  config.ragEnabled = window.location.search.includes('rag=true')
   config.finetuneEnabled = window.location.search.includes('finetune=true')
+  config.ragEnabled = window.location.search.includes('rag=true')
   return config
 }
 
