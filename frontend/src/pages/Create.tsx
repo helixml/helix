@@ -91,19 +91,8 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if(!checkLoginStatus()) return
-    // const formData = inputs.getFormData(mode, type, model)
-    // const session = await api.post('/api/v1/sessions', formData)
-    // if(!session) return
-    // tracking.emitEvent({
-    //   name: 'inference',
-    //   session,
-    // })
-    // await sessions.loadSessions()
-    // router.navigate('session', {session_id: session.id})
-
-    const sessionChatRequest = inputs.getSessionChatRequest(type, model)
-    const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-
+    const formData = inputs.getFormData(mode, type, model)
+    const session = await api.post('/api/v1/sessions', formData)
     if(!session) return
     tracking.emitEvent({
       name: 'inference',
@@ -111,6 +100,17 @@ const Create: FC = () => {
     })
     await sessions.loadSessions()
     router.navigate('session', {session_id: session.id})
+
+    // const sessionChatRequest = inputs.getSessionChatRequest(type, model)
+    // const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+
+    // if(!session) return
+    // tracking.emitEvent({
+    //   name: 'inference',
+    //   session,
+    // })
+    // await sessions.loadSessions()
+    // router.navigate('session', {session_id: session.id})
   }
 
   const onStartFinetune = async (eventName: string) => {
