@@ -101,7 +101,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 				Time("oldest_message", info.State.FirstTime).
 				Time("newest_message", info.State.LastTime).
 				Msg("Stream info")
-			time.Sleep(3 * time.Second)
+			time.Sleep(10 * time.Second)
 		}
 	}()
 
