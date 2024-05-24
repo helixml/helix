@@ -313,6 +313,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/files", system.DefaultWrapper(apiServer.runnerSessionUploadFiles)).Methods("POST")
 	runnerRouter.HandleFunc("/runner/{runnerid}/session/{sessionid}/upload/folder", system.DefaultWrapper(apiServer.runnerSessionUploadFolder)).Methods("POST")
 
+	// register pprof routes
+	router.PathPrefix("/debug/pprof/").Handler(http.DefaultServeMux)
+
 	// proxy /admin -> keycloak
 	apiServer.registerKeycloakHandler(router)
 
