@@ -50,7 +50,7 @@ type Interaction struct {
 	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
-	RagResults []SessionRagResult `json:"rag_results"`
+	RagResults []SessionRAGResult `json:"rag_results"`
 }
 
 type ResponseFormatType string
@@ -76,7 +76,7 @@ type SessionOrigin struct {
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
-type SessionRagSettings struct {
+type SessionRAGSettings struct {
 	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
 	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
 	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
@@ -85,9 +85,8 @@ type SessionRagSettings struct {
 }
 
 // the data we send off to llamaindex to be indexed in the db
-type SessionRagIndexChunk struct {
-	SessionID       string `json:"session_id"`
-	InteractionID   string `json:"interaction_id"`
+type SessionRAGIndexChunk struct {
+	DataEntityID    string `json:"data_entity_id"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
 	DocumentGroupID string `json:"document_group_id"`
@@ -97,9 +96,9 @@ type SessionRagIndexChunk struct {
 
 // the query we post to llamaindex to get results back from a user
 // prompt against a rag enabled session
-type SessionRagQuery struct {
+type SessionRAGQuery struct {
 	Prompt            string  `json:"prompt"`
-	SessionID         string  `json:"session_id"`
+	DataEntityID      string  `json:"data_entity_id"`
 	DistanceThreshold float64 `json:"distance_threshold"`
 	DistanceFunction  string  `json:"distance_function"`
 	MaxResults        int     `json:"max_results"`
@@ -107,7 +106,7 @@ type SessionRagQuery struct {
 
 // the thing we load from llamaindex when we send the user prompt
 // there and it does a lookup
-type SessionRagResult struct {
+type SessionRAGResult struct {
 	ID              string  `json:"id"`
 	SessionID       string  `json:"session_id"`
 	InteractionID   string  `json:"interaction_id"`
@@ -149,8 +148,14 @@ type SessionMetadata struct {
 	// and what the threshold for a "good" answer is
 	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
 	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
-	RagSettings         SessionRagSettings `json:"rag_settings"`
+	RagSettings         SessionRAGSettings `json:"rag_settings"`
 	ActiveTools         []string           `json:"active_tools"`
+	// when we do fine tuning or RAG, we need to know which data entity we used
+	UploadedDataID string `json:"uploaded_data_entity_id"`
+	// the RAG source data entity we produced from this session
+	RAGSourceID string `json:"rag_source_data_entity_id"`
+	// the fine tuned data entity we produced from this session
+	LoraID string `json:"finetune_data_entity_id"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -161,16 +166,40 @@ type SessionsList struct {
 	Sessions []*SessionSummary `json:"sessions"`
 }
 
+// this is the incoming REST api struct sent from the outside world
+// the user wants to do inference against a model
+// we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	SessionID    string      `json:"session_id"` // If empty, we will start a new session
-	Stream       bool        `json:"stream"`     // If true, we will stream the response
-	Mode         SessionMode `json:"mode"`       // e.g. inference, finetune
-	Type         SessionType `json:"type"`       // e.g. text, image
+	AppID     string `json:"app_id"`     // Assign the session settings from the specified app
+	SessionID string `json:"session_id"` // If empty, we will start a new session
+	Stream    bool   `json:"stream"`     // If true, we will stream the response
+	// If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses
+	Legacy       bool        `json:"legacy"`
+	Type         SessionType `json:"type"` // e.g. text, image
 	LoraDir      string      `json:"lora_dir"`
 	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
 	Messages     []*Message  `json:"messages"` // Initial messages
 	Tools        []string    `json:"tools"`    // Available tools to use in the session
 	Model        string      `json:"model"`    // The model to use
+	RAGSourceID  string      `json:"rag_source_id"`
+	// the fine tuned data entity we produced from this session
+	LoraID string `json:"lora_id"`
+}
+
+// the user wants to create a Lora or RAG source
+// we turn this into a InternalSessionRequest
+type SessionLearnRequest struct {
+	Type SessionType `json:"type"` // e.g. text, image
+	// FINE-TUNE MODE ONLY
+	DataEntityID string `json:"data_entity_id"` // The uploaded files we want to use for fine-tuning and/or RAG
+	// Do we want to create a RAG data entity from this session?
+	// You must provide a data entity ID for the uploaded documents if yes
+	RagEnabled bool `json:"rag_enabled"`
+	// Do we want to create a lora output from this session?
+	// You must provide a data entity ID for the uploaded documents if yes
+	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
+	// The settings we use for the RAG source
+	RagSettings SessionRAGSettings `json:"rag_settings"`
 }
 
 type Message struct {
@@ -205,6 +234,38 @@ type MessageContent struct {
 	// 		"what is in the image?"
 	// ]
 	Parts []any `json:"parts"`
+}
+
+// this is the internal struct used to manage session creation
+type InternalSessionRequest struct {
+	ID                      string
+	Stream                  bool
+	Mode                    SessionMode
+	Type                    SessionType
+	SystemPrompt            string
+	LoraDir                 string
+	ParentSession           string
+	ParentApp               string // tools will get pulled in from here in the controller
+	ModelName               ModelName
+	Owner                   string
+	OwnerType               OwnerType
+	UserInteractions        []*Interaction
+	Priority                bool
+	ManuallyReviewQuestions bool
+	RAGEnabled              bool
+	TextFinetuneEnabled     bool
+	RAGSettings             SessionRAGSettings
+	ActiveTools             []string
+	ResponseFormat          ResponseFormat
+	UploadedDataID          string
+	RAGSourceID             string
+	LoraID                  string
+}
+
+type UpdateSessionRequest struct {
+	SessionID       string
+	UserInteraction *Interaction
+	SessionMode     SessionMode
 }
 
 type Session struct {
@@ -518,34 +579,6 @@ type ServerConfigForFrontend struct {
 	RudderStackDataPlaneURL string `json:"rudderstack_data_plane_url"`
 }
 
-type CreateSessionRequest struct {
-	SessionID               string
-	SessionMode             SessionMode
-	SessionType             SessionType
-	SystemPrompt            string // System message
-	Stream                  bool
-	ParentSession           string
-	ParentApp               string
-	ModelName               ModelName
-	Owner                   string
-	OwnerType               OwnerType
-	UserInteractions        []*Interaction
-	Priority                bool
-	ManuallyReviewQuestions bool
-	RagEnabled              bool
-	TextFinetuneEnabled     bool
-	RagSettings             SessionRagSettings
-	ActiveTools             []string
-	LoraDir                 string
-	ResponseFormat          ResponseFormat
-}
-
-type UpdateSessionRequest struct {
-	SessionID       string
-	UserInteraction *Interaction
-	SessionMode     SessionMode
-}
-
 // a short version of a session that we keep for the dashboard
 type SessionSummary struct {
 	// these are all values of the last interaction
@@ -753,13 +786,19 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	Name         string               `json:"name" yaml:"name"`
-	Description  string               `json:"description" yaml:"description"`
-	Avatar       string               `json:"avatar" yaml:"avatar"`
-	Model        string               `json:"model" yaml:"model"`
-	SystemPrompt string               `json:"system_prompt" yaml:"system_prompt"`
-	APIs         []AssistantAPI       `json:"apis" yaml:"apis"`
-	GPTScripts   []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+	Name         string `json:"name" yaml:"name"`
+	Description  string `json:"description" yaml:"description"`
+	Avatar       string `json:"avatar" yaml:"avatar"`
+	Model        string `json:"model" yaml:"model"`
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+	// the data entity ID that we have created as the RAG source
+	RAGSourceID string `json:"rag_source_id" yaml:"rag_source_id"`
+	// the data entity ID that we have created for the lora fine tune
+	LoraID string `json:"lora_id" yaml:"lora_id"`
+	// the list of api tools this assistant will use
+	APIs []AssistantAPI `json:"apis" yaml:"apis"`
+	// the list of gpt scripts this assistant will use
+	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because
@@ -898,21 +937,22 @@ func (GptScriptResponse) GormDataType() string {
 	return "json"
 }
 
-type EntityConfig struct {
-	FilestorePath string `json:"filestore_path"`
+type DataEntityConfig struct {
+	FilestorePath string             `json:"filestore_path"`
+	RAGSettings   SessionRAGSettings `json:"rag_settings"`
 }
 
-func (m EntityConfig) Value() (driver.Value, error) {
+func (m DataEntityConfig) Value() (driver.Value, error) {
 	j, err := json.Marshal(m)
 	return j, err
 }
 
-func (t *EntityConfig) Scan(src interface{}) error {
+func (t *DataEntityConfig) Scan(src interface{}) error {
 	source, ok := src.([]byte)
 	if !ok {
 		return errors.New("type assertion .([]byte) failed.")
 	}
-	var result EntityConfig
+	var result DataEntityConfig
 	if err := json.Unmarshal(source, &result); err != nil {
 		return err
 	}
@@ -920,22 +960,26 @@ func (t *EntityConfig) Scan(src interface{}) error {
 	return nil
 }
 
-func (EntityConfig) GormDataType() string {
+func (DataEntityConfig) GormDataType() string {
 	return "json"
 }
 
-type Entity struct {
-	ID      string     `json:"id" gorm:"primaryKey"`
-	Created time.Time  `json:"created"`
-	Updated time.Time  `json:"updated"`
-	Name    string     `json:"name"`
-	Type    EntityType `json:"type"`
+type DataEntity struct {
+	ID      string         `json:"id" gorm:"primaryKey"`
+	Created time.Time      `json:"created"`
+	Updated time.Time      `json:"updated"`
+	Name    string         `json:"name"`
+	Type    DataEntityType `json:"type"`
+	// uuid of owner entity
+	Owner string `json:"owner" gorm:"index"`
+	// e.g. user, system, org
+	OwnerType OwnerType `json:"owner_type"`
 	// some datasets are parents to others for example
 	// a folder of files can be the source of a RAG dataset
 	// or a qapairs dataset - a qapairs dataset can be the source
 	// of a lora dataset.
-	ParentEntity string       `json:"parent_entity"`
-	Config       EntityConfig `json:"config" gorm:"jsonb"`
+	ParentDataEntity string           `json:"parent_entity"`
+	Config           DataEntityConfig `json:"config" gorm:"jsonb"`
 }
 
 type ScriptRunType string

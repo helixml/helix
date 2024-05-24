@@ -41,6 +41,32 @@ const SessionTypeTabs: FC<{
               content: '""',
               display: 'block',
               height: '2px',
+              backgroundColor: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
+            }
+          }}
+          onClick={() => onSetType(SESSION_TYPE_TEXT)}
+        >
+          <Typography
+            variant="subtitle1"
+            sx={{
+              fontSize: "medium",
+              fontWeight: 800,
+              color: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
+              marginBottom: '10px',
+            }}
+          >
+            Text
+          </Typography>
+        </Box>
+        <Box
+          sx={{
+            width: '50%',
+            textAlign: 'center',
+            cursor: 'pointer',
+            '&:after': {
+              content: '""',
+              display: 'block',
+              height: '2px',
               backgroundColor: type === SESSION_TYPE_IMAGE ? COLORS[SESSION_TYPE_IMAGE] : lightTheme.icon,
               marginTop: '0.25rem',
             }
@@ -57,32 +83,6 @@ const SessionTypeTabs: FC<{
             }}
           >
             Images
-          </Typography>
-        </Box>
-        <Box
-          sx={{
-            width: '50%',
-            textAlign: 'center',
-            cursor: 'pointer',
-            '&:after': {
-              content: '""',
-              display: 'block',
-              height: '2px',
-              backgroundColor: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
-            }
-          }}
-          onClick={() => onSetType(SESSION_TYPE_TEXT)}
-        >
-          <Typography
-            variant="subtitle1"
-            sx={{
-              fontSize: "medium",
-              fontWeight: 800,
-              color: type === SESSION_TYPE_TEXT ? COLORS[SESSION_TYPE_TEXT] : lightTheme.icon,
-              marginBottom: '10px',
-            }}
-          >
-            Text
           </Typography>
         </Box>
       </Box>

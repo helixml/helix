@@ -613,3 +613,50 @@ export interface IFeature {
   disabled?: boolean,
   actions: IFeatureAction[],
 }
+
+export interface ISessionLearnRequestRAGSettings {
+  distance_function: string,
+  threshold: number,
+  results_count: number,
+  chunk_size: number,
+  chunk_overflow: number,
+}
+
+export interface ISessionLearnRequest {
+  type: ISessionType,
+  data_entity_id: string,
+  rag_enabled: boolean,
+  text_finetune_enabled: boolean,
+  rag_settings: ISessionLearnRequestRAGSettings,
+}
+
+export interface IMessageContent {
+  content_type: string,
+  parts: any[],
+}
+
+export type IMessageRole = 'user' | 'system' | 'assistant'
+export interface IMessage {
+  role: IMessageRole,
+  content: IMessageContent,
+}
+
+export interface ISessionChatRequest {
+  app_id?: string,
+  session_id?: string,
+  stream?: boolean,
+  legacy?: boolean,
+  type?: ISessionType,
+  lora_dir?: string,
+  system?: string,
+  messages?: IMessage[],
+  tools?: string[],
+  model?: string,
+  rag_source_id?: string,
+  lora_id?: string,
+}
+
+export interface IDataEntity {
+  id: string,
+  // TODO: the rest
+}
