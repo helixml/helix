@@ -129,7 +129,7 @@ services:
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
   llamaindex:
-    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
+    image: registry.helix.ml/helix/llamaindex:latest
     # build:
     #   context: llamaindex
     #   dockerfile: Dockerfile
