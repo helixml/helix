@@ -191,7 +191,14 @@ const Create: FC = () => {
       type={ type }
       model={ model }
       onOpenConfig={ () => setShowConfigWindow(true) }
-      onSetMode={ mode => router.setParams({mode}) }
+      onSetMode={ mode => {
+        if (mode == "finetune") {
+          // default rag true in case user clicks on the toggle
+          router.setParams({mode: mode, rag: "true"})
+        } else {
+          router.setParams({mode})
+        }
+      } }
       onSetModel={ model => router.setParams({model}) }
     />
   )
