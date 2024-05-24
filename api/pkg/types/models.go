@@ -82,6 +82,14 @@ func ProcessModelName(
 			if modelName == "" {
 				// default text model for non-finetune inference
 				return Model_Ollama_Llama3_8b, nil
+
+			} else if strings.HasPrefix(modelName, "gpt-3.5") {
+				// pseudo-compatibility with OpenAI API
+				return Model_Ollama_Llama3_8b, nil
+
+			} else if strings.HasPrefix(modelName, "gpt-4") {
+				return Model_Ollama_Llama3_70b, nil
+
 			} else {
 				// allow user-provided model name (e.g. assume API users
 				// know what they're doing)
