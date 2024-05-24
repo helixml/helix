@@ -197,7 +197,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           }}
         >
           <Typography sx={{ fontWeight: 'bold' }} className="interactionMessage">
-            Add URLs, paste some text or upload some files you want your model to learn from:
+            Add URLs, paste some text or upload some files you want the model to learn from:
           </Typography>
         </Box>
       )}

@@ -1,4 +1,5 @@
-import { useState, useCallback, SetStateAction, Dispatch } from 'react'
+import { useState, useEffect, useCallback, SetStateAction, Dispatch } from 'react'
+import useRouter from '../hooks/useRouter'
 import bluebird from 'bluebird'
 import { AxiosProgressEvent } from 'axios'
 
@@ -56,15 +57,48 @@ export interface IFinetuneInputs {
   reset: () => Promise<void>,
 }
 
+export const getDefaultSessionConfig = (): ICreateSessionConfig => {
+  // change the default based on the query params
+  let config = DEFAULT_SESSION_CONFIG
+  config.ragEnabled = window.location.search.includes('rag=true')
+  config.finetuneEnabled = window.location.search.includes('finetune=true')
+  return config
+}
+
 export const useCreateInputs = () => {
   const [inputValue, setInputValue] = useState('')
-  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(DEFAULT_SESSION_CONFIG)
+  const [sessionConfig, setSessionConfig] = useState<ICreateSessionConfig>(getDefaultSessionConfig())
   const [manualTextFileCounter, setManualTextFileCounter] = useState(0)
   const [uploadProgress, setUploadProgress] = useState<IFilestoreUploadProgress>()
   const [fineTuneStep, setFineTuneStep] = useState(0)
   const [showImageLabelErrors, setShowImageLabelErrors] = useState(false)
   const [finetuneFiles, setFinetuneFiles] = useState<IUploadFile[]>([])
   const [labels, setLabels] = useState<Record<string, string>>({})
+  const {
+    navigate,
+    params,
+  } = useRouter()
+
+  useEffect(() => {
+    console.log('sessionConfig updated:', sessionConfig);
+    const queryParams = new URLSearchParams(window.location.search);
+    if (sessionConfig.ragEnabled) {
+      queryParams.set('rag', 'true');
+    } else {
+      queryParams.delete('rag');
+    }
+    if (sessionConfig.finetuneEnabled) {
+      queryParams.set('finetune', 'true');
+    } else {
+      queryParams.delete('finetune');
+    }
+    const qp = Object.fromEntries(queryParams);
+    console.log("qp", JSON.stringify(qp), "p", JSON.stringify(params))
+    if (JSON.stringify(qp) !== JSON.stringify(params)) {
+      console.log("DIFFERS")
+      navigate("new", qp)
+    }
+  }, [sessionConfig]);
 
   const serializePage = useCallback(async () => {
     const drawerLabels: Record<string, string> = {}

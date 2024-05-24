@@ -338,10 +338,25 @@ const Create: FC = () => {
       />
     </Box>
   )
-  
+
+
+  let ragEnabled = window.location.search.includes('rag=true')
+  let finetuneEnabled = window.location.search.includes('finetune=true')
+
+  let txt = "Learn"
+  if (type == SESSION_TYPE_IMAGE) {
+    txt += " (image style and objects)"
+  } else if (ragEnabled && finetuneEnabled) {
+    txt += " (hybrid RAG + Fine-tuning)"
+  } else if (ragEnabled) {
+    txt += " (RAG)"
+  } else if (finetuneEnabled) {
+    txt += " (Fine-tuning on knowledge)"
+  }
+
   return (
     <Page
-      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? "Create" : "" }
+      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? txt : "" }
       topbarContent={ topbar }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }

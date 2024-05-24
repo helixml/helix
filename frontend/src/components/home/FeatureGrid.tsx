@@ -92,7 +92,6 @@ const APPS_FEATURE: IFeature = {
 const RAG_FEATURE: IFeature = {
   title: 'RAG over Documents',
   description: 'Upload documents and index them, then chat to your documents',
-  disabled: true,
   // icon: <DocumentScannerIcon sx={{color: '#fff'}} />,
   icon: <PlagiarismIcon sx={{color: '#fcdb05'}} />,
   // image: '/img/servers.png',
@@ -100,9 +99,9 @@ const RAG_FEATURE: IFeature = {
     title: 'Upload',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => navigate('new', {mode:"finetune", type:"text", rag:"true"}),
   }, {
-    title: 'Docs',
+    title: 'Docs (coming soon)',
     color: 'primary',
     variant: 'text',
     handler: () => {},
@@ -118,7 +117,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('new', {mode:"finetune", type:"text"})},
+    handler: (navigate) => navigate('new', {mode:"finetune", type:"text", finetune:"true"}),
   }, {
     title: 'Docs',
     color: 'primary',
