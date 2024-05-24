@@ -101,7 +101,7 @@ func NewInMemoryNats(storeDir string) (*Nats, error) {
 				Time("oldest_message", info.State.FirstTime).
 				Time("newest_message", info.State.LastTime).
 				Msg("Stream info")
-			time.Sleep(3 * time.Second)
+			time.Sleep(10 * time.Second)
 		}
 	}()
 
@@ -269,10 +269,8 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		c, err := n.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 			AckPolicy:      jetstream.AckExplicitPolicy,
 			FilterSubjects: []string{getStreamSub(stream, subject)},
-			// FilterSubjects: []string{getStreamSub(ScriptRunnerStream, AppQueue)},
-			AckWait: 5 * time.Second,
-			// MemoryStorage:  true,
-			ReplayPolicy: jetstream.ReplayInstantPolicy,
+			AckWait:        5 * time.Second,
+			ReplayPolicy:   jetstream.ReplayInstantPolicy,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
@@ -280,30 +278,37 @@ func (n *Nats) StreamConsume(ctx context.Context, stream, subject string, conc i
 		n.consumer = c
 	}
 
+	mc, err := n.consumer.Messages()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get messages context: %w", err)
+	}
+
+	go func() {
+		<-ctx.Done()
+		mc.Stop()
+	}()
+
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-				// return nil, ctx.Err()
 			default:
-				batch, err := n.consumer.FetchNoWait(conc)
+				msg, err := mc.Next()
 				if err != nil {
 					log.Err(err).Msg("failed to fetch messages")
 					continue
 				}
 
-				for msg := range batch.Messages() {
-					err := handler(&Message{
-						Type:   msg.Headers().Get(helixNatsSubjectHeader),
-						Reply:  msg.Headers().Get(helixNatsReplyHeader),
-						Data:   msg.Data(),
-						Header: msg.Headers(),
-						msg:    msg,
-					})
-					if err != nil {
-						log.Err(err).Msg("error handling message")
-					}
+				err = handler(&Message{
+					Type:   msg.Headers().Get(helixNatsSubjectHeader),
+					Reply:  msg.Headers().Get(helixNatsReplyHeader),
+					Data:   msg.Data(),
+					Header: msg.Headers(),
+					msg:    msg,
+				})
+				if err != nil {
+					log.Err(err).Msg("error handling message")
 				}
 			}
 		}
