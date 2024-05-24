@@ -54,15 +54,17 @@ volumes:
 
 steps:
 - name: publish-image
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: Dockerfile
     auto_tag: true
-    repo: helixml/helix/controlplane
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/controlplane
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -88,15 +90,22 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: Dockerfile.runner
     auto_tag: true
-    repo: helixml/helix/runner
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with no baked models = empty
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-empty
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -113,7 +122,7 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-runner-with-llama-8b
+name: build-gptscript-runner
 
 volumes:
   - name: dockersocket
@@ -121,20 +130,18 @@ volumes:
       path: /var/run/docker.sock
 
 steps:
-- name: publish-runner
-  image: plugins/gar
+- name: publish-image
+  image: plugins/docker
   pull: always
   settings:
-    dockerfile: Dockerfile.runner
-    tags:
-    - "${DRONE_TAG:-main}-llama3-8b" # Default to branch
-    - "latest-llama3-8b"
-    repo: helixml/helix/runner
-    location: europe
-    build_args:
-      - PULL_LLAMA3_8B=true
-    json_key:
-      from_secret: gar_json_key_b64
+    dockerfile: Dockerfile.gptscript
+    auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/gptscript-runner
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -147,13 +154,11 @@ steps:
 
 depends_on:
 - default
-- build-runner
 
-# llama3 70B
 ---
 kind: pipeline
 type: docker
-name: build-runner-with-llama-70b
+name: build-runner-small
 
 volumes:
   - name: dockersocket
@@ -162,20 +167,24 @@ volumes:
 
 steps:
 - name: publish-runner
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: Dockerfile.runner
     tags:
-    - "${DRONE_TAG:-main}-llama3-70b"
-    - "latest-llama3-70b"
-    repo: helixml/helix/runner
-    location: europe
+    - "${DRONE_TAG:-main}-small" # Default to branch
+    - "latest-small"
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
     build_args:
-      - PULL_LLAMA3_8B=true
-      - PULL_LLAMA3_70B=true
-    json_key:
-      from_secret: gar_json_key_b64
+      # Runner with small models = small
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-small
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -188,7 +197,49 @@ steps:
 
 depends_on:
 - default
-- build-runner-with-llama-8b
+
+---
+kind: pipeline
+type: docker
+name: build-runner-large
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-runner
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.runner
+    tags:
+    - "${DRONE_TAG:-main}-large"
+    - "latest-large"
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/runner
+    build_args:
+      # Runner with large models = large
+      # See https://github.com/helixml/base-images
+      # and https://github.com/helixml/base-images/releases
+      - TAG=2024-05-22b-large
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
 
 ---
 kind: pipeline
@@ -202,15 +253,17 @@ volumes:
 
 steps:
 - name: publish-gptscript_devserver
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: Dockerfile.gptscript_devserver
     auto_tag: true
-    repo: helixml/helix/gptscript_devserver
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/gptscript_devserver
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -236,16 +289,18 @@ volumes:
 
 steps:
 - name: publish-llamaindex
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: llamaindex/Dockerfile
     context: llamaindex
     auto_tag: true
-    repo: helixml/helix/llamaindex
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/llamaindex
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock
@@ -271,15 +326,17 @@ volumes:
 
 steps:
 - name: publish-demos
-  image: plugins/gar
+  image: plugins/docker
   pull: always
   settings:
     dockerfile: Dockerfile.demos
     auto_tag: true
-    repo: helixml/helix/demos
-    location: europe
-    json_key:
-      from_secret: gar_json_key_b64
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/demos
+    username: admin
+    password:
+      from_secret: helix_registry_password
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock

@@ -43,6 +43,11 @@ type ListAppsQuery struct {
 	OwnerType types.OwnerType `json:"owner_type"`
 }
 
+type ListDataEntitiesQuery struct {
+	Owner     string          `json:"owner"`
+	OwnerType types.OwnerType `json:"owner_type"`
+}
+
 //go:generate mockgen -source $GOFILE -destination store_mocks.go -package $GOPACKAGE
 
 type Store interface {
@@ -84,6 +89,18 @@ type Store interface {
 	GetApp(ctx context.Context, id string) (*types.App, error)
 	ListApps(ctx context.Context, q *ListAppsQuery) ([]*types.App, error)
 	DeleteApp(ctx context.Context, id string) error
+
+	// data entities
+	CreateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
+	UpdateDataEntity(ctx context.Context, dataEntity *types.DataEntity) (*types.DataEntity, error)
+	GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error)
+	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
+	DeleteDataEntity(ctx context.Context, id string) error
+
+	// GPTScript runs history table
+	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
+	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
+	DeleteScriptRun(ctx context.Context, id string) error
 }
 
 var ErrNotFound = errors.New("not found")

@@ -35,13 +35,14 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b'
+export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b' | 'phi3:instruct'
 export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
 export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
 export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
 export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
 export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b'
 export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
+export const MODEL_NAME_OLLAMA_PHI3: IModelName = 'phi3:instruct'
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
@@ -360,6 +361,11 @@ export interface ISessionMetaUpdate {
   owner_type?: string,
 }
 
+export interface IUploadFile {
+  // used for the file drawer - e.g. show the actual URL or a preview of the text
+  drawerLabel: string,
+  file: File,
+}
 
 export interface ISerlializedFile {
   filename: string
@@ -369,6 +375,7 @@ export interface ISerlializedFile {
 
 export interface ISerializedPage {
   files: ISerlializedFile[],
+  drawerLabels: Record<string, string>,
   labels: Record<string, string>,
   fineTuneStep: number,
   manualTextFileCounter: number,
@@ -456,7 +463,6 @@ export interface ITool {
   global: boolean,
   config: IToolConfig,
 }
-
 
 export interface IKeyPair {
 	type: string,
@@ -568,4 +574,89 @@ export interface IGptScriptRequest {
 export interface IGptScriptResponse {
   output: string,
   error: string,
+}
+
+export type IRagDistanceFunction = 'l2' | 'inner_product' | 'cosine'
+export interface ICreateSessionConfig {
+  activeToolIDs: string[],
+  finetuneEnabled: boolean,
+  ragEnabled: boolean,
+  ragDistanceFunction: IRagDistanceFunction, 
+  ragThreshold: number,
+  ragResultsCount: number,
+  ragChunkSize: number,
+  ragChunkOverflow: number,
+}
+
+export interface IHelixModel {
+  id: string,
+  title: string,
+  description: string,
+}
+
+export interface IRouterNavigateFunction {
+  (name: string, params?: Record<string, any>): void,
+}
+
+export interface IFeatureAction {
+  title: string,
+  color: 'primary' | 'secondary',
+  variant: 'text' | 'contained' | 'outlined',
+  handler: (navigate: IRouterNavigateFunction) => void,
+}
+
+export interface IFeature {
+  title: string,
+  description: string,
+  image?: string,
+  icon?: React.ReactNode,
+  disabled?: boolean,
+  actions: IFeatureAction[],
+}
+
+export interface ISessionLearnRequestRAGSettings {
+  distance_function: string,
+  threshold: number,
+  results_count: number,
+  chunk_size: number,
+  chunk_overflow: number,
+}
+
+export interface ISessionLearnRequest {
+  type: ISessionType,
+  data_entity_id: string,
+  rag_enabled: boolean,
+  text_finetune_enabled: boolean,
+  rag_settings: ISessionLearnRequestRAGSettings,
+}
+
+export interface IMessageContent {
+  content_type: string,
+  parts: any[],
+}
+
+export type IMessageRole = 'user' | 'system' | 'assistant'
+export interface IMessage {
+  role: IMessageRole,
+  content: IMessageContent,
+}
+
+export interface ISessionChatRequest {
+  app_id?: string,
+  session_id?: string,
+  stream?: boolean,
+  legacy?: boolean,
+  type?: ISessionType,
+  lora_dir?: string,
+  system?: string,
+  messages?: IMessage[],
+  tools?: string[],
+  model?: string,
+  rag_source_id?: string,
+  lora_id?: string,
+}
+
+export interface IDataEntity {
+  id: string,
+  // TODO: the rest
 }

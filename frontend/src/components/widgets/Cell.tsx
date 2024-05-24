@@ -1,17 +1,18 @@
 import React, { FC, useMemo } from 'react'
-import { useTheme, Breakpoint } from '@mui/material/styles'
+import { useTheme, Breakpoint, SxProps } from '@mui/material/styles'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import Box from '@mui/material/Box'
-import { SxProps } from '@mui/system'
 
 const Cell: FC<{
   flexGrow?: number,
   grow?: boolean,
+  end?: boolean,
   breakpoint?: Breakpoint,
   sx?: SxProps,
 }> = ({
   flexGrow = 0,
   grow = false,
+  end = false,
   breakpoint,
   sx = {},
   children,
@@ -43,11 +44,18 @@ const Cell: FC<{
     )
   }
 
+  const useSx: any = Object.assign({}, sx, {
+    flexGrow: useFlexGrow,
+  })
+
+  if(end) {
+    useSx.justifyContent = 'flex-end'
+    useSx.textAlign = 'right'
+  }
+
   return (
     <Box
-      sx={Object.assign({}, sx, {
-        flexGrow: useFlexGrow,
-      })}
+      sx={ useSx }
     >
       { children }
     </Box>

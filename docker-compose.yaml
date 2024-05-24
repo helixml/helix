@@ -2,7 +2,7 @@ version: '3'
 
 services:
   api:
-    image: europe-docker.pkg.dev/helixml/helix/controlplane:latest
+    image: registry.helix.ml/helix/controlplane:latest
     # If you want to run the API on a different port, set the
     # API_PORT environment variable and also updated env variables
     # for SERVER_URL and KEYCLOAK_FRONTEND_URL to match how you
@@ -94,7 +94,7 @@ services:
       retries: 30
     command: ["start", "--import-realm", "--proxy", "edge"]
   llamaindex:
-    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
+    image: registry.helix.ml/helix/llamaindex:latest
     # ports:
       # - 5000:5000
     restart: always

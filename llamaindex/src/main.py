@@ -8,8 +8,7 @@ from utils import HttpException
 app = Flask(__name__)
 
 # curl -X POST -H "Content-Type: application/json" -d '{
-#   "session_id": "123",
-#   "interaction_id": "456",
+#   "data_entity_id": "123",
 #   "filename": "test.txt",
 #   "document_id": "abc",
 #   "document_group_id": "def",
@@ -28,7 +27,7 @@ def rag_insert_chunk():
   return jsonify(result), 200
 
 # curl -X POST -H "Content-Type: application/json" -d '{
-#   "session_id": "123",
+#   "data_entity_id": "123",
 #   "prompt": "hello world",
 #   "distance_function": "cosine",
 #   "distance_threshold": 0.1,
@@ -43,15 +42,15 @@ def rag_insert_chunk():
 def rag_query():
   data = request.json
   prompt = data["prompt"]
-  session_id = data["session_id"]
+  data_entity_id = data["data_entity_id"]
   distance_threshold = data["distance_threshold"]
   distance_function = data["distance_function"]
   max_results = data["max_results"]
 
   if prompt is None or len(prompt) == 0:
     return jsonify({"error": "missing prompt"}), 400
-  if session_id is None or len(session_id) == 0:
-    return jsonify({"error": "missing session_id"}), 400
+  if data_entity_id is None or len(data_entity_id) == 0:
+    return jsonify({"error": "missing data_entity_id"}), 400
   if distance_function is None or len(distance_function) == 0:
     return jsonify({"error": "missing distance_function"}), 400
   if distance_function not in ["l2", "inner_product", "cosine"]:
@@ -65,7 +64,7 @@ def rag_query():
   if isinstance(max_results, (int, float)) == False:
     return jsonify({"error": "max_results must be a number"}), 400
   promptEmbedding = getEmbedding(prompt)
-  results = sql.queryPrompt(session_id, promptEmbedding, distance_function, distance_threshold, max_results)
+  results = sql.queryPrompt(data_entity_id, promptEmbedding, distance_function, distance_threshold, max_results)
   pprint.pprint(results)
   return jsonify(results), 200
 

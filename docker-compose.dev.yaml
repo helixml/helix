@@ -129,7 +129,7 @@ services:
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
   llamaindex:
-    image: europe-docker.pkg.dev/helixml/helix/llamaindex:latest
+    image: registry.helix.ml/helix/llamaindex:latest
     # build:
     #   context: llamaindex
     #   dockerfile: Dockerfile
@@ -144,6 +144,19 @@ services:
     restart: always
     volumes:
       - ./llamaindex/src:/home/app/src
+  gptscript_runner:    
+    build:
+      context: .
+      dockerfile: Dockerfile.gptscript        
+    restart: always
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - API_HOST=http://api:80
+      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - CONCURRENCY=20 # number of tasks to run concurrently
+      - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
+    depends_on:
+      - api      
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:

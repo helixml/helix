@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -20,26 +19,9 @@ func getScriptFromTool(tool *types.Tool, prompt string) *types.GptScript {
 	return script
 }
 
-func (c *ChainStrategy) RunRemoteGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
-	script := getScriptFromTool(tool, currentMessage)
-	result, err := gptscript_runner.RunGPTScriptTestfaster(ctx, script)
-	if err != nil {
-		return nil, fmt.Errorf("failed to run gptscript: %w", err)
-	}
-	if result.Error != "" {
-		return nil, fmt.Errorf("failed to run gptscript: %s", result.Error)
-	}
-	return &RunActionResponse{
-		Message:    result.Output,
-		RawMessage: result.Output,
-	}, nil
-
-}
-
-// this is run locally
 func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
 	script := getScriptFromTool(tool, currentMessage)
-	result, err := gptscript_runner.RunGPTScript(ctx, script)
+	result, err := c.gptScriptExecutor.ExecuteScript(ctx, script)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run gptscript: %w", err)
 	}

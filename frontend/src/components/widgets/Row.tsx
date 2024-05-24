@@ -5,9 +5,11 @@ import { SxProps } from '@mui/system'
 const Row: FC<{
   sx?: SxProps,
   center?: boolean,
+  vertical?: boolean,
 }> = ({
   sx = {},
   center = false,
+  vertical = false,
   children,
 }) => {
   return (
@@ -15,7 +17,7 @@ const Row: FC<{
       sx={{
         width: '100%',
         display: 'flex',
-        flexDirection: 'row',
+        flexDirection: vertical ? 'column' : 'row',
         alignItems: 'center',
         justifyContent: center ? 'center' : 'flex-start',
         ...sx

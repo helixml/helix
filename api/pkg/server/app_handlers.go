@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -8,10 +9,10 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
-	gptscript_runner "github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // listApps godoc
@@ -37,7 +38,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	}
 
 	// Filter apps based on the "type" query parameter
-	filteredApps := make([]*types.App, 0)
+	var filteredApps []*types.App
 	for _, app := range allApps {
 		if queryType != "" && app.AppType != types.AppType(queryType) {
 			continue
@@ -281,7 +282,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return existing, nil
 }
 
-// createTool godoc
+// appRunScript godoc
 // @Summary Run a GPT script inside a github app
 // @Description Run a GPT script inside a github app.
 // @Tags    apps
@@ -305,11 +306,10 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 
 	appRecord, err := s.Store.GetApp(r.Context(), userContext.User.AppID)
 	if err != nil {
-		if err == store.ErrNotFound {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404("app not found")
-		} else {
-			return nil, system.NewHTTPError500(err.Error())
 		}
+		return nil, system.NewHTTPError500(err.Error())
 	}
 
 	// load the body of the request
@@ -324,6 +324,12 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		envPairs = append(envPairs, key+"="+value)
 	}
 
+	logger := log.With().
+		Str("app_id", userContext.User.AppID).
+		Str("user_id", userContext.User.ID).Logger()
+
+	logger.Trace().Msg("starting app execution")
+
 	app := &types.GptScriptGithubApp{
 		Script: types.GptScript{
 			FilePath: req.FilePath,
@@ -335,9 +341,56 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 		KeyPair:    appRecord.Config.Github.KeyPair,
 	}
 
-	result, err := gptscript_runner.RunGPTAppTestfaster(r.Context(), app)
+	start := time.Now()
+
+	result, err := s.gptScriptExecutor.ExecuteApp(r.Context(), app)
 	if err != nil {
+
+		logger.Warn().Err(err).Str("duration", time.Since(start).String()).Msg("app execution failed")
+
+		// Log error
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_, runErr := s.Store.CreateScriptRun(ctx, &types.ScriptRun{
+			Owner:       userContext.User.ID,
+			OwnerType:   userContext.User.Type,
+			AppID:       userContext.User.AppID,
+			State:       types.ScriptRunStateError,
+			Type:        types.GptScriptRunnerTaskTypeGithubApp,
+			SystemError: err.Error(),
+			DurationMs:  int(time.Since(start).Milliseconds()),
+			Request: &types.GptScriptRunnerRequest{
+				GithubApp: app,
+			},
+		})
+		if runErr != nil {
+			log.Err(runErr).Msg("failed to create script run")
+		}
+
 		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	logger.Info().Str("duration", time.Since(start).String()).Msg("app executed")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = s.Store.CreateScriptRun(ctx, &types.ScriptRun{
+		Owner:      userContext.User.ID,
+		OwnerType:  userContext.User.Type,
+		AppID:      userContext.User.AppID,
+		State:      types.ScriptRunStateComplete,
+		Type:       types.GptScriptRunnerTaskTypeGithubApp,
+		Retries:    result.Retries,
+		DurationMs: int(time.Since(start).Milliseconds()),
+		Request: &types.GptScriptRunnerRequest{
+			GithubApp: app,
+		},
+		Response: result,
+	})
+	if err != nil {
+		log.Err(err).Msg("failed to create script run")
 	}
 
 	return result, nil

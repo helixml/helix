@@ -33,11 +33,12 @@ func GetModels() (map[types.ModelName]Model, error) {
 
 	// NousHermes2Pro
 	models[types.Model_Ollama_NousHermes2Pro] = NewOllamaGenericText(types.Model_Ollama_NousHermes2Pro.String(), MB*6440)
-	models[types.Model_Ollama_NousHermes2ProLlama3] = NewOllamaGenericText(types.Model_Ollama_NousHermes2ProLlama3.String(), MB*8792)
+	models[types.Model_Ollama_NousHermes2ThetaLlama3] = NewOllamaGenericText(types.Model_Ollama_NousHermes2ThetaLlama3.String(), MB*8792)
 
 	// Llama3
 	models[types.Model_Ollama_Llama3_8b] = NewOllamaGenericText(types.Model_Ollama_Llama3_8b.String(), MB*5349)
 	models[types.Model_Ollama_Llama3_70b] = NewOllamaGenericText(types.Model_Ollama_Llama3_70b.String(), GB*39)
+	models[types.Model_Ollama_Phi3] = NewOllamaGenericText(types.Model_Ollama_Phi3.String(), MB*2300)
 
 	return models, nil
 }

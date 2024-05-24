@@ -26,13 +26,13 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSessionRequest) (*types.Session, error) {
+func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSessionRequest) (*types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
 		Creator:        types.CreatorTypeSystem,
-		Mode:           req.SessionMode,
+		Mode:           req.Mode,
 		Message:        "",
 		Files:          []string{},
 		State:          types.InteractionStateWaiting,
@@ -48,11 +48,11 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 	}
 
 	newSession := types.Session{
-		ID:            req.SessionID,
+		ID:            req.ID,
 		Name:          system.GenerateAmusingName(),
 		ModelName:     req.ModelName,
-		Type:          req.SessionType,
-		Mode:          req.SessionMode,
+		Type:          req.Type,
+		Mode:          req.Mode,
 		ParentSession: req.ParentSession,
 		ParentApp:     req.ParentApp,
 		LoraDir:       req.LoraDir,
@@ -63,7 +63,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 		Interactions:  append(req.UserInteractions, systemInteraction),
 		Metadata: types.SessionMetadata{
 			Stream:       req.Stream,
-			OriginalMode: req.SessionMode,
+			OriginalMode: req.Mode,
 			SystemPrompt: req.SystemPrompt,
 			Origin: types.SessionOrigin{
 				Type: types.SessionOriginTypeUserCreated,
@@ -71,11 +71,19 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 			Priority:                req.Priority,
 			ManuallyReviewQuestions: req.ManuallyReviewQuestions,
 			HelixVersion:            data.GetHelixVersion(),
-			RagEnabled:              req.RagEnabled,
+			RagEnabled:              req.RAGEnabled,
 			TextFinetuneEnabled:     req.TextFinetuneEnabled,
-			RagSettings:             req.RagSettings,
+			RagSettings:             req.RAGSettings,
 			ActiveTools:             activeTools,
+			UploadedDataID:          req.UploadedDataID,
+			RAGSourceID:             req.RAGSourceID,
+			LoraID:                  req.LoraID,
 		},
+	}
+
+	// if we have a rag source ID then it also means rag is enabled (for inference)
+	if newSession.Metadata.RAGSourceID != "" {
+		newSession.Metadata.RagEnabled = true
 	}
 
 	if c.Options.Config.SubscriptionQuotas.Enabled && newSession.Mode == types.SessionModeFinetune {
@@ -88,7 +96,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.CreateSess
 		if err != nil {
 			log.
 				Err(err).
-				Str("session_id", req.SessionID).
+				Str("session_id", req.ID).
 				Msg("failed to get sessions")
 			return nil, fmt.Errorf("failed to get sessions: %w", err)
 		}
@@ -534,6 +542,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		}
 
 		if len(app.Config.Helix.Assistants) > 0 {
+			// TODO: support > 1 assistant
 			assistant := app.Config.Helix.Assistants[0]
 			for _, tool := range assistant.Tools {
 				tools = append(tools, &tool)
@@ -839,7 +848,25 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 
 			// only notify the user that the fine tune was completed if there was not an error
 			if taskResponse.Error == "" {
-				err := c.Options.Notifier.Notify(ctx, &notification.Notification{
+
+				// create a new data entity that is the RAG source
+				loraDataEntity, err := c.Options.Store.CreateDataEntity(context.Background(), &types.DataEntity{
+					ID:        system.GenerateUUID(),
+					Created:   time.Now(),
+					Updated:   time.Now(),
+					Type:      types.DataEntityTypeLora,
+					Owner:     session.Owner,
+					OwnerType: session.OwnerType,
+					Config: types.DataEntityConfig{
+						FilestorePath: taskResponse.LoraDir,
+					},
+				})
+				if err != nil {
+					return nil, err
+				}
+				session.Metadata.LoraID = loraDataEntity.ID
+
+				err = c.Options.Notifier.Notify(ctx, &notification.Notification{
 					Event:   notification.EventFinetuningComplete,
 					Session: session,
 				})

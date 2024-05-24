@@ -59,8 +59,7 @@ class HelixDocumentChunk(Base):
   __tablename__ = TABLE_NAME
 
   id = mapped_column(String, primary_key=True)
-  session_id = mapped_column(String)
-  interaction_id = mapped_column(String)
+  data_entity_id = mapped_column(String)
   document_id = mapped_column(String)
   document_group_id = mapped_column(String)
   filename = mapped_column(String)
@@ -72,7 +71,7 @@ class HelixDocumentChunk(Base):
   embedding = mapped_column(Vector(VECTOR_DIMENSION))
 
 def checkDocumentChunkData(data_dict):
-  required_keys = ["session_id", "interaction_id", "document_id", "document_group_id", "filename", "content_offset", "content"]
+  required_keys = ["data_entity_id", "document_id", "document_group_id", "filename", "content_offset", "content"]
   number_keys = ["content_offset"]
   for key in required_keys:
     if key not in data_dict:
@@ -89,8 +88,7 @@ def checkDocumentChunkData(data_dict):
 
 # example data_dict:
 # {
-#     "session_id": "123",
-#     "interaction_id": "456",
+#     "data_entity_id": "123",
 #     "filename": "test.txt",
 #     "content_offset": 0,
 #     "content": "hello world",
@@ -110,8 +108,7 @@ def insertData(data_dict):
 def convertRow(row):
   return {
       "id": row.id,
-      "session_id": row.session_id,
-      "interaction_id": row.interaction_id,
+      "data_entity_id": row.data_entity_id,
       "document_id": row.document_id,
       "document_group_id": row.document_group_id,
       "filename": row.filename,
@@ -126,8 +123,7 @@ def convertRows(rows):
 # when we query for prompts - we return not all fields plus the distance field
 def convertSimpleRow(row):
   return {
-      "session_id": row.session_id,
-      "interaction_id": row.interaction_id,
+      "data_entity_id": row.data_entity_id,
       "document_id": row.document_id,
       "document_group_id": row.document_group_id,
       "filename": row.filename,
@@ -148,7 +144,7 @@ def getRow(row_id):
     return convertRow(row)
 
 # given a already calculated prompt embedding and a session ID - find matching rows
-def queryPrompt(session_id, query_embedding, distance_function, distance_threshold, max_results):
+def queryPrompt(data_entity_id, query_embedding, distance_function, distance_threshold, max_results):
   distance_functions = {
     "l2": "<->",
     "inner_product": "<#>",
@@ -163,12 +159,12 @@ def queryPrompt(session_id, query_embedding, distance_function, distance_thresho
 
   raw_sql = text(f"""
 select
-  id, session_id, interaction_id, document_id, document_group_id, filename, content_offset, content,
+  id, data_entity_id, document_id, document_group_id, filename, content_offset, content,
   {embedding_str} as distance
 from 
   {TABLE_NAME}
 where
-  session_id = '{session_id}'
+  data_entity_id = '{data_entity_id}'
   and
   {embedding_str} < {distance_threshold}
 order by

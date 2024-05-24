@@ -6,7 +6,7 @@ import FineTuneImageLabels from './FineTuneImageLabels'
 import FineTuneTextInputs from './FineTuneTextInputs'
 import UploadingOverlay from '../widgets/UploadingOverlay'
 
-import useFinetuneInputs from '../../hooks/useFinetuneInputs'
+import useCreateInputs from '../../hooks/useCreateInputs'
 import useSnackbar from '../../hooks/useSnackbar'
 import useApi from '../../hooks/useApi'
 
@@ -28,7 +28,7 @@ export const AddFilesWindow: FC<{
 }) => {
   const snackbar = useSnackbar()
   const api = useApi()
-  const inputs = useFinetuneInputs()
+  const inputs = useCreateInputs()
 
   const addDocumentsSubmitTitle = useMemo(() => {
     if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {
@@ -50,8 +50,7 @@ export const AddFilesWindow: FC<{
     })
 
     try {
-      let formData = new FormData()
-      formData = inputs.setFormData(formData)
+      const formData = inputs.getFormData(session.mode, session.type, session.model_name)
       await api.put(`/api/v1/sessions/${session.id}/finetune/documents`, formData, {
         onUploadProgress: inputs.uploadProgressHandler,
         params: {
@@ -72,14 +71,15 @@ export const AddFilesWindow: FC<{
 
   // this is for image finetune
   const onAddImageDocuments = async () => {
-    const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
-    if(errorFiles.length > 0) {
-      inputs.setShowImageLabelErrors(true)
-      snackbar.error('Please add a label to each image')
-      return
-    }
-    inputs.setShowImageLabelErrors(false)
-    onAddDocuments()
+    // TODO: sort this
+    // const errorFiles = inputs.files.filter(file => inputs.labels[file.name] ? false : true)
+    // if(errorFiles.length > 0) {
+    //   inputs.setShowImageLabelErrors(true)
+    //   snackbar.error('Please add a label to each image')
+    //   return
+    // }
+    // inputs.setShowImageLabelErrors(false)
+    // onAddDocuments()
   }
 
   return (
@@ -87,8 +87,9 @@ export const AddFilesWindow: FC<{
       <Window
         open
         size="lg"
-        title={`Add Documents to ${session.name}?`}
+        // title={`Add Documents to ${session.name}?`}
         withCancel
+        cancelTitle="Cancel" 
         submitTitle={ addDocumentsSubmitTitle }
         onSubmit={ () => {
           if(session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0) {
@@ -104,10 +105,11 @@ export const AddFilesWindow: FC<{
         {
           session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
             <FineTuneImageInputs
-              initialFiles={ inputs.files }
-              showSystemInteraction={ false }
+              initialFiles={ inputs.finetuneFiles.map(f => f.file) }
+              // showSystemInteraction={ false }
               onChange={ (files) => {
-                inputs.setFiles(files)
+                // TODO: sort this
+                //inputs.setFinetuneFiles(files)
               }}
             />
           )
@@ -116,11 +118,12 @@ export const AddFilesWindow: FC<{
           session.type == SESSION_TYPE_TEXT && inputs.fineTuneStep == 0 && (
             <FineTuneTextInputs
               initialCounter={ inputs.manualTextFileCounter }
-              initialFiles={ inputs.files }
+              initialFiles={ inputs.finetuneFiles.map(f => f.file) }
               showSystemInteraction={ false }
               onChange={ (counter, files) => {
-                inputs.setManualTextFileCounter(counter)
-                inputs.setFiles(files)
+                // TODO: sort this
+                // inputs.setManualTextFileCounter(counter)
+                // inputs.setFinetuneFiles(files)
               }}
             />
           )
@@ -131,7 +134,7 @@ export const AddFilesWindow: FC<{
               showImageLabelErrors={ inputs.showImageLabelErrors }
               initialLabels={ inputs.labels }
               showSystemInteraction={ false }
-              files={ inputs.files }
+              files={ inputs.finetuneFiles.map(f => f.file) }
               onChange={ (labels) => {
                 inputs.setLabels(labels)
               }}

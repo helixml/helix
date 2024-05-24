@@ -96,19 +96,89 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		interactions = append(interactions, interaction)
 	}
 
-	newSession := types.CreateSessionRequest{
-		SessionID:        sessionID,
-		SessionMode:      sessionMode,
-		SessionType:      types.SessionTypeText,
-		ParentApp:        reqContext.User.AppID,
+	// this will be assigned if the token being used is an app token
+	appID := reqContext.User.AppID
+
+	// or we could be using a normal token and passing the app_id in the query string
+	if req.URL.Query().Get("app_id") != "" {
+		appID = req.URL.Query().Get("app_id")
+	}
+
+	newSession := types.InternalSessionRequest{
+		ID:               sessionID,
+		Mode:             sessionMode,
+		Type:             types.SessionTypeText,
+		ParentApp:        appID,
 		Stream:           chatCompletionRequest.Stream,
-		ModelName:        types.ModelName(chatCompletionRequest.Model),
 		Owner:            reqContext.User.ID,
 		OwnerType:        reqContext.User.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
 	}
+
+	useModel := chatCompletionRequest.Model
+
+	// if we have an app then let's populate the InternalSessionRequest with values from it
+	if newSession.ParentApp != "" {
+		app, err := apiServer.Store.GetApp(reqContext.Ctx, newSession.ParentApp)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// TODO: support > 1 assistant
+		if len(app.Config.Helix.Assistants) <= 0 {
+			http.Error(res, "there are no assistants found in that app", http.StatusInternalServerError)
+			return
+		}
+
+		assistant := app.Config.Helix.Assistants[0]
+
+		if assistant.SystemPrompt != "" {
+			newSession.SystemPrompt = assistant.SystemPrompt
+		}
+
+		if assistant.Model != "" {
+			useModel = assistant.Model
+		}
+
+		if assistant.RAGSourceID != "" {
+			newSession.RAGSourceID = assistant.RAGSourceID
+		}
+
+		if assistant.LoraID != "" {
+			newSession.LoraID = assistant.LoraID
+		}
+
+		// tools will be assigned by the app inside the controller
+		// TODO: refactor so all "get settings from the app" code is in the same place
+	}
+
+	// now we add any query params we have gotten
+	if req.URL.Query().Get("model") != "" {
+		useModel = req.URL.Query().Get("model")
+	}
+
+	if req.URL.Query().Get("system_prompt") != "" {
+		newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
+	}
+
+	if req.URL.Query().Get("rag_source_id") != "" {
+		newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
+	}
+
+	if req.URL.Query().Get("lora_id") != "" {
+		newSession.LoraID = req.URL.Query().Get("lora_id")
+	}
+
+	// this handles all the defaults and alising for the processedModel name
+	processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, types.SessionTypeText, false)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	newSession.ModelName = processedModel
 
 	if chatCompletionRequest.ResponseFormat != nil {
 		newSession.ResponseFormat = types.ResponseFormat{

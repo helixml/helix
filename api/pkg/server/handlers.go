@@ -116,7 +116,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRagSettings, error) {
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRAGSettings, error) {
 	var err error
 	ragDistanceFunction := req.FormValue("rag_distance_function")
 	if ragDistanceFunction == "" {
@@ -159,7 +159,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 		}
 	}
 
-	settings := &types.SessionRagSettings{
+	settings := &types.SessionRAGSettings{
 		DistanceFunction: ragDistanceFunction,
 		Threshold:        ragThreshold,
 		ResultsCount:     ragResultsCount,
@@ -201,10 +201,12 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 				modelName = types.Model_Ollama_Llama3_70b
 			case "helix-3.5":
 				modelName = types.Model_Ollama_Llama3_8b
-			case "helix-code":
-				modelName = types.Model_Ollama_CodeLlama
+			case "helix-mixtral":
+				modelName = types.Model_Ollama_Mixtral
 			case "helix-json":
-				modelName = types.Model_Ollama_NousHermes2ProLlama3
+				modelName = types.Model_Ollama_NousHermes2ThetaLlama3
+			case "helix-small":
+				modelName = types.Model_Ollama_Phi3
 			default:
 				modelName = types.Model_Ollama_Llama3_8b
 			}
@@ -261,11 +263,11 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		}
 	}
 
-	createRequest := types.CreateSessionRequest{
-		SessionID:               sessionID,
-		SessionMode:             sessionMode,
+	createRequest := types.InternalSessionRequest{
+		ID:                      sessionID,
+		Mode:                    sessionMode,
 		Stream:                  true,
-		SessionType:             sessionType,
+		Type:                    sessionType,
 		ModelName:               modelName,
 		Owner:                   reqContext.User.ID,
 		OwnerType:               reqContext.User.Type,
@@ -273,9 +275,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 		Priority:                status.Config.StripeSubscriptionActive,
 		ParentSession:           req.FormValue("parent_session"),
 		ManuallyReviewQuestions: req.FormValue("manuallyReviewQuestions") == "yes",
-		RagEnabled:              ragEnable,
+		RAGEnabled:              ragEnable,
 		TextFinetuneEnabled:     finetuneEnable,
-		RagSettings:             *ragSettings,
+		RAGSettings:             *ragSettings,
 		ActiveTools:             activeTools,
 	}
 
@@ -286,6 +288,14 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 	}
 
 	return sessionData, nil
+}
+
+func (apiServer *HelixAPIServer) createDataEntity(_ http.ResponseWriter, req *http.Request) (*types.DataEntity, error) {
+	entity, err := apiServer.getDataEntityFromForm(req)
+	if err != nil {
+		return nil, err
+	}
+	return apiServer.Store.CreateDataEntity(getRequestContext(req).Ctx, entity)
 }
 
 func (apiServer *HelixAPIServer) updateSession(res http.ResponseWriter, req *http.Request) (*types.Session, *system.HTTPError) {
