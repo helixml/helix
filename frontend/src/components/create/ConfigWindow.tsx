@@ -186,6 +186,8 @@ const CreateSettingsWindow: FC<{
                           onChange={(event) => onSetSessionConfig(config => ({
                             ...config,
                             finetuneEnabled: event.target.checked,
+                            // if you're disabling the finetune, enable the RAG. it's not valid to have both disabled
+                            ragEnabled: !event.target.checked || sessionConfig.ragEnabled,
                           }))}
                         />
                       }
@@ -200,6 +202,8 @@ const CreateSettingsWindow: FC<{
                               onChange={(event) => onSetSessionConfig(config => ({
                                 ...config,
                                 ragEnabled: event.target.checked,
+                                // if you're disabling the rag, enable the finetune. it's not valid to have both disabled
+                                finetuneEnabled: !event.target.checked || sessionConfig.finetuneEnabled,
                               }))}
                             />
                           }
