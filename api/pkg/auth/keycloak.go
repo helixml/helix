@@ -60,19 +60,19 @@ func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, err
 func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
 	log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("client secret not set, looking up client secret")
 
-	clientID, err := getKeycloakClientID(gck, token, cfg.Realm, cfg.APIClientID)
+	idOfClient, err := getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.APIClientID)
 	if err != nil {
 		return fmt.Errorf("setAPIClientConfigurations: error getting clients: %s", err.Error())
 	}
 
-	if clientID == "" {
+	if idOfClient == "" {
 		log.Info().Str("client_id", cfg.APIClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
-		clientID, err = gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.APIClientID})
+		idOfClient, err = gck.CreateClient(context.Background(), token, cfg.Realm, gocloak.Client{ClientID: &cfg.APIClientID})
 		if err != nil {
 			return fmt.Errorf("getKeycloakClient: no Keycloak client found, attempt to create client failed with: %s", err.Error())
 		}
 	}
-	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, clientID)
+	creds, err := gck.GetClientSecret(context.Background(), token, cfg.Realm, idOfClient)
 	if err != nil {
 		return fmt.Errorf("setAPIClientConfigurations: error updating client secret: %s", err.Error())
 	}
@@ -84,12 +84,12 @@ func setAPIClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.
 func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
 	log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("Configuring Frontend client")
 
-	clientID, err := getKeycloakClientID(gck, token, cfg.Realm, cfg.FrontEndClientID)
+	idOfClient, err := getIDOfKeycloakClient(gck, token, cfg.Realm, cfg.FrontEndClientID)
 	if err != nil {
 		return fmt.Errorf("setFrontEndClientConfigurations: error getting clients: %s", err.Error())
 	}
 
-	if clientID == "" {
+	if idOfClient == "" {
 		log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
 		frontendClient := gocloak.Client{
 			ClientID: &cfg.FrontEndClientID,
@@ -108,7 +108,7 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 	return nil
 }
 
-func getKeycloakClientID(gck *gocloak.GoCloak, token string, realm string, clientName string) (string, error) {
+func getIDOfKeycloakClient(gck *gocloak.GoCloak, token string, realm string, clientName string) (string, error) {
 	clients, err := gck.GetClients(context.Background(), token, realm, gocloak.GetClientsParams{ClientID: &clientName})
 	if err != nil {
 		return "", fmt.Errorf("getKeycloakClient: error getting clients: %s", err.Error())
