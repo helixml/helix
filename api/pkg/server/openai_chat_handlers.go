@@ -2,12 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -172,7 +174,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	if newSession.RAGSourceID != "" {
 		ragSource, err := apiServer.Store.GetDataEntity(req.Context(), newSession.RAGSourceID)
 		if err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(res, fmt.Sprintf("RAG source '%s' not found", newSession.RAGSourceID), http.StatusBadRequest)
+				return
+			}
+			http.Error(res, fmt.Sprintf("failed to get RAG source ID '%s', error: %s", newSession.RAGSourceID, err.Error()), http.StatusInternalServerError)
 			return
 		}
 		newSession.RAGSettings = ragSource.Config.RAGSettings
