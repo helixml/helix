@@ -162,6 +162,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		useModel = req.URL.Query().Get("model")
 	}
 
+	if useModel == "" {
+		http.Error(res, "model not specified", http.StatusBadRequest)
+		return
+	}
+
 	if req.URL.Query().Get("system_prompt") != "" {
 		newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
 	}
