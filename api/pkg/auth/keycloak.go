@@ -133,6 +133,9 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	}
 
 	attributes := *realm.Attributes
+	if attributes["frontendUrl"] != "" { // don't override existing configurations
+		return nil
+	}
 	attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
 	*realm.Attributes = attributes
 
