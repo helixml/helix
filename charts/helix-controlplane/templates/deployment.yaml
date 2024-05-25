@@ -3,6 +3,7 @@ kind: Deployment
 metadata:
   name: {{ include "helix-controlplane.fullname" . }}
   labels:
+    app.kubernetes.io/component: controlplane
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:
   # Helix can't run multi-node yet, do not set
@@ -12,6 +13,7 @@ spec:
     type: RollingUpdate
   selector:
     matchLabels:
+      app.kubernetes.io/component: controlplane
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
   template:
     metadata:
@@ -20,6 +22,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
+        app.kubernetes.io/component: controlplane
         {{- include "helix-controlplane.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
@@ -52,6 +55,12 @@ spec:
               value: {{ .Values.global.serverUrl }}
             - name: FILESTORE_LOCALFS_PATH
               value: /filestore
+            - name: TEXT_EXTRACTION_URL
+              value: http://llamaindex:5000/api/v1/extract
+            - name: RAG_INDEX_URL
+              value: http://llamaindex:5000/api/v1/rag/chunk
+            - name: RAG_QUERY_URL
+              value: http://llamaindex:5000/api/v1/rag/query
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
