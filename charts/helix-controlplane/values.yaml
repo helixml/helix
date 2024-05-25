@@ -19,10 +19,19 @@ image:
   tag: "latest"
   
 llamaindex:
-  enabled: false
+  enabled: true
   image:
     repository: registry.helix.ml/helix/llamaindex
     tag: "latest"
+
+gptscript:
+  enabled: true
+  image:
+    repository: registry.helix.ml/helix/gptscript-runner
+    tag: "latest"
+  replicas: 2
+  concurrency: 20
+  maxTasks: 0 # unlimited
 
 imagePullSecrets: []
 nameOverride: ""
