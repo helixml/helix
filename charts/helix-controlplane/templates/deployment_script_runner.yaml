@@ -1,8 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "helix-controlplane.fullname" . }}
+  name: {{ include "helix-controlplane.fullname" . }}-script-runner
   labels:
+    app.kubernetes.io/component: script-runner
     {{- include "helix-controlplane.labels" . | nindent 4 }}
 spec:  
   replicas: {{ .Values.gptscript.replicas }}
@@ -11,6 +12,7 @@ spec:
   selector:
     matchLabels:
       {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: script-runner
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,6 +20,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
+        app.kubernetes.io/component: script-runner
         {{- include "helix-controlplane.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
