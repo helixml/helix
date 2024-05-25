@@ -38,11 +38,6 @@ Create an `.env` file with settings based on the example values and edit it:
 cp .env.example-prod .env
 ```
 
-Ensure keycloak realm settings are up to date with your .env file
-```
-./update-realm-settings.sh
-```
-
 To start the services:
 
 ```
