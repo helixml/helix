@@ -2,12 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -160,12 +162,31 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		useModel = req.URL.Query().Get("model")
 	}
 
+	if useModel == "" {
+		http.Error(res, "model not specified", http.StatusBadRequest)
+		return
+	}
+
 	if req.URL.Query().Get("system_prompt") != "" {
 		newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
 	}
 
 	if req.URL.Query().Get("rag_source_id") != "" {
 		newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
+	}
+
+	// we need to load the rag source and apply the rag settings to the session
+	if newSession.RAGSourceID != "" {
+		ragSource, err := apiServer.Store.GetDataEntity(req.Context(), newSession.RAGSourceID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(res, fmt.Sprintf("RAG source '%s' not found", newSession.RAGSourceID), http.StatusBadRequest)
+				return
+			}
+			http.Error(res, fmt.Sprintf("failed to get RAG source ID '%s', error: %s", newSession.RAGSourceID, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		newSession.RAGSettings = ragSource.Config.RAGSettings
 	}
 
 	if req.URL.Query().Get("lora_id") != "" {

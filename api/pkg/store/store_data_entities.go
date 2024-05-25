@@ -13,7 +13,7 @@ import (
 
 func (s *PostgresStore) CreateDataEntity(ctx context.Context, entity *types.DataEntity) (*types.DataEntity, error) {
 	if entity.ID == "" {
-		entity.ID = system.GenerateAppID()
+		entity.ID = system.GenerateDataEntityID()
 	}
 
 	if entity.Owner == "" {
@@ -29,25 +29,29 @@ func (s *PostgresStore) CreateDataEntity(ctx context.Context, entity *types.Data
 	return s.GetDataEntity(ctx, entity.ID)
 }
 
-func (s *PostgresStore) UpdateDataEntity(ctx context.Context, app *types.DataEntity) (*types.DataEntity, error) {
-	if app.ID == "" {
+func (s *PostgresStore) UpdateDataEntity(ctx context.Context, entity *types.DataEntity) (*types.DataEntity, error) {
+	if entity.ID == "" {
 		return nil, fmt.Errorf("id not specified")
 	}
 
-	if app.Owner == "" {
+	if entity.Owner == "" {
 		return nil, fmt.Errorf("owner not specified")
 	}
 
-	app.Updated = time.Now()
+	entity.Updated = time.Now()
 
-	err := s.gdb.WithContext(ctx).Save(&app).Error
+	err := s.gdb.WithContext(ctx).Save(&entity).Error
 	if err != nil {
 		return nil, err
 	}
-	return s.GetDataEntity(ctx, app.ID)
+	return s.GetDataEntity(ctx, entity.ID)
 }
 
 func (s *PostgresStore) GetDataEntity(ctx context.Context, id string) (*types.DataEntity, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
 	var entity types.DataEntity
 	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&entity).Error
 	if err != nil {
@@ -74,6 +78,10 @@ func (s *PostgresStore) ListDataEntities(ctx context.Context, q *ListDataEntitie
 }
 
 func (s *PostgresStore) DeleteDataEntity(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
 	err := s.gdb.WithContext(ctx).Delete(&types.DataEntity{
 		ID: id,
 	}).Error
