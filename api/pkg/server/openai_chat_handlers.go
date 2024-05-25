@@ -168,6 +168,16 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
 	}
 
+	// we need to load the rag source and apply the rag settings to the session
+	if newSession.RAGSourceID != "" {
+		ragSource, err := apiServer.Store.GetDataEntity(req.Context(), newSession.RAGSourceID)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		newSession.RAGSettings = ragSource.Config.RAGSettings
+	}
+
 	if req.URL.Query().Get("lora_id") != "" {
 		newSession.LoraID = req.URL.Query().Get("lora_id")
 	}
