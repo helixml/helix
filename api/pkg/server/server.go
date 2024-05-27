@@ -293,6 +293,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods("GET")
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods("GET")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
