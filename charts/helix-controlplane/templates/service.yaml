@@ -12,4 +12,5 @@ spec:
       protocol: TCP
       name: http
   selector:
+    app.kubernetes.io/component: controlplane
     {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}

@@ -44,7 +44,7 @@ To start the services:
 docker compose up -d
 ```
 
-By default, the dashboard will be available on `http://localhost`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 

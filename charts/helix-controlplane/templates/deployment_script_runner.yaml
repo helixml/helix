@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-script-runner
+  labels:
+    app.kubernetes.io/component: script-runner
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:  
+  replicas: {{ .Values.gptscript.replicas }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: script-runner
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: script-runner
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: script-runner
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.gptscript.image.repository }}:{{ .Values.gptscript.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}          
+          envFrom:
+            - configMapRef:
+                name: {{ include "helix-controlplane.fullname" . }}-config
+          env:
+            - name: API_HOST
+              value: http://{{ include "helix-controlplane.fullname" . }}:{{ .Values.service.port }}
+            - name: API_TOKEN
+              value: {{ .Values.envVariables.RUNNER_TOKEN }}
+            - name: OPENAI_API_KEY
+              value: {{ .Values.envVariables.OPENAI_API_KEY }}
+            - name: CONCURRENCY
+              value: "{{ .Values.gptscript.concurrency }}"
+            - name: MAX_TASKS
+              value: "{{ .Values.gptscript.maxTasks }}"
