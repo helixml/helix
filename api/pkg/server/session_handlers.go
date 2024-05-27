@@ -380,7 +380,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		Mode:                types.SessionModeFinetune,
 		ModelName:           model,
 		Type:                startReq.Type,
-		Stream:              false,
+		Stream:              true,
 		Owner:               userContext.User.ID,
 		OwnerType:           userContext.User.Type,
 		UserInteractions:    []*types.Interaction{userInteraction},
