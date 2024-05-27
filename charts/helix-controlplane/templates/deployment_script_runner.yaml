@@ -50,6 +50,6 @@ spec:
             - name: OPENAI_API_KEY
               value: {{ .Values.envVariables.OPENAI_API_KEY }}
             - name: CONCURRENCY
-              value: {{ .Values.gptscript.concurrency }}
+              value: "{{ .Values.gptscript.concurrency }}"
             - name: MAX_TASKS
-              value: {{ .Values.gptscript.maxTasks }}
+              value: "{{ .Values.gptscript.maxTasks }}"
