@@ -417,7 +417,7 @@ const HomeFeatureGrid: FC = ({
       />
 
       <HomeFeatureSection
-        title="Customize Models"
+        title="Customize Models with Data"
         features={[
           RAG_FEATURE,
           FINETUNE_IMAGES_FEATURE,
