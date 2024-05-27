@@ -30,9 +30,9 @@ type KeycloakAuthenticator struct {
 }
 
 func NewKeycloakAuthenticator(cfg *config.Keycloak) (*KeycloakAuthenticator, error) {
-	gck := gocloak.NewClient(cfg.KEYCLOAK_URL)
+	gck := gocloak.NewClient(cfg.KeycloakURL)
 
-	log.Info().Str("keycloak_url", cfg.KEYCLOAK_URL).Msg("connecting to keycloak...")
+	log.Info().Str("keycloak_url", cfg.KeycloakURL).Msg("connecting to keycloak...")
 
 	// Retryable connect that waits for keycloak
 	token, err := connect(context.Background(), cfg)
@@ -105,7 +105,7 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 		log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
 		frontendClient := gocloak.Client{
 			ClientID:                  &cfg.FrontEndClientID,
-			BaseURL:                   &cfg.SERVER_URL,
+			BaseURL:                   &cfg.ServerURL,
 			RedirectURIs:              &[]string{"*"},
 			WebOrigins:                &[]string{"*"},
 			DirectAccessGrantsEnabled: addr(true),
@@ -199,7 +199,7 @@ func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
-	gck := gocloak.NewClient(cfg.KEYCLOAK_URL)
+	gck := gocloak.NewClient(cfg.KeycloakURL)
 
 	for {
 		select {
