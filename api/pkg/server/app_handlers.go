@@ -176,6 +176,7 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 	id := getID(r)
 
 	app, err := s.Store.GetApp(r.Context(), id)
+
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
