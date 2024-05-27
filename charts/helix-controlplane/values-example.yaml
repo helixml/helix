@@ -18,8 +18,5 @@ envVariables:
   KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
   # Dashboard
   ADMIN_USER_IDS: ""
-  TEXT_EXTRACTION_URL: http://llamaindex:5000/api/v1/extract
-  RAG_INDEX_URL: http://llamaindex:5000/api/v1/rag/chunk
-  RAG_QUERY_URL: http://llamaindex:5000/api/v1/rag/query
   # Evals 
   EVAL_USER_ID: ""
