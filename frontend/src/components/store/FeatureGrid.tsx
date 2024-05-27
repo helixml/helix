@@ -243,7 +243,7 @@ const StoreFeatureGrid: FC<{
       color: 'secondary',
       variant: 'outlined',
       // TODO: get this from apps data
-      handler: () => launchApp("app_01hyx25hdae1a3bvexs6dc2qhku"),
+      handler: () => launchApp("app_01hyx25hdae1a3bvexs6dc2qhk"),
     }]
   }
 

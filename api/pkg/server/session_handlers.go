@@ -32,10 +32,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	if len(startReq.Messages) == 0 {
-		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
-		return
-	}
+	// if len(startReq.Messages) == 0 {
+	// 	http.Error(rw, "messages must not be empty", http.StatusBadRequest)
+	// 	return
+	// }
 
 	// If more than 1, also not allowed just yet for simplification
 	if len(startReq.Messages) > 1 {
