@@ -37,6 +37,8 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	// TODO: support global apps, like global tools (see tool_handlers.go)
+
 	// Filter apps based on the "type" query parameter
 	var filteredApps []*types.App
 	for _, app := range allApps {

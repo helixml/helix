@@ -11,6 +11,7 @@ import App from './pages/App'
 import Dashboard from './pages/Dashboard'
 import Create from './pages/Create'
 import Home from './pages/Home'
+import Store from './pages/Store'
 
 import { FilestoreContextProvider } from './contexts/filestore'
 import Files from './pages/Files'
@@ -37,6 +38,16 @@ const routes: IApplicationRoute[] = [{
   },
   render: () => (
       <Home />
+  ),
+}, {
+  name: 'store',
+  path: '/store',
+  meta: {
+    title: 'Store',
+    drawer: true,
+  },
+  render: () => (
+      <Store />
   ),
 }, {
   name: 'new',

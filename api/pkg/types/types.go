@@ -833,6 +833,7 @@ type AppConfig struct {
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
 	Helix          *AppHelixConfig   `json:"helix"`
 	Github         *AppGithubConfig  `json:"github"`
+	// TODO: Avatar
 }
 
 func (m AppConfig) Value() (driver.Value, error) {
