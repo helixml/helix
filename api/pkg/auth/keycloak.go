@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"embed"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,9 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+//go:embed realm.json
+var keycloakConfig embed.FS
 
 type KeycloakAuthenticator struct {
 	cfg     *config.Keycloak
@@ -98,12 +104,12 @@ func setFrontEndClientConfigurations(gck *gocloak.GoCloak, token string, cfg *co
 	if idOfClient == "" {
 		log.Info().Str("client_id", cfg.FrontEndClientID).Str("realm", cfg.Realm).Msg("No configurations found, creating client")
 		frontendClient := gocloak.Client{
-			ClientID: &cfg.FrontEndClientID,
-			BaseURL: &cfg.SERVER_URL,
-			RedirectURIs: &[]string{"*"},
-			WebOrigins: &[]string{"*"},
+			ClientID:                  &cfg.FrontEndClientID,
+			BaseURL:                   &cfg.SERVER_URL,
+			RedirectURIs:              &[]string{"*"},
+			WebOrigins:                &[]string{"*"},
 			DirectAccessGrantsEnabled: addr(true),
-			PublicClient: addr(true),
+			PublicClient:              addr(true),
 		}
 		_, err = gck.CreateClient(context.Background(), token, cfg.Realm, frontendClient)
 		if err != nil {
@@ -129,7 +135,44 @@ func getIDOfKeycloakClient(gck *gocloak.GoCloak, token string, realm string, cli
 func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keycloak) error {
 	realm, err := gck.GetRealm(context.Background(), token, cfg.Realm)
 	if err != nil {
-		return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to update realm config failed with: %s", err.Error())
+		if !strings.Contains(err.Error(), "404") {
+			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to update realm config failed with: %s", err.Error())
+		}
+
+		// If user has a different realm configuration, don't try to create it
+		// as it might be a legitimate realm
+		if cfg.Realm != "helix" {
+			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, error: %s", err.Error())
+		}
+
+		// Default configuration, create realm
+		log.Info().Str("realm", cfg.Realm).Msg("No configurations found, creating default 'helix' realm")
+
+		f, err := keycloakConfig.Open("realm.json")
+		if err != nil {
+			return fmt.Errorf("setRealmConfiguration: error opening realm.json: %s", err.Error())
+		}
+		defer f.Close()
+
+		var keycloakRealmConfig gocloak.RealmRepresentation
+		err = json.NewDecoder(f).Decode(&keycloakRealmConfig)
+		if err != nil {
+			return fmt.Errorf("setRealmConfiguration: error decoding realm.json: %s", err.Error())
+		}
+
+		attributes := *keycloakRealmConfig.Attributes
+		attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
+		*keycloakRealmConfig.Attributes = attributes
+
+		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
+		if err != nil {
+			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
+		}
+		// OK, get again
+		realm, err = gck.GetRealm(context.Background(), token, cfg.Realm)
+		if err != nil {
+			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to update realm config failed with: %s", err.Error())
+		}
 	}
 
 	attributes := *realm.Attributes
@@ -143,6 +186,12 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	if err != nil {
 		return fmt.Errorf("setRealmConfiguration: attempt to update realm config failed with: %s", err.Error())
 	}
+
+	log.Info().
+		Str("realm", cfg.Realm).
+		Str("frontend_url", cfg.KeycloakFrontEndURL).
+		Msg("Configured realm")
+
 	return nil
 }
 
@@ -153,15 +202,19 @@ func connect(ctx context.Context, cfg *config.Keycloak) (*gocloak.JWT, error) {
 	gck := gocloak.NewClient(cfg.KEYCLOAK_URL)
 
 	for {
-		token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
-		if err != nil {
-			log.Warn().Err(err).Msg("failed getting admin token, retrying in 5 seconds....")
-			time.Sleep(5 * time.Second)
-			continue
-		}
+		select {
+		case <-ctx.Done():
+		default:
+			token, err := gck.LoginAdmin(context.Background(), cfg.Username, cfg.Password, cfg.AdminRealm)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed getting admin token, retrying in 5 seconds....")
+				time.Sleep(5 * time.Second)
+				continue
+			}
 
-		// OK
-		return token, nil
+			// OK
+			return token, nil
+		}
 	}
 }
 
