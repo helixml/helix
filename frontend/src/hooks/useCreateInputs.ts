@@ -186,6 +186,7 @@ export const useCreateInputs = () => {
     const req: ISessionChatRequest = {
       type,
       model,
+      stream: true,
       legacy: true,
       app_id: appID,
       rag_source_id: ragSourceID,
