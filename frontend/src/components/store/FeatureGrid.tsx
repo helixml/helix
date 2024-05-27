@@ -29,53 +29,18 @@ import Cell from '../widgets/Cell'
 
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
+import useTracking from '../../hooks/useTracking'
+import useSessions from '../../hooks/useSessions'
+import useApi from '../../hooks/useApi'
 
 import {
   IApp,
+  ISessionChatRequest,
 } from '../../types'
 
 import {
   IFeature,
 } from '../../types'
-
-const APP_1: IFeature = {
-  title: 'Sarcastic Bob',
-  description: "It's an AI chatbot that's mean to you. Meet Sarcastic Bob. He won't be nice, but it might be funny.",
-  image: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-  // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-  actions: [{
-    title: "I'm ready",
-    color: 'secondary',
-    variant: 'outlined',
-    handler: (navigate) => navigate('new'),
-  }]
-}
-
-const APP_2: IFeature = {
-  title: 'Waitrose Demo',
-  description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
-  image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
-  // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-  actions: [{
-    title: "Get Recipes",
-    color: 'secondary',
-    variant: 'outlined',
-    handler: (navigate) => navigate('new'),
-  }]
-}
-
-const APP_3: IFeature = {
-  title: 'Searchbot',
-  description: "Website search your customers will love. Answer questions, surface hidden content and analyse customer intent.",
-  image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
-  // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-  actions: [{
-    title: "Create Bot",
-    color: 'secondary',
-    variant: 'outlined',
-    handler: (navigate) => navigate('new'),
-  }]
-}
 
 const HomeFeatureCard: FC<{
   feature: IFeature,
@@ -83,6 +48,7 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
+
   return (
     <Card>
       <CardActionArea
@@ -218,6 +184,94 @@ const StoreFeatureGrid: FC<{
 
   console.log(apps)
   const account = useAccount()
+  const router = useRouter()
+  const tracking = useTracking()
+  const sessions = useSessions()
+  const api = useApi()
+
+  // TODO: maybe we should create new session from an app on the backend?
+
+  const launchApp = async (appID: string) => {
+    // create a new session with the app id
+
+    // TODO: pull out the type from the app's 0'th assistant
+    // TODO: do we actually want to create a set of sessions, one per assistant in the app?
+
+
+    const app = await api.get<IApp>(`/api/v1/apps/${appID}`)
+    if(!app) return
+
+    if (!app.config.helix?.assistants || app.config.helix.assistants.length === 0) {
+      return
+    }
+
+    const model = app.config.helix.assistants[0].model
+
+    // TODO: add type field to assistant throughout (e.g. assistants can be fine
+    // tuned image models)
+    const type = model.includes("sdxl") ? "image" : "text";
+
+    const req: ISessionChatRequest = {
+      type: type,
+      model: model,
+      stream: true,
+      legacy: true,
+      app_id: appID,
+      // no messages, just ready to receive one from user
+      messages: []
+    }
+
+    const session = await api.post('/api/v1/sessions/chat', req)
+
+    if(!session) return
+    tracking.emitEvent({
+      name: 'app_launch',
+      app: appID,
+      session,
+    })
+    await sessions.loadSessions()
+    router.navigate('session', {session_id: session.id})
+  }
+
+  const APP_1: IFeature = {
+    title: 'Sarcastic Bob',
+    description: "It's an AI chatbot that's mean to you. Meet Sarcastic Bob. He won't be nice, but it might be funny.",
+    image: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
+    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
+    actions: [{
+      title: "I'm ready",
+      color: 'secondary',
+      variant: 'outlined',
+      // TODO: get this from apps data
+      handler: () => launchApp("app_01hyx25hdae1a3bvexs6dc2qhku"),
+    }]
+  }
+
+  const APP_2: IFeature = {
+    title: 'Waitrose Demo',
+    description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
+    image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
+    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
+    actions: [{
+      title: "Get Recipes",
+      color: 'secondary',
+      variant: 'outlined',
+      handler: (navigate) => navigate('new'),
+    }]
+  }
+
+  const APP_3: IFeature = {
+    title: 'Searchbot',
+    description: "Website search your customers will love. Answer questions, surface hidden content and analyse customer intent.",
+    image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
+    actions: [{
+      title: "Create Bot",
+      color: 'secondary',
+      variant: 'outlined',
+      handler: (navigate) => navigate('new'),
+    }]
+  }
 
   return (
     <>

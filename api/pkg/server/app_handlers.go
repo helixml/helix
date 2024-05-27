@@ -161,6 +161,33 @@ type AppUpdatePayload struct {
 	AllowedDomains []string          `json:"allowed_domains"`
 }
 
+// getApp godoc
+// @Summary Get app by ID
+// @Description Get app by ID.
+// @Tags    apps
+
+// @Success 200 {object} types.App
+// @Param id path string true "App ID"
+// @Router /api/v1/apps/{id} [get]
+// @Security BearerAuth
+func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+
+	userContext := getRequestContext(r)
+	id := getID(r)
+
+	app, err := s.Store.GetApp(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+	if app.Owner != userContext.User.ID {
+		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	}
+	return app, nil
+}
+
 // updateTool godoc
 // @Summary Update an existing app
 // @Description Update existing app
