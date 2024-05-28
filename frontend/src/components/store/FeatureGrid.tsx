@@ -197,45 +197,13 @@ const StoreFeatureGrid: FC<{
     // TODO: pull out the type from the app's 0'th assistant
     // TODO: do we actually want to create a set of sessions, one per assistant in the app?
 
-
-    const app = await api.get<IApp>(`/api/v1/apps/${appID}`)
-    if(!app) return
-
-    if (!app.config.helix?.assistants || app.config.helix.assistants.length === 0) {
-      return
-    }
-
-    const model = app.config.helix.assistants[0].model
-
-    // TODO: add type field to assistant throughout (e.g. assistants can be fine
-    // tuned image models)
-    const type = model.includes("sdxl") ? "image" : "text";
-
-    const req: ISessionChatRequest = {
-      type: type,
-      model: model,
-      stream: true,
-      legacy: true,
-      app_id: appID,
-      // no messages, just ready to receive one from user
-      messages: []
-    }
-
-    const session = await api.post('/api/v1/sessions/chat', req)
-
-    if(!session) return
-    tracking.emitEvent({
-      name: 'app_launch',
-      app: appID,
-      session,
-    })
-    await sessions.loadSessions()
-    router.navigate('session', {session_id: session.id})
+    // TODO: make the create page into our "app launcher"
+    router.navigate('create', {app_id: appID})
   }
 
   const APP_1: IFeature = {
-    title: 'Sarcastic Bob',
-    description: "It's an AI chatbot that's mean to you. Meet Sarcastic Bob. He won't be nice, but it might be funny.",
+    title: 'Sarcastic Collective',
+    description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
     image: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
     // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
     actions: [{
