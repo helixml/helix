@@ -100,6 +100,10 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
         - name: pgvector
           image: ankane/pgvector:latest
+          ports:
+            - name: tcp-pgvector
+              containerPort: 5432
+              protocol: TCP
           env:
             - name: POSTGRES_DB
               value: postgres
