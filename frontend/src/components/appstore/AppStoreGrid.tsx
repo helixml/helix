@@ -3,16 +3,9 @@ import { SxProps } from '@mui/system'
 import Divider from '@mui/material/Divider'
 import Box from '@mui/material/Box'
 import Grid from '@mui/material/Grid'
-import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
-import Card from '@mui/material/Card'
-import CardActions from '@mui/material/CardActions'
-import CardActionArea from '@mui/material/CardActionArea'
-import CardContent from '@mui/material/CardContent'
-import CardMedia from '@mui/material/CardMedia'
-import Avatar from '@mui/material/Avatar'
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
+
+import AppStoreCard from './AppStoreCard'
 
 import useRouter from '../../hooks/useRouter'
 
@@ -20,100 +13,16 @@ import {
   IApp,
 } from '../../types'
 
-import {
-  getAppImage,
-  getAppAvatar,
-  getAppName,
-  getAppDescription,
-} from '../../utils/apps'
-
-const AppStoreCard: FC<{
-  app: IApp,
-}> = ({
-  app,
-}) => {
-  const router = useRouter()
-
-  const avatar = getAppAvatar(app)
-  const image = getAppImage(app)
-  const name = getAppName(app)
-  const description = getAppDescription(app)
-
-  return (
-    <Card>
-      <CardActionArea
-        onClick={() => {
-          router.navigate('new', {app_id: app.id})
-        }}
-      >
-        {
-          image && (
-            <CardMedia
-              sx={{ height: 140 }}
-              image={ image }
-              title={ name }
-            />
-          )
-        }
-        <CardContent
-          sx={{
-            cursor: 'pointer',
-          }}
-        >
-          <Row
-            sx={{
-              alignItems: 'flex-start',
-            }}
-          >
-            {
-              avatar && (
-                <Cell
-                  sx={{
-                    mr: 2,
-                    pt: 1,
-                  }}
-                >
-                  <Avatar
-                    src={ avatar }
-                  />
-                </Cell>
-              )
-            }
-            <Cell grow sx={{
-              minHeight: '80px'
-            }}>
-              <Typography gutterBottom variant="h5" component="div">
-                { name }
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                { description }
-              </Typography>
-            </Cell>
-          </Row>
-        </CardContent>
-      </CardActionArea>
-      <CardActions>
-        <Button
-          size="small"
-          onClick={ () => {
-            router.navigate('new', {app_id: app.id}) 
-          }}
-        >
-          Launch
-        </Button>
-      </CardActions>
-    </Card>
-  )
-}
-
 const AppStoreSection: FC<{
   title: string,
   apps: IApp[],
   sx?: SxProps,
+  onClick: (id: string) => void,
 }> = ({
   title,
   apps,
   sx = {},
+  onClick,
 }) => {
   return (
     <Box sx={sx}>
@@ -140,6 +49,7 @@ const AppStoreSection: FC<{
             <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
               <AppStoreCard
                 app={ app }
+                onClick={ () => onClick(app.id) }
               />
             </Grid>
           )) }
@@ -149,11 +59,12 @@ const AppStoreSection: FC<{
   )
 }
 
-
 const AppStoreGrid: FC<{
-  apps: IApp[]
+  apps: IApp[],
+  onClick: (id: string) => void,
 }> = ({
-  apps 
+  apps,
+  onClick,
 }) => {
   const router = useRouter()
 
@@ -181,6 +92,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       <AppStoreSection
@@ -189,6 +101,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       <AppStoreSection
@@ -198,6 +111,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       Coming soon.<br/><br/><br/>
@@ -209,6 +123,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       Coming soon.<br/><br/><br/>
@@ -221,6 +136,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       Coming soon.<br/><br/><br/>
@@ -233,6 +149,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       Coming soon.<br/><br/><br/>
@@ -246,6 +163,7 @@ const AppStoreGrid: FC<{
         sx={{
           mb: 4,
         }}
+        onClick={ onClick }
       />
 
       Coming soon.<br/><br/><br/>
