@@ -39,6 +39,12 @@ import {
 } from '../../types'
 
 import {
+  APPS,
+} from '../../fixtures'
+
+const APP_1 = APPS[0]
+
+import {
   IFeature,
 } from '../../types'
 
@@ -166,7 +172,7 @@ const AppStoreSection: FC<{
 }
 
 
-const StoreFeatureGrid: FC<{
+const AppStoreGrid: FC<{
   apps: IApp[]
 }> = ({
   apps 
@@ -188,62 +194,6 @@ const StoreFeatureGrid: FC<{
     // TODO: make the create page into our "app launcher"
     router.navigate('create', {app_id: appID})
   }
-
-  const APP_1: IApp = {
-    id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
-    app_type: 'helix',
-    created: new Date(),
-    updated: new Date(),
-    name: '',
-    description: '',
-    owner: '',
-    owner_type: 'user',
-    config: {
-      secrets: {},
-      allowed_domains: [],
-      helix: {
-        name: 'Sarcastic Collective',
-        description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
-        avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-        assistants: [{
-          name: 'Sarcastic Bob',
-          description: "I am bob",
-          avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-          model: '',
-          system_prompt: '',
-          apis :[],
-          gptscripts: [],
-          tools: [],
-        }],
-      }
-    }
-  }
-
-  // const APP_2: IFeature = {
-  //   title: 'Waitrose Demo',
-  //   description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
-  //   image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
-  //   // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-  //   actions: [{
-  //     title: "Get Recipes",
-  //     color: 'secondary',
-  //     variant: 'outlined',
-  //     handler: (navigate) => navigate('new'),
-  //   }]
-  // }
-
-  // const APP_3: IFeature = {
-  //   title: 'Searchbot',
-  //   description: "Website search your customers will love. Answer questions, surface hidden content and analyse customer intent.",
-  //   image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
-  //   // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-  //   actions: [{
-  //     title: "Create Bot",
-  //     color: 'secondary',
-  //     variant: 'outlined',
-  //     handler: (navigate) => navigate('new'),
-  //   }]
-  // }
 
   return (
     <>
@@ -332,4 +282,4 @@ const StoreFeatureGrid: FC<{
   )
 }
 
-export default StoreFeatureGrid
+export default AppStoreGrid

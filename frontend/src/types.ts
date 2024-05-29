@@ -54,9 +54,9 @@ export const TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS: ITextDataPrepStage = 'edit_que
 export const TEXT_DATA_PREP_STAGE_FINETUNE: ITextDataPrepStage = 'finetune'
 export const TEXT_DATA_PREP_STAGE_COMPLETE: ITextDataPrepStage = 'complete'
 
-export type IAppType = 'helix' | 'github'
-export const APP_TYPE_HELIX: IAppType = 'helix'
-export const APP_TYPE_GITHUB: IAppType = 'github'
+export type IAppSource = 'helix' | 'github'
+export const APP_SOURCE_HELIX: IAppSource = 'helix'
+export const APP_SOURCE_GITHUB: IAppSource = 'github'
 
 export const TEXT_DATA_PREP_STAGES: ITextDataPrepStage[] = [
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
@@ -504,6 +504,7 @@ export interface IAssistantConfig {
   name: string,
   description: string,
   avatar: string,
+  image: string,
   model: string,
   system_prompt: string,
   apis: IAssistantApi[],
@@ -515,6 +516,7 @@ export interface IAppHelixConfig {
   name?: string,
   description?: string,
   avatar?: string,
+  image?: string,
   assistants: IAssistantConfig[],  
 }
 
@@ -532,7 +534,7 @@ export interface IAppGithubConfig {
 }
 
 export interface IAppConfig {
-  helix?: IAppHelixConfig,
+  helix: IAppHelixConfig,
   github?: IAppGithubConfig,
   secrets: Record<string, string>,
   allowed_domains: string[],
@@ -544,9 +546,7 @@ export interface IApp {
   updated: Date,
   owner: string,
   owner_type: IOwnerType,
-  name: string,
-  description: string,
-  app_type: IAppType,
+  app_source: IAppSource,
   config: IAppConfig,
 }
 
