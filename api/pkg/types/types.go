@@ -758,13 +758,13 @@ type SessionToolBinding struct {
 	Updated   time.Time
 }
 
-type AppType string
+type AppSource string
 
 const (
 	// this means the configuration for the app lives in the Helix database
-	AppTypeHelix AppType = "helix"
+	AppSourceHelix AppSource = "helix"
 	// this means the configuration for the app lives in a helix.yaml in a Github repository
-	AppTypeGithub AppType = "github"
+	AppSourceGithub AppSource = "github"
 )
 
 type AssistantGPTScript struct {
@@ -789,6 +789,7 @@ type AssistantConfig struct {
 	Name         string `json:"name" yaml:"name"`
 	Description  string `json:"description" yaml:"description"`
 	Avatar       string `json:"avatar" yaml:"avatar"`
+	Image        string `json:"image" yaml:"image"`
 	Model        string `json:"model" yaml:"model"`
 	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
 	// the data entity ID that we have created as the RAG source
@@ -811,6 +812,8 @@ type AppHelixConfig struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
 	Avatar      string            `json:"avatar" yaml:"avatar"`
+	Image       string            `json:"image" yaml:"image"`
+	ExternalURL string            `json:"external_url" yaml:"external_url"`
 	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
 }
 
@@ -831,9 +834,8 @@ type AppGithubConfig struct {
 type AppConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          *AppHelixConfig   `json:"helix"`
+	Helix          AppHelixConfig    `json:"helix"`
 	Github         *AppGithubConfig  `json:"github"`
-	// TODO: Avatar
 }
 
 func (m AppConfig) Value() (driver.Value, error) {
@@ -865,11 +867,9 @@ type App struct {
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType   OwnerType `json:"owner_type"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	AppType     AppType   `json:"app_type"`
-	Config      AppConfig `json:"config" gorm:"jsonb"`
+	OwnerType OwnerType `json:"owner_type"`
+	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
+	Config    AppConfig `json:"config" gorm:"jsonb"`
 }
 
 type KeyPair struct {

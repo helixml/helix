@@ -39,6 +39,7 @@ import useApi from '../hooks/useApi'
 import useTracking from '../hooks/useTracking'
 import useSessions from '../hooks/useSessions'
 import useIsBigScreen from '../hooks/useIsBigScreen'
+import useApps from '../hooks/useApps'
 
 import {
   IDataEntity,
@@ -48,6 +49,7 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
+  IApp,
 } from '../types'
 
 import {
@@ -57,6 +59,36 @@ import {
 
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
+
+const APP_1: IApp = {
+  id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
+  app_type: 'helix',
+  created: new Date(),
+  updated: new Date(),
+  name: '',
+  description: '',
+  owner: '',
+  owner_type: 'user',
+  config: {
+    secrets: {},
+    allowed_domains: [],
+    helix: {
+      name: 'Sarcastic Collective',
+      description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
+      avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
+      assistants: [{
+        name: 'Sarcastic Bob',
+        description: "I am bob",
+        avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
+        model: '',
+        system_prompt: '',
+        apis :[],
+        gptscripts: [],
+        tools: [],
+      }],
+    }
+  }
+}
 
 const Create: FC = () => {
   const router = useRouter()
@@ -68,6 +100,7 @@ const Create: FC = () => {
   const tracking = useTracking()
   const sessions = useSessions()
   const isBigScreen = useIsBigScreen()
+  const apps = useApps()
 
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
@@ -75,9 +108,13 @@ const Create: FC = () => {
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
+  const appID = router.params.app_id || '' 
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
+
+  //const launchApp = apps.app
+  const launchApp = APP_1
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
@@ -185,11 +222,18 @@ const Create: FC = () => {
     type,
   ])
 
+  // useEffect(() => {
+  //   apps.loadApp(appID)
+  // }, [
+  //   appID,
+  // ])
+
   const topbar = (
     <Toolbar
       mode={ mode }
       type={ type }
       model={ model }
+      app={ launchApp }
       onOpenConfig={ () => setShowConfigWindow(true) }
       onSetMode={ mode => {
         if (mode == "finetune") {
@@ -346,6 +390,57 @@ const Create: FC = () => {
     </Box>
   )
 
+  const inferenceHeaderNormal = (
+    <Row
+      vertical
+      center
+    >
+      <Cell
+        sx={{
+          pt: 4,
+          px: PADDING_X,
+        }}
+      >
+        <CenterMessage
+          type={ type }
+          onSetType={ type => router.setParams({type}) }
+        />
+      </Cell>
+      <Cell grow />
+      <Cell
+        sx={{
+          px: PADDING_X,
+          py: 2,
+          maxWidth: '900px'
+        }}
+      >
+        <ExamplePrompts
+          type={ type }
+          onChange={ (prompt) => {
+            inputs.setInputValue(prompt)
+          }}
+        />
+      </Cell>
+    </Row>
+  )
+
+  const inferenceHeaderApp = (
+    <Row
+      vertical
+      center
+    >
+      <Cell
+        sx={{
+          pt: 4,
+          px: PADDING_X,
+        }}
+      >
+        APP = { appID }
+      </Cell>
+    </Row>
+  )
+
+  const inferenceHeader = launchApp ? inferenceHeaderApp : inferenceHeaderNormal
 
   let ragEnabled = window.location.search.includes('rag=true')
   let finetuneEnabled = window.location.search.includes('finetune=true')
@@ -392,39 +487,7 @@ const Create: FC = () => {
       }
 
       {
-        mode == SESSION_MODE_INFERENCE && (
-          <Row
-            vertical
-            center
-          >
-            <Cell
-              sx={{
-                pt: 4,
-                px: PADDING_X,
-              }}
-            >
-              <CenterMessage
-                type={ type }
-                onSetType={ type => router.setParams({type}) }
-              />
-            </Cell>
-            <Cell grow />
-            <Cell
-              sx={{
-                px: PADDING_X,
-                py: 2,
-                maxWidth: '900px'
-              }}
-            >
-              <ExamplePrompts
-                type={ type }
-                onChange={ (prompt) => {
-                  inputs.setInputValue(prompt)
-                }}
-              />
-            </Cell>
-          </Row>
-        )
+        mode == SESSION_MODE_INFERENCE && inferenceHeader
       }
 
       {
