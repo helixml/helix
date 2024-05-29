@@ -869,6 +869,8 @@ type App struct {
 	// e.g. user, system, org
 	OwnerType OwnerType `json:"owner_type"`
 	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
+	Global    bool      `json:"global"`
+	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
 }
 

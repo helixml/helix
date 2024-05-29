@@ -548,6 +548,8 @@ export interface IApp {
   owner_type: IOwnerType,
   app_source: IAppSource,
   config: IAppConfig,
+  global: boolean,
+  shared: boolean,
 }
 
 export interface IAppUpdate {
