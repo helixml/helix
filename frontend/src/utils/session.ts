@@ -1,21 +1,29 @@
 import React, { ReactNode } from 'react'
 
 import {
+  IApp,
   ISession,
   ISessionSummary,
   ISessionMode,
+  ISessionType,
   IInteraction,
   ITextDataPrepStage,
   IModelInstanceState,
   IDataPrepChunkWithFilename,
   IDataPrepStats,
+  IPageBreadcrumb,
   SESSION_CREATOR_SYSTEM,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
+  SESSION_TYPE_IMAGE,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGES,
   TEXT_DATA_PREP_DISPLAY_STAGES,
 } from '../types'
+
+import {
+  getAppName,
+} from './apps'
 
 const NO_DATE = '0001-01-01T00:00:00Z'
 
@@ -261,4 +269,44 @@ export const replaceMessageText = (
   }
 
   return message
+}
+
+export const getNewSessionBreadcrumbs = ({
+  mode,
+  type,
+  ragEnabled,
+  finetuneEnabled,
+  app,
+}: {
+  mode: ISessionMode,
+  type: ISessionType,
+  ragEnabled: boolean,
+  finetuneEnabled: boolean,
+  app?: IApp,
+}): IPageBreadcrumb[] => {
+
+  if(mode == SESSION_MODE_FINETUNE) {
+    let txt = "Learn"
+    if (type == SESSION_TYPE_IMAGE) {
+      txt += " (image style and objects)"
+    } else if (ragEnabled && finetuneEnabled) {
+      txt += " (hybrid RAG + Fine-tuning)"
+    } else if (ragEnabled) {
+      txt += " (RAG)"
+    } else if (finetuneEnabled) {
+      txt += " (Fine-tuning on knowledge)"
+    }
+    return [{
+      title: txt,
+    }]
+  } else if (app) {
+    return [{
+      title: 'App Store',
+      routeName: 'appstore',
+    }, {
+      title: getAppName(app),
+    }]
+  }
+
+  return []
 }

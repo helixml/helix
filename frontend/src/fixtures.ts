@@ -9,6 +9,8 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  global: false,
+  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -37,6 +39,8 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  global: false,
+  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -61,6 +65,8 @@ export const APPS: IApp[] = [{
   updated: new Date(),
   owner: '',
   owner_type: 'user',
+  global: false,
+  shared: false,
   config: {
     secrets: {},
     allowed_domains: [],
@@ -68,8 +74,10 @@ export const APPS: IApp[] = [{
       assistants: [{
         name: 'Searchbot',
         description: "I am bob",
-        avatar: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
-        image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+        // avatar: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+        // image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+        avatar: '',
+        image: '',
         model: '',
         system_prompt: '',
         apis :[],

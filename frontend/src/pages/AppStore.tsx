@@ -1,4 +1,4 @@
-import React, { FC } from 'react'
+import React, { FC, useEffect } from 'react'
 import { useTheme } from '@mui/material/styles'
 import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
@@ -15,12 +15,15 @@ import useApps from '../hooks/useApps'
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const AppStore: FC = () => {
+  const apps = useApps()
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
   
-  const apps = useApps()
-
+  useEffect(() => {
+    apps.loadData()
+  }, [])
+  
   return (
     <Page
       showTopbar={ true }

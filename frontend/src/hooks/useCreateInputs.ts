@@ -80,7 +80,6 @@ export const useCreateInputs = () => {
   } = useRouter()
 
   useEffect(() => {
-    console.log('sessionConfig updated:', sessionConfig);
     const queryParams = new URLSearchParams(window.location.search);
     if (sessionConfig.ragEnabled) {
       queryParams.set('rag', 'true');
