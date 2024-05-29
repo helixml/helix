@@ -1,10 +1,9 @@
 import React, { FC, useState, useEffect, useCallback } from 'react'
+import { SxProps } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
-
-import ConstructionIcon from '@mui/icons-material/Construction'
 
 import Page from '../components/system/Page'
 import Toolbar from '../components/create/Toolbar'
@@ -22,13 +21,9 @@ import AddImagesForm from '../components/finetune/AddImagesForm'
 import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
-import ModelPicker from '../components/create/ModelPicker'
 
-import SessionModeSwitch from '../components/create/SessionModeSwitch'
-import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
 import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import SessionTypeButton from '../components/create/SessionTypeButton'
-import SessionModeButton from '../components/create/SessionModeButton'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
@@ -58,8 +53,8 @@ import {
 } from '../config'
 
 import {
-  APPS,
-} from '../fixtures'
+  getNewSessionBreadcrumbs,
+} from '../utils/session'
 
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
@@ -84,11 +79,21 @@ const Create: FC = () => {
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const appID = router.params.app_id || '' 
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
-  //const launchApp = apps.app
-  const launchApp = APPS[0]
+  /*
+   *
+   *
+   * 
+  
+    CALLBACKS
+  
+   *
+   * 
+   *  
+  */
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
@@ -102,16 +107,6 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if(!checkLoginStatus()) return
-    // const formData = inputs.getFormData(mode, type, model)
-    // const session = await api.post('/api/v1/sessions', formData)
-    // if(!session) return
-    // tracking.emitEvent({
-    //   name: 'inference',
-    //   session,
-    // })
-    // await sessions.loadSessions()
-    // router.navigate('session', {session_id: session.id})
-
     const sessionChatRequest = inputs.getSessionChatRequest(type, model)
     const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
 
@@ -183,6 +178,18 @@ const Create: FC = () => {
     await onStartFinetune('finetune:image')
   }
 
+  /*
+   *
+   *
+   * 
+  
+    EFFECTS
+  
+   *
+   * 
+   *  
+  */
+
   useEffect(() => {
     inputs.loadFromLocalStorage()
   }, [])
@@ -196,18 +203,30 @@ const Create: FC = () => {
     type,
   ])
 
-  // useEffect(() => {
-  //   apps.loadApp(appID)
-  // }, [
-  //   appID,
-  // ])
+  useEffect(() => {
+    apps.loadApp(appID)
+  }, [
+    appID,
+  ])
+
+  /*
+   *
+   *
+   * 
+  
+    COMPONENTS
+  
+   *
+   * 
+   *  
+  */
 
   const topbar = (
     <Toolbar
       mode={ mode }
       type={ type }
       model={ model }
-      app={ launchApp }
+      app={ apps.app }
       onOpenConfig={ () => setShowConfigWindow(true) }
       onSetMode={ mode => {
         if (mode == "finetune") {
@@ -414,36 +433,32 @@ const Create: FC = () => {
     </Row>
   )
 
-  const inferenceHeader = launchApp ? inferenceHeaderApp : inferenceHeaderNormal
+  const inferenceHeader = apps.app ? inferenceHeaderApp : inferenceHeaderNormal
+  const pageSX: SxProps = apps.app ? {
 
-  let ragEnabled = window.location.search.includes('rag=true')
-  let finetuneEnabled = window.location.search.includes('finetune=true')
-
-  let txt = "Learn"
-  if (type == SESSION_TYPE_IMAGE) {
-    txt += " (image style and objects)"
-  } else if (ragEnabled && finetuneEnabled) {
-    txt += " (hybrid RAG + Fine-tuning)"
-  } else if (ragEnabled) {
-    txt += " (RAG)"
-  } else if (finetuneEnabled) {
-    txt += " (Fine-tuning on knowledge)"
+  } : {
+    backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+    backgroundSize: '80%',
+    backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
+    backgroundRepeat: 'no-repeat',
   }
 
   return (
     <Page
-      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? txt : "" }
+      breadcrumbs={
+        getNewSessionBreadcrumbs({
+          mode,
+          type,
+          ragEnabled: router.params.rag ? true : false,
+          finetuneEnabled: router.params.finetune ? true : false,
+          app: apps.app,
+        })
+      }
       topbarContent={ topbar }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }
-      sx={{
-        backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
-        backgroundSize: '80%',
-        backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
-        backgroundRepeat: 'no-repeat',
-      }}
+      sx={ pageSX }
     >
-
       {
         mode == SESSION_MODE_FINETUNE && (
           <Box

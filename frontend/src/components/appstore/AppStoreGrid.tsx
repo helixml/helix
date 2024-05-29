@@ -1,8 +1,7 @@
-import React, { FC } from 'react'
+import React, { FC, useMemo } from 'react'
 import { SxProps } from '@mui/system'
 import Divider from '@mui/material/Divider'
 import Box from '@mui/material/Box'
-import Avatar from '@mui/material/Avatar'
 import Grid from '@mui/material/Grid'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
@@ -11,42 +10,22 @@ import CardActions from '@mui/material/CardActions'
 import CardActionArea from '@mui/material/CardActionArea'
 import CardContent from '@mui/material/CardContent'
 import CardMedia from '@mui/material/CardMedia'
-import ChatIcon from '@mui/icons-material/Chat'
-import ImageIcon from '@mui/icons-material/Image'
-import AppsIcon from '@mui/icons-material/Apps'
-import DocumentScannerIcon from '@mui/icons-material/DocumentScanner'
-import ModelTrainingIcon from '@mui/icons-material/ModelTraining'
-import JavascriptIcon from '@mui/icons-material/Javascript'
-import DashboardIcon from '@mui/icons-material/Dashboard'
-import WebIcon from '@mui/icons-material/Web'
-import ApiIcon from '@mui/icons-material/Api'
-import SettingsIcon from '@mui/icons-material/Settings'
-import GroupIcon from '@mui/icons-material/Group'
-import PermMediaIcon from '@mui/icons-material/PermMedia'
-import PlagiarismIcon from '@mui/icons-material/Plagiarism'
+import Avatar from '@mui/material/Avatar'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
-import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
-import useTracking from '../../hooks/useTracking'
-import useSessions from '../../hooks/useSessions'
-import useApi from '../../hooks/useApi'
 
 import {
   IApp,
-  ISessionChatRequest,
 } from '../../types'
 
 import {
-  APPS,
-} from '../../fixtures'
-
-const APP_1 = APPS[0]
-
-import {
-  IFeature,
-} from '../../types'
+  getAppImage,
+  getAppAvatar,
+  getAppName,
+  getAppDescription,
+} from '../../utils/apps'
 
 const AppStoreCard: FC<{
   app: IApp,
@@ -54,6 +33,11 @@ const AppStoreCard: FC<{
   app,
 }) => {
   const router = useRouter()
+
+  const avatar = getAppAvatar(app)
+  const image = getAppImage(app)
+  const name = getAppName(app)
+  const description = getAppDescription(app)
 
   return (
     <Card>
@@ -63,11 +47,11 @@ const AppStoreCard: FC<{
         }}
       >
         {
-          app.config.helix?.avatar && (
+          image && (
             <CardMedia
               sx={{ height: 140 }}
-              image={ app.config.helix?.avatar }
-              title={ app.config.helix?.name }
+              image={ image }
+              title={ name }
             />
           )
         }
@@ -81,8 +65,8 @@ const AppStoreCard: FC<{
               alignItems: 'flex-start',
             }}
           >
-            {/* {
-              feature.icon && (
+            {
+              avatar && (
                 <Cell
                   sx={{
                     mr: 2,
@@ -90,25 +74,19 @@ const AppStoreCard: FC<{
                   }}
                 >
                   <Avatar
-                    sx={{
-                      // width: 48,
-                      // height: 48,
-                      backgroundColor: 'black',
-                    }}
-                  >
-                    { feature.icon }
-                  </Avatar>
+                    src={ avatar }
+                  />
                 </Cell>
               )
-            } */}
+            }
             <Cell grow sx={{
               minHeight: '80px'
             }}>
               <Typography gutterBottom variant="h5" component="div">
-                { app.config.helix?.name }
+                { name }
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                { app.config.helix?.description }
+                { description }
               </Typography>
             </Cell>
           </Row>
@@ -177,31 +155,29 @@ const AppStoreGrid: FC<{
 }> = ({
   apps 
 }) => {
-  const account = useAccount()
   const router = useRouter()
-  const tracking = useTracking()
-  const sessions = useSessions()
-  const api = useApi()
-
-  // TODO: maybe we should create new session from an app on the backend?
 
   const launchApp = async (appID: string) => {
-    // create a new session with the app id
-
-    // TODO: pull out the type from the app's 0'th assistant
-    // TODO: do we actually want to create a set of sessions, one per assistant in the app?
-
-    // TODO: make the create page into our "app launcher"
     router.navigate('create', {app_id: appID})
   }
+
+  const globalApps = useMemo(() => {
+    return apps.filter(app => app.global)
+  }, [
+    apps,
+  ])
+
+  const userApps = useMemo(() => {
+    return apps.filter(app => app.global ? false : true)
+  }, [
+    apps,
+  ])
 
   return (
     <>
       <AppStoreSection
         title="Your Apps"
-        apps={[
-          APP_1,
-        ]}
+        apps={ userApps }
         sx={{
           mb: 4,
         }}
@@ -209,14 +185,11 @@ const AppStoreGrid: FC<{
 
       <AppStoreSection
         title="Featured Apps"
-        apps={[
-        ]}
+        apps={ globalApps }
         sx={{
           mb: 4,
         }}
       />
-
-      Coming soon.<br/><br/><br/>
 
       <AppStoreSection
         title="API Integrations"

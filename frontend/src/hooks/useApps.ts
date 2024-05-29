@@ -7,14 +7,13 @@ import {
   IAppConfig,
   IAppSource,
   IGithubStatus,
-  IGithubRepo,
   APP_SOURCE_GITHUB,
   APP_SOURCE_HELIX,
 } from '../types'
 
 import {
-  generateAmusingName,
-} from '../utils/names'
+  APPS,
+} from '../fixtures'
 
 export const useApps = () => {
   const api = useApi()
@@ -40,19 +39,21 @@ export const useApps = () => {
   ])
 
   const loadData = useCallback(async () => {
-    const result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
-      snackbar: true,
-    })
-    if(!result) return
-    setData(result)
+    // const result = await api.get<IApp[]>(`/api/v1/apps`, undefined, {
+    //   snackbar: true,
+    // })
+    // if(!result) return
+    // setData(result)
+    setData(APPS)
   }, [])
 
   const loadApp = useCallback(async (id: string) => {
-    const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
-      snackbar: true,
-    })
-    if(!result) return
-    setApp(result)
+    // const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+    //   snackbar: true,
+    // })
+    // if(!result) return
+    // setApp(result)
+    setApp(APPS[0])
   }, [])
 
   const loadGithubStatus = useCallback(async (pageURL: string) => {

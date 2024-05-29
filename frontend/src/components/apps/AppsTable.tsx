@@ -22,6 +22,13 @@ import {
   IApp,
 } from '../../types'
 
+import {
+  getAppImage,
+  getAppAvatar,
+  getAppName,
+  getAppDescription,
+} from '../../utils/apps'
+
 const AppsDataGrid: FC<React.PropsWithChildren<{
   data: IApp[],
   onEdit: (app: IApp) => void,
@@ -129,7 +136,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                     onEdit(app)
                   }}
                 >
-                  { app.config.helix.name }
+                  { getAppName(app) }
                 </a>
               </Typography>
               <Typography variant="caption">

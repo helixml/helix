@@ -51,11 +51,6 @@ const CreateToolbar: FC<{
             />
           )
         }
-        {
-          app && (
-            <div>breadcrumbs</div>
-          )
-        }
       </Cell>
       <Cell grow>
         

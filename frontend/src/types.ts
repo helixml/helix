@@ -662,3 +662,9 @@ export interface IDataEntity {
   id: string,
   // TODO: the rest
 }
+
+export interface IPageBreadcrumb {
+  title: string,
+  routeName?: string,
+  params?: Record<string, any>,
+}
