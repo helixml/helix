@@ -104,6 +104,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       // TODO: add the list of apis also to this display
       // we can grab stuff from the tools package that already renders endpoints
 
+      const accessType = app.global ? 'Global' : 'User'
+
       return {
         id: app.id,
         _data: app,
@@ -114,21 +116,21 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
             <Cell grow>
               <Typography variant="body1">
-              <a
-                style={{
-                  textDecoration: 'none',
-                  fontWeight: 'bold',
-                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                }}
-                href="#"
-                onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onEdit(app)
-                }}
-              >
-                { app.config.helix.name }
-              </a>
+                <a
+                  style={{
+                    textDecoration: 'none',
+                    fontWeight: 'bold',
+                    color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                  }}
+                  href="#"
+                  onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onEdit(app)
+                  }}
+                >
+                  { app.config.helix.name }
+                </a>
               </Typography>
               <Typography variant="caption">
                 { app.config.github?.repo }
@@ -136,7 +138,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
             </Cell>
           </Row>
         ),
-        type: app.app_source,
+        type: (
+          <Typography variant="body1">
+            { app.app_source } ({accessType})
+          </Typography>
+        ),
         details: (
           <>
             { gptscriptsElem }
@@ -203,6 +209,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       fields={[{
         name: 'name',
         title: 'Name',
+      }, {
+        name: 'type',
+        title: 'Type',
       }, {
         name: 'updated',
         title: 'Updated',

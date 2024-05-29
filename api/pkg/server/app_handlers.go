@@ -26,10 +26,7 @@ import (
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
 	userContext := getRequestContext(r)
 
-	// Extract the "type" query parameter
-	queryType := r.URL.Query().Get("type")
-
-	allApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
+	userApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
 		Owner:     userContext.User.ID,
 		OwnerType: userContext.User.Type,
 	})
@@ -37,7 +34,25 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	// TODO: support global apps, like global tools (see tool_handlers.go)
+	// remove global apps from the list in case this is the admin user who created the global tool
+	nonGlobalUserApps := []*types.App{}
+	for _, app := range userApps {
+		if !app.Global {
+			nonGlobalUserApps = append(nonGlobalUserApps, app)
+		}
+	}
+
+	globalApps, err := s.Store.ListApps(r.Context(), &store.ListAppsQuery{
+		Global: true,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	allApps := append(nonGlobalUserApps, globalApps...)
+
+	// Extract the "type" query parameter
+	queryType := r.URL.Query().Get("type")
 
 	// Filter apps based on the "type" query parameter
 	var filteredApps []*types.App
@@ -45,8 +60,11 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 		if queryType != "" && app.AppSource != types.AppSource(queryType) {
 			continue
 		}
-		app.Config.Github.KeyPair.PrivateKey = ""
-		app.Config.Github.WebhookSecret = ""
+		if !isAdmin(userContext.User) && app.Global {
+			app.Config.Github.KeyPair.PrivateKey = ""
+			app.Config.Github.WebhookSecret = ""
+		}
+
 		filteredApps = append(filteredApps, app)
 	}
 
@@ -177,7 +195,8 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 		}
 		return nil, system.NewHTTPError500(err.Error())
 	}
-	if app.Owner != userContext.User.ID {
+
+	if (!app.Global && !app.Shared) && app.Owner != userContext.User.ID {
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 	return app, nil
@@ -229,8 +248,14 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
-	if existing.Owner != userContext.User.ID {
-		return nil, system.NewHTTPError403("you do not have permission to update this app")
+	if existing.Global {
+		if !isAdmin(userContext.User) {
+			return nil, system.NewHTTPError403("only admin users can update global apps")
+		}
+	} else {
+		if existing.Owner != userContext.User.ID {
+			return nil, system.NewHTTPError403("you do not have permission to update this app")
+		}
 	}
 
 	if existing.AppSource == types.AppSourceGithub {
@@ -292,8 +317,14 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	if existing.Owner != userContext.User.ID {
-		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	if existing.Global {
+		if !isAdmin(userContext.User) {
+			return nil, system.NewHTTPError403("only admin users can delete global apps")
+		}
+	} else {
+		if existing.Owner != userContext.User.ID {
+			return nil, system.NewHTTPError403("you do not have permission to delete this app")
+		}
 	}
 
 	err = s.Store.DeleteApp(r.Context(), id)
