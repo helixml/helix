@@ -4,9 +4,8 @@ import Grid from '@mui/material/Grid'
 import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
-import Alert from '@mui/material/Alert';
 
-import StoreFeatureGrid from '../components/store/FeatureGrid'
+import AppStoreGrid from '../components/appstore/AppStoreGrid'
 import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
@@ -15,7 +14,7 @@ import useApps from '../hooks/useApps'
 
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
-const Store: FC = () => {
+const AppStore: FC = () => {
   const theme = useTheme()
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
@@ -85,10 +84,12 @@ const Store: FC = () => {
             </Grid>
           </Grid>
         </Box>
-        <StoreFeatureGrid apps={ apps.data } />
+        <AppStoreGrid
+          apps={ apps.data }
+        />
       </Container>
     </Page>
   )
 }
 
-export default Store
+export default AppStore

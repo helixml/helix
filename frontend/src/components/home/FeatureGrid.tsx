@@ -79,7 +79,7 @@ const APPS_FEATURE: IFeature = {
     title: 'Browse',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => navigate('store'),
+    handler: (navigate) => navigate('appstore'),
   }, {
     title: 'Docs',
     color: 'primary',

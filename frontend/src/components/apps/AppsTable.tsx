@@ -1,11 +1,9 @@
 import React, { FC, useMemo, useCallback } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import ViewIcon from '@mui/icons-material/Visibility'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
-import Stack from '@mui/material/Stack'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
 
@@ -115,6 +113,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               <GitHubIcon />
             </Cell>
             <Cell grow>
+              <Typography variant="body1">
               <a
                 style={{
                   textDecoration: 'none',
@@ -128,12 +127,16 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
                   onEdit(app)
                 }}
               >
-                { app.name }
+                { app.config.helix.name }
               </a>
+              </Typography>
+              <Typography variant="caption">
+                { app.config.github?.repo }
+              </Typography>
             </Cell>
           </Row>
         ),
-        type: app.app_type,
+        type: app.app_source,
         details: (
           <>
             { gptscriptsElem }

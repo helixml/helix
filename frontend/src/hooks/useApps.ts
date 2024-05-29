@@ -5,11 +5,11 @@ import {
   IApp,
   IAppUpdate,
   IAppConfig,
-  IAppType,
+  IAppSource,
   IGithubStatus,
   IGithubRepo,
-  APP_TYPE_GITHUB,
-  APP_TYPE_HELIX,
+  APP_SOURCE_GITHUB,
+  APP_SOURCE_HELIX,
 } from '../types'
 
 import {
@@ -28,13 +28,13 @@ export const useApps = () => {
   const [ connectLoading, setConectLoading ] = useState(false)
 
   const helixApps = useMemo(() => {
-    return data.filter(app => app.app_type == APP_TYPE_HELIX)
+    return data.filter(app => app.app_source == APP_SOURCE_HELIX)
   }, [
     data,
   ])
 
   const githubApps = useMemo(() => {
-    return data.filter(app => app.app_type == APP_TYPE_GITHUB)
+    return data.filter(app => app.app_source == APP_SOURCE_GITHUB)
   }, [
     data,
   ])
@@ -83,10 +83,15 @@ export const useApps = () => {
     setConnectError('')
     setConectLoading(true)
     const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-      name: repo,
-      description: `github repo hosted at ${repo}`,
-      app_type: APP_TYPE_GITHUB,
+      app_source: APP_SOURCE_GITHUB,
       config: {
+        helix: {
+          name: '',
+          description: '',
+          avatar: '',
+          image: '',
+          assistants: [],
+        },
         github: {
           repo,
           hash: '', 
@@ -105,15 +110,11 @@ export const useApps = () => {
   }, [])
 
   const createApp = useCallback(async (
-    name: string,
-    description: string,
-    app_type: IAppType,
+    app_source: IAppSource,
     config: IAppConfig,
   ): Promise<IApp | undefined> => {
     const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-      name: name ? name: generateAmusingName(),
-      description,
-      app_type,
+      app_source,
       config,
     }, {}, {
       snackbar: true,

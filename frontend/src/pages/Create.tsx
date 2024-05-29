@@ -57,38 +57,12 @@ import {
   COLORS,
 } from '../config'
 
+import {
+  APPS,
+} from '../fixtures'
+
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
-
-const APP_1: IApp = {
-  id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
-  app_type: 'helix',
-  created: new Date(),
-  updated: new Date(),
-  name: '',
-  description: '',
-  owner: '',
-  owner_type: 'user',
-  config: {
-    secrets: {},
-    allowed_domains: [],
-    helix: {
-      name: 'Sarcastic Collective',
-      description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
-      avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-      assistants: [{
-        name: 'Sarcastic Bob',
-        description: "I am bob",
-        avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-        model: '',
-        system_prompt: '',
-        apis :[],
-        gptscripts: [],
-        tools: [],
-      }],
-    }
-  }
-}
 
 const Create: FC = () => {
   const router = useRouter()
@@ -114,7 +88,7 @@ const Create: FC = () => {
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
 
   //const launchApp = apps.app
-  const launchApp = APP_1
+  const launchApp = APPS[0]
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {

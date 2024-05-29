@@ -248,8 +248,8 @@ const App: FC = () => {
 
   useEffect(() => {
     if(!app) return
-    setName(app.name)
-    setDescription(app.description)
+    setName(app.config.helix.name || '')
+    setDescription(app.config.helix.description || '')
     setSchema(JSON.stringify(app.config, null, 4))
     setSecrets(app.config.secrets || {})
     setAllowedDomains(app.config.allowed_domains || [])
