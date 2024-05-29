@@ -11,12 +11,14 @@ import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
 import useApps from '../hooks/useApps'
+import useRouter from '../hooks/useRouter'
 
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const AppStore: FC = () => {
   const apps = useApps()
   const theme = useTheme()
+  const router = useRouter()
   const isLight = theme.palette.mode === 'light'
   const isBigScreen = useIsBigScreen()
   
@@ -89,6 +91,7 @@ const AppStore: FC = () => {
         </Box>
         <AppStoreGrid
           apps={ apps.data }
+          onClick={ (id) => router.navigate('new', {app_id: id}) }
         />
       </Container>
     </Page>

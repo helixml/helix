@@ -501,6 +501,7 @@ export interface IAssistantGPTScript {
 }
 
 export interface IAssistantConfig {
+  id: string,
   name: string,
   description: string,
   avatar: string,

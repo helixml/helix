@@ -25,6 +25,8 @@ import UploadingOverlay from '../components/widgets/UploadingOverlay'
 import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 
+import AppCreateHeader from '../components/appstore/CreateHeader'
+
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
 import useCreateInputs from '../hooks/useCreateInputs'
@@ -417,20 +419,11 @@ const Create: FC = () => {
     </Row>
   )
 
-  const inferenceHeaderApp = (
-    <Row
-      vertical
-      center
-    >
-      <Cell
-        sx={{
-          pt: 4,
-          px: PADDING_X,
-        }}
-      >
-        APP = { appID }
-      </Cell>
-    </Row>
+  const inferenceHeaderApp = apps.app && (
+    <AppCreateHeader
+      app={ apps.app }
+      paddingX={ PADDING_X }
+    />
   )
 
   const inferenceHeader = apps.app ? inferenceHeaderApp : inferenceHeaderNormal

@@ -786,6 +786,7 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
+	ID           string `json:"id" yaml:"id"`
 	Name         string `json:"name" yaml:"name"`
 	Description  string `json:"description" yaml:"description"`
 	Avatar       string `json:"avatar" yaml:"avatar"`
