@@ -42,27 +42,26 @@ import {
   IFeature,
 } from '../../types'
 
-const HomeFeatureCard: FC<{
-  feature: IFeature,
+const AppStoreCard: FC<{
+  app: IApp,
 }> = ({
-  feature,
+  app,
 }) => {
   const router = useRouter()
 
   return (
     <Card>
       <CardActionArea
-        disabled={feature.disabled}
         onClick={() => {
-          feature.actions[0].handler(router.navigate)
+          router.navigate('new', {app_id: app.id})
         }}
       >
         {
-          feature.image && (
+          app.config.helix?.avatar && (
             <CardMedia
               sx={{ height: 140 }}
-              image={ feature.image }
-              title={ feature.title }
+              image={ app.config.helix?.avatar }
+              title={ app.config.helix?.name }
             />
           )
         }
@@ -76,7 +75,7 @@ const HomeFeatureCard: FC<{
               alignItems: 'flex-start',
             }}
           >
-            {
+            {/* {
               feature.icon && (
                 <Cell
                   sx={{
@@ -95,50 +94,41 @@ const HomeFeatureCard: FC<{
                   </Avatar>
                 </Cell>
               )
-            }
+            } */}
             <Cell grow sx={{
               minHeight: '80px'
             }}>
               <Typography gutterBottom variant="h5" component="div">
-                { feature.title }
+                { app.config.helix?.name }
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                { feature.description }
+                { app.config.helix?.description }
               </Typography>
             </Cell>
           </Row>
         </CardContent>
       </CardActionArea>
       <CardActions>
-        <Row>
-          {
-            feature.actions.map((action, index) => (
-              <Cell key={ index }>
-                <Button
-                  size="small"
-                  variant={ action.variant }
-                  color={ action.color }
-                  onClick={ () => action.handler(router.navigate) }
-                  disabled={ feature.disabled }
-                >
-                  { action.title }
-                </Button>
-              </Cell>
-            ))
-          }
-        </Row>
+        <Button
+          size="small"
+          onClick={ () => {
+            router.navigate('new', {app_id: app.id}) 
+          }}
+        >
+          Launch
+        </Button>
       </CardActions>
     </Card>
   )
 }
 
-const StoreFeatureSection: FC<{
+const AppStoreSection: FC<{
   title: string,
-  features: IFeature[],
+  apps: IApp[],
   sx?: SxProps,
 }> = ({
   title,
-  features,
+  apps,
   sx = {},
 }) => {
   return (
@@ -162,10 +152,10 @@ const StoreFeatureSection: FC<{
         alignItems: 'center',
       }}>
         <Grid container spacing={ 4 }>
-          { features.map((feature, index) => (
+          { apps.map((app, index) => (
             <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
-              <HomeFeatureCard
-                feature={ feature }
+              <AppStoreCard
+                app={ app }
               />
             </Grid>
           )) }
@@ -181,8 +171,6 @@ const StoreFeatureGrid: FC<{
 }> = ({
   apps 
 }) => {
-
-  console.log(apps)
   const account = useAccount()
   const router = useRouter()
   const tracking = useTracking()
@@ -201,63 +189,77 @@ const StoreFeatureGrid: FC<{
     router.navigate('create', {app_id: appID})
   }
 
-  const APP_1: IFeature = {
-    title: 'Sarcastic Collective',
-    description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
-    image: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
-    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-    actions: [{
-      title: "I'm ready",
-      color: 'secondary',
-      variant: 'outlined',
-      // TODO: get this from apps data
-      handler: () => launchApp("app_01hyx25hdae1a3bvexs6dc2qhk"),
-    }]
+  const APP_1: IApp = {
+    id: 'app_01hyx25hdae1a3bvexs6dc2qhk',
+    app_type: 'helix',
+    created: new Date(),
+    updated: new Date(),
+    name: '',
+    description: '',
+    owner: '',
+    owner_type: 'user',
+    config: {
+      secrets: {},
+      allowed_domains: [],
+      helix: {
+        name: 'Sarcastic Collective',
+        description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
+        avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
+        assistants: [{
+          name: 'Sarcastic Bob',
+          description: "I am bob",
+          avatar: 'https://www.dictionary.com/e/wp-content/uploads/2018/03/sideshow-bob.jpg',
+          model: '',
+          system_prompt: '',
+          apis :[],
+          gptscripts: [],
+          tools: [],
+        }],
+      }
+    }
   }
 
-  const APP_2: IFeature = {
-    title: 'Waitrose Demo',
-    description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
-    image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
-    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-    actions: [{
-      title: "Get Recipes",
-      color: 'secondary',
-      variant: 'outlined',
-      handler: (navigate) => navigate('new'),
-    }]
-  }
+  // const APP_2: IFeature = {
+  //   title: 'Waitrose Demo',
+  //   description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
+  //   image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
+  //   // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
+  //   actions: [{
+  //     title: "Get Recipes",
+  //     color: 'secondary',
+  //     variant: 'outlined',
+  //     handler: (navigate) => navigate('new'),
+  //   }]
+  // }
 
-  const APP_3: IFeature = {
-    title: 'Searchbot',
-    description: "Website search your customers will love. Answer questions, surface hidden content and analyse customer intent.",
-    image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
-    // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
-    actions: [{
-      title: "Create Bot",
-      color: 'secondary',
-      variant: 'outlined',
-      handler: (navigate) => navigate('new'),
-    }]
-  }
+  // const APP_3: IFeature = {
+  //   title: 'Searchbot',
+  //   description: "Website search your customers will love. Answer questions, surface hidden content and analyse customer intent.",
+  //   image: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
+  //   // icon: <ChatIcon sx={{color: '#fcdb05'}} />,
+  //   actions: [{
+  //     title: "Create Bot",
+  //     color: 'secondary',
+  //     variant: 'outlined',
+  //     handler: (navigate) => navigate('new'),
+  //   }]
+  // }
 
   return (
     <>
-      <StoreFeatureSection
+      <AppStoreSection
         title="Your Apps"
-        features={[
+        apps={[
           APP_1,
-          APP_2,
-          APP_3,
         ]}
         sx={{
           mb: 4,
         }}
       />
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="Featured Apps"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,
@@ -266,9 +268,9 @@ const StoreFeatureGrid: FC<{
 
       Coming soon.<br/><br/><br/>
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="API Integrations"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,
@@ -277,9 +279,9 @@ const StoreFeatureGrid: FC<{
 
       Coming soon.<br/><br/><br/>
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="GPTScript Demos"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,
@@ -289,9 +291,9 @@ const StoreFeatureGrid: FC<{
       Coming soon.<br/><br/><br/>
 
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="Fine tuned image models"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,
@@ -301,9 +303,9 @@ const StoreFeatureGrid: FC<{
       Coming soon.<br/><br/><br/>
 
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="Fine tuned text models"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,
@@ -314,9 +316,9 @@ const StoreFeatureGrid: FC<{
 
 
 
-      <StoreFeatureSection
+      <AppStoreSection
         title="RAG enabled apps"
-        features={[
+        apps={[
         ]}
         sx={{
           mb: 4,

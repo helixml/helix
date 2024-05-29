@@ -16,6 +16,7 @@ import useAccount from '../../hooks/useAccount'
 import {
   ISessionMode,
   ISessionType,
+  IApp,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
 } from '../../types'
@@ -23,7 +24,8 @@ import {
 const CreateToolbar: FC<{
   mode: ISessionMode,
   type: ISessionType,
-  model: string,
+  model?: string,
+  app?: IApp,
   onOpenConfig: () => void,
   onSetMode: (mode: ISessionMode) => void,
   onSetModel: (model: string) => void,
@@ -31,6 +33,7 @@ const CreateToolbar: FC<{
   mode,
   type,
   model,
+  app,
   onOpenConfig,
   onSetMode,
   onSetModel,
@@ -41,39 +44,52 @@ const CreateToolbar: FC<{
     <Row>
       <Cell>
         {
-          mode == SESSION_MODE_INFERENCE && type == SESSION_TYPE_TEXT && (
+          !app && model && mode == SESSION_MODE_INFERENCE && type == SESSION_TYPE_TEXT && (
             <ModelPicker
               model={ model }
               onSetModel={ onSetModel }
             />
           )
         }
+        {
+          app && (
+            <div>breadcrumbs</div>
+          )
+        }
       </Cell>
       <Cell grow>
         
       </Cell>
-      <Cell>
-        <IconButton
-          onClick={ onOpenConfig }
-        >
-          <ConstructionIcon />
-        </IconButton>
-      </Cell>
-      <Cell>
-        {
-          bigScreen ? (
-            <SessionModeSwitch
-              mode={ mode }
-              onSetMode={ onSetMode }
-            />
-          ) : (
-            <SessionModeDropdown
-              mode={ mode }
-              onSetMode={ onSetMode }
-            />
-          )
-        }
-      </Cell>
+      {
+        !app && (
+          <Cell>
+            <IconButton
+              onClick={ onOpenConfig }
+            >
+              <ConstructionIcon />
+            </IconButton>
+          </Cell>
+        )
+      }
+      {
+        !app && (
+          <Cell>
+            {
+              bigScreen ? (
+                <SessionModeSwitch
+                  mode={ mode }
+                  onSetMode={ onSetMode }
+                />
+              ) : (
+                <SessionModeDropdown
+                  mode={ mode }
+                  onSetMode={ onSetMode }
+                />
+              )
+            }
+          </Cell>
+        )
+      }
       <Cell>
         {
           !account.user && (bigScreen ? (

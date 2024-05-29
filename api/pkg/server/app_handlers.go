@@ -42,7 +42,7 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 	// Filter apps based on the "type" query parameter
 	var filteredApps []*types.App
 	for _, app := range allApps {
-		if queryType != "" && app.AppType != types.AppType(queryType) {
+		if queryType != "" && app.AppSource != types.AppSource(queryType) {
 			continue
 		}
 		app.Config.Github.KeyPair.PrivateKey = ""
@@ -85,15 +85,9 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	app.OwnerType = userContext.User.Type
 	app.Updated = time.Now()
 
-	if app.Config.Helix == nil {
-		app.Config.Helix = &types.AppHelixConfig{
-			Assistants: []types.AssistantConfig{},
-		}
-	}
-
 	for _, a := range existingApps {
-		if a.Name == app.Name {
-			return nil, system.NewHTTPError400("app (%s) with name %s already exists", a.ID, app.Name)
+		if app.Config.Helix.Name != "" && a.Config.Helix.Name == app.Config.Helix.Name {
+			return nil, system.NewHTTPError400("app (%s) with name %s already exists", a.ID, a.Config.Helix.Name)
 		}
 	}
 
@@ -103,8 +97,8 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	// if this is a github app - then initialise it
-	if app.AppType == types.AppTypeGithub {
-		if app.AppType == types.AppTypeGithub {
+	if app.AppSource == types.AppSourceGithub {
+		if app.AppSource == types.AppSourceGithub {
 			if app.Config.Github.Repo == "" {
 				return nil, system.NewHTTPError400("github repo is required")
 			}
@@ -239,7 +233,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError403("you do not have permission to update this app")
 	}
 
-	if existing.AppType == types.AppTypeGithub {
+	if existing.AppSource == types.AppSourceGithub {
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -263,8 +257,6 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
-	existing.Name = appUpdate.Name
-	existing.Description = appUpdate.Description
 	existing.Updated = time.Now()
 	existing.Config.Secrets = appUpdate.Secrets
 	existing.Config.AllowedDomains = appUpdate.AllowedDomains

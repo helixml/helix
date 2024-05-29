@@ -20,6 +20,7 @@ export const useApps = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<IApp[]>([])
+  const [ app, setApp ] = useState<IApp>()
   const [ githubRepos, setGithubRepos ] = useState<string[]>([])
   const [ githubStatus, setGithubStatus ] = useState<IGithubStatus>()
   const [ githubReposLoading, setGithubReposLoading ] = useState(false)
@@ -44,6 +45,14 @@ export const useApps = () => {
     })
     if(!result) return
     setData(result)
+  }, [])
+
+  const loadApp = useCallback(async (id: string) => {
+    const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
+      snackbar: true,
+    })
+    if(!result) return
+    setApp(result)
   }, [])
 
   const loadGithubStatus = useCallback(async (pageURL: string) => {
@@ -139,10 +148,12 @@ export const useApps = () => {
 
   return {
     data,
+    app,
     githubStatus,
     helixApps,
     githubApps,
     loadData,
+    loadApp,
     loadGithubStatus,
     loadGithubRepos,
     createGithubApp,
