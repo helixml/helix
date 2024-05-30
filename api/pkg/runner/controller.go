@@ -379,6 +379,10 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newSession *type
 }
 
 func (r *Runner) getNextWarmupSession() (*types.Session, error) {
+	if r.Options.MockRunner {
+		return nil, nil
+	}
+
 	if len(r.warmupSessions) == 0 {
 		return nil, nil
 	}
@@ -491,7 +495,25 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 		err           error
 	)
 
-	switch initialSession.ModelName.InferenceRuntime() {
+	runtimeName := initialSession.ModelName.InferenceRuntime()
+
+	// if we are in mock mode - we need the axolotl model instance because
+	// it understands how to do a mock runner
+	if r.Options.MockRunner {
+		if initialSession.Type == types.SessionTypeText {
+			runtimeName = types.InferenceRuntimeAxolotl
+			initialSession.ModelName = types.Model_Axolotl_Mistral7b
+		} else if initialSession.Type == types.SessionTypeImage {
+			// I know - this looks odd, but "InferenceRuntimeAxolotl" should actually be called
+			// "InferenceRuntimeDefault" - i.e. it's the original "run a python program" version
+			// that does both axolotl and sdxl
+			runtimeName = types.InferenceRuntimeAxolotl
+			initialSession.ModelName = types.Model_Cog_SDXL
+		}
+
+	}
+
+	switch runtimeName {
 	case types.InferenceRuntimeOllama:
 		log.Info().Msg("using Ollama model instance")
 		modelInstance, err = NewOllamaModelInstance(
