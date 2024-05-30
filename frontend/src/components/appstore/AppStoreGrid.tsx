@@ -13,6 +13,13 @@ import {
   IApp,
 } from '../../types'
 
+import {
+  getAppImage,
+  getAppAvatar,
+  getAppName,
+  getAppDescription,
+} from '../../utils/apps'
+
 const AppStoreSection: FC<{
   title: string,
   apps: IApp[],
@@ -45,14 +52,21 @@ const AppStoreSection: FC<{
         alignItems: 'center',
       }}>
         <Grid container spacing={ 4 }>
-          { apps.map((app, index) => (
-            <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
-              <AppStoreCard
-                app={ app }
-                onClick={ () => onClick(app.id) }
-              />
-            </Grid>
-          )) }
+          {
+            apps.map((app, index) => {
+              return (
+                <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 4 } key={ index } sx={{ p: 0, m: 0 }}>
+                  <AppStoreCard
+                    avatar={ getAppAvatar(app) }
+                    image={ getAppImage(app) }
+                    name={ getAppName(app) }
+                    description={ getAppDescription(app) }
+                    onClick={ () => onClick(app.id) }
+                  />
+                </Grid>
+              )
+            })
+          }
         </Grid>
       </Box>
     </Box>
@@ -67,10 +81,6 @@ const AppStoreGrid: FC<{
   onClick,
 }) => {
   const router = useRouter()
-
-  const launchApp = async (appID: string) => {
-    router.navigate('create', {app_id: appID})
-  }
 
   const globalApps = useMemo(() => {
     return apps.filter(app => app.global)

@@ -156,6 +156,7 @@ export const useApps = () => {
     githubApps,
     loadData,
     loadApp,
+    setApp,
     loadGithubStatus,
     loadGithubRepos,
     createGithubApp,

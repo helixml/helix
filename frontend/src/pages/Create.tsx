@@ -4,6 +4,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
+import Avatar from '@mui/material/Avatar'
 
 import Page from '../components/system/Page'
 import Toolbar from '../components/create/Toolbar'
@@ -26,6 +27,7 @@ import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import SessionTypeButton from '../components/create/SessionTypeButton'
 
 import AppCreateHeader from '../components/appstore/CreateHeader'
+import AssistantPicker from '../components/appstore/AssistantPicker'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
@@ -46,7 +48,6 @@ import {
   SESSION_MODE_FINETUNE,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  IApp,
 } from '../types'
 
 import {
@@ -81,6 +82,17 @@ const Create: FC = () => {
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const appID = router.params.app_id || '' 
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+
+  let activeAssistantIndex = 0
+
+  if(router.params.assistant) {
+    activeAssistantIndex = parseInt(router.params.assistant)
+    if(isNaN(activeAssistantIndex)) {
+      activeAssistantIndex = 0
+    }
+  }
+
+  const activeAssistant = apps.app?.config.helix?.assistants?.[activeAssistantIndex]
 
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
@@ -207,6 +219,7 @@ const Create: FC = () => {
 
   useEffect(() => {
     apps.loadApp(appID)
+    return () => apps.setApp(undefined)
   }, [
     appID,
   ])
@@ -256,11 +269,22 @@ const Create: FC = () => {
           value={ inputs.inputValue }
           disabled={ mode == SESSION_MODE_FINETUNE }
           startAdornment={ isBigScreen && (
-            <SessionTypeButton
-              type={ type }
-              onSetType={ type => router.setParams({type}) }
-            />
+            activeAssistant ? (
+              <Avatar
+                src={ activeAssistant.avatar }
+                sx={{
+                  width: '30px',
+                  height: '30px',
+                }}
+              />
+            ) : (
+              <SessionTypeButton
+                type={ type }
+                onSetType={ type => router.setParams({type}) }
+              />
+            )
           )}
+          promptLabel={ activeAssistant ? `Chat with ${activeAssistant.name}` : undefined }
           onUpdate={ inputs.setInputValue }
           onInference={ onInference }
         />
@@ -420,10 +444,39 @@ const Create: FC = () => {
   )
 
   const inferenceHeaderApp = apps.app && (
-    <AppCreateHeader
-      app={ apps.app }
-      paddingX={ PADDING_X }
-    />
+    <Row
+      id="HEADER"
+      vertical
+      center
+    >
+      <Cell
+        sx={{
+          pt: 4,
+          px: PADDING_X,
+          textAlign: 'center',
+        }}
+      >
+        <AppCreateHeader
+          app={ apps.app }      
+        />
+      </Cell>
+      <Cell
+        sx={{
+          px: PADDING_X,
+          py: 2,
+          pt: 4,
+          width: '100%',
+        }}
+      >
+        <AssistantPicker
+          app={ apps.app }
+          activeAssistant={ activeAssistantIndex }
+          onClick={ (index) => {
+            router.setParams({assistant: index.toString()})
+          }}
+        />
+      </Cell>
+    </Row> 
   )
 
   const inferenceHeader = apps.app ? inferenceHeaderApp : inferenceHeaderNormal

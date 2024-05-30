@@ -3,10 +3,12 @@ import Box from '@mui/material/Box'
 import { SxProps } from '@mui/system'
 
 const Row: FC<{
+  id?: string,
   sx?: SxProps,
   center?: boolean,
   vertical?: boolean,
 }> = ({
+  id,
   sx = {},
   center = false,
   vertical = false,
@@ -14,6 +16,7 @@ const Row: FC<{
 }) => {
   return (
     <Box
+      id={ id }
       sx={{
         width: '100%',
         display: 'flex',
