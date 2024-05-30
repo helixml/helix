@@ -368,7 +368,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
-	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, false)
+	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, true)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
