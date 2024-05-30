@@ -48,9 +48,6 @@ type ServerOptions struct {
 	// (this is so helix nodes can see files)
 	// later, we might add a token to the URLs
 	LocalFilestorePath string
-	// the list of tool ids that are allowed to be used by any user
-	// this is returned to the frontend as part of the /config route
-	ToolsGlobalIDS []string
 }
 
 type HelixAPIServer struct {
@@ -293,6 +290,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.listApps)).Methods("GET")
 	authRouter.HandleFunc("/apps", system.Wrapper(apiServer.createApp)).Methods("POST")
+	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.getApp)).Methods("GET")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.updateApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 

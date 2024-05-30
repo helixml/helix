@@ -119,7 +119,7 @@ func (githubApp *GithubApp) Create() (*types.App, error) {
 		return nil, err
 	}
 
-	app.Config.Helix = config
+	app.Config.Helix = *config
 
 	commitHash, err := github.GetRepoHash(githubApp.Filepath(""))
 	if err != nil {
@@ -218,7 +218,7 @@ func (githubApp *GithubApp) Update() (*types.App, error) {
 	// because then if there is a problem with the config
 	// we won't actually update the app
 	app.Config.Github.Hash = commitHash
-	app.Config.Helix = config
+	app.Config.Helix = *config
 
 	app, err = githubApp.UpdateApp(app)
 	if err != nil {

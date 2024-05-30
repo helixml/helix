@@ -1,10 +1,10 @@
 import React, { FC, useState, useEffect, useCallback } from 'react'
+import { SxProps } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Link from '@mui/material/Link'
 import Button from '@mui/material/Button'
-
-import ConstructionIcon from '@mui/icons-material/Construction'
+import Avatar from '@mui/material/Avatar'
 
 import Page from '../components/system/Page'
 import Toolbar from '../components/create/Toolbar'
@@ -22,13 +22,12 @@ import AddImagesForm from '../components/finetune/AddImagesForm'
 import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
-import ModelPicker from '../components/create/ModelPicker'
 
-import SessionModeSwitch from '../components/create/SessionModeSwitch'
-import SessionTypeSwitch from '../components/create/SessionTypeSwitch'
 import SessionTypeTabs from '../components/create/SessionTypeTabs'
 import SessionTypeButton from '../components/create/SessionTypeButton'
-import SessionModeButton from '../components/create/SessionModeButton'
+
+import AppCreateHeader from '../components/appstore/CreateHeader'
+import AssistantPicker from '../components/appstore/AssistantPicker'
 
 import useRouter from '../hooks/useRouter'
 import useLightTheme from '../hooks/useLightTheme'
@@ -39,6 +38,7 @@ import useApi from '../hooks/useApi'
 import useTracking from '../hooks/useTracking'
 import useSessions from '../hooks/useSessions'
 import useIsBigScreen from '../hooks/useIsBigScreen'
+import useApps from '../hooks/useApps'
 
 import {
   IDataEntity,
@@ -55,6 +55,16 @@ import {
   COLORS,
 } from '../config'
 
+import {
+  getNewSessionBreadcrumbs,
+} from '../utils/session'
+
+import {
+  getAssistantAvatar,
+  getAssistantName,
+  getAssistant,
+} from '../utils/apps'
+
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
 
@@ -68,6 +78,7 @@ const Create: FC = () => {
   const tracking = useTracking()
   const sessions = useSessions()
   const isBigScreen = useIsBigScreen()
+  const apps = useApps()
 
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
@@ -75,9 +86,26 @@ const Create: FC = () => {
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
+  const appID = router.params.app_id || '' 
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+
+  const activeAssistantID = router.params.assistant_id || '0'
+  const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
+
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
+
+  /*
+   *
+   *
+   * 
+  
+    CALLBACKS
+  
+   *
+   * 
+   *  
+  */
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
@@ -91,8 +119,9 @@ const Create: FC = () => {
 
   const onInference = async () => {
     if(!checkLoginStatus()) return
-    const formData = inputs.getFormData(mode, type, model)
-    const session = await api.post('/api/v1/sessions', formData)
+    const sessionChatRequest = inputs.getSessionChatRequest(type, model)
+    const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+
     if(!session) return
     tracking.emitEvent({
       name: 'inference',
@@ -100,17 +129,6 @@ const Create: FC = () => {
     })
     await sessions.loadSessions()
     router.navigate('session', {session_id: session.id})
-
-    // const sessionChatRequest = inputs.getSessionChatRequest(type, model)
-    // const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-
-    // if(!session) return
-    // tracking.emitEvent({
-    //   name: 'inference',
-    //   session,
-    // })
-    // await sessions.loadSessions()
-    // router.navigate('session', {session_id: session.id})
   }
 
   const onStartFinetune = async (eventName: string) => {
@@ -172,6 +190,18 @@ const Create: FC = () => {
     await onStartFinetune('finetune:image')
   }
 
+  /*
+   *
+   *
+   * 
+  
+    EFFECTS
+  
+   *
+   * 
+   *  
+  */
+
   useEffect(() => {
     inputs.loadFromLocalStorage()
   }, [])
@@ -185,11 +215,34 @@ const Create: FC = () => {
     type,
   ])
 
+  useEffect(() => {
+    if(!account.user) return
+    if(!appID) return
+    apps.loadApp(appID)
+    return () => apps.setApp(undefined)
+  }, [
+    account.user,
+    appID,
+  ])
+
+  /*
+   *
+   *
+   * 
+  
+    COMPONENTS
+  
+   *
+   * 
+   *  
+  */
+
   const topbar = (
     <Toolbar
       mode={ mode }
       type={ type }
       model={ model }
+      app={ apps.app }
       onOpenConfig={ () => setShowConfigWindow(true) }
       onSetMode={ mode => {
         if (mode == "finetune") {
@@ -202,6 +255,9 @@ const Create: FC = () => {
       onSetModel={ model => router.setParams({model}) }
     />
   )
+
+  const activeAssistantAvatar = activeAssistant && apps.app ? getAssistantAvatar(apps.app, activeAssistantID) : ''
+  const activeAssistantName = activeAssistant && apps.app ? getAssistantName(apps.app, activeAssistantID) : ''
 
   const inferenceFooter = (
     <Box
@@ -217,11 +273,24 @@ const Create: FC = () => {
           value={ inputs.inputValue }
           disabled={ mode == SESSION_MODE_FINETUNE }
           startAdornment={ isBigScreen && (
-            <SessionTypeButton
-              type={ type }
-              onSetType={ type => router.setParams({type}) }
-            />
+            activeAssistant ? (
+              activeAssistantAvatar ? (
+                <Avatar
+                  src={ activeAssistantAvatar }
+                  sx={{
+                    width: '30px',
+                    height: '30px',
+                  }}
+                />
+              ) : null
+            ) : (
+              <SessionTypeButton
+                type={ type }
+                onSetType={ type => router.setParams({type}) }
+              />
+            )
           )}
+          promptLabel={ activeAssistant ? `Chat with ${activeAssistantName || ''}` : undefined }
           onUpdate={ inputs.setInputValue }
           onInference={ onInference }
         />
@@ -346,35 +415,102 @@ const Create: FC = () => {
     </Box>
   )
 
+  const inferenceHeaderNormal = (
+    <Row
+      vertical
+      center
+    >
+      <Cell
+        sx={{
+          pt: 4,
+          px: PADDING_X,
+        }}
+      >
+        <CenterMessage
+          type={ type }
+          onSetType={ type => router.setParams({type}) }
+        />
+      </Cell>
+      <Cell grow />
+      <Cell
+        sx={{
+          px: PADDING_X,
+          py: 2,
+          maxWidth: '900px'
+        }}
+      >
+        <ExamplePrompts
+          type={ type }
+          onChange={ (prompt) => {
+            inputs.setInputValue(prompt)
+          }}
+        />
+      </Cell>
+    </Row>
+  )
 
-  let ragEnabled = window.location.search.includes('rag=true')
-  let finetuneEnabled = window.location.search.includes('finetune=true')
+  const inferenceHeaderApp = apps.app && (
+    <Row
+      id="HEADER"
+      vertical
+      center
+    >
+      <Cell
+        sx={{
+          pt: 4,
+          px: PADDING_X,
+          textAlign: 'center',
+        }}
+      >
+        <AppCreateHeader
+          app={ apps.app }      
+        />
+      </Cell>
+      <Cell
+        sx={{
+          px: PADDING_X,
+          py: 2,
+          pt: 4,
+          width: '100%',
+        }}
+      >
+        <AssistantPicker
+          app={ apps.app }
+          activeAssistantID={ activeAssistantID }
+          onClick={ (index) => {
+            router.setParams({assistant_id: index.toString()})
+          }}
+        />
+      </Cell>
+    </Row> 
+  )
 
-  let txt = "Learn"
-  if (type == SESSION_TYPE_IMAGE) {
-    txt += " (image style and objects)"
-  } else if (ragEnabled && finetuneEnabled) {
-    txt += " (hybrid RAG + Fine-tuning)"
-  } else if (ragEnabled) {
-    txt += " (RAG)"
-  } else if (finetuneEnabled) {
-    txt += " (Fine-tuning on knowledge)"
+  const inferenceHeader = apps.app ? inferenceHeaderApp : inferenceHeaderNormal
+  const pageSX: SxProps = apps.app ? {
+
+  } : {
+    backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
+    backgroundSize: '80%',
+    backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
+    backgroundRepeat: 'no-repeat',
   }
 
   return (
     <Page
-      breadcrumbTitle={ mode == SESSION_MODE_FINETUNE ? txt : "" }
+      breadcrumbs={
+        getNewSessionBreadcrumbs({
+          mode,
+          type,
+          ragEnabled: router.params.rag ? true : false,
+          finetuneEnabled: router.params.finetune ? true : false,
+          app: apps.app,
+        })
+      }
       topbarContent={ topbar }
       footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
       px={ PADDING_X }
-      sx={{
-        backgroundImage: lightTheme.isLight ? 'url(/img/nebula-light.png)' : 'url(/img/nebula-dark.png)',
-        backgroundSize: '80%',
-        backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
-        backgroundRepeat: 'no-repeat',
-      }}
+      sx={ pageSX }
     >
-
       {
         mode == SESSION_MODE_FINETUNE && (
           <Box
@@ -392,39 +528,7 @@ const Create: FC = () => {
       }
 
       {
-        mode == SESSION_MODE_INFERENCE && (
-          <Row
-            vertical
-            center
-          >
-            <Cell
-              sx={{
-                pt: 4,
-                px: PADDING_X,
-              }}
-            >
-              <CenterMessage
-                type={ type }
-                onSetType={ type => router.setParams({type}) }
-              />
-            </Cell>
-            <Cell grow />
-            <Cell
-              sx={{
-                px: PADDING_X,
-                py: 2,
-                maxWidth: '900px'
-              }}
-            >
-              <ExamplePrompts
-                type={ type }
-                onChange={ (prompt) => {
-                  inputs.setInputValue(prompt)
-                }}
-              />
-            </Cell>
-          </Row>
-        )
+        mode == SESSION_MODE_INFERENCE && inferenceHeader
       }
 
       {
