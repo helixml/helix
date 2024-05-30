@@ -32,7 +32,15 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		if len(app.Config.Helix.Assistants) <= 0 {
 			return nil, fmt.Errorf("no assistants found in app %s", session.ParentApp)
 		}
-		assistant := app.Config.Helix.Assistants[0]
+
+		assistantID := session.Metadata.AssistantID
+		if assistantID == "" {
+			assistantID = "0"
+		}
+		assistant := data.GetAssistant(app, assistantID)
+		if assistant == nil {
+			return nil, fmt.Errorf("we could not find the assistant with the id: %s", assistantID)
+		}
 
 		for _, appTool := range assistant.Tools {
 			if appTool.ID == toolID {
