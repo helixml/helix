@@ -20,6 +20,7 @@ const InferenceTextField: FC<{
   value: string,
   disabled?: boolean,
   startAdornment?: ReactNode,
+  promptLabel?: string,
   onUpdate: (value: string) => void,
   onInference: () => void,
 }> = ({
@@ -27,6 +28,7 @@ const InferenceTextField: FC<{
   value,
   disabled = false,
   startAdornment,
+  promptLabel,
   onUpdate,
   onInference,
 }) => {
@@ -43,6 +45,8 @@ const InferenceTextField: FC<{
     onUpdate(event.target.value)
   }
 
+  const usePromptLabel = promptLabel || PROMPT_LABELS[type]
+
   useEffect(() => {
     if (textFieldRef.current && !textFieldRef.current?.matches(':focus')) {
       textFieldRef.current.focus()
@@ -55,7 +59,7 @@ const InferenceTextField: FC<{
       fullWidth
       inputRef={ textFieldRef }
       autoFocus
-      label={ isBigScreen ? `${PROMPT_LABELS[type]} (shift+enter to add a newline)` : '' }
+      label={ isBigScreen ? `${usePromptLabel} (shift+enter to add a newline)` : '' }
       value={ value }
       disabled={ disabled }
       onChange={ handleInputChange }

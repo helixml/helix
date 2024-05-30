@@ -1,4 +1,5 @@
 import React, { FC } from 'react'
+import { SxProps } from '@mui/material/styles'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import Card from '@mui/material/Card'
@@ -10,32 +11,35 @@ import Avatar from '@mui/material/Avatar'
 import Row from '../widgets/Row'
 import Cell from '../widgets/Cell'
 
-import {
-  IApp,
-} from '../../types'
-
-import {
-  getAppImage,
-  getAppAvatar,
-  getAppName,
-  getAppDescription,
-} from '../../utils/apps'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 
 const AppStoreCard: FC<{
-  app: IApp,
+  avatar?: string,
+  image?: string,
+  name?: string,
+  description?: string,
+  clickTitle?: string,
+  disabled?: boolean,
+  selected?: boolean,
+  sx?: SxProps,
   onClick?: () => void,
 }> = ({
-  app,
+  avatar,
+  image,
+  name,
+  description,
+  clickTitle = 'Launch',
+  disabled = false,
+  selected = false,
+  sx = {},
   onClick,
 }) => {
-  const avatar = getAppAvatar(app)
-  const image = getAppImage(app)
-  const name = getAppName(app)
-  const description = getAppDescription(app)
-
   return (
-    <Card>
+    <Card
+      sx={sx}
+    >
       <CardActionArea
+        disabled={ disabled }
         onClick={ onClick }
       >
         {
@@ -86,13 +90,29 @@ const AppStoreCard: FC<{
       </CardActionArea>
       {
         onClick && (
-          <CardActions>
-            <Button
-              size="small"
-              onClick={ onClick }
-            >
-              Launch
-            </Button>
+          <CardActions
+            sx={{
+              minHeight: '50px'
+            }}
+          >
+            {
+              selected ? (
+                <CheckCircleOutlineIcon
+                  sx={{
+                    color: 'green',
+                  }}
+                />
+              ) : (
+                <Button
+                  size="small"
+                  color="secondary"
+                  disabled={ disabled }
+                  onClick={ onClick }
+                >
+                  { clickTitle }
+                </Button>
+              )
+            }
           </CardActions>
         )
       }

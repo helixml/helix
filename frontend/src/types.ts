@@ -501,12 +501,13 @@ export interface IAssistantGPTScript {
 }
 
 export interface IAssistantConfig {
-  id: string,
+  id?: string,
   name: string,
   description: string,
   avatar: string,
   image: string,
   model: string,
+  type: ISessionType,
   system_prompt: string,
   apis: IAssistantApi[],
   gptscripts: IAssistantGPTScript[],

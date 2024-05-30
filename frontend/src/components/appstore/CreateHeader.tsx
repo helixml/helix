@@ -1,65 +1,83 @@
 import React, { FC } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
-
-import Row from '../widgets/Row'
-import Cell from '../widgets/Cell'
+import Avatar from '@mui/material/Avatar'
 
 import {
   IApp,
 } from '../../types'
 
+import {
+  getAppImage,
+  getAppAvatar,
+  getAppName,
+  getAppDescription,
+} from '../../utils/apps'
+
 const CreateHeader: FC<{
   app: IApp,
-  paddingX: number,
 }> = ({
   app,
-  paddingX,
 }) => {
+  const avatar = getAppAvatar(app)
+  const image = getAppImage(app)
+  const name = getAppName(app)
+  const description = getAppDescription(app)
+
   return (
-    <Row
-      vertical
-      center
-    >
-      <Cell
-        sx={{
-          pt: 4,
-          px: paddingX,
-          textAlign: 'center',
-        }}
-      >
-        {
-          app.config.helix.image && (
-            <Box
-              component="img"
-              src={ app.config.helix.image }
+    <>
+      {
+        avatar && (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Avatar
+              src={ avatar }
               sx={{
-                maxWidth: '800px',
-                maxHeight: '200px',
+                width: '200px',
+                height: '200px'
               }}
             />
-          )
-        }
-        {
-          app.config.helix.name && (
-            <Typography
-              variant="h4"
-            >
-              { app.config.helix.name }
-            </Typography>
-          )
-        }
-        {
-          app.config.helix.description && (
-            <Typography
-              variant="body1"
-            >
-              { app.config.helix.description }
-            </Typography>
-          )
-        }
-      </Cell>
-    </Row>
+          </Box>
+          
+        )
+      }
+      {
+        !avatar && image && (
+          <Box
+            component="img"
+            src={ image }
+            sx={{
+              maxWidth: '800px',
+              maxHeight: '200px',
+            }}
+          />
+        )
+      }
+      {
+        name && (
+          <Typography
+            variant="h4"
+          >
+            { name }
+          </Typography>
+        )
+      }
+      {
+        description && (
+          <Typography
+            variant="body1"
+          >
+            { description }
+          </Typography>
+        )
+      }
+    </>
   )
 }
 
