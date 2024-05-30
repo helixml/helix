@@ -59,6 +59,12 @@ import {
   getNewSessionBreadcrumbs,
 } from '../utils/session'
 
+import {
+  getAssistantAvatar,
+  getAssistantName,
+  getAssistant,
+} from '../utils/apps'
+
 const PADDING_X_LARGE = 6
 const PADDING_X_SMALL = 4
 
@@ -83,16 +89,8 @@ const Create: FC = () => {
   const appID = router.params.app_id || '' 
   const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
 
-  let activeAssistantIndex = 0
-
-  if(router.params.assistant) {
-    activeAssistantIndex = parseInt(router.params.assistant)
-    if(isNaN(activeAssistantIndex)) {
-      activeAssistantIndex = 0
-    }
-  }
-
-  const activeAssistant = apps.app?.config.helix?.assistants?.[activeAssistantIndex]
+  const activeAssistantID = router.params.assistant_id || '0'
+  const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
 
   const imageFineTuneStep = router.params.imageFineTuneStep || 'upload'
   const PADDING_X = isBigScreen ? PADDING_X_LARGE : PADDING_X_SMALL
@@ -255,6 +253,9 @@ const Create: FC = () => {
     />
   )
 
+  const activeAssistantAvatar = activeAssistant && apps.app ? getAssistantAvatar(apps.app, activeAssistantID) : ''
+  const activeAssistantName = activeAssistant && apps.app ? getAssistantName(apps.app, activeAssistantID) : ''
+
   const inferenceFooter = (
     <Box
       sx={{
@@ -270,13 +271,15 @@ const Create: FC = () => {
           disabled={ mode == SESSION_MODE_FINETUNE }
           startAdornment={ isBigScreen && (
             activeAssistant ? (
-              <Avatar
-                src={ activeAssistant.avatar }
-                sx={{
-                  width: '30px',
-                  height: '30px',
-                }}
-              />
+              activeAssistantAvatar ? (
+                <Avatar
+                  src={ activeAssistantAvatar }
+                  sx={{
+                    width: '30px',
+                    height: '30px',
+                  }}
+                />
+              ) : null
             ) : (
               <SessionTypeButton
                 type={ type }
@@ -284,7 +287,7 @@ const Create: FC = () => {
               />
             )
           )}
-          promptLabel={ activeAssistant ? `Chat with ${activeAssistant.name}` : undefined }
+          promptLabel={ activeAssistant ? `Chat with ${activeAssistantName || ''}` : undefined }
           onUpdate={ inputs.setInputValue }
           onInference={ onInference }
         />
@@ -470,9 +473,9 @@ const Create: FC = () => {
       >
         <AssistantPicker
           app={ apps.app }
-          activeAssistant={ activeAssistantIndex }
+          activeAssistantID={ activeAssistantID }
           onClick={ (index) => {
-            router.setParams({assistant: index.toString()})
+            router.setParams({assistant_id: index.toString()})
           }}
         />
       </Cell>

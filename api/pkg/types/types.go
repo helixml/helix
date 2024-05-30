@@ -170,9 +170,10 @@ type SessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID     string `json:"app_id"`     // Assign the session settings from the specified app
-	SessionID string `json:"session_id"` // If empty, we will start a new session
-	Stream    bool   `json:"stream"`     // If true, we will stream the response
+	AppID       string `json:"app_id"`       // Assign the session settings from the specified app
+	AssistantID string `json:"assistant_id"` // Which assistant are we speaking to?
+	SessionID   string `json:"session_id"`   // If empty, we will start a new session
+	Stream      bool   `json:"stream"`       // If true, we will stream the response
 	// If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses
 	Legacy       bool        `json:"legacy"`
 	Type         SessionType `json:"type"` // e.g. text, image

@@ -34,13 +34,15 @@ const CreateHeader: FC<{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
+              mb: 1,
             }}
           >
             <Avatar
               src={ avatar }
               sx={{
                 width: '200px',
-                height: '200px'
+                height: '200px',
+                border: '1px solid #fff',
               }}
             />
           </Box>
@@ -51,10 +53,15 @@ const CreateHeader: FC<{
         !avatar && image && (
           <Box
             component="img"
-            src={ image }
             sx={{
-              maxWidth: '800px',
-              maxHeight: '200px',
+              width: '100%',
+              height: '250px',
+              backgroundImage: `url(${image})`,
+              // no repeat and cover and center
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              border: '1px solid #fff',
             }}
           />
         )
@@ -72,11 +79,15 @@ const CreateHeader: FC<{
         description && (
           <Typography
             variant="body1"
+            sx={{
+              mb: 1,
+            }}
           >
             { description }
           </Typography>
         )
       }
+      
     </>
   )
 }
