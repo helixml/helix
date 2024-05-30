@@ -10,12 +10,14 @@ import Page from '../components/system/Page'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
+import useAccount from '../hooks/useAccount'
 import useApps from '../hooks/useApps'
 import useRouter from '../hooks/useRouter'
 
 import useIsBigScreen from '../hooks/useIsBigScreen'
 
 const AppStore: FC = () => {
+  const account = useAccount()
   const apps = useApps()
   const theme = useTheme()
   const router = useRouter()
@@ -23,8 +25,11 @@ const AppStore: FC = () => {
   const isBigScreen = useIsBigScreen()
   
   useEffect(() => {
+    if(!account.user) return
     apps.loadData()
-  }, [])
+  }, [
+    account.user,
+  ])
   
   return (
     <Page
