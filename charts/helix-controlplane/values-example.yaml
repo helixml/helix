@@ -13,10 +13,9 @@ envVariables:
   TOGETHER_API_KEY: ""
   # Keycloak location
   KEYCLOAK_URL: http://keycloak:8888/auth
-  KEYCLOAK_TOKEN: "5ca0fc03-d625-456e-bca7-8e732309165f"
   KEYCLOAK_USER: "admin"
   KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
   # Dashboard
-  ADMIN_USER_IDS: ""
+  ADMIN_USER_IDS: "all"
   # Evals 
   EVAL_USER_ID: ""
