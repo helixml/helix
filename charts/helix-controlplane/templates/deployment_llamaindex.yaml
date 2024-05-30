@@ -72,12 +72,16 @@ spec:
               value: postgres
             - name: POSTGRES_PASSWORD
               value: pgvector
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+          # Enable once we have llamaindex endpoint for health check
+          # livenessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          #   {{- toYaml .Values.resources | nindent 12 }}
         - name: pgvector
           image: ankane/pgvector:latest
           ports:
