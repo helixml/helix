@@ -1,0 +1,24 @@
+{{- if and .Values.llamaindex.persistence.enabled (not .Values.llamaindex.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-llamaindex-pvc  
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llamaindex
+spec:
+  accessModes:
+  {{- range .Values.llamaindex.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.llamaindex.persistence.size | quote }}
+  {{- if .Values.llamaindex.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.llamaindex.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.llamaindex.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.llamaindex.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.llamaindex.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}
