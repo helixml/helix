@@ -510,7 +510,6 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 			runtimeName = types.InferenceRuntimeAxolotl
 			initialSession.ModelName = types.Model_Cog_SDXL
 		}
-
 	}
 
 	switch runtimeName {

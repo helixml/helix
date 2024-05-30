@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -294,4 +295,28 @@ func OwnerContext(user string) types.OwnerContext {
 		Owner:     user,
 		OwnerType: types.OwnerTypeUser,
 	}
+}
+
+func IsInteger(s string) bool {
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+func GetAssistant(app *types.App, assistantID string) *types.AssistantConfig {
+	var assistant *types.AssistantConfig
+	for _, a := range app.Config.Helix.Assistants {
+		if a.ID == assistantID {
+			assistant = &a
+			break
+		}
+	}
+
+	if IsInteger(assistantID) {
+		assistantIndex, _ := strconv.Atoi(assistantID)
+		if len(app.Config.Helix.Assistants) > assistantIndex {
+			assistant = &app.Config.Helix.Assistants[assistantIndex]
+		}
+	}
+
+	return assistant
 }
