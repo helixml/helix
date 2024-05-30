@@ -71,21 +71,20 @@ const IMAGE_GEN_FEATURE: IFeature = {
 }
 
 const APPS_FEATURE: IFeature = {
-  title: 'Browse Apps',
-  description: 'AI Assistants and apps that you or other users have created (coming soon)',
-  disabled: true,
+  title: 'App Store',
+  description: 'AI Assistants and apps that you or other users have created',
   icon: <AppsIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
     title: 'Browse',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
+    handler: (navigate) => navigate('appstore'),
   }, {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => {},
+    handler: () => window.open("https://docs.helix.ml/helix/develop/getting-started/"),
   }]
 }
 
@@ -155,8 +154,8 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
 // We also need to make it clear that you can use the customized models in your apps/assistants
 
 const JS_APP_FEATURE: IFeature = {
-  title: 'AI-Powered JS Apps',
-  description: 'Create a Frontend App with AI powered UI or embed a chatbot, deploy with git push',
+  title: 'AI-Powered Apps',
+  description: 'Create a Frontend/Backend App with AI powered UI or embed a chatbot, deploy with git push',
   icon: <WebIcon sx={{color: '#ef2ec6'}} />,
   // image: '/img/servers.png',
   actions: [{
@@ -168,7 +167,7 @@ const JS_APP_FEATURE: IFeature = {
     title: 'Docs',
     color: 'primary',
     variant: 'text',
-    handler: () => window.open("https://docs.helix.ml/helix/develop/apps/"),
+    handler: () => window.open("https://docs.helix.ml/helix/develop/getting-started/"),
   }]
 }
 
@@ -246,20 +245,16 @@ const USERS_FEATURE: IFeature = {
 
 const SETTINGS_FEATURE: IFeature = {
   title: 'Settings',
-  description: 'Manage which models are enabled and other configuration (coming soon)',
+  description: 'See current and available global Helix settings',
   icon: <SettingsIcon sx={{color: '#00d5ff'}} />,
   // image: '/img/servers.png',
-  disabled: true,
+  // disabled: true,
+  // TODO: make a page that shows these settings rather than just linking to the docs
   actions: [{
     title: 'Settings',
     color: 'secondary',
     variant: 'outlined',
-    handler: () => {},
-  }, {
-    title: 'Docs',
-    color: 'primary',
-    variant: 'text',
-    handler: () => {},
+    handler: () => window.open("https://docs.helix.ml/helix/private-deployment/environment-variables/"),
   }]
 }
 
@@ -417,7 +412,7 @@ const HomeFeatureGrid: FC = ({
       />
 
       <HomeFeatureSection
-        title="Customize Models"
+        title="Customize Models with Data"
         features={[
           RAG_FEATURE,
           FINETUNE_IMAGES_FEATURE,

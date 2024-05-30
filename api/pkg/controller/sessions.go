@@ -541,6 +541,11 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			return nil, fmt.Errorf("error getting app: %w", err)
 		}
 
+		// if the tool exists but the user cannot access it - then something funky is being attempted and we should deny it
+		if (!app.Global && !app.Shared) && app.Owner != session.Owner {
+			return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
+		}
+
 		if len(app.Config.Helix.Assistants) > 0 {
 			// TODO: support > 1 assistant
 			assistant := app.Config.Helix.Assistants[0]

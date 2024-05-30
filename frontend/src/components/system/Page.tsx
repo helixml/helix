@@ -10,22 +10,26 @@ import useAccount from '../../hooks/useAccount'
 import useLightTheme from '../../hooks/useLightTheme'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
 
+import {
+  IPageBreadcrumb,
+} from '../../types'
+
 const Page: React.FC<{
-  topbarTitle?: string,
   topbarContent?: ReactNode,
   // in case there is no title or topbar content, but we still want to show the topbar
   showTopbar?: boolean,
   // if this is provided then we render a "Home : {title}" text in the topbar
   breadcrumbTitle?: string,
+  breadcrumbs?: IPageBreadcrumb[],
   headerContent?: ReactNode,
   footerContent?: ReactNode,
   px?: number,
   sx?: SxProps,
 }> = ({
-  topbarTitle = '',
   topbarContent = null,
   showTopbar = false,
   breadcrumbTitle,
+  breadcrumbs = [],
   headerContent = null,
   footerContent = null,
   px = 3,
@@ -36,23 +40,52 @@ const Page: React.FC<{
   const router = useRouter()
   const account = useAccount()
   const lightTheme = useLightTheme()
-  let useTopbarTitle = breadcrumbTitle ? (
-    <Box component="span">
-      <Link
-        component="a"
-        sx={{
-          cursor: 'pointer',
-          color: lightTheme.textColor,
-          textDecoration: 'underline',
-        }}
-        onClick={ () => router.navigate('home') }
-      >Home</Link>&nbsp;&nbsp;&gt;&nbsp;&nbsp;{breadcrumbTitle}
-    </Box>
-  ) : topbarTitle
 
-  if(!isBigScreen) {
-    useTopbarTitle = ''
+  let useBreadcrumbTitles: IPageBreadcrumb[] = []
+  
+  useBreadcrumbTitles = useBreadcrumbTitles.concat(breadcrumbs)
+
+  if(breadcrumbTitle) {
+    useBreadcrumbTitles.push({
+      title: breadcrumbTitle,
+    })
   }
+
+  if(useBreadcrumbTitles.length > 0) {
+    useBreadcrumbTitles.unshift({
+      title: 'Home',
+      routeName: 'home',
+    })
+  }
+  
+  let useTopbarTitle = isBigScreen && useBreadcrumbTitles.length > 0 ? (
+    <Box component="span">
+      {
+        useBreadcrumbTitles.map((breadcrumb, index) => {
+          return (
+            <span key={ index }>
+              {
+                breadcrumb.routeName ? (
+                  <Link
+                    component="a"
+                    sx={{
+                      cursor: 'pointer',
+                      color: lightTheme.textColor,
+                      textDecoration: 'underline',
+                    }}
+                    onClick={ () => router.navigate(breadcrumb.routeName || '', breadcrumb.params || {}) }
+                  >
+                    { breadcrumb.title }
+                  </Link>
+                ) : breadcrumb.title
+              }
+              { index < useBreadcrumbTitles.length - 1 ? <>&nbsp;&nbsp;&gt;&nbsp;&nbsp;</> : '' }
+            </span>
+          )
+        })
+      }
+    </Box>
+  ) : null
 
   return (
     <Box
@@ -64,7 +97,7 @@ const Page: React.FC<{
       }}
     >
       {
-        (topbarTitle || topbarContent || breadcrumbTitle || showTopbar) && (
+        (useTopbarTitle || topbarContent || breadcrumbTitle || showTopbar) && (
           <Box
             sx={{
               flexGrow: 0,

@@ -1,11 +1,9 @@
 import React, { FC, useMemo, useCallback } from 'react'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
-import ViewIcon from '@mui/icons-material/Visibility'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
-import Stack from '@mui/material/Stack'
 import Chip from '@mui/material/Chip'
 import GitHubIcon from '@mui/icons-material/GitHub'
 
@@ -23,6 +21,13 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 import {
   IApp,
 } from '../../types'
+
+import {
+  getAppImage,
+  getAppAvatar,
+  getAppName,
+  getAppDescription,
+} from '../../utils/apps'
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
   data: IApp[],
@@ -106,6 +111,8 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       // TODO: add the list of apis also to this display
       // we can grab stuff from the tools package that already renders endpoints
 
+      const accessType = app.global ? 'Global' : 'User'
+
       return {
         id: app.id,
         _data: app,
@@ -115,25 +122,34 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
               <GitHubIcon />
             </Cell>
             <Cell grow>
-              <a
-                style={{
-                  textDecoration: 'none',
-                  fontWeight: 'bold',
-                  color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
-                }}
-                href="#"
-                onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onEdit(app)
-                }}
-              >
-                { app.name }
-              </a>
+              <Typography variant="body1">
+                <a
+                  style={{
+                    textDecoration: 'none',
+                    fontWeight: 'bold',
+                    color: theme.palette.mode === 'dark' ? theme.palette.text.primary : theme.palette.text.secondary,
+                  }}
+                  href="#"
+                  onClick={(e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onEdit(app)
+                  }}
+                >
+                  { getAppName(app) }
+                </a>
+              </Typography>
+              <Typography variant="caption">
+                { app.config.github?.repo }
+              </Typography>
             </Cell>
           </Row>
         ),
-        type: app.app_type,
+        type: (
+          <Typography variant="body1">
+            { app.app_source } ({accessType})
+          </Typography>
+        ),
         details: (
           <>
             { gptscriptsElem }
@@ -200,6 +216,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       fields={[{
         name: 'name',
         title: 'Name',
+      }, {
+        name: 'type',
+        title: 'Type',
       }, {
         name: 'updated',
         title: 'Updated',
