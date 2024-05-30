@@ -62,7 +62,7 @@ spec:
           ports:
             - name: http
               containerPort: 5000
-              protocol: TCP          
+              protocol: TCP
           env:
             - name: POSTGRES_HOST
               value: localhost
@@ -72,16 +72,7 @@ spec:
               value: postgres
             - name: POSTGRES_PASSWORD
               value: pgvector
-          # Enable once we have llamaindex endpoint for health check
-          # livenessProbe:
-          #   httpGet:
-          #     path: /healthz
-          #     port: http
-          # readinessProbe:
-          #   httpGet:
-          #     path: /healthz
-          #     port: http
-          #   {{- toYaml .Values.resources | nindent 12 }}
+            # TODO:                       
         - name: pgvector
           image: ankane/pgvector:latest
           ports:
