@@ -216,9 +216,12 @@ const Create: FC = () => {
   ])
 
   useEffect(() => {
+    if(!account.user) return
+    if(!appID) return
     apps.loadApp(appID)
     return () => apps.setApp(undefined)
   }, [
+    account.user,
     appID,
   ])
 
