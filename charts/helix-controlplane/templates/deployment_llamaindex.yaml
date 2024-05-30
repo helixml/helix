@@ -91,13 +91,17 @@ spec:
               value: postgres
             - name: POSTGRES_PASSWORD
               value: pgvector
+          {{- if .Values.llamaindex.persistence.enabled }} 
           volumeMounts:
             - name: llamaindex-storage
               mountPath: /var/lib/postgresql/data
+          {{- end }}
+      {{- if .Values.llamaindex.persistence.enabled }} 
       volumes:
       - name: llamaindex-storage
         persistentVolumeClaim:
           claimName: {{ include "helix-controlplane.fullname" . }}-llamaindex-pvc
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
