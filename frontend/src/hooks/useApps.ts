@@ -48,6 +48,7 @@ export const useApps = () => {
   }, [])
 
   const loadApp = useCallback(async (id: string) => {
+    if(!id) return
     const result = await api.get<IApp>(`/api/v1/apps/${id}`, undefined, {
       snackbar: true,
     })

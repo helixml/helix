@@ -53,6 +53,7 @@ export const getAssistantName = (app: IApp, assistantID: string): string => {
 }
 
 export const getAssistant = (app: IApp, assistantID: string): IAssistantConfig | void => {
+  if(!app || !app.config) return
   const byID = app.config.helix?.assistants?.find((assistant) => assistant.id === assistantID)
   if(byID) {
     return byID
