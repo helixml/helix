@@ -647,6 +647,7 @@ export interface IMessage {
 
 export interface ISessionChatRequest {
   app_id?: string,
+  assistant_id?: string,
   session_id?: string,
   stream?: boolean,
   legacy?: boolean,

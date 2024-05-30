@@ -9,11 +9,11 @@ import {
 
 const AssistantPicker: FC<{
   app: IApp,
-  activeAssistant?: number,
+  activeAssistantID?: string,
   onClick: (index: number) => void,
 }> = ({
   app,
-  activeAssistant = 0,
+  activeAssistantID = '0',
   onClick,
 }) => {
   if(!app.config.helix?.assistants || app.config.helix?.assistants?.length <= 1) {
@@ -28,18 +28,19 @@ const AssistantPicker: FC<{
     >
       {
         app.config.helix?.assistants?.map((assistant, index) => {
+          const useID = assistant.id || index.toString()
           return (
             <Grid item xs={ 12 } sm={ 12 } md={ 6 } lg={ 3 } key={ index } sx={{ p: 0, m: 0 }}>
               <AppStoreCard
                 avatar={ assistant.avatar }
                 image={ assistant.image }
-                name={ assistant.name }
+                name={ assistant.name || `Assistant ${index + 1}` }
                 description={ assistant.description }
                 clickTitle="Chat"
-                disabled={ activeAssistant == index }
-                selected={ activeAssistant == index }
+                disabled={ activeAssistantID == useID }
+                selected={ activeAssistantID == useID }
                 sx={{
-                  opacity: activeAssistant == index ? '1' : '0.7',
+                  opacity: activeAssistantID == useID ? '1' : '0.7',
                 }}
                 onClick={ () => onClick(index) }
               />

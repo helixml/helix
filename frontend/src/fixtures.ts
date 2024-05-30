@@ -18,7 +18,7 @@ export const APPS: IApp[] = [{
       name: 'Sarcastic Collective',
       description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
       avatar: 'https://www.bbcstudios.com/media/4550/only-fools-and-horses-store-16x9.jpg?width=820&height=461',
-      image: 'https://www.bbcstudios.com/media/4550/only-fools-and-horses-store-16x9.jpg?width=820&height=461',
+      image: 'https://coolidge.org//sites/default/files/featured_images/Monty%20Python%20and%20the%20Holy%20Grail%201%20website.jpg',
       assistants: [{
         name: 'Sarcastic Bob',
         description: "I am bob",
@@ -57,11 +57,15 @@ export const APPS: IApp[] = [{
     secrets: {},
     allowed_domains: [],
     helix: {
+      name: 'Waitrose Demo',
+      description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
+      avatar: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
+      image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
       assistants: [{
-        name: 'Waitrose Demo',
-        description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
-        avatar: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
-        image: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
+        name: '',
+        description: '',
+        avatar: '',
+        image: '',
         model: '',
         type: 'text',
         system_prompt: '',
