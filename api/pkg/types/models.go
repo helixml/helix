@@ -61,7 +61,7 @@ func ProcessModelName(
 ) (ModelName, error) {
 	switch sessionType {
 	case SessionTypeText:
-		if sessionType == SessionTypeText && hasFinetune {
+		if sessionType == SessionTypeText && (sessionMode == SessionModeFinetune || hasFinetune) {
 			// fine tuning doesn't work with ollama yet
 			return Model_Axolotl_Mistral7b, nil
 		}
