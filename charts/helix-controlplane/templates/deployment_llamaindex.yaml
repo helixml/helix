@@ -1,0 +1,112 @@
+{{- if .Values.llamaindex.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llamaindex
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: llamaindex
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-llamaindex
+  labels:
+    app.kubernetes.io/component: llamaindex
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+spec:
+  # Llamaindex is paired together with pgvector, hence forced to 1 replica
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: llamaindex
+      {{- include "helix-controlplane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/component: llamaindex
+        {{- include "helix-controlplane.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:        
+        - name: llamaindex
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.llamaindex.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            - name: POSTGRES_HOST
+              value: localhost
+            - name: POSTGRES_DATABASE
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: pgvector
+            # TODO:                       
+        - name: pgvector
+          image: ankane/pgvector:latest
+          ports:
+            - name: tcp-pgvector
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: pgvector
+          {{- if .Values.llamaindex.persistence.enabled }} 
+          volumeMounts:
+            - name: llamaindex-storage
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+      {{- if .Values.llamaindex.persistence.enabled }} 
+      volumes:
+      - name: llamaindex-storage
+        persistentVolumeClaim:
+          claimName: {{ include "helix-controlplane.fullname" . }}-llamaindex-pvc
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
