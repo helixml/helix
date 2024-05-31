@@ -78,6 +78,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 			UploadedDataID:          req.UploadedDataID,
 			RAGSourceID:             req.RAGSourceID,
 			LoraID:                  req.LoraID,
+			AssistantID:             req.AssistantID,
 		},
 	}
 
