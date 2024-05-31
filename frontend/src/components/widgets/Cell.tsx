@@ -4,12 +4,14 @@ import useMediaQuery from '@mui/material/useMediaQuery'
 import Box from '@mui/material/Box'
 
 const Cell: FC<{
+  id?: string,
   flexGrow?: number,
   grow?: boolean,
   end?: boolean,
   breakpoint?: Breakpoint,
   sx?: SxProps,
 }> = ({
+  id,
   flexGrow = 0,
   grow = false,
   end = false,
@@ -55,6 +57,7 @@ const Cell: FC<{
 
   return (
     <Box
+      id={ id }
       sx={ useSx }
     >
       { children }

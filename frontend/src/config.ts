@@ -68,8 +68,8 @@ export const PROMPT_LABELS = {
 }
 
 export const MODE_LABELS = {
-  [SESSION_MODE_INFERENCE]: 'Inference',
-  [SESSION_MODE_FINETUNE]: 'Fine Tune',
+  [SESSION_MODE_INFERENCE]: 'Chat',
+  [SESSION_MODE_FINETUNE]: 'Learn',
 }
 
 export const COLORS = {

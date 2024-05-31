@@ -170,9 +170,10 @@ type SessionsList struct {
 // the user wants to do inference against a model
 // we turn this into a InternalSessionRequest
 type SessionChatRequest struct {
-	AppID     string `json:"app_id"`     // Assign the session settings from the specified app
-	SessionID string `json:"session_id"` // If empty, we will start a new session
-	Stream    bool   `json:"stream"`     // If true, we will stream the response
+	AppID       string `json:"app_id"`       // Assign the session settings from the specified app
+	AssistantID string `json:"assistant_id"` // Which assistant are we speaking to?
+	SessionID   string `json:"session_id"`   // If empty, we will start a new session
+	Stream      bool   `json:"stream"`       // If true, we will stream the response
 	// If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses
 	Legacy       bool        `json:"legacy"`
 	Type         SessionType `json:"type"` // e.g. text, image
@@ -758,13 +759,13 @@ type SessionToolBinding struct {
 	Updated   time.Time
 }
 
-type AppType string
+type AppSource string
 
 const (
 	// this means the configuration for the app lives in the Helix database
-	AppTypeHelix AppType = "helix"
+	AppSourceHelix AppSource = "helix"
 	// this means the configuration for the app lives in a helix.yaml in a Github repository
-	AppTypeGithub AppType = "github"
+	AppSourceGithub AppSource = "github"
 )
 
 type AssistantGPTScript struct {
@@ -786,11 +787,16 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	Name         string `json:"name" yaml:"name"`
-	Description  string `json:"description" yaml:"description"`
-	Avatar       string `json:"avatar" yaml:"avatar"`
-	Model        string `json:"model" yaml:"model"`
-	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+	ID          string `json:"id" yaml:"id"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
+	Avatar      string `json:"avatar" yaml:"avatar"`
+	Image       string `json:"image" yaml:"image"`
+	Model       string `json:"model" yaml:"model"`
+	// so we can have fine tuned image assistants or system prompt augmentedimage inference
+	// defaults to text
+	Type         SessionType `json:"type" yaml:"type"`
+	SystemPrompt string      `json:"system_prompt" yaml:"system_prompt"`
 	// the data entity ID that we have created as the RAG source
 	RAGSourceID string `json:"rag_source_id" yaml:"rag_source_id"`
 	// the data entity ID that we have created for the lora fine tune
@@ -811,6 +817,8 @@ type AppHelixConfig struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
 	Avatar      string            `json:"avatar" yaml:"avatar"`
+	Image       string            `json:"image" yaml:"image"`
+	ExternalURL string            `json:"external_url" yaml:"external_url"`
 	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
 }
 
@@ -831,7 +839,7 @@ type AppGithubConfig struct {
 type AppConfig struct {
 	AllowedDomains []string          `json:"allowed_domains" yaml:"allowed_domains"`
 	Secrets        map[string]string `json:"secrets" yaml:"secrets"`
-	Helix          *AppHelixConfig   `json:"helix"`
+	Helix          AppHelixConfig    `json:"helix"`
 	Github         *AppGithubConfig  `json:"github"`
 }
 
@@ -864,11 +872,11 @@ type App struct {
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType   OwnerType `json:"owner_type"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	AppType     AppType   `json:"app_type"`
-	Config      AppConfig `json:"config" gorm:"jsonb"`
+	OwnerType OwnerType `json:"owner_type"`
+	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
+	Global    bool      `json:"global"`
+	Shared    bool      `json:"shared"`
+	Config    AppConfig `json:"config" gorm:"jsonb"`
 }
 
 type KeyPair struct {

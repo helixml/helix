@@ -83,189 +83,193 @@ export const FineTuneCloneInteraction: FC<{
 
   return (
     <>
-     
-  <Grid item sm={12} md={6}>
-      <Typography>
-        You have completed a fine tuning session on these {type === SESSION_TYPE_IMAGE ? 'images' : 'documents'}.
-      </Typography>
-      <Typography>
-        You can now chat to your model, add some more documents and re-train or you can "Clone" from this point in time.
-      </Typography>
-   </Grid>
-   <Grid item sm={12} md={6} sx={{ mt: 2 }}>
+      <Grid item sm={12} md={6}>
+        <Typography>
+          You have completed a fine tuning session on these {type === SESSION_TYPE_IMAGE ? 'images' : 'documents'}.
+        </Typography>
+        <Typography>
+          You can now chat to your model, add some more documents and re-train or you can "Clone" from this point in time.
+        </Typography>
+      </Grid>
+      <Grid item sm={12} md={6} sx={{ mt: 2 }}>
         {/* If you want the buttons to be under the text, they should be in their own Grid item */}
-      {onAddDocuments && (
+        {/* {onAddDocuments && (
         <Button
             variant='contained'
             size="small"
             sx={{ mb: 1, mr: 1, textTransform: 'none', bgcolor: '#3BF959', color: 'black', fontWeight: 800 }}
             onClick={onAddDocuments}
-           >
+          >
             Add more {type === SESSION_TYPE_TEXT ? 'Documents' : 'Images'}
         </Button>
-        )}
-        {type === SESSION_TYPE_TEXT && (
-          <Button
-              variant="contained"
-              color="primary"
-              size="small"
-              sx={{ mb: 1, mr: 1, textTransform: 'none', bgcolor: '#B4FDC0', color: 'black', fontWeight: 800 }}
-              onClick={() => setViewMode(true)}
-             >
-              View questions
-          </Button>
-        )}
-          <Button
-            variant="contained"
-            color="primary"
-            size="small"
-            sx={{ mb: 1,  textTransform: 'none', bgcolor: '#ffffff', color: 'black', fontWeight: 800 }}
-            onClick={() => setCloneMode(true)}
-           >
-            Clone
-          </Button>
-   
-     </Grid>
-
-      {viewMode && interactionQuestions.loaded && (
-        <FineTuneTextQuestionEditor
-          // title="View Questions"
-          cancelTitle="Close"
-          readOnly
-          initialQuestions={interactionQuestions.questions}
-          onCancel={() => setViewMode(false)}
-        />
-      )}
-  
-      {cloneMode && (
- <Window 
-      size="lg"
-      open={cloneMode}
-      withCancel
-      onCancel={() => setCloneMode(false)}
-      rightButtons={
+        )} */}
+        {
+          type === SESSION_TYPE_TEXT && (
+            <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                sx={{ mb: 1, mr: 1, textTransform: 'none', bgcolor: '#B4FDC0', color: 'black', fontWeight: 800 }}
+                onClick={() => setViewMode(true)}
+              >
+                View questions
+            </Button>
+          )
+        }
         <Button
           variant="contained"
-          
-          sx={{ mb: 0, mr:2, mt: 2,  textTransform: 'none', bgcolor: '#fcdb05', color: 'black', fontWeight: 800 }}
-          onClick={handleCloneSelectedMode}
-          disabled={!selectedCloneMode}
+          color="primary"
+          size="small"
+          sx={{ mb: 1,  textTransform: 'none', bgcolor: '#ffffff', color: 'black', fontWeight: 800 }}
+          onClick={() => setCloneMode(true)}
           >
-          Clone with selected
+          Clone
         </Button>
-        }
-        >
-     <Grid container spacing={2}>
-            {/* Card for "Just Data" */}
-    <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_JUST_DATA)}>
-     <Card
-          sx={{
-            height: '100%',
-            display: 'flex',
-            mt: 3,
-            ml: 3,
-            flexDirection: 'column',
-            backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? '#fcdb05' : 'default',
-            borderRadius: '10px',
-            
-          }}
-          onClick={() => handleCardClick(CLONE_INTERACTION_MODE_JUST_DATA)}
-        >
-        <CardContent
-        sx={{
-          flexGrow: 1,
-          // This applies the color conditionally to all child elements
-          color: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? 'black' : 'text.secondary',
-        }}
-       >    
-        <TextureIcon
-          fontSize="large"
-          sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? 'black' : 'text.secondary' }}
-        />
-        <Typography gutterBottom variant="h5" component="div">
-          Just Data
-        </Typography>
-        <Typography gutterBottom variant="body2">
-          Start again with the original data. Both the trained model and question answer pairs will be removed.
-        </Typography>
-        {/* Conditional rendering based on session type is removed since it's redundant */}
-        </CardContent>
-   </Card>
-   </Grid>
-  
-            {/* Card for "With Questions" */}
-   {type === SESSION_TYPE_TEXT && (
-   <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_WITH_QUESTIONS)}>
-      <Card
-          sx={{
-            height: '100%',
-            display: 'flex',
-            mt: 3,
-            flexDirection: 'column',
-            backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? '#b4fdc0' : 'default',
-            borderRadius: '10px',
-          }}
-         >
-         <CardContent
-          sx={{
-            flexGrow: 1,
-            color: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? 'black' : 'text.secondary',
-          }}
-         >
-          <TextsmsIcon
-            fontSize="large"
-            sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? 'black' : 'text.secondary' }}
+      </Grid>
+
+      {
+        viewMode && interactionQuestions.loaded && (
+          <FineTuneTextQuestionEditor
+            // title="View Questions"
+            cancelTitle="Close"
+            readOnly
+            initialQuestions={interactionQuestions.questions}
+            onCancel={() => setViewMode(false)}
           />
-          <Typography gutterBottom variant="h5" component="div">
-            With Questions
-          </Typography>
-          <Typography variant="body2">
-            The question & answer pairs will be retained but the trained model will be removed.
-          </Typography>
-         </CardContent>
-    </Card>
-   </Grid>
-   )}
+        )
+      }
   
-            {/* Card for "With Training" */}
-   <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_ALL)}>
-   <Card
-      sx={{
-        height: '100%',
-        display: 'flex',
-        mt: 3,
-        mr: 3,
-        flexDirection: 'column',
-        backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? '#f0beb0' : 'default',
-        borderRadius: '10px',
-      }}
-      >
-        <CardContent
-          sx={{
-            flexGrow: 1,
-            // Apply black text color when the card is selected
-            color: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? 'black' : 'text.secondary',
-          }}
-       >
-        <WrapTextIcon
-          fontSize="large"
-          // Apply black color to the icon when the card is selected
-          sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? 'black' : 'text.secondary' }}
-        />
-        <Typography gutterBottom variant="h5" component="div">
-          With Training
-        </Typography>
-        <Typography variant="body2">
-          Clone everything including the trained model.
-        </Typography>
-      </CardContent>
-     </Card>
-   </Grid>
-   </Grid>
-</Window>
-      )}
+      {
+        cloneMode && (
+          <Window 
+            size="lg"
+            open={cloneMode}
+            withCancel
+            onCancel={() => setCloneMode(false)}
+            rightButtons={
+              <Button
+                variant="contained"
+                
+                sx={{ mb: 0, mr:2, mt: 2,  textTransform: 'none', bgcolor: '#fcdb05', color: 'black', fontWeight: 800 }}
+                onClick={handleCloneSelectedMode}
+                disabled={!selectedCloneMode}
+                >
+                Clone with selected
+              </Button>
+            }
+          >
+            <Grid container spacing={2}>
+              {/* Card for "Just Data" */}
+              <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_JUST_DATA)}>
+                <Card
+                  sx={{
+                    height: '100%',
+                    display: 'flex',
+                    mt: 3,
+                    ml: 3,
+                    flexDirection: 'column',
+                    backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? '#fcdb05' : 'default',
+                    borderRadius: '10px',
+                    
+                  }}
+                  onClick={() => handleCardClick(CLONE_INTERACTION_MODE_JUST_DATA)}
+                >
+                  <CardContent
+                    sx={{
+                      flexGrow: 1,
+                      // This applies the color conditionally to all child elements
+                      color: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? 'black' : 'text.secondary',
+                    }}
+                  >
+                    <TextureIcon
+                      fontSize="large"
+                      sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_JUST_DATA ? 'black' : 'text.secondary' }}
+                    />
+                    <Typography gutterBottom variant="h5" component="div">
+                      Just Data
+                    </Typography>
+                    <Typography gutterBottom variant="body2">
+                      Start again with the original data. Both the trained model and question answer pairs will be removed.
+                    </Typography>
+                    {/* Conditional rendering based on session type is removed since it's redundant */}
+                  </CardContent>
+                </Card>
+              </Grid>
+        
+              {/* Card for "With Questions" */}
+              {type === SESSION_TYPE_TEXT && (
+                <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_WITH_QUESTIONS)}>
+                  <Card
+                      sx={{
+                        height: '100%',
+                        display: 'flex',
+                        mt: 3,
+                        flexDirection: 'column',
+                        backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? '#b4fdc0' : 'default',
+                        borderRadius: '10px',
+                      }}
+                    >
+                    <CardContent
+                      sx={{
+                        flexGrow: 1,
+                        color: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? 'black' : 'text.secondary',
+                      }}
+                    >
+                      <TextsmsIcon
+                        fontSize="large"
+                        sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_WITH_QUESTIONS ? 'black' : 'text.secondary' }}
+                      />
+                      <Typography gutterBottom variant="h5" component="div">
+                        With Questions
+                      </Typography>
+                      <Typography variant="body2">
+                        The question & answer pairs will be retained but the trained model will be removed.
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              )}
+        
+              {/* Card for "With Training" */}
+              <Grid item xs={12} md={colSize} onClick={() => handleCardClick(CLONE_INTERACTION_MODE_ALL)}>
+                <Card
+                  sx={{
+                    height: '100%',
+                    display: 'flex',
+                    mt: 3,
+                    mr: 3,
+                    flexDirection: 'column',
+                    backgroundColor: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? '#f0beb0' : 'default',
+                    borderRadius: '10px',
+                  }}
+                >
+                  <CardContent
+                    sx={{
+                      flexGrow: 1,
+                      // Apply black text color when the card is selected
+                      color: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? 'black' : 'text.secondary',
+                    }}
+                  >
+                    <WrapTextIcon
+                      fontSize="large"
+                      // Apply black color to the icon when the card is selected
+                      sx={{ color: selectedCloneMode === CLONE_INTERACTION_MODE_ALL ? 'black' : 'text.secondary' }}
+                    />
+                    <Typography gutterBottom variant="h5" component="div">
+                      With Training
+                    </Typography>
+                    <Typography variant="body2">
+                      Clone everything including the trained model.
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Window>
+        )
+      }
     </>
-  );
-};
+  )
+}
 
 export default FineTuneCloneInteraction;
