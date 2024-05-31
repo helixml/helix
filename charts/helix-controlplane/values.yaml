@@ -19,7 +19,7 @@ image:
   tag: "latest"
   
 llamaindex:
-  enabled: true
+  enabled: false
   image:
     repository: registry.helix.ml/helix/llamaindex
     tag: "latest"
