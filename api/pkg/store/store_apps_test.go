@@ -9,20 +9,14 @@ func (suite *PostgresStoreTestSuite) TestCreateApp() {
 	ownerID := "test-" + system.GenerateUUID()
 
 	app := &types.App{
-		Name:      "test",
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
-		Config: types.AppConfig{
-			Helix: &types.AppHelixConfig{
-				Name: "hello",
-			},
-		},
+		Config:    types.AppConfig{},
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)
 	suite.NoError(err)
 	suite.NotNil(createdApp)
-	suite.Equal(app.Name, createdApp.Name)
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
 	suite.NotEmpty(createdApp.ID)
@@ -37,20 +31,14 @@ func (suite *PostgresStoreTestSuite) TestGetApp() {
 	ownerID := "test-" + system.GenerateUUID()
 
 	app := &types.App{
-		Name:      "test",
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
-		Config: types.AppConfig{
-			Helix: &types.AppHelixConfig{
-				Name: "hello",
-			},
-		},
+		Config:    types.AppConfig{},
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)
 	suite.NoError(err)
 	suite.NotNil(createdApp)
-	suite.Equal(app.Name, createdApp.Name)
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
 	suite.NotEmpty(createdApp.ID)
@@ -60,7 +48,6 @@ func (suite *PostgresStoreTestSuite) TestGetApp() {
 	suite.NoError(err)
 	suite.NotNil(fetchedApp)
 	suite.Equal(createdApp.ID, fetchedApp.ID)
-	suite.Equal(createdApp.Name, fetchedApp.Name)
 	suite.Equal(createdApp.Owner, fetchedApp.Owner)
 	suite.Equal(createdApp.OwnerType, fetchedApp.OwnerType)
 
@@ -74,20 +61,14 @@ func (suite *PostgresStoreTestSuite) TestListApps() {
 	ownerID := "test-" + system.GenerateUUID()
 
 	app := &types.App{
-		Name:      "test",
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
-		Config: types.AppConfig{
-			Helix: &types.AppHelixConfig{
-				Name: "hello",
-			},
-		},
+		Config:    types.AppConfig{},
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)
 	suite.NoError(err)
 	suite.NotNil(createdApp)
-	suite.Equal(app.Name, createdApp.Name)
 	suite.Equal(app.Owner, createdApp.Owner)
 	suite.Equal(app.OwnerType, createdApp.OwnerType)
 	suite.NotEmpty(createdApp.ID)
@@ -112,14 +93,9 @@ func (suite *PostgresStoreTestSuite) TestDeleteApp() {
 	ownerID := "test-" + system.GenerateUUID()
 
 	app := &types.App{
-		Name:      "test",
 		Owner:     ownerID,
 		OwnerType: types.OwnerTypeUser,
-		Config: types.AppConfig{
-			Helix: &types.AppHelixConfig{
-				Name: "hello",
-			},
-		},
+		Config:    types.AppConfig{},
 	}
 
 	createdApp, err := suite.db.CreateApp(suite.ctx, app)

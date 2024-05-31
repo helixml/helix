@@ -80,7 +80,6 @@ export const useCreateInputs = () => {
   } = useRouter()
 
   useEffect(() => {
-    console.log('sessionConfig updated:', sessionConfig);
     const queryParams = new URLSearchParams(window.location.search);
     if (sessionConfig.ragEnabled) {
       queryParams.set('rag', 'true');
@@ -181,13 +180,21 @@ export const useCreateInputs = () => {
   const getSessionChatRequest = useCallback((type: ISessionType, model: string): ISessionChatRequest => {
     const urlParams = new URLSearchParams(window.location.search)
     const appID = urlParams.get('app_id') || ''
+    let assistantID = urlParams.get('assistant_id') || ''
     const ragSourceID = urlParams.get('rag_source_id') || ''
+
+    // if we have an app but no assistant ID let's default to the first one
+    if(appID && !assistantID) {
+      assistantID = '0'
+    }
 
     const req: ISessionChatRequest = {
       type,
       model,
+      stream: true,
       legacy: true,
       app_id: appID,
+      assistant_id: assistantID,
       rag_source_id: ragSourceID,
       tools: sessionConfig.activeToolIDs,
       messages: [{
