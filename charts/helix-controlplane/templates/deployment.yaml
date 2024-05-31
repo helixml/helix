@@ -56,11 +56,11 @@ spec:
             - name: FILESTORE_LOCALFS_PATH
               value: /filestore
             - name: TEXT_EXTRACTION_URL
-              value: http://llamaindex:5000/api/v1/extract
+              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/extract
             - name: RAG_INDEX_URL
-              value: http://llamaindex:5000/api/v1/rag/chunk
+              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
             - name: RAG_QUERY_URL
-              value: http://llamaindex:5000/api/v1/rag/query
+              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
@@ -71,47 +71,7 @@ spec:
           volumeMounts:
             - name: controlplane-storage
               mountPath: /filestore
-          {{- end }}
-        # RAG
-        {{- if .Values.llamaindex.enabled }}
-        - name: llamaindex
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.llamaindex.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 5000
-              protocol: TCP          
-          env:
-            - name: POSTGRES_HOST
-              value: pgvector
-            - name: POSTGRES_DATABASE
-              value: postgres
-            - name: POSTGRES_USER
-              value: postgres
-            - name: POSTGRES_PASSWORD
-              value: pgvector
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-        - name: pgvector
-          image: ankane/pgvector:latest
-          ports:
-            - name: tcp-pgvector
-              containerPort: 5432
-              protocol: TCP
-          env:
-            - name: POSTGRES_DB
-              value: postgres
-            - name: POSTGRES_USER
-              value: postgres
-            - name: POSTGRES_PASSWORD
-              value: pgvector
-        {{- end }}
+          {{- end }}       
 
       {{- if .Values.persistence.enabled }}     
       volumes:

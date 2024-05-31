@@ -7,6 +7,10 @@ from utils import HttpException
 
 app = Flask(__name__)
 
+@app.route('/healthz', methods=['GET'])
+def healthcheck():
+  return "OK", 200
+
 # curl -X POST -H "Content-Type: application/json" -d '{
 #   "data_entity_id": "123",
 #   "filename": "test.txt",
