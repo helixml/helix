@@ -10,7 +10,8 @@ export WITH_DEMOS=${WITH_DEMOS:=""}
 function mock-runner() {
    go run . runner \
     --mock-runner \
-    --api-host http://localhost \
+    --server-port 8090 \
+    --api-host http://localhost:8080 \
     --api-token oh-hallo-insecure-token \
     --memory 24GB \
     --runner-id mock \
