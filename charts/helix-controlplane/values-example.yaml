@@ -13,10 +13,11 @@ envVariables:
   TOGETHER_API_KEY: ""
   # Keycloak location
   KEYCLOAK_URL: http://keycloak:8888/auth
-  KEYCLOAK_TOKEN: "5ca0fc03-d625-456e-bca7-8e732309165f"
+  # How Keycloak redirects the users on login, should be user facing
+  KEYCLOAK_FRONTEND_URL: http://localhost:8080/auth
   KEYCLOAK_USER: "admin"
   KEYCLOAK_PASSWORD: "oh-hallo-insecure-password"
   # Dashboard
-  ADMIN_USER_IDS: ""
+  ADMIN_USER_IDS: "all"
   # Evals 
   EVAL_USER_ID: ""

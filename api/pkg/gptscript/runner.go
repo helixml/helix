@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	retries             = 5
-	delayBetweenRetries = time.Second
+	retries             = 100
+	delayBetweenRetries = 3 * time.Second
 )
 
 // Runner connects using a WebSocket to the Control Plane
@@ -55,6 +55,12 @@ func (d *Runner) run(ctx context.Context) error {
 		retry.Attempts(retries),
 		retry.Delay(delayBetweenRetries),
 		retry.Context(ctx),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retries", n).
+				Msg("retrying to connect to control plane")
+		}),
 	)
 	if err != nil {
 		return err
