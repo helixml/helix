@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -25,6 +26,7 @@ type ControllerOptions struct {
 	Config            *config.ServerConfig
 	Store             store.Store
 	PubSub            pubsub.PubSub
+	Extractor         extract.Extractor
 	GPTScriptExecutor gptscript.Executor
 	Filestore         filestore.FileStore
 	Janitor           *janitor.Janitor
@@ -72,8 +74,8 @@ func NewController(
 	if options.Filestore == nil {
 		return nil, fmt.Errorf("filestore is required")
 	}
-	if options.Config.Controller.TextExtractionURL == "" {
-		return nil, fmt.Errorf("text extraction URL is required")
+	if options.Extractor == nil {
+		return nil, fmt.Errorf("text extractor is required")
 	}
 	if options.Janitor == nil {
 		return nil, fmt.Errorf("janitor is required")
