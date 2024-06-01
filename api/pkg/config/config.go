@@ -15,6 +15,8 @@ type ServerConfig struct {
 	Janitor            Janitor
 	Stripe             Stripe
 	DataPrepText       DataPrepText
+	TextExtractor      TextExtractor
+	RAG                RAG
 	Controller         Controller
 	FileStore          FileStore
 	Store              Store
@@ -143,6 +145,20 @@ type DataPrepText struct {
 	Temperature       float32              `envconfig:"DATA_PREP_TEXT_TEMPERATURE" default:"0.5" description:"The temperature for the text data prep prompt."`
 }
 
+type TextExtractor struct {
+	// the URL we post documents to so we can get the text back from them
+	URL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
+}
+
+type RAG struct {
+	Llamaindex struct {
+		// the URL we can post a chunk of text to for RAG indexing
+		RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`
+		// the URL we can post a prompt to to match RAG records
+		RAGQueryURL string `envconfig:"RAG_QUERY_URL" default:"http://llamaindex:5000/api/v1/rag/query" description:"The URL to query RAG records."`
+	}
+}
+
 type Controller struct {
 	FilestorePresignSecret string `envconfig:"FILESTORE_PRESIGN_SECRET" description:""`
 	// this is an "env" prefix like "dev"
@@ -159,7 +175,7 @@ type Controller struct {
 	FilePrefixResults string `envconfig:"FILE_PREFIX_RESULTS" default:"results" description:"The go template that produces the prefix path for a user."`
 
 	// the URL we post documents to so we can get the text back from them
-	TextExtractionURL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
+	// TextExtractionURL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
 
 	// the URL we can post a chunk of text to for RAG indexing
 	RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`
