@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -159,21 +160,27 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			// from inside the llamaindex container
 			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
-			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
-				system.ClientOptions{},
-				c.Options.Config.Controller.TextExtractionURL,
-				convertDocumentsToChunksRequest{
-					URL: fileURL,
-				},
-			)
+			// res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
+			// 	system.ClientOptions{},
+			// 	c.Options.Config.Controller.TextExtractionURL,
+			// 	convertDocumentsToChunksRequest{
+			// 		URL: fileURL,
+			// 	},
+			// )
+			// if err != nil {
+			// 	return err
+			// }
+			extractedText, err := c.Options.Extractor.Extract(c.Ctx, &extract.ExtractRequest{
+				URL: fileURL,
+			})
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to extract text from %s: %s", file, err.Error())
 			}
 
 			atomic.AddInt64(&completedCounter, 1)
 			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-			_, err = c.Options.Filestore.UploadFile(c.Ctx, newFilepath, strings.NewReader(res.Text))
+			_, err = c.Options.Filestore.UploadFile(c.Ctx, newFilepath, strings.NewReader(extractedText))
 			if err != nil {
 				return err
 			}
