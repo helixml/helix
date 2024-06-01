@@ -136,7 +136,7 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	realm, err := gck.GetRealm(context.Background(), token, cfg.Realm)
 	if err != nil {
 		if !strings.Contains(err.Error(), "404") {
-			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to update realm config failed with: %s", err.Error())
+			return fmt.Errorf("setRealmConfiguration: failed to get Keycloak realm, attempt to find realm config failed with: %s", err.Error())
 		}
 
 		// If user has a different realm configuration, don't try to create it
@@ -160,10 +160,6 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 			return fmt.Errorf("setRealmConfiguration: error decoding realm.json: %s", err.Error())
 		}
 
-		attributes := *keycloakRealmConfig.Attributes
-		attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
-		*keycloakRealmConfig.Attributes = attributes
-
 		_, err = gck.CreateRealm(context.Background(), token, keycloakRealmConfig)
 		if err != nil {
 			return fmt.Errorf("setRealmConfiguration: no Keycloak realm found, attempt to create realm failed with: %s", err.Error())
@@ -176,9 +172,6 @@ func setRealmConfigurations(gck *gocloak.GoCloak, token string, cfg *config.Keyc
 	}
 
 	attributes := *realm.Attributes
-	if attributes["frontendUrl"] != "" { // don't override existing configurations
-		return nil
-	}
 	attributes["frontendUrl"] = cfg.KeycloakFrontEndURL
 	*realm.Attributes = attributes
 
