@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
@@ -214,12 +215,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		gse = gptscript.NewExecutor(cfg, ps)
 	}
 
+	textExtractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
+
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
 		Config:            cfg,
 		Store:             store,
 		PubSub:            ps,
+		Extractor:         textExtractor,
 		GPTScriptExecutor: gse,
 		Filestore:         fs,
 		Janitor:           janitor,
