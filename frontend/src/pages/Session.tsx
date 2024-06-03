@@ -48,6 +48,8 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_MODE_FINETUNE,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  INTERACTION_STATE_COMPLETE,
+  INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
 } from '../types'
 
@@ -422,9 +424,28 @@ const Session: FC = () => {
     session.data,
   ])
 
+  // when the session has loaded re-populate the feedback area
   useEffect(() => {
     if(!session.data) return
     setFeedbackValue(session.data.config.eval_user_reason)
+  }, [
+    session.data,
+  ])
+
+  // in case the web socket updates do not arrive, if the session is not finished
+  // then keep reloading it until it has finished
+  useEffect(() => {
+    if(!session.data) return
+    const systemInteraction = getSystemInteraction(session.data)
+    if(!systemInteraction) return
+    if(systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
+
+    // ok the most recent interaction is not finished so let's trigger a reload in 5 seconds
+    const timer = setTimeout(() => {
+      session.reload()
+    }, 5000)
+
+    return () => clearTimeout(timer)
   }, [
     session.data,
   ])

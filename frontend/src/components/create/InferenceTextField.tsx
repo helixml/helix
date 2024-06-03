@@ -19,6 +19,9 @@ const InferenceTextField: FC<{
   type: ISessionType,
   value: string,
   disabled?: boolean,
+  // changing this string will re-focus the text field
+  // e.g. when the assistant changes
+  focus?: string,
   startAdornment?: ReactNode,
   promptLabel?: string,
   onUpdate: (value: string) => void,
@@ -27,6 +30,7 @@ const InferenceTextField: FC<{
   type,
   value,
   disabled = false,
+  focus = '',
   startAdornment,
   promptLabel,
   onUpdate,
@@ -51,7 +55,10 @@ const InferenceTextField: FC<{
     if (textFieldRef.current && !textFieldRef.current?.matches(':focus')) {
       textFieldRef.current.focus()
     }
-  }, [value])
+  }, [
+    value,
+    focus,
+  ])
 
   return (
     <TextField
