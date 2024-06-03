@@ -35,6 +35,14 @@ WORKDIR /workspace/helix
 # Copy runner directory from the repo
 COPY runner ./runner
 
+# So that the runner can function when run as non-root, symlink some stuff into
+# locations in /tmp (needed for locked down OpenShift support)
+RUN mkdir -p /tmp/helix/src /tmp/helix/cache /tmp/helix/root-cache /tmp/helix/config && \
+    rm -rf /root/.cache && ln -s /tmp/helix/root-cache /root/.cache && \
+    rm -rf /.cache && ln -s /tmp/helix/cache /.cache && \
+    rm -rf /.config && ln -s /tmp/helix/config /.config && \
+    rm -rf /src && ln -s /tmp/helix/src /src
+
 COPY --from=go-build-env /helix /workspace/helix/helix
 
 ENTRYPOINT ["/workspace/helix/helix", "runner"]
