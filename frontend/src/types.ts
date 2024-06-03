@@ -559,6 +559,8 @@ export interface IAppUpdate {
   description: string,
   secrets: Record<string, string>,
   allowed_domains: string[],
+  global: boolean,
+  shared: boolean,
 }
 
 export interface IGithubStatus {
