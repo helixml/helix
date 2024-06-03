@@ -42,7 +42,7 @@ RUN mkdir -p /tmp/helix/src /tmp/helix/cache /tmp/helix/root-cache /tmp/helix/co
     rm -rf /.cache && ln -s /tmp/helix/cache /.cache && \
     rm -rf /.config && ln -s /tmp/helix/config /.config && \
     rm -rf /src && ln -s /tmp/helix/src /src && \
-    chmod -R 0777 /tmp/helix /root
+    chmod -R 0777 /tmp/helix && chmod 0777 /root
 
 COPY --from=go-build-env /helix /workspace/helix/helix
 
