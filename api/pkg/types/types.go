@@ -156,6 +156,8 @@ type SessionMetadata struct {
 	RAGSourceID string `json:"rag_source_data_entity_id"`
 	// the fine tuned data entity we produced from this session
 	LoraID string `json:"finetune_data_entity_id"`
+	// which assistant are we talking to?
+	AssistantID string `json:"assistant_id"`
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -247,6 +249,7 @@ type InternalSessionRequest struct {
 	LoraDir                 string
 	ParentSession           string
 	ParentApp               string // tools will get pulled in from here in the controller
+	AssistantID             string // target a specific assistant - defaults to "0" (i.e. the first assistant)
 	ModelName               ModelName
 	Owner                   string
 	OwnerType               OwnerType

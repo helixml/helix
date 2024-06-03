@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -102,12 +103,23 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			appID = req.URL.Query().Get("app_id")
 		}
 
+		assistantID := "0"
+
+		if startReq.AssistantID != "" {
+			assistantID = startReq.AssistantID
+		}
+
+		if req.URL.Query().Get("assistant_id") != "" {
+			assistantID = req.URL.Query().Get("assistant_id")
+		}
+
 		sessionID := system.GenerateSessionID()
 		newSession := types.InternalSessionRequest{
 			ID:               sessionID,
 			Mode:             types.SessionModeInference,
 			Type:             startReq.Type,
 			ParentApp:        appID,
+			AssistantID:      assistantID,
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
@@ -130,11 +142,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			// TODO: support > 1 assistant
 			if len(app.Config.Helix.Assistants) <= 0 {
-				http.Error(rw, "there are no assistants found in that app", http.StatusInternalServerError)
+				http.Error(rw, "there are no assistants found in that app", http.StatusBadRequest)
 				return
 			}
 
-			assistant := app.Config.Helix.Assistants[0]
+			assistant := data.GetAssistant(app, assistantID)
+			if assistant == nil {
+				http.Error(rw, fmt.Sprintf("could not find assistant with id %s", assistantID), http.StatusNotFound)
+				return
+			}
 
 			if assistant.SystemPrompt != "" {
 				newSession.SystemPrompt = assistant.SystemPrompt
@@ -150,6 +166,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 			if assistant.LoraID != "" {
 				newSession.LoraID = assistant.LoraID
+			}
+
+			if assistant.Type != "" {
+				newSession.Type = assistant.Type
 			}
 
 			// tools will be assigned by the app inside the controller
