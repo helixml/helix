@@ -37,7 +37,7 @@ COPY runner ./runner
 
 # So that the runner can function when run as non-root, symlink some stuff into
 # locations in /tmp (needed for locked down OpenShift support)
-RUN mkdir -p /tmp/helix/{src,cache,root-cache,config} && \
+RUN mkdir -p /tmp/helix/src /tmp/helix/cache /tmp/helix/root-cache /tmp/helix/config && \
     ln -s /tmp/helix/root-cache /root/.cache && \
     ln -s /tmp/helix/cache /.cache && \
     ln -s /tmp/helix/config /.config && \
