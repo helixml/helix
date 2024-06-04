@@ -157,7 +157,8 @@ type SessionMetadata struct {
 	// the fine tuned data entity we produced from this session
 	LoraID string `json:"finetune_data_entity_id"`
 	// which assistant are we talking to?
-	AssistantID string `json:"assistant_id"`
+	AssistantID    string            `json:"assistant_id"`
+	AppQueryParams map[string]string `json:"app_query_params"` // Passing through user defined app params
 }
 
 // the packet we put a list of sessions into so pagination is supported and we know the total amount
@@ -264,6 +265,7 @@ type InternalSessionRequest struct {
 	UploadedDataID          string
 	RAGSourceID             string
 	LoraID                  string
+	AppQueryParams          map[string]string // Passing through user defined app params
 }
 
 type UpdateSessionRequest struct {

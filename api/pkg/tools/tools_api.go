@@ -10,6 +10,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 
 	openai "github.com/lukemarsden/go-openai2"
 )
@@ -81,6 +82,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	if tool.Config.API.Query != nil {
 		q := req.URL.Query()
 		for k, v := range tool.Config.API.Query {
+			log.Debug().Str("key", k).Str("value", v).Msg("Adding query param")
 			q.Add(k, v)
 		}
 
