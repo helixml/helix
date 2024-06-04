@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
@@ -63,13 +64,12 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	var interactions []*types.Interaction
 
 	for _, m := range chatCompletionRequest.Messages {
-		// Validating roles
+		// Filter out roles that are not user/system/assistant
 		switch m.Role {
 		case "user", "system", "assistant":
 			// OK
 		default:
-			http.Error(res, "invalid role, available roles: 'user', 'system', 'assistant'", http.StatusBadRequest)
-			return
+			continue
 		}
 
 		var creator types.CreatorType
@@ -124,6 +124,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
+		AppQueryParams:   map[string]string{},
 	}
 
 	useModel := chatCompletionRequest.Model
@@ -167,6 +168,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 		if assistant.Type != "" {
 			newSession.Type = assistant.Type
+		}
+
+		// Check to see if the user is passing any app parameters
+		for k, v := range req.URL.Query() {
+			newSession.AppQueryParams[k] = strings.Join(v, ",")
 		}
 
 		// tools will be assigned by the app inside the controller

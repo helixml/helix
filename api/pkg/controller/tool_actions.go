@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 const actionContextHistorySize = 6
@@ -51,6 +52,17 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		tool, err = c.Options.Store.GetTool(ctx, toolID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tool %s: %w", toolID, err)
+		}
+	}
+
+	// Override query parameters if the user has specified them
+	for paramName, paramValue := range session.Metadata.AppQueryParams {
+		for queryName, queryValue := range tool.Config.API.Query {
+			// If the request query params match something in the tool query params, override it
+			if queryName == paramName {
+				tool.Config.API.Query[queryName] = paramValue
+				log.Debug().Msgf("Overriding default tool query param: %s=%s with %s=%s", queryName, queryValue, paramName, tool.Config.API.Query[queryName])
+			}
 		}
 	}
 
