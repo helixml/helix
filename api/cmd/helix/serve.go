@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -217,12 +218,15 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	textExtractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
 
+	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
+
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
 		Config:            cfg,
 		Store:             store,
 		PubSub:            ps,
+		RAG:               llamaindexRAG,
 		Extractor:         textExtractor,
 		GPTScriptExecutor: gse,
 		Filestore:         fs,
