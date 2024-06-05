@@ -3,6 +3,7 @@ package extract
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,8 @@ import (
 )
 
 type ExtractRequest struct {
-	URL string
-	// TODO: add Content
+	URL     string `json:"url"`
+	Content []byte `json:"content"`
 }
 
 type Extractor interface {
@@ -35,13 +36,26 @@ func NewDefaultExtractor(extractorURL string) *DefaultExtractor {
 }
 
 func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
+	if extractReq.URL == "" && len(extractReq.Content) == 0 {
+		return "", fmt.Errorf("no URL or content provided")
+	}
+
+	var content string
+
+	// If content is set, base64 encode it before sending
+	if len(extractReq.Content) > 0 {
+		content = base64.StdEncoding.EncodeToString(extractReq.Content)
+	}
+
 	logger := log.With().
 		Str("url", extractReq.URL).
+		Int("content_length", len(extractReq.Content)).
 		Str("extractor_url", e.extractorURL).
 		Logger()
 
-	bts, err := json.Marshal(llamaindexExtractRequest{
-		URL: extractReq.URL,
+	bts, err := json.Marshal(&llamaindexExtractRequest{
+		URL:     extractReq.URL,
+		Content: content,
 	})
 	if err != nil {
 		return "", err
@@ -81,7 +95,8 @@ func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *ExtractReque
 }
 
 type llamaindexExtractRequest struct {
-	URL string `json:"url"`
+	URL     string `json:"url"`
+	Content string `json:"content"`
 }
 
 type llamaindexExtractResponse struct {
