@@ -106,7 +106,7 @@ func (s *GCSStorage) UploadFile(ctx context.Context, path string, r io.Reader) (
 	}, nil
 }
 
-func (s *GCSStorage) DownloadFile(ctx context.Context, path string) (io.Reader, error) {
+func (s *GCSStorage) DownloadFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	obj := s.bucket.Object(path)
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
