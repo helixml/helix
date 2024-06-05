@@ -140,9 +140,9 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			filenameParts := strings.Split(file, ".")
 			originalFile := file
 
+			// if the file itself ends with .url then it's a textfile
+			// that has a URL we should download as the actual file
 			if filenameParts[len(filenameParts)-1] == "url" {
-				// if the file itself ends with .url then it's a textfile
-				// that has a URL we should download as the actual file
 				fileURL, err = getFileContent(c.Ctx, c.Options.Filestore, file)
 				if err != nil {
 					return err
@@ -156,20 +156,11 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 				}
 			}
 
+			// TODO: remove, this will not be needed when sending the content
 			// for local development - the file server hostname will not resolve
 			// from inside the llamaindex container
 			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
 
-			// res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
-			// 	system.ClientOptions{},
-			// 	c.Options.Config.Controller.TextExtractionURL,
-			// 	convertDocumentsToChunksRequest{
-			// 		URL: fileURL,
-			// 	},
-			// )
-			// if err != nil {
-			// 	return err
-			// }
 			extractedText, err := c.Options.Extractor.Extract(c.Ctx, &extract.ExtractRequest{
 				URL: fileURL,
 			})
