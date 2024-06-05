@@ -73,7 +73,7 @@ func (s *FileSystemStorage) SignedURL(ctx context.Context, path string) (string,
 	return PresignURL(s.baseURL, "/"+path, s.secret, 20*time.Minute), nil
 }
 
-func (s *FileSystemStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *FileSystemStorage) WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	// Create the directory structure if it doesn't exist
@@ -94,7 +94,7 @@ func (s *FileSystemStorage) UploadFile(ctx context.Context, path string, r io.Re
 	return s.Get(ctx, path)
 }
 
-func (s *FileSystemStorage) DownloadFile(ctx context.Context, path string) (io.ReadCloser, error) {
+func (s *FileSystemStorage) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	file, err := os.Open(fullPath)

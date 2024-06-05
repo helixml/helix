@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"sync"
@@ -140,7 +141,9 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			filenameParts := strings.Split(file, ".")
 			originalFile := file
 
-			// if the file itself ends with .url then it's a textfile
+			extractRequest := &extract.ExtractRequest{}
+
+			// If the file itself ends with .url then it's a textfile
 			// that has a URL we should download as the actual file
 			if filenameParts[len(filenameParts)-1] == "url" {
 				fileURL, err = getFileContent(c.Ctx, c.Options.Filestore, file)
@@ -148,22 +151,26 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 					return err
 				}
 				file = strings.TrimSuffix(file, ".url")
+
+				extractRequest.URL = fileURL
 			} else {
-				// otherwise it's a file already living in the file store
-				fileURL, err = c.Options.Filestore.SignedURL(c.Ctx, file)
+				// Otherwise it's a file already living in the file store,
+				// open it
+				f, err := c.Options.Filestore.OpenFile(c.Ctx, file)
 				if err != nil {
 					return err
 				}
+				defer f.Close()
+
+				bts, err := io.ReadAll(f)
+				if err != nil {
+					return err
+				}
+
+				extractRequest.Content = bts
 			}
 
-			// TODO: remove, this will not be needed when sending the content
-			// for local development - the file server hostname will not resolve
-			// from inside the llamaindex container
-			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
-
-			extractedText, err := c.Options.Extractor.Extract(c.Ctx, &extract.ExtractRequest{
-				URL: fileURL,
-			})
+			extractedText, err := c.Options.Extractor.Extract(c.Ctx, extractRequest)
 			if err != nil {
 				return fmt.Errorf("failed to extract text from %s: %s", file, err.Error())
 			}
@@ -171,7 +178,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			atomic.AddInt64(&completedCounter, 1)
 			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-			_, err = c.Options.Filestore.UploadFile(c.Ctx, newFilepath, strings.NewReader(extractedText))
+			_, err = c.Options.Filestore.WriteFile(c.Ctx, newFilepath, strings.NewReader(extractedText))
 			if err != nil {
 				return err
 			}
@@ -620,7 +627,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 						// we want to write an empty file to the filestore here
 						// because then appendQuestionsToFile doesn't need to deal with making it
-						_, err = c.Options.Filestore.UploadFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+						_, err = c.Options.Filestore.WriteFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
 						if err != nil {
 							log.Error().Msgf("error uploading file: %s", err.Error())
 							return err
