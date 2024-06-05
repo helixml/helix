@@ -40,6 +40,10 @@ func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *ExtractReque
 		return "", fmt.Errorf("no URL or content provided")
 	}
 
+	// TODO: check if this is just normal text, if yes
+	// then don't send it to the extractor as we can
+	// just use it as is
+
 	var content string
 
 	// If content is set, base64 encode it before sending
