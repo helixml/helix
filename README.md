@@ -48,6 +48,10 @@ By default, the dashboard will be available on `http://localhost:8080`. For sett
 
 Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 
+## Developer Instructions
+
+For local development, refer to the [Helix local development guide](./local-development.md).
+
 ## License
 
 Helix is [licensed](https://github.com/helixml/helix/blob/main/LICENSE.md) under a similar license to Docker Desktop. You can run the source code (in this repo) for free for:
