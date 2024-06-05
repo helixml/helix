@@ -472,17 +472,18 @@ func (apiServer *HelixAPIServer) runnerSessionDownloadFile(res http.ResponseWrit
 		if err != nil {
 			return err
 		}
-		stream, err := apiServer.Controller.FilestoreDownloadFile(ownerContext, filePath)
+		reader, err := apiServer.Controller.FilestoreDownloadFile(ownerContext, filePath)
 		if err != nil {
 			return err
 		}
+		defer reader.Close()
 
 		// Set the appropriate mime-type headers
 		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 		res.Header().Set("Content-Type", http.DetectContentType([]byte(filename)))
 
 		// Write the file to the http.ResponseWriter
-		_, err = io.Copy(res, stream)
+		_, err = io.Copy(res, reader)
 		if err != nil {
 			return err
 		}
