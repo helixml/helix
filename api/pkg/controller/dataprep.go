@@ -440,46 +440,31 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 }
 
 func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPrepTextSplitterChunk) error {
-	_, err := system.PostRequest[types.SessionRAGIndexChunk, types.SessionRAGResult](
-		system.ClientOptions{},
-		c.Options.Config.Controller.RAGIndexingURL,
-		types.SessionRAGIndexChunk{
-			DataEntityID:    session.Metadata.RAGSourceID,
-			Filename:        chunk.Filename,
-			DocumentID:      chunk.DocumentID,
-			DocumentGroupID: chunk.DocumentGroupID,
-			ContentOffset:   chunk.Index,
-			Content:         chunk.Text,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.Options.RAG.Index(context.Background(), &types.SessionRAGIndexChunk{
+		DataEntityID:    session.Metadata.RAGSourceID,
+		Filename:        chunk.Filename,
+		DocumentID:      chunk.DocumentID,
+		DocumentGroupID: chunk.DocumentGroupID,
+		ContentOffset:   chunk.Index,
+		Content:         chunk.Text,
+	})
 }
 
 // given a user prompt and an existing session id
 // let's load from the vector store
-func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRAGResult, error) {
+func (c *Controller) getRAGResults(session *types.Session) ([]*types.SessionRAGResult, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
-	result, err := system.PostRequest[types.SessionRAGQuery, []types.SessionRAGResult](
-		system.ClientOptions{},
-		c.Options.Config.Controller.RAGQueryURL,
-		types.SessionRAGQuery{
-			Prompt:            userInteraction.Message,
-			DataEntityID:      session.Metadata.RAGSourceID,
-			DistanceThreshold: session.Metadata.RagSettings.Threshold,
-			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
-			MaxResults:        session.Metadata.RagSettings.ResultsCount,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+
+	return c.Options.RAG.Query(context.Background(), &types.SessionRAGQuery{
+		Prompt:            userInteraction.Message,
+		DataEntityID:      session.Metadata.RAGSourceID,
+		DistanceThreshold: session.Metadata.RagSettings.Threshold,
+		DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
+		MaxResults:        session.Metadata.RagSettings.ResultsCount,
+	})
 }
 
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
