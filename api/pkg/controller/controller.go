@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -27,6 +28,7 @@ type ControllerOptions struct {
 	Store             store.Store
 	PubSub            pubsub.PubSub
 	Extractor         extract.Extractor
+	RAG               rag.RAG
 	GPTScriptExecutor gptscript.Executor
 	Filestore         filestore.FileStore
 	Janitor           *janitor.Janitor
