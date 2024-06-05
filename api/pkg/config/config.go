@@ -174,15 +174,6 @@ type Controller struct {
 	// a static path used to denote what sub-folder job results live in
 	FilePrefixResults string `envconfig:"FILE_PREFIX_RESULTS" default:"results" description:"The go template that produces the prefix path for a user."`
 
-	// the URL we post documents to so we can get the text back from them
-	// TextExtractionURL string `envconfig:"TEXT_EXTRACTION_URL" default:"http://llamaindex:5000/api/v1/extract" description:"The URL to extract text from a document."`
-
-	// the URL we can post a chunk of text to for RAG indexing
-	RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`
-
-	// the URL we can post a prompt to to match RAG records
-	RAGQueryURL string `envconfig:"RAG_QUERY_URL" default:"http://llamaindex:5000/api/v1/rag/query" description:"The URL to query RAG records."`
-
 	// how many scheduler decisions to buffer before we start dropping them
 	SchedulingDecisionBufferSize int `envconfig:"SCHEDULING_DECISION_BUFFER_SIZE" default:"10" description:"How many scheduling decisions to buffer before we start dropping them."`
 }

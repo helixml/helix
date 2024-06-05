@@ -13,6 +13,9 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// Static check
+var _ RAG = &Llamaindex{}
+
 type Llamaindex struct {
 	indexURL   string
 	queryURL   string
@@ -64,7 +67,7 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 	return nil
 }
 
-func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) (*types.SessionRAGResult, error) {
+func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error) {
 	logger := log.With().
 		Str("llamaindex_query_url", l.queryURL).
 		Logger()
@@ -98,11 +101,11 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) (*type
 		return nil, fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 	}
 
-	var queryResp types.SessionRAGResult
+	var queryResp []*types.SessionRAGResult
 	err = json.Unmarshal(body, &queryResp)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing JSON (%s), error: %s", string(body), err.Error())
 	}
 
-	return &queryResp, nil
+	return queryResp, nil
 }
