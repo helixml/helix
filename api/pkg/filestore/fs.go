@@ -94,7 +94,7 @@ func (s *FileSystemStorage) UploadFile(ctx context.Context, path string, r io.Re
 	return s.Get(ctx, path)
 }
 
-func (s *FileSystemStorage) DownloadFile(ctx context.Context, path string) (io.Reader, error) {
+func (s *FileSystemStorage) DownloadFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	fullPath := filepath.Join(s.basePath, path)
 
 	file, err := os.Open(fullPath)
