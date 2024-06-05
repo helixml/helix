@@ -17,12 +17,14 @@ func TestExtractURL(t *testing.T) {
 
 	extractor := NewDefaultExtractor(u)
 
-	t.Run("Extract URL", func(t *testing.T) {
+	t.Run("ExtractURL", func(t *testing.T) {
 		ctx := context.Background()
 		text, err := extractor.Extract(ctx, &ExtractRequest{
 			URL: "https://www.theguardian.com/environment/article/2024/jun/06/tiger-shark-regurgitates-eats-echidna-australia",
 		})
 		require.NoError(t, err)
+
+		t.Log(text)
 
 		assert.Contains(t,
 			text,
@@ -35,5 +37,27 @@ func TestExtractURL(t *testing.T) {
 		assert.Contains(t,
 			text,
 			"The echidna incident showed a connection between terrestrial and marine food webs, he said – and “we don’t really understand what the overlap” between the two is yet.")
+	})
+
+	t.Run("ExtractContent", func(t *testing.T) {
+		ctx := context.Background()
+
+		bts, err := os.ReadFile("./testdata/cb750.pdf")
+		require.NoError(t, err)
+
+		text, err := extractor.Extract(ctx, &ExtractRequest{
+			Content: bts,
+		})
+		require.NoError(t, err)
+
+		t.Log(text)
+
+		assert.Contains(t,
+			text,
+			"Start the engine, pull the clutch lever in, and shift the transmission into gear.")
+
+		assert.Contains(t,
+			text,
+			"Check the condition of the brake pad wear indicators.")
 	})
 }
