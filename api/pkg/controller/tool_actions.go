@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 const actionContextHistorySize = 6
@@ -32,7 +33,15 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		if len(app.Config.Helix.Assistants) <= 0 {
 			return nil, fmt.Errorf("no assistants found in app %s", session.ParentApp)
 		}
-		assistant := app.Config.Helix.Assistants[0]
+
+		assistantID := session.Metadata.AssistantID
+		if assistantID == "" {
+			assistantID = "0"
+		}
+		assistant := data.GetAssistant(app, assistantID)
+		if assistant == nil {
+			return nil, fmt.Errorf("we could not find the assistant with the id: %s", assistantID)
+		}
 
 		for _, appTool := range assistant.Tools {
 			if appTool.ID == toolID {
@@ -43,6 +52,17 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		tool, err = c.Options.Store.GetTool(ctx, toolID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tool %s: %w", toolID, err)
+		}
+	}
+
+	// Override query parameters if the user has specified them
+	for paramName, paramValue := range session.Metadata.AppQueryParams {
+		for queryName, queryValue := range tool.Config.API.Query {
+			// If the request query params match something in the tool query params, override it
+			if queryName == paramName {
+				tool.Config.API.Query[queryName] = paramValue
+				log.Debug().Msgf("Overriding default tool query param: %s=%s with %s=%s", queryName, queryValue, paramName, tool.Config.API.Query[queryName])
+			}
 		}
 	}
 

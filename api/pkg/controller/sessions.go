@@ -78,6 +78,8 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 			UploadedDataID:          req.UploadedDataID,
 			RAGSourceID:             req.RAGSourceID,
 			LoraID:                  req.LoraID,
+			AssistantID:             req.AssistantID,
+			AppQueryParams:          req.AppQueryParams,
 		},
 	}
 
@@ -547,8 +549,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		}
 
 		if len(app.Config.Helix.Assistants) > 0 {
-			// TODO: support > 1 assistant
-			assistant := app.Config.Helix.Assistants[0]
+			assistantID := session.Metadata.AssistantID
+			if assistantID == "" {
+				assistantID = "0"
+			}
+			assistant := data.GetAssistant(app, assistantID)
+			if assistant == nil {
+				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
+			}
 			for _, tool := range assistant.Tools {
 				tools = append(tools, &tool)
 			}
