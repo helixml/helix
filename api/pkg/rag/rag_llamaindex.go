@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	defaultDistanceFunction = "cosine"
-	defaultThreshold        = 0.2
-	defaultMaxResults       = 3
+	DefaultDistanceFunction = "cosine"
+	DefaultThreshold        = 0.2
+	DefaultMaxResults       = 3
+
+	DefaultChunkSize     = 1024
+	DefaultChunkOverflow = 20
 )
 
 // Static check
@@ -95,15 +98,15 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 
 	// Set defaults
 	if q.DistanceFunction == "" {
-		q.DistanceFunction = defaultDistanceFunction
+		q.DistanceFunction = DefaultDistanceFunction
 	}
 
 	if q.DistanceThreshold == 0 {
-		q.DistanceThreshold = defaultThreshold
+		q.DistanceThreshold = DefaultThreshold
 	}
 
 	if q.MaxResults == 0 {
-		q.MaxResults = defaultMaxResults
+		q.MaxResults = DefaultMaxResults
 	}
 
 	bts, err := json.Marshal(q)

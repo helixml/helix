@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/filestore"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -120,11 +121,11 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	var err error
 	ragDistanceFunction := req.FormValue("rag_distance_function")
 	if ragDistanceFunction == "" {
-		ragDistanceFunction = "cosine"
+		ragDistanceFunction = rag.DefaultDistanceFunction
 	}
 
 	ragThresholdStr := req.FormValue("rag_threshold")
-	ragThreshold := 0.2 // Default value if ragThreshold is not provided or conversion fails
+	ragThreshold := rag.DefaultThreshold // Default value if ragThreshold is not provided or conversion fails
 	if ragThresholdStr != "" {
 		ragThreshold, err = strconv.ParseFloat(ragThresholdStr, 32)
 		if err != nil {
@@ -133,7 +134,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragResultsCountStr := req.FormValue("rag_results_count")
-	ragResultsCount := 3 // Default value if resultsCount is not provided or conversion fails
+	ragResultsCount := rag.DefaultMaxResults // Default value if resultsCount is not provided or conversion fails
 	if ragResultsCountStr != "" {
 		ragResultsCount, err = strconv.Atoi(ragResultsCountStr)
 		if err != nil {
@@ -142,7 +143,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkSizeStr := req.FormValue("rag_chunk_size")
-	ragChunkSize := 1024 // Default value if chunkSize is not provided or conversion fails
+	ragChunkSize := rag.DefaultChunkSize // Default value if chunkSize is not provided or conversion fails
 	if ragChunkSizeStr != "" {
 		ragChunkSize, err = strconv.Atoi(ragChunkSizeStr)
 		if err != nil {
@@ -151,7 +152,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	}
 
 	ragChunkOverflowStr := req.FormValue("rag_chunk_overflow")
-	ragChunkOverflow := 20 // Default value if chunkOverflow is not provided or conversion fails
+	ragChunkOverflow := rag.DefaultChunkOverflow // Default value if chunkOverflow is not provided or conversion fails
 	if ragChunkOverflowStr != "" {
 		ragChunkOverflow, err = strconv.Atoi(ragChunkOverflowStr)
 		if err != nil {
