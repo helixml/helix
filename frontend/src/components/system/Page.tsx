@@ -59,11 +59,25 @@ const Page: React.FC<{
   }
   
   let useTopbarTitle = isBigScreen && useBreadcrumbTitles.length > 0 ? (
-    <Box component="span">
+    <Box
+      component="span"
+      sx={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+      }}
+    >
       {
         useBreadcrumbTitles.map((breadcrumb, index) => {
+          const isLast = index == useBreadcrumbTitles.length - 1
           return (
-            <span key={ index }>
+            <Box
+              component="span"
+              key={ index }
+              sx={{
+                fontSize: isLast ? '1.3rem' : '1rem',
+              }}
+            >
               {
                 breadcrumb.routeName ? (
                   <Link
@@ -80,7 +94,7 @@ const Page: React.FC<{
                 ) : breadcrumb.title
               }
               { index < useBreadcrumbTitles.length - 1 ? <>&nbsp;&nbsp;&gt;&nbsp;&nbsp;</> : '' }
-            </span>
+            </Box>
           )
         })
       }

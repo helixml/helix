@@ -144,12 +144,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			return nil, system.NewHTTPError500(err.Error())
 		}
 
-		app = *newApp
-	}
-
-	created, err = s.Store.UpdateApp(r.Context(), &app)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		created, err = s.Store.UpdateApp(r.Context(), newApp)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
 	}
 
 	_, err = s.Controller.CreateAPIKey(userContext, &types.APIKey{
@@ -171,6 +169,8 @@ type AppUpdatePayload struct {
 	ActiveTools    []string          `json:"active_tools"`
 	Secrets        map[string]string `json:"secrets"`
 	AllowedDomains []string          `json:"allowed_domains"`
+	Shared         bool              `json:"shared"`
+	Global         bool              `json:"global"`
 }
 
 // getApp godoc
@@ -215,6 +215,59 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	userContext := getRequestContext(r)
 
+	var update types.App
+	err := json.NewDecoder(r.Body).Decode(&update)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+	}
+
+	// Getting existing app
+	existing, err := s.Store.GetApp(r.Context(), update.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if existing == nil {
+		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+	}
+
+	if existing.Global {
+		if !isAdmin(userContext.User) {
+			return nil, system.NewHTTPError403("only admin users can update global apps")
+		}
+	} else {
+		if existing.Owner != userContext.User.ID {
+			return nil, system.NewHTTPError403("you do not have permission to update this app")
+		}
+	}
+
+	update.Updated = time.Now()
+
+	// Updating the app
+	updated, err := s.Store.UpdateApp(r.Context(), &update)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return updated, nil
+}
+
+// updateTool godoc
+// @Summary Update an existing app
+// @Description Update existing app
+// @Tags    apps
+
+// @Success 200 {object} types.App
+// @Param request    body types.App true "Request body with app configuration.")
+// @Param id path string true "Tool ID"
+// @Router /api/v1/apps/github/{id} [put]
+// @Security BearerAuth
+func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
+	userContext := getRequestContext(r)
+
 	var appUpdate AppUpdatePayload
 	err := json.NewDecoder(r.Body).Decode(&appUpdate)
 	if err != nil {
@@ -248,7 +301,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 	}
 
-	if existing.Global {
+	if appUpdate.Global {
 		if !isAdmin(userContext.User) {
 			return nil, system.NewHTTPError403("only admin users can update global apps")
 		}
@@ -285,6 +338,8 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	existing.Updated = time.Now()
 	existing.Config.Secrets = appUpdate.Secrets
 	existing.Config.AllowedDomains = appUpdate.AllowedDomains
+	existing.Shared = appUpdate.Shared
+	existing.Global = appUpdate.Global
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), existing)

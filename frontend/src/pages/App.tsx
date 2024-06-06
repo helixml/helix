@@ -10,6 +10,9 @@ import Grid from '@mui/material/Grid'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -62,6 +65,8 @@ const App: FC = () => {
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
   const [ description, setDescription ] = useState('')
+  const [ shared, setShared ] = useState(false)
+  const [ global, setGlobal ] = useState(false)
   const [ secrets, setSecrets ] = useState<Record<string, string>>({})
   const [ allowedDomains, setAllowedDomains ] = useState<string[]>([])
   const [ schema, setSchema ] = useState('')
@@ -202,6 +207,8 @@ const App: FC = () => {
       description,
       secrets,
       allowed_domains: allowedDomains,
+      shared,
+      global,
     }
 
     const result = await apps.updateApp(params.app_id, update)
@@ -220,6 +227,8 @@ const App: FC = () => {
     schema,
     secrets,
     allowedDomains,
+    shared,
+    global,
   ])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -253,6 +262,8 @@ const App: FC = () => {
     setSchema(JSON.stringify(app.config, null, 4))
     setSecrets(app.config.secrets || {})
     setAllowedDomains(app.config.allowed_domains || [])
+    setShared(app.shared ? true : false)
+    setGlobal(app.global ? true : false)
     setHasLoaded(true)
   }, [
     app,
@@ -348,6 +359,36 @@ const App: FC = () => {
                 label="Description"
                 helperText="Enter a description of this tool (optional)"
               />
+              <FormGroup>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={ shared }
+                      onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                        setShared(event.target.checked)
+                      } }
+                    />
+                  }
+                  label="Shared?"
+                />
+              </FormGroup>
+              {
+                account.admin && (
+                  <FormGroup>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={ global }
+                          onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                            setGlobal(event.target.checked)
+                          } }
+                        />
+                      }
+                      label="Global?"
+                    />
+                  </FormGroup>
+                )
+              }
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="h6" sx={{mb: 1}}>
                 Github

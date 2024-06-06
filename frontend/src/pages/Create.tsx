@@ -1,4 +1,4 @@
-import React, { FC, useState, useEffect, useCallback } from 'react'
+import React, { FC, useState, useEffect } from 'react'
 import { SxProps } from '@mui/material/styles'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -270,6 +270,7 @@ const Create: FC = () => {
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           type={ type }
+          focus={ activeAssistantID }
           value={ inputs.inputValue }
           disabled={ mode == SESSION_MODE_FINETUNE }
           startAdornment={ isBigScreen && (

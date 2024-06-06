@@ -129,7 +129,7 @@ export const useApps = () => {
   ])
 
   const updateApp = useCallback(async (id: string, data: IAppUpdate): Promise<IApp | undefined> => {
-    const result = await api.put<IAppUpdate, IApp>(`/api/v1/apps/${id}`, data, {}, {
+    const result = await api.put<IAppUpdate, IApp>(`/api/v1/apps/github/${id}`, data, {}, {
       snackbar: true,
     })
     if(!result) return

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -62,13 +64,12 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	var interactions []*types.Interaction
 
 	for _, m := range chatCompletionRequest.Messages {
-		// Validating roles
+		// Filter out roles that are not user/system/assistant
 		switch m.Role {
 		case "user", "system", "assistant":
 			// OK
 		default:
-			http.Error(res, "invalid role, available roles: 'user', 'system', 'assistant'", http.StatusBadRequest)
-			return
+			continue
 		}
 
 		var creator types.CreatorType
@@ -106,17 +107,24 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		appID = req.URL.Query().Get("app_id")
 	}
 
+	assistantID := "0"
+	if req.URL.Query().Get("assistant_id") != "" {
+		assistantID = req.URL.Query().Get("assistant_id")
+	}
+
 	newSession := types.InternalSessionRequest{
 		ID:               sessionID,
 		Mode:             sessionMode,
 		Type:             types.SessionTypeText,
 		ParentApp:        appID,
+		AssistantID:      assistantID,
 		Stream:           chatCompletionRequest.Stream,
 		Owner:            reqContext.User.ID,
 		OwnerType:        reqContext.User.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
+		AppQueryParams:   map[string]string{},
 	}
 
 	useModel := chatCompletionRequest.Model
@@ -131,11 +139,16 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 		// TODO: support > 1 assistant
 		if len(app.Config.Helix.Assistants) <= 0 {
-			http.Error(res, "there are no assistants found in that app", http.StatusInternalServerError)
+			http.Error(res, "there are no assistants found in that app", http.StatusBadRequest)
 			return
 		}
 
-		assistant := app.Config.Helix.Assistants[0]
+		assistant := data.GetAssistant(app, assistantID)
+
+		if assistant == nil {
+			http.Error(res, fmt.Sprintf("could not find assistant with id %s", assistantID), http.StatusNotFound)
+			return
+		}
 
 		if assistant.SystemPrompt != "" {
 			newSession.SystemPrompt = assistant.SystemPrompt
@@ -151,6 +164,15 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 		if assistant.LoraID != "" {
 			newSession.LoraID = assistant.LoraID
+		}
+
+		if assistant.Type != "" {
+			newSession.Type = assistant.Type
+		}
+
+		// Check to see if the user is passing any app parameters
+		for k, v := range req.URL.Query() {
+			newSession.AppQueryParams[k] = strings.Join(v, ",")
 		}
 
 		// tools will be assigned by the app inside the controller
