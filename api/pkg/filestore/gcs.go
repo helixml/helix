@@ -83,7 +83,7 @@ func (s *GCSStorage) SignedURL(ctx context.Context, path string) (string, error)
 	})
 }
 
-func (s *GCSStorage) UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
+func (s *GCSStorage) WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error) {
 	obj := s.bucket.Object(path)
 	writer := obj.NewWriter(ctx)
 	if _, err := io.Copy(writer, r); err != nil {
@@ -106,7 +106,7 @@ func (s *GCSStorage) UploadFile(ctx context.Context, path string, r io.Reader) (
 	}, nil
 }
 
-func (s *GCSStorage) DownloadFile(ctx context.Context, path string) (io.Reader, error) {
+func (s *GCSStorage) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	obj := s.bucket.Object(path)
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
@@ -304,10 +304,11 @@ func (s *GCSStorage) CopyFile(ctx context.Context, fromPath string, toPath strin
 	}
 
 	// Copy the file
-	fromReader, err := s.DownloadFile(ctx, fromPath)
+	fromReader, err := s.OpenFile(ctx, fromPath)
 	if err != nil {
 		return fmt.Errorf("failed to download source file: %w", err)
 	}
+	defer fromReader.Close()
 
 	toWriter := s.bucket.Object(toPath).NewWriter(ctx)
 	defer toWriter.Close()

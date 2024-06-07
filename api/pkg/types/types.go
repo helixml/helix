@@ -50,7 +50,7 @@ type Interaction struct {
 	DataPrepLimit       int                        `json:"data_prep_limit"`   // If true, the data prep is limited to a certain number of chunks due to quotas
 	DataPrepTotalChunks int                        `json:"data_prep_total_chunks"`
 
-	RagResults []SessionRAGResult `json:"rag_results"`
+	RagResults []*SessionRAGResult `json:"rag_results"`
 }
 
 type ResponseFormatType string

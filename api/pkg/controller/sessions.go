@@ -1153,10 +1153,11 @@ func (c *Controller) CloneUntilInteraction(
 // return the contents of a filestore text file
 // you must have already applied the users sub-path before calling this
 func (c *Controller) FilestoreReadTextFile(filepath string) (string, error) {
-	reader, err := c.Options.Filestore.DownloadFile(c.Ctx, filepath)
+	reader, err := c.Options.Filestore.OpenFile(c.Ctx, filepath)
 	if err != nil {
 		return "", err
 	}
+	defer reader.Close()
 
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -1202,7 +1203,7 @@ func (c *Controller) WriteTextFineTuneQuestions(filepath string, data []types.Da
 		jsonLines = append(jsonLines, string(jsonLine))
 	}
 
-	_, err := c.Options.Filestore.UploadFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
+	_, err := c.Options.Filestore.WriteFile(c.Ctx, filepath, strings.NewReader(strings.Join(jsonLines, "\n")))
 	if err != nil {
 		return err
 	}

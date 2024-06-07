@@ -1,7 +1,5 @@
 import os
 from unstructured.partition.auto import partition
-from unstructured.documents.elements import NarrativeText
-from unstructured.chunking.title import chunk_by_title
 import tempfile
 import requests
 from bs4 import BeautifulSoup
@@ -21,7 +19,7 @@ def download_url(url):
 # set to false to use html2text
 USE_BEAUTIFUL_SOUP = False
 
-def parse_document(url):
+def parse_document_url(url):
 
   # download url to temporary location
   fname, mimeType = download_url(url)
@@ -64,9 +62,18 @@ def parse_document(url):
   os.unlink(fname)
   return text
 
-  # if we want unstructured to do the splitting then we mess with this
-  # chunks = chunk_by_title(
-  #   elements=elements,
-  # )
-  # texts = [element.text for element in chunks]
-  # return texts
+# parse_document_content uses unstructured to parse the content
+# such as PDFs, DOCX, etc.
+def parse_document_content(content):
+  temp_file = tempfile.NamedTemporaryFile(delete=False)
+  temp_file.write(content)
+  temp_file.close()
+  
+  elements = partition(filename=temp_file.name)
+  text = ""
+  for element in elements:
+    if hasattr(element, "text"):
+      text += element.text + "\n"
+
+  os.unlink(temp_file.name)
+  return text

@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
 import pprint
 import sql
+import base64
 from embedding import getEmbedding
-from chunks import parse_document
+from chunks import parse_document_url, parse_document_content
 from utils import HttpException
 
 app = Flask(__name__)
@@ -74,30 +75,47 @@ def rag_query():
 
 @app.route('/api/v1/extract', methods=['POST'])
 def extract_file():
-  if 'url' not in request.json:
-    return jsonify({"error": "No 'url' field in the request"}), 400
+  if 'url' not in request.json and 'content' not in request.json:
+    return jsonify({"error": "No 'url' or 'content' fields in the request, nothing to extract"}), 400
   
+  # URL is used when no content is giving, in this case
+  # we will attempt to download the file from the internet
   url = request.json['url']
-
-  print("-------------------------------------------")
-  print(f"converting URL: {url}")
-  try:
-    text = parse_document(url)
-    print("-------------------------------------------")
-    print(f"converted URL: {url} - length: {len(text)}")
-
-    return jsonify({
-      "text": text,
-    }), 200
+  # Content contains the base64 encoded file
+  content = request.json['content']
   
-  except HttpException as e:
+  if content != "":
+    # base64 decode the content
+    payload = base64.b64decode(content)
+    # Use unstructured to parse it
+    text = parse_document_content(payload)
+    
+    return jsonify({
+        "text": text,
+      }), 200
+    
+  elif url != "":  
     print("-------------------------------------------")
-    print(f"error URL: {url} - {str(e)}")
-    return str(e), e.status_code
-  except Exception as e:
-    print("-------------------------------------------")
-    print(f"error URL: {url} - {str(e)}")
-    return str(e), 500
+    print(f"converting URL: {url}")
+    try:
+      text = parse_document_url(url)
+      print("-------------------------------------------")
+      print(f"converted URL: {url} - length: {len(text)}")
+
+      return jsonify({
+        "text": text,
+      }), 200
+    
+    except HttpException as e:
+      print("-------------------------------------------")
+      print(f"error URL: {url} - {str(e)}")
+      return str(e), e.status_code
+    except Exception as e:
+      print("-------------------------------------------")
+      print(f"error URL: {url} - {str(e)}")
+      return str(e), 500
+  else :
+    return jsonify({"error": "No 'url' or 'content' fields in the request, nothing to extract"}), 400
 
 if __name__ == '__main__':
   app.run(debug=True, port=5000, host='0.0.0.0')

@@ -3,7 +3,6 @@ RUN apt-get update
 RUN apt-get install -y \
   python3 \
   python3-pip \
-  python3-dev \
   ffmpeg \
   libsm6 \
   libxext6 \

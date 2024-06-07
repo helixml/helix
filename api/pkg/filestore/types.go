@@ -40,8 +40,9 @@ type FileStore interface {
 	Get(ctx context.Context, path string) (FileStoreItem, error)
 	SignedURL(ctx context.Context, path string) (string, error)
 	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
-	DownloadFile(ctx context.Context, path string) (io.Reader, error)
-	UploadFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
+
+	OpenFile(ctx context.Context, path string) (io.ReadCloser, error)
+	WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
 	// this will return a tar file stream
 	DownloadFolder(ctx context.Context, path string) (io.Reader, error)
 	// upload a tar stream to a path
