@@ -168,12 +168,12 @@ func (c *Controller) FilestoreCreateFolder(ctx types.OwnerContext, path string) 
 	return c.Options.Filestore.CreateFolder(c.Ctx, filePath)
 }
 
-func (c *Controller) FilestoreDownloadFile(ctx types.OwnerContext, path string) (io.Reader, error) {
+func (c *Controller) FilestoreDownloadFile(ctx types.OwnerContext, path string) (io.ReadCloser, error) {
 	filePath, err := c.ensureFilestoreUserPath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	return c.Options.Filestore.DownloadFile(c.Ctx, filePath)
+	return c.Options.Filestore.OpenFile(c.Ctx, filePath)
 }
 
 func (c *Controller) FilestoreDownloadFolder(ctx types.OwnerContext, path string) (io.Reader, error) {
@@ -189,7 +189,7 @@ func (c *Controller) FilestoreUploadFile(ctx types.OwnerContext, path string, r 
 	if err != nil {
 		return filestore.FileStoreItem{}, err
 	}
-	return c.Options.Filestore.UploadFile(c.Ctx, filePath, r)
+	return c.Options.Filestore.WriteFile(c.Ctx, filePath, r)
 }
 
 func (c *Controller) FilestoreRename(ctx types.OwnerContext, path string, newPath string) (filestore.FileStoreItem, error) {

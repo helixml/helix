@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
+	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -139,41 +141,44 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			filenameParts := strings.Split(file, ".")
 			originalFile := file
 
+			extractRequest := &extract.ExtractRequest{}
+
+			// If the file itself ends with .url then it's a textfile
+			// that has a URL we should download as the actual file
 			if filenameParts[len(filenameParts)-1] == "url" {
-				// if the file itself ends with .url then it's a textfile
-				// that has a URL we should download as the actual file
 				fileURL, err = getFileContent(c.Ctx, c.Options.Filestore, file)
 				if err != nil {
 					return err
 				}
 				file = strings.TrimSuffix(file, ".url")
+
+				extractRequest.URL = fileURL
 			} else {
-				// otherwise it's a file already living in the file store
-				fileURL, err = c.Options.Filestore.SignedURL(c.Ctx, file)
+				// Otherwise it's a file already living in the file store,
+				// open it
+				f, err := c.Options.Filestore.OpenFile(c.Ctx, file)
 				if err != nil {
 					return err
 				}
+				defer f.Close()
+
+				bts, err := io.ReadAll(f)
+				if err != nil {
+					return err
+				}
+
+				extractRequest.Content = bts
 			}
 
-			// for local development - the file server hostname will not resolve
-			// from inside the llamaindex container
-			fileURL = strings.Replace(fileURL, "http://localhost", "http://api", 1)
-
-			res, err := system.PostRequest[convertDocumentsToChunksRequest, convertDocumentsToChunksResponse](
-				system.ClientOptions{},
-				c.Options.Config.Controller.TextExtractionURL,
-				convertDocumentsToChunksRequest{
-					URL: fileURL,
-				},
-			)
+			extractedText, err := c.Options.Extractor.Extract(c.Ctx, extractRequest)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to extract text from %s: %s", file, err.Error())
 			}
 
 			atomic.AddInt64(&completedCounter, 1)
 			newFilepath := strings.TrimSuffix(file, path.Ext(file)) + ".txt"
 
-			_, err = c.Options.Filestore.UploadFile(c.Ctx, newFilepath, strings.NewReader(res.Text))
+			_, err = c.Options.Filestore.WriteFile(c.Ctx, newFilepath, strings.NewReader(extractedText))
 			if err != nil {
 				return err
 			}
@@ -395,7 +400,14 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	for i, chunk := range chunksToProcess {
 		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
 
-		convertError := c.indexChunkForRag(session, chunk)
+		convertError := c.Options.RAG.Index(context.Background(), &types.SessionRAGIndexChunk{
+			DataEntityID:    session.Metadata.RAGSourceID,
+			Filename:        chunk.Filename,
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		})
 
 		if convertError != nil {
 			atomic.AddInt64(&errorCounter, 1)
@@ -411,14 +423,16 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		session = c.WriteInteraction(session, systemInteraction)
 
 		if convertError != nil {
-			log.Error().Msgf("🔴 rag index error %s", convertError.Error())
+			log.Error().
+				Str("data_entity_id", session.Metadata.RAGSourceID).
+				Msgf("🔴 rag index error %s", convertError.Error())
 		} else {
-			log.Info().Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
+			log.Info().
+				Str("data_entity_id", session.Metadata.RAGSourceID).
+				Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
 		}
 
 	}
-
-	fmt.Printf("WE HAVE INDEXED --------------------------------------\n")
 
 	finishedMessage := fmt.Sprintf("indexed %d text chunks into vector database", len(chunksToProcess))
 
@@ -432,47 +446,21 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	return session, len(chunksToProcess), nil
 }
 
-func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPrepTextSplitterChunk) error {
-	_, err := system.PostRequest[types.SessionRAGIndexChunk, types.SessionRAGResult](
-		system.ClientOptions{},
-		c.Options.Config.Controller.RAGIndexingURL,
-		types.SessionRAGIndexChunk{
-			DataEntityID:    session.Metadata.RAGSourceID,
-			Filename:        chunk.Filename,
-			DocumentID:      chunk.DocumentID,
-			DocumentGroupID: chunk.DocumentGroupID,
-			ContentOffset:   chunk.Index,
-			Content:         chunk.Text,
-		},
-	)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // given a user prompt and an existing session id
 // let's load from the vector store
-func (c *Controller) getRAGResults(session *types.Session) ([]types.SessionRAGResult, error) {
+func (c *Controller) getRAGResults(session *types.Session) ([]*types.SessionRAGResult, error) {
 	userInteraction, err := data.GetUserInteraction(session)
 	if err != nil {
 		return nil, err
 	}
-	result, err := system.PostRequest[types.SessionRAGQuery, []types.SessionRAGResult](
-		system.ClientOptions{},
-		c.Options.Config.Controller.RAGQueryURL,
-		types.SessionRAGQuery{
-			Prompt:            userInteraction.Message,
-			DataEntityID:      session.Metadata.RAGSourceID,
-			DistanceThreshold: session.Metadata.RagSettings.Threshold,
-			DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
-			MaxResults:        session.Metadata.RagSettings.ResultsCount,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+
+	return c.Options.RAG.Query(context.Background(), &types.SessionRAGQuery{
+		Prompt:            userInteraction.Message,
+		DataEntityID:      session.Metadata.RAGSourceID,
+		DistanceThreshold: session.Metadata.RagSettings.Threshold,
+		DistanceFunction:  session.Metadata.RagSettings.DistanceFunction,
+		MaxResults:        session.Metadata.RagSettings.ResultsCount,
+	})
 }
 
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
@@ -637,7 +625,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 						// we want to write an empty file to the filestore here
 						// because then appendQuestionsToFile doesn't need to deal with making it
-						_, err = c.Options.Filestore.UploadFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
+						_, err = c.Options.Filestore.WriteFile(c.Ctx, getQuestionsFilename(chunk.Filename), strings.NewReader(""))
 						if err != nil {
 							log.Error().Msgf("error uploading file: %s", err.Error())
 							return err
