@@ -423,8 +423,6 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 
 	}
 
-	fmt.Printf("WE HAVE INDEXED --------------------------------------\n")
-
 	finishedMessage := fmt.Sprintf("indexed %d text chunks into vector database", len(chunksToProcess))
 
 	c.BroadcastProgress(session, 100, finishedMessage)
