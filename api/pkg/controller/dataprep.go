@@ -400,7 +400,14 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	for i, chunk := range chunksToProcess {
 		log.Info().Msgf("🔵 rag index %d of %d", i+1, len(chunksToProcess))
 
-		convertError := c.indexChunkForRag(session, chunk)
+		convertError := c.Options.RAG.Index(context.Background(), &types.SessionRAGIndexChunk{
+			DataEntityID:    session.Metadata.RAGSourceID,
+			Filename:        chunk.Filename,
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		})
 
 		if convertError != nil {
 			atomic.AddInt64(&errorCounter, 1)
@@ -416,9 +423,13 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		session = c.WriteInteraction(session, systemInteraction)
 
 		if convertError != nil {
-			log.Error().Msgf("🔴 rag index error %s", convertError.Error())
+			log.Error().
+				Str("data_entity_id", session.Metadata.RAGSourceID).
+				Msgf("🔴 rag index error %s", convertError.Error())
 		} else {
-			log.Info().Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
+			log.Info().
+				Str("data_entity_id", session.Metadata.RAGSourceID).
+				Msgf("🟢 rag index complete %d of %d", i+1, len(chunksToProcess))
 		}
 
 	}
@@ -433,17 +444,6 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 	session = c.WriteInteraction(session, systemInteraction)
 
 	return session, len(chunksToProcess), nil
-}
-
-func (c *Controller) indexChunkForRag(session *types.Session, chunk *text.DataPrepTextSplitterChunk) error {
-	return c.Options.RAG.Index(context.Background(), &types.SessionRAGIndexChunk{
-		DataEntityID:    session.Metadata.RAGSourceID,
-		Filename:        chunk.Filename,
-		DocumentID:      chunk.DocumentID,
-		DocumentGroupID: chunk.DocumentGroupID,
-		ContentOffset:   chunk.Index,
-		Content:         chunk.Text,
-	})
 }
 
 // given a user prompt and an existing session id
