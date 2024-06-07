@@ -42,6 +42,10 @@ func NewLlamaindex(indexURL, queryURL string) *Llamaindex {
 func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexChunk) error {
 	logger := log.With().
 		Str("llamaindex_index_url", l.indexURL).
+		Str("data_entity_id", indexReq.DataEntityID).
+		Str("document_group_id", indexReq.DocumentGroupID).
+		Str("document_id", indexReq.DocumentID).
+		Int("content_offset", indexReq.ContentOffset).
 		Logger()
 
 	if indexReq.DataEntityID == "" {
@@ -77,6 +81,8 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 		return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 	}
 
+	logger.Debug().Msg("indexed document chunk")
+
 	return nil
 }
 
@@ -86,6 +92,7 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 		Str("distance_function", q.DistanceFunction).
 		Int("max_results", q.MaxResults).
 		Int("distance_threshold", int(q.DistanceThreshold)).
+		Str("data_entity_id", q.DataEntityID).
 		Logger()
 
 	if q.Prompt == "" {
