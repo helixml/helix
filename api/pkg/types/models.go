@@ -58,10 +58,11 @@ func ProcessModelName(
 	sessionMode SessionMode,
 	sessionType SessionType,
 	hasFinetune bool,
+	ragEnabled bool,
 ) (ModelName, error) {
 	switch sessionType {
 	case SessionTypeText:
-		if sessionType == SessionTypeText && (sessionMode == SessionModeFinetune || hasFinetune) {
+		if sessionType == SessionTypeText && !ragEnabled && (sessionMode == SessionModeFinetune || hasFinetune) {
 			// fine tuning doesn't work with ollama yet
 			return Model_Axolotl_Mistral7b, nil
 		}
