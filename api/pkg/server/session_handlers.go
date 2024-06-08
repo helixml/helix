@@ -193,7 +193,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			newSession.LoraID = req.URL.Query().Get("lora_id")
 		}
 
-		processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, startReq.Type, startReq.LoraDir != "")
+		hasFinetune := startReq.LoraDir != ""
+		ragEnabled := newSession.RAGSourceID != ""
+
+		processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -388,7 +391,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
-	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, true)
+	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
