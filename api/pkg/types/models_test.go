@@ -49,6 +49,28 @@ func TestProcessModelName(t *testing.T) {
 			},
 			want: Model_Ollama_Llama3_8b,
 		},
+		{
+			name: "normal inference, model set helix-4",
+			args: args{
+				modelName:   "helix-4",
+				sessionMode: SessionModeInference,
+				sessionType: SessionTypeText,
+				hasFinetune: false,
+				ragEnabled:  false,
+			},
+			want: Model_Ollama_Llama3_70b,
+		},
+		{
+			name: "normal inference, model set helix-mixtral",
+			args: args{
+				modelName:   "helix-mixtral",
+				sessionMode: SessionModeInference,
+				sessionType: SessionTypeText,
+				hasFinetune: false,
+				ragEnabled:  false,
+			},
+			want: Model_Ollama_Mixtral,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
