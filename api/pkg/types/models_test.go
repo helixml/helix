@@ -27,6 +27,17 @@ func TestProcessModelName(t *testing.T) {
 			},
 			want: Model_Ollama_Llama3_8b,
 		},
+		{
+			name: "empty model, finetune, no rag",
+			args: args{
+				modelName:   "",
+				sessionMode: SessionModeFinetune,
+				sessionType: SessionTypeText,
+				hasFinetune: true,
+				ragEnabled:  false,
+			},
+			want: Model_Axolotl_Mistral7b,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
