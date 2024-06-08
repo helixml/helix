@@ -215,8 +215,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		newSession.LoraID = req.URL.Query().Get("lora_id")
 	}
 
+	hasFinetune := newSession.LoraID != ""
+	ragEnabled := newSession.RAGSourceID != ""
+
 	// this handles all the defaults and alising for the processedModel name
-	processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, types.SessionTypeText, false)
+	processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, types.SessionTypeText, hasFinetune, ragEnabled)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
