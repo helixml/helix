@@ -261,6 +261,9 @@ func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *htt
 
 		if ragString == "yes" {
 			ragEnable = true
+
+			// Using the same model for RAG as the main model
+			modelName = types.Model_Ollama_Llama3_8b
 		}
 	}
 
