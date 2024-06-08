@@ -38,6 +38,17 @@ func TestProcessModelName(t *testing.T) {
 			},
 			want: Model_Axolotl_Mistral7b,
 		},
+		{
+			name: "normal inference",
+			args: args{
+				modelName:   "",
+				sessionMode: SessionModeInference,
+				sessionType: SessionTypeText,
+				hasFinetune: false,
+				ragEnabled:  false,
+			},
+			want: Model_Ollama_Llama3_8b,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
