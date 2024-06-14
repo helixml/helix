@@ -565,14 +565,6 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 
 	}
 
-	// belt and braces in remote case and reject jobs that won't fit in local case
-	modelMem := float32(modelInstance.Model().GetMemoryRequirements(initialSession.Mode)) / 1024 / 1024 / 1024
-	freeMem := float32(r.getFreeMemory()) / 1024 / 1024 / 1024
-	if modelMem > freeMem && initialSession.Owner != "warmup-user" {
-		// refuse to start or record the model instance, it will just get GC'd at this point
-		return fmt.Errorf("cannot fit model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
-	}
-	log.Debug().Msgf("🔵 Fitting model requiring gpu memory %.2f into available gpu memory %.2f", modelMem, freeMem)
 	log.Debug().
 		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
