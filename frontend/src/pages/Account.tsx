@@ -115,15 +115,50 @@ const Account: FC = () => {
     ]
   }'`
 
+  const openAIAzureEnvVars = `export AZURE_OPENAI_ENDPOINT=${window.location.protocol}//${window.location.host}
+export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
+export AZURE_OPENAI_API_KEY=${apiKey}
+`
+
   return (
     <Page
       breadcrumbTitle="Account"
     >
       <Container maxWidth="lg">
-        <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <Box sx={{ width: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ width: '100%', flexGrow: 1, overflowY: 'auto', px: 2 }}>
             <Grid container spacing={2}>
+              {paymentsActive && (
+                <>
+                <Grid item xs={12} md={colSize}>
+                  <Typography variant="h4" gutterBottom sx={{mt:4}}>Billing</Typography>
+                  <Paper sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'left', justifyContent: 'center' }}>
+                      {account.userConfig.stripe_subscription_active ? (
+                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography variant="h6" gutterBottom>Subscription Active</Typography>
+                          <Typography variant="subtitle1" gutterBottom>Helix Premium : $20.00 / month</Typography>
+                          <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
+                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleManage}>
+                            Manage Subscription
+                          </Button>
+                        </Box>
+                      ) : (
+                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography variant="h6" gutterBottom>Helix Premium</Typography>
+                          <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
+                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud</Typography>
+                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleSubscribe}>
+                            Start Subscription
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                  </Paper>
+                </Grid></>
+              )}
               <Grid item xs={12} md={colSize}>
+                <Typography variant="h4" gutterBottom sx={{mt:4}}>API Keys</Typography>
                 <Paper sx={{ p: 2 }}>
                   <Typography variant="h6">API</Typography>
                   <List>
@@ -151,6 +186,7 @@ const Account: FC = () => {
                   </List>
                 </Paper>
 
+                <Typography variant="h4" gutterBottom sx={{mt:4}}>API Docs</Typography>
                 <Paper sx={{ p: 2 }}>
                   <Typography variant="h6">Text generation</Typography>
                   <List>
@@ -161,7 +197,7 @@ const Account: FC = () => {
                     
                     <ListItemSecondaryAction sx={{ pr: 4 }}>
                       <CopyToClipboard text={curlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
-                        <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                        <IconButton edge="end" aria-label="copy">
                           <CopyIcon />
                         </IconButton>
                       </CopyToClipboard>
@@ -176,6 +212,7 @@ const Account: FC = () => {
                       whiteSpace: 'pre-wrap',
                       fontSize: '0.8rem',                      
                       ml: 2,
+                      fontFamily: "monospace"
                       }}
                   >
                     {curlExample}
@@ -184,11 +221,38 @@ const Account: FC = () => {
                     <ListItem >
                       <ListItemText                     
                         primary={'OpenAI chat'} 
-                        secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context'} />
-
+                        secondary={'Each API call creates a new Helix session, provide multiple messages to keep the context.'} />
                       <ListItemSecondaryAction sx={{ pr: 4 }}>
                         <CopyToClipboard text={openAICurlExample} onCopy={() => snackbar.success('Copied to clipboard')}>
-                          <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                          <IconButton edge="end" aria-label="copy">
+                            <CopyIcon />
+                          </IconButton>
+                        </CopyToClipboard>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  </List>
+                  
+                  <Typography component="pre" 
+                      sx={{
+                      wordBreak: 'break-all',
+                      wordWrap: 'break-all',
+                      whiteSpace: 'pre-wrap',
+                      fontSize: '0.8rem',                      
+                      ml: 2,
+                      fontFamily: "monospace"
+                      }}
+                  >
+                    {openAICurlExample}                  
+                  </Typography>
+
+                  <List>
+                    <ListItem >
+                      <ListItemText                     
+                        primary={'OpenAI SDK compatibility'} 
+                        secondary={'Use any OpenAI SDK or tool with the following environment variables or settings to connect to Helix.'} />
+                      <ListItemSecondaryAction sx={{ pr: 4 }}>
+                        <CopyToClipboard text={openAIAzureEnvVars} onCopy={() => snackbar.success('Copied to clipboard')}>
+                          <IconButton edge="end" aria-label="copy">
                             <CopyIcon />
                           </IconButton>
                         </CopyToClipboard>
@@ -203,40 +267,14 @@ const Account: FC = () => {
                       whiteSpace: 'pre-wrap',
                       fontSize: '0.8rem',                      
                       ml: 2,
+                      fontFamily: "monospace",
                       }}
                   >
-                    {openAICurlExample}                  
+                    {openAIAzureEnvVars}                  
                   </Typography>
                   
                 </Paper>
               </Grid>
-              {paymentsActive && (
-                <Grid item xs={12} md={colSize}>
-                  <Paper sx={{ p: 2 }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                      {account.userConfig.stripe_subscription_active ? (
-                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
-                          <Typography variant="h6" gutterBottom>Subscription Active</Typography>
-                          <Typography variant="subtitle1" gutterBottom>Helix Premium : $20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>You have priority access to the Helix GPU cloud</Typography>
-                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleManage}>
-                            Manage Subscription
-                          </Button>
-                        </Box>
-                      ) : (
-                        <Box sx={{ alignItems: 'center', justifyContent: 'center' }}>
-                          <Typography variant="h6" gutterBottom>Helix Premium</Typography>
-                          <Typography variant="subtitle1" gutterBottom>$20.00 / month</Typography>
-                          <Typography variant="body2" gutterBottom>Get priority access to the Helix GPU cloud</Typography>
-                          <Button variant="contained" color="primary" sx={{ mt: 2 }} onClick={handleSubscribe}>
-                            Start Subscription
-                          </Button>
-                        </Box>
-                      )}
-                    </Box>
-                  </Paper>
-                </Grid>
-              )}
             </Grid>
           </Box>
         </Box>
