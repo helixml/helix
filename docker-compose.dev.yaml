@@ -143,10 +143,10 @@ services:
     restart: always
     volumes:
       - ./llamaindex/src:/home/app/src
-  gptscript_runner:    
+  gptscript_runner:
     build:
       context: .
-      dockerfile: Dockerfile.gptscript        
+      dockerfile: Dockerfile.gptscript
     restart: always
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -155,7 +155,7 @@ services:
       - CONCURRENCY=20 # number of tasks to run concurrently
       - MAX_TASKS=0  # max number of tasks to run before exiting. Set to 0 to run forever
     depends_on:
-      - api      
+      - api
   dev_gpu_runner:
     profiles: ["dev_gpu_runner"]
     build:
