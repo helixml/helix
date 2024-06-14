@@ -44,6 +44,9 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 	apiKeys, err := c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
 		Owner:     ctx.User.ID,
 		OwnerType: ctx.User.Type,
+		// filter by APIKeyType_API when deciding whether to auto-create user
+		// API keys
+		Type: types.APIKeyType_API,
 	})
 	if err != nil {
 		return nil, err
@@ -57,6 +60,14 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 			return nil, err
 		}
 		return c.GetAPIKeys(ctx)
+	}
+	// return all api key types
+	apiKeys, err = c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
+		Owner:     ctx.User.ID,
+		OwnerType: ctx.User.Type,
+	})
+	if err != nil {
+		return nil, err
 	}
 	return apiKeys, nil
 }
