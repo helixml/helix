@@ -146,6 +146,7 @@ func (i *OllamaModelInstance) Start(session *types.Session) error {
 	ollamaHost := fmt.Sprintf("0.0.0.0:%d", port)
 
 	cmd.Env = append(cmd.Env,
+		"OLLAMA_KEEP_ALIVE=-1",
 		"HTTP_PROXY="+os.Getenv("HTTP_PROXY"),
 		"HTTPS_PROXY="+os.Getenv("HTTPS_PROXY"),
 		"OLLAMA_HOST="+ollamaHost,                 // Bind on localhost with random port
