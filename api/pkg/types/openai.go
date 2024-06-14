@@ -161,7 +161,7 @@ type OpenAIResponse struct {
 
 type Choice struct {
 	Index        int            `json:"index"`
-	FinishReason string         `json:"finish_reason,omitempty"`
+	FinishReason string         `json:"finish_reason"`
 	Message      *OpenAIMessage `json:"message,omitempty"`
 	Delta        *OpenAIMessage `json:"delta,omitempty"`
 	Text         string         `json:"text,omitempty"`

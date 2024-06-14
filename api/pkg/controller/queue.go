@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -58,9 +59,9 @@ func (c *Controller) getMatchingSessionFilterIndex(_ context.Context, filter typ
 		// so we need to ask the associated model instance what the memory
 		// requirements are for this session
 		if filter.Memory > 0 {
-			model, ok := c.models[session.ModelName]
-			if !ok {
-				log.Error().Msgf("unable to look up model %s, possible programming error in adding model to models map", session.ModelName)
+			model, err := model.GetModel(session.ModelName)
+			if err != nil {
+				log.Error().Msgf("unable to look up model %s, possible programming error in adding model to models map (%s)", session.ModelName, err)
 				continue
 			}
 			if model.GetMemoryRequirements(session.Mode) > filter.Memory {
