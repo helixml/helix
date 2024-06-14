@@ -40,13 +40,13 @@ func (i *OllamaGenericText) GetTask(session *types.Session, fileManager ModelSes
 }
 
 func (i *OllamaGenericText) GetCommand(ctx context.Context, sessionFilter types.SessionFilter, config types.RunnerProcessConfig) (*exec.Cmd, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("not implemented 1")
 }
 
 func (i *OllamaGenericText) GetTextStreams(mode types.SessionMode, eventHandler WorkerEventHandler) (*TextStream, *TextStream, error) {
-	return nil, nil, fmt.Errorf("not implemented")
+	return nil, nil, fmt.Errorf("not implemented 2")
 }
 
 func (i *OllamaGenericText) PrepareFiles(session *types.Session, isInitialSession bool, fileManager ModelSessionFileManager) (*types.Session, error) {
-	return nil, fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("not implemented 3")
 }

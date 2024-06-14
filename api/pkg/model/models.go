@@ -12,6 +12,10 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	if err != nil {
 		return nil, err
 	}
+	modelName, err = types.TransformModelName(modelName.String(), true)
+	if err != nil {
+		return nil, err
+	}
 	if strings.HasPrefix(modelName.String(), "gpt-3") {
 		modelName = types.Model_Ollama_Llama3_8b
 	}

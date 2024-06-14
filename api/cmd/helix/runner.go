@@ -236,7 +236,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		return fmt.Errorf("api token is required")
 	}
 
-	_, err := types.ValidateModelName(options.Runner.FilterModelName, true)
+	_, err := types.TransformModelName(options.Runner.FilterModelName, true)
 	if err != nil {
 		return err
 	}
