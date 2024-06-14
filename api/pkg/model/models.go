@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -10,6 +11,12 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	models, err := GetModels()
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasPrefix(modelName.String(), "gpt-3") {
+		modelName = types.Model_Ollama_Llama3_8b
+	}
+	if strings.HasPrefix(modelName.String(), "gpt-4") {
+		modelName = types.Model_Ollama_Llama3_70b
 	}
 	model, ok := models[modelName]
 	if !ok {
