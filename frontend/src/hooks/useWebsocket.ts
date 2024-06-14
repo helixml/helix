@@ -18,8 +18,8 @@ export const useWebsocket = (
     if(!account.token) return
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsHostname = window.location.hostname
-    const url = `${wsProtocol}//${wsHostname}/api/v1/ws/user?access_token=${account.token}&session_id=${session_id}`
+    const wsHost = window.location.host
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?access_token=${account.token}&session_id=${session_id}`
     const rws = new ReconnectingWebSocket(url)
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent
