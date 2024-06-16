@@ -29,6 +29,8 @@ func NewTriggerManager(cfg *config.ServerConfig, store store.Store) *TriggerMana
 func (t *TriggerManager) Start(ctx context.Context) {
 	t.wg.Add(1)
 
+	log.Info().Msg("starting Helix triggers")
+
 	go func() {
 		defer t.wg.Done()
 		t.runDiscord(ctx)
