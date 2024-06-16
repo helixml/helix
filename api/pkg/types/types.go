@@ -870,7 +870,8 @@ func (AppConfig) GormDataType() string {
 	return "json"
 }
 
-type DiscordTrigger struct{}
+type DiscordTrigger struct {
+}
 
 type CronTrigger struct {
 	Schedule string `json:"schedule,omitempty"`
@@ -905,6 +906,28 @@ func (Trigger) GormDataType() string {
 }
 
 type Triggers []Trigger
+
+func (m Triggers) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *Triggers) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result []Trigger
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (Triggers) GormDataType() string {
+	return "json"
+}
 
 type App struct {
 	ID      string    `json:"id" gorm:"primaryKey"`
