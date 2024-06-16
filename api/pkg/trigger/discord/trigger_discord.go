@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/rs/zerolog/log"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -34,7 +36,15 @@ func (d *Discord) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create discord session: %w", err)
 	}
 
+	logger := log.With().Str("trigger", "discord").Logger()
+
+	logger.Info().Msg("starting Discord bot")
+
 	s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		logger.Info().Str("content", m.Content).Msg("received message")
+
+		fmt.Println("XX msg", m.Content)
+		spew.Dump(m)
 		if strings.Contains(m.Content, "ping") {
 			if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
 				thread, err := s.MessageThreadStartComplex(m.ChannelID, m.ID, &discordgo.ThreadStart{
@@ -44,12 +54,21 @@ func (d *Discord) Start(ctx context.Context) error {
 					RateLimitPerUser:    10,
 				})
 				if err != nil {
-					panic(err)
+					log.Err(err).Msg("failed to create thread")
+					return
 				}
-				_, _ = s.ChannelMessageSend(thread.ID, "pong")
+				_, err = s.ChannelMessageSend(thread.ID, "pong")
+				if err != nil {
+					log.Err(err).Msg("failed to send message")
+				}
+
 				m.ChannelID = thread.ID
 			} else {
-				_, _ = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
+				_, err = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
+				if err != nil {
+					log.Err(err).Msg("failed to send message")
+				}
+
 			}
 			games[m.ChannelID] = time.Now()
 			<-time.After(timeout)
@@ -61,7 +80,7 @@ func (d *Discord) Start(ctx context.Context) error {
 					Locked:   &locked,
 				})
 				if err != nil {
-					panic(err)
+					log.Err(err).Msg("failed to archive channel")
 				}
 			}
 		}
