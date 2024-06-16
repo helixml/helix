@@ -40,8 +40,21 @@ func (d *Discord) Start(ctx context.Context) error {
 
 	logger.Info().Msg("starting Discord bot")
 
+	// TODO:
+	// 1. Look for bot name in the message
+	// 2. Check the trigger database whether bot is configured, ignore non configured bots
+	// 3. Start the session with the bot
+
 	s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		logger.Info().Str("content", m.Content).Msg("received message")
+		if m.Author.ID == s.State.User.ID {
+			return
+		}
+
+		logger.Info().
+			Str("content", m.Content).
+			Str("bot_id", s.State.User.ID).
+			Str("message_author_id", m.Author.ID).
+			Msg("received message")
 
 		fmt.Println("XX msg", m.Content)
 		spew.Dump(m)
