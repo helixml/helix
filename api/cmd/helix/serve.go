@@ -247,7 +247,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.StartLooping()
 
-	trigger := trigger.NewTriggerManager(cfg, store)
+	trigger := trigger.NewTriggerManager(cfg, store, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 

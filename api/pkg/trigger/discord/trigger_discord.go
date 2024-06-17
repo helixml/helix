@@ -8,28 +8,32 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
 	"github.com/bwmarrin/discordgo"
 )
 
+type SessionProvider interface {
+	StartSession(ctx types.RequestContext, req types.InternalSessionRequest) (*types.Session, error)
+}
+
 type Discord struct {
-	cfg   *config.ServerConfig
-	store store.Store
+	cfg             *config.ServerConfig
+	store           store.Store
+	sessionProvider SessionProvider
 
 	botID string
 }
 
-func New(cfg *config.ServerConfig, store store.Store) *Discord {
+func New(cfg *config.ServerConfig, store store.Store, sessionProvider SessionProvider) *Discord {
 	return &Discord{
-		cfg:   cfg,
-		store: store,
+		cfg:             cfg,
+		store:           store,
+		sessionProvider: sessionProvider,
 	}
 }
-
-const timeout time.Duration = time.Second * 10
-
-var games map[string]time.Time = make(map[string]time.Time)
 
 func (d *Discord) Start(ctx context.Context) error {
 	s, err := discordgo.New("Bot " + d.cfg.Triggers.Discord.BotToken)
@@ -73,6 +77,10 @@ func (d *Discord) isDirectedAtBot(m *discordgo.MessageCreate) bool {
 	return false
 }
 
+const timeout time.Duration = time.Second * 10
+
+var games map[string]time.Time = make(map[string]time.Time)
+
 // TODO:
 // 1. Look for bot name in the message
 // 2. Check the trigger database whether bot is configured, ignore non configured bots
@@ -95,8 +103,6 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	// fmt.Println("XX msg", m.Content)
-	// spew.Dump(m)
 	if strings.Contains(m.Content, "ping") {
 		if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
 			thread, err := s.MessageThreadStartComplex(m.ChannelID, m.ID, &discordgo.ThreadStart{
@@ -136,4 +142,42 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			}
 		}
 	}
+}
+
+func (d *Discord) startSession(m *discordgo.MessageCreate) {
+	// TODO: get app configuration from the database
+	// to populate rag/tools
+
+	newSession := types.InternalSessionRequest{
+		ID:          system.GenerateSessionID(),
+		Mode:        types.SessionModeInference,
+		Type:        types.SessionTypeText,
+		ParentApp:   "",
+		AssistantID: "0",
+		Stream:      false,
+		Owner:       m.Author.Username,
+		OwnerType:   types.OwnerTypeUser,
+		// Load thread
+		UserInteractions: []*types.Interaction{
+			{
+				ID:             system.GenerateUUID(),
+				Created:        time.Now(),
+				Updated:        time.Now(),
+				Scheduled:      time.Now(),
+				Completed:      time.Now(),
+				Creator:        types.CreatorTypeUser,
+				Mode:           types.SessionModeInference,
+				Message:        m.Content,
+				Files:          []string{},
+				State:          types.InteractionStateComplete,
+				Finished:       true,
+				Metadata:       map[string]string{},
+				DataPrepChunks: map[string][]types.DataPrepChunk{},
+			},
+		},
+		Priority:       true,
+		ActiveTools:    []string{},
+		AppQueryParams: map[string]string{},
+	}
+
 }

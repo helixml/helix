@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
@@ -14,15 +15,17 @@ import (
 )
 
 type TriggerManager struct {
-	cfg   *config.ServerConfig
-	store store.Store
-	wg    sync.WaitGroup
+	cfg        *config.ServerConfig
+	store      store.Store
+	controller *controller.Controller
+	wg         sync.WaitGroup
 }
 
-func NewTriggerManager(cfg *config.ServerConfig, store store.Store) *TriggerManager {
+func NewTriggerManager(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *TriggerManager {
 	return &TriggerManager{
-		cfg:   cfg,
-		store: store,
+		cfg:        cfg,
+		store:      store,
+		controller: controller,
 	}
 }
 
@@ -46,7 +49,7 @@ func (t *TriggerManager) Start(ctx context.Context) {
 }
 
 func (t *TriggerManager) runDiscord(ctx context.Context) {
-	discordTrigger := discord.New(t.cfg, t.store)
+	discordTrigger := discord.New(t.cfg, t.store, t.controller)
 
 	for {
 		err := discordTrigger.Start(ctx)
