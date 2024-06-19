@@ -27,7 +27,7 @@ func (apiServer *HelixAPIServer) startGptScriptRunnerWebSocketServer(r *mux.Rout
 			return
 		}
 
-		if user == nil || !isRunner(*user) {
+		if user == nil || !isRunner(user) {
 			log.Error().Msgf("Error authorizing runner websocket")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

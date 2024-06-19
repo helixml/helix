@@ -152,11 +152,11 @@ func isRunner(user *types.User) bool {
 	return user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
-func doesOwnSession(user types.User, session *types.Session) bool {
+func doesOwnSession(user *types.User, session *types.Session) bool {
 	return session.OwnerType == user.Type && session.Owner == user.ID
 }
 
-func canSeeSession(user types.User, session *types.Session) bool {
+func canSeeSession(user *types.User, session *types.Session) bool {
 	canEdit := canEditSession(user, session)
 	if canEdit {
 		return true
@@ -167,7 +167,7 @@ func canSeeSession(user types.User, session *types.Session) bool {
 	return false
 }
 
-func canEditSession(user types.User, session *types.Session) bool {
+func canEditSession(user *types.User, session *types.Session) bool {
 	if session.OwnerType == user.Type && session.Owner == user.ID {
 		return true
 	}
