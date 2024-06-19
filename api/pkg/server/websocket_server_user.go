@@ -70,7 +70,7 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 			return
 		}
 
-		if user == nil || !hasUser(*user) {
+		if user == nil || !hasUser(user) {
 			log.Error().Msgf("Error getting user")
 			http.Error(w, "unauthorized", http.StatusInternalServerError)
 			return

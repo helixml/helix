@@ -67,7 +67,8 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 	req *http.Request,
 ) (*types.DataEntity, error) {
 	ID := system.GenerateUUID()
-	userContext := getRequestContext(req)
+
+	user := getRequestUser(req)
 
 	err := req.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -127,8 +128,8 @@ func (apiServer *HelixAPIServer) getDataEntityFromForm(
 		Created:   time.Now(),
 		Updated:   time.Now(),
 		Type:      types.DataEntityTypeUploadedDocuments,
-		Owner:     userContext.User.ID,
-		OwnerType: userContext.User.Type,
+		Owner:     user.ID,
+		OwnerType: user.Type,
 		Config: types.DataEntityConfig{
 			FilestorePath: inputPath,
 		},
