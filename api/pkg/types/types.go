@@ -1,7 +1,6 @@
 package types
 
 import (
-	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -482,15 +481,6 @@ type User struct {
 	Email    string
 	Username string
 	FullName string
-}
-
-// passed between the api server and the controller
-// we parse the token (if provided and then create this object)
-// the request context is always present - if for un-authenticated requests
-// in that case, the owner and token fields are empty
-type RequestContext struct {
-	Ctx  context.Context
-	User User
 }
 
 // a single envelope that is broadcast to users
