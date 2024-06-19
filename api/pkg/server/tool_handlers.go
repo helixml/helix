@@ -20,11 +20,11 @@ import (
 // @Router /api/v1/tools [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*types.Tool, *system.HTTPError) {
-	userContext := getRequestContext(r)
+	user := getRequestUser(r)
 
 	userTools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
-		Owner:     userContext.User.ID,
-		OwnerType: userContext.User.Type,
+		Owner:     user.ID,
+		OwnerType: user.Type,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
@@ -52,7 +52,7 @@ func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*
 
 	// remove api keys from global tools in the response
 	for _, tool := range allTools {
-		if !isAdmin(userContext.User) && tool.Global {
+		if !isAdmin(user) && tool.Global {
 			tool.Config.API.Headers = map[string]string{}
 			tool.Config.API.Query = map[string]string{}
 		}
@@ -78,26 +78,26 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
 	}
 
-	userContext := getRequestContext(r)
+	user := getRequestUser(r)
 
 	// only let admins create global tools
-	if tool.Global && !isAdmin(userContext.User) {
+	if tool.Global && !isAdmin(user) {
 		return nil, system.NewHTTPError403("only admin users can create global tools")
 	}
 
 	// Getting existing tools for the user
 	existingTools, err := s.Store.ListTools(r.Context(), &store.ListToolsQuery{
-		Owner:     userContext.User.ID,
-		OwnerType: userContext.User.Type,
+		Owner:     user.ID,
+		OwnerType: user.Type,
 	})
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	tool.Owner = userContext.User.ID
-	tool.OwnerType = userContext.User.Type
+	tool.Owner = user.ID
+	tool.OwnerType = user.Type
 
-	err = s.validateTool(&userContext, &tool)
+	err = s.validateTool(&tool)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -129,7 +129,7 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 // @Router /api/v1/tools/{id} [put]
 // @Security BearerAuth
 func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
-	userContext := getRequestContext(r)
+	user := getRequestUser(r)
 
 	var tool types.Tool
 	err := json.NewDecoder(r.Body).Decode(&tool)
@@ -141,7 +141,7 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 
 	tool.ID = id
 
-	err = s.validateTool(&userContext, &tool)
+	err = s.validateTool(&tool)
 	if err != nil {
 		return nil, system.NewHTTPError400(err.Error())
 	}
@@ -158,11 +158,11 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 	// let any admin update a global tool
 	// but otherwise you must own the tool to update it
 	if tool.Global {
-		if !isAdmin(userContext.User) {
+		if !isAdmin(user) {
 			return nil, system.NewHTTPError403("only admin users can update global tools")
 		}
 	} else {
-		if existing.Owner != userContext.User.ID {
+		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 		}
 	}
@@ -179,7 +179,7 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 	return updated, nil
 }
 
-func (s *HelixAPIServer) validateTool(_ *types.RequestContext, tool *types.Tool) error {
+func (s *HelixAPIServer) validateTool(tool *types.Tool) error {
 	return tools.ValidateTool(tool, s.Controller.ToolsPlanner, true)
 }
 
@@ -193,7 +193,7 @@ func (s *HelixAPIServer) validateTool(_ *types.RequestContext, tool *types.Tool)
 // @Router /api/v1/tools/{id} [delete]
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteTool(rw http.ResponseWriter, r *http.Request) (*types.Tool, *system.HTTPError) {
-	userContext := getRequestContext(r)
+	user := getRequestUser(r)
 
 	id := getID(r)
 
@@ -208,11 +208,11 @@ func (s *HelixAPIServer) deleteTool(rw http.ResponseWriter, r *http.Request) (*t
 	// let any admin delete a global tool
 	// but otherwise you must own the tool to update it
 	if existing.Global {
-		if !isAdmin(userContext.User) {
+		if !isAdmin(user) {
 			return nil, system.NewHTTPError403("only admin users can delete global tools")
 		}
 	} else {
-		if existing.Owner != userContext.User.ID {
+		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
 		}
 	}

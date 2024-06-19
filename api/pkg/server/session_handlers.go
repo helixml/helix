@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -44,9 +43,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	userContext := getRequestContext(req)
+	ctx := req.Context()
+	user := getRequestUser(req)
 
-	status, err := s.Controller.GetStatus(userContext)
+	status, err := s.Controller.GetStatus(req.Context(), user)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -65,8 +65,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
 			// this works for both session based file paths and data entity based file paths
 			ownerContext := types.OwnerContext{
-				Owner:     userContext.User.ID,
-				OwnerType: userContext.User.Type,
+				Owner:     user.ID,
+				OwnerType: user.Type,
 			}
 			userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
 			if err != nil {
@@ -92,7 +92,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		// this will be assigned if the token being used is an app token
-		appID := userContext.User.AppID
+		appID := user.AppID
 
 		if startReq.AppID != "" {
 			appID = startReq.AppID
@@ -123,8 +123,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			SystemPrompt:     startReq.SystemPrompt,
 			Stream:           startReq.Stream,
 			ModelName:        types.ModelName(startReq.Model),
-			Owner:            userContext.User.ID,
-			OwnerType:        userContext.User.Type,
+			Owner:            user.ID,
+			OwnerType:        user.Type,
 			LoraDir:          startReq.LoraDir,
 			UserInteractions: interactions,
 			Priority:         status.Config.StripeSubscriptionActive,
@@ -134,7 +134,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		// if we have an app then let's populate the InternalSessionRequest with values from it
 		if newSession.ParentApp != "" {
-			app, err := s.Store.GetApp(userContext.Ctx, appID)
+			app, err := s.Store.GetApp(ctx, appID)
 			if err != nil {
 				http.Error(rw, err.Error(), http.StatusInternalServerError)
 				return
@@ -205,7 +205,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		// we need to load the rag source and apply the rag settings to the session
 		if newSession.RAGSourceID != "" {
-			ragSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.RAGSourceID)
+			ragSource, err := s.Store.GetDataEntity(ctx, newSession.RAGSourceID)
 			if err != nil {
 				http.Error(rw, err.Error(), http.StatusInternalServerError)
 				return
@@ -216,7 +216,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		// we need to load the lora source and apply the lora settings to the session
 		if newSession.LoraID != "" {
-			loraSource, err := s.Store.GetDataEntity(userContext.Ctx, newSession.LoraID)
+			loraSource, err := s.Store.GetDataEntity(ctx, newSession.LoraID)
 			if err != nil {
 				http.Error(rw, err.Error(), http.StatusInternalServerError)
 				return
@@ -225,12 +225,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			newSession.LoraDir = loraSource.Config.FilestorePath
 		}
 
-		fmt.Printf("newSession --------------------------------------\n")
-		spew.Dump(newSession)
 		// we are still in the old frontend mode where it's listening to the websocket
 		// TODO: get the frontend to stream using the streaming api below
 		if startReq.Legacy {
-			sessionData, err := s.Controller.StartSession(userContext, newSession)
+			sessionData, err := s.Controller.StartSession(ctx, user, newSession)
 			if err != nil {
 				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
 				log.Error().Err(err).Msg("failed to start session")
@@ -252,7 +250,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			sessionID: sessionID,
 			modelName: string(newSession.ModelName),
 			start: func() error {
-				_, err := s.Controller.StartSession(userContext, newSession)
+				_, err := s.Controller.StartSession(ctx, user, newSession)
 				if err != nil {
 					return fmt.Errorf("failed to create session: %s", err)
 				}
@@ -260,7 +258,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			},
 		}
 	} else {
-		existingSession, err := s.Store.GetSession(userContext.Ctx, startReq.SessionID)
+		existingSession, err := s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
@@ -287,7 +285,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// we are still in the old frontend mode where it's listening to the websocket
 		// TODO: get the frontend to stream using the streaming api below
 		if startReq.Legacy {
-			updatedSession, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
+			updatedSession, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
 				SessionID:       startReq.SessionID,
 				UserInteraction: interactions[0],
 				SessionMode:     types.SessionModeInference,
@@ -314,7 +312,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			modelName: string(existingSession.ModelName),
 			start: func() error {
 
-				_, err := s.Controller.UpdateSession(getRequestContext(req), types.UpdateSessionRequest{
+				_, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
 					SessionID:       startReq.SessionID,
 					UserInteraction: interactions[0],
 					SessionMode:     types.SessionModeInference,
@@ -329,11 +327,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	if startReq.Stream {
-		s.handleStreamingResponse(rw, req, userContext, cfg)
+		s.handleStreamingResponse(rw, req, user, cfg)
 		return
 	}
 
-	s.handleBlockingResponse(rw, req, userContext, cfg)
+	s.handleBlockingResponse(rw, req, user, cfg)
 }
 
 // startLearnSessionHandler godoc
@@ -359,10 +357,12 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
-	userContext := getRequestContext(req)
+	user := getRequestUser(req)
+	ctx := req.Context()
+
 	ownerContext := getOwnerContext(req)
 
-	status, err := s.Controller.GetStatus(userContext)
+	status, err := s.Controller.GetStatus(ctx, user)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -373,13 +373,13 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		startReq.Type = types.SessionTypeText
 	}
 
-	dataEntity, err := s.Store.GetDataEntity(userContext.Ctx, startReq.DataEntityID)
+	dataEntity, err := s.Store.GetDataEntity(ctx, startReq.DataEntityID)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if dataEntity.Owner != userContext.User.ID {
+	if dataEntity.Owner != user.ID {
 		http.Error(rw, "you must own the data entity", http.StatusBadRequest)
 		return
 	}
@@ -404,8 +404,8 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		ModelName:           model,
 		Type:                startReq.Type,
 		Stream:              true,
-		Owner:               userContext.User.ID,
-		OwnerType:           userContext.User.Type,
+		Owner:               user.ID,
+		OwnerType:           user.Type,
 		UserInteractions:    []*types.Interaction{userInteraction},
 		Priority:            status.Config.StripeSubscriptionActive,
 		UploadedDataID:      dataEntity.ID,
@@ -414,7 +414,7 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		RAGSettings:         startReq.RagSettings,
 	}
 
-	sessionData, err := s.Controller.StartSession(userContext, createRequest)
+	sessionData, err := s.Controller.StartSession(ctx, user, createRequest)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
