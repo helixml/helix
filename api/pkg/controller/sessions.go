@@ -26,7 +26,11 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSessionRequest) (*types.Session, error) {
+func (c *Controller) RunSession(ctx context.Context, req types.InternalSessionRequest) (*types.Session, error) {
+	return nil, nil
+}
+
+func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
@@ -92,7 +96,7 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 		// Check for max concurrent finetuning sessions
 		var currentlyRunningFinetuneSessions int
 
-		sessions, err := c.Options.Store.GetSessions(ctx.Ctx, store.GetSessionsQuery{
+		sessions, err := c.Options.Store.GetSessions(ctx, store.GetSessionsQuery{
 			Owner: newSession.Owner,
 		})
 		if err != nil {
@@ -145,20 +149,20 @@ func (c *Controller) StartSession(ctx types.RequestContext, req types.InternalSe
 	}
 
 	// create session in database
-	sessionData, err := c.Options.Store.CreateSession(ctx.Ctx, newSession)
+	sessionData, err := c.Options.Store.CreateSession(ctx, newSession)
 	if err != nil {
 		return nil, err
 	}
 
 	go c.SessionRunner(sessionData)
 
-	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, ctx, sessionData)
+	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeCreated, user, sessionData)
 	if err != nil {
 		return nil, err
 	}
 
 	if newSession.Mode == types.SessionModeFinetune {
-		err := c.Options.Notifier.Notify(ctx.Ctx, &notification.Notification{
+		err := c.Options.Notifier.Notify(ctx, &notification.Notification{
 			Event:   notification.EventFinetuningStarted,
 			Session: &newSession,
 		})
@@ -186,8 +190,8 @@ func (c *Controller) isUserProTier(ctx context.Context, owner string) (bool, err
 	return false, nil
 }
 
-func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSessionRequest) (*types.Session, error) {
-	session, err := c.Options.Store.GetSession(ctx.Ctx, req.SessionID)
+func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req types.UpdateSessionRequest) (*types.Session, error) {
+	session, err := c.Options.Store.GetSession(ctx, req.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session %s: %w", req.SessionID, err)
 	}
@@ -210,14 +214,14 @@ func (c *Controller) UpdateSession(ctx types.RequestContext, req types.UpdateSes
 
 	log.Debug().Msgf("🟢 update session: %+v", session)
 
-	sessionData, err := c.Options.Store.UpdateSession(ctx.Ctx, *session)
+	sessionData, err := c.Options.Store.UpdateSession(ctx, *session)
 	if err != nil {
 		return nil, err
 	}
 
 	go c.SessionRunner(sessionData)
 
-	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, ctx, sessionData)
+	err = c.Options.Janitor.WriteSessionEvent(types.SessionEventTypeUpdated, user, sessionData)
 	if err != nil {
 		return nil, err
 	}
@@ -912,7 +916,8 @@ type CloneUntilInteractionRequest struct {
 
 // the user interaction is the thing we are cloning
 func (c *Controller) CloneUntilInteraction(
-	ctx types.RequestContext,
+	ctx context.Context,
+	user *types.User,
 	oldSession *types.Session,
 	req CloneUntilInteractionRequest,
 ) (*types.Session, error) {
@@ -954,7 +959,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(ctx.User.ID), newSession.ID)
+	newPrefix, err := c.GetFilestoreSessionPath(data.OwnerContext(user.ID), newSession.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -972,7 +977,7 @@ func (c *Controller) CloneUntilInteraction(
 		newFile := strings.Replace(filePath, oldPrefix, newPrefix, 1)
 		log.Debug().
 			Msgf("🔵 clone interaction file: %s -> %s", filePath, newFile)
-		err := c.Options.Filestore.CopyFile(ctx.Ctx, filePath, newFile)
+		err := c.Options.Filestore.CopyFile(ctx, filePath, newFile)
 		if err != nil {
 			return "", err
 		}
@@ -983,11 +988,11 @@ func (c *Controller) CloneUntilInteraction(
 		newFolder := strings.Replace(folderPath, oldPrefix, newPrefix, 1)
 		log.Debug().
 			Msgf("🔵 clone folder: %s -> %s", folderPath, newFolder)
-		reader, err := c.Options.Filestore.DownloadFolder(ctx.Ctx, folderPath)
+		reader, err := c.Options.Filestore.DownloadFolder(ctx, folderPath)
 		if err != nil {
 			return "", err
 		}
-		err = c.Options.Filestore.UploadFolder(ctx.Ctx, newFolder, reader)
+		err = c.Options.Filestore.UploadFolder(ctx, newFolder, reader)
 		if err != nil {
 			return "", err
 		}
@@ -1142,7 +1147,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	createdSession, err := c.Options.Store.CreateSession(ctx.Ctx, *newSession)
+	createdSession, err := c.Options.Store.CreateSession(ctx, *newSession)
 	if err != nil {
 		return nil, err
 	}
