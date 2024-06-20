@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	helixopenai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -146,6 +147,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		// Get existing messages from the thread
 		fmt.Println("XX thread messages")
 		fmt.Println(ch.Messages)
+		spew.Dump(ch)
 
 		_, err = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
 		if err != nil {
