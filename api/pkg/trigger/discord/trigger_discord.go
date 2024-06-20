@@ -7,31 +7,26 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/helixml/helix/api/pkg/system"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-type SessionProvider interface {
-	StartSession(ctx types.RequestContext, req types.InternalSessionRequest) (*types.Session, error)
-}
-
 type Discord struct {
-	cfg             *config.ServerConfig
-	store           store.Store
-	sessionProvider SessionProvider
+	cfg    *config.ServerConfig
+	store  store.Store
+	client openai.Client
 
 	botID string
 }
 
-func New(cfg *config.ServerConfig, store store.Store, sessionProvider SessionProvider) *Discord {
+func New(cfg *config.ServerConfig, store store.Store, client openai.Client) *Discord {
 	return &Discord{
-		cfg:             cfg,
-		store:           store,
-		sessionProvider: sessionProvider,
+		cfg:    cfg,
+		store:  store,
+		client: client,
 	}
 }
 
@@ -147,37 +142,5 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 func (d *Discord) startSession(m *discordgo.MessageCreate) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
-
-	newSession := types.InternalSessionRequest{
-		ID:          system.GenerateSessionID(),
-		Mode:        types.SessionModeInference,
-		Type:        types.SessionTypeText,
-		ParentApp:   "",
-		AssistantID: "0",
-		Stream:      false,
-		Owner:       m.Author.Username,
-		OwnerType:   types.OwnerTypeUser,
-		// Load thread
-		UserInteractions: []*types.Interaction{
-			{
-				ID:             system.GenerateUUID(),
-				Created:        time.Now(),
-				Updated:        time.Now(),
-				Scheduled:      time.Now(),
-				Completed:      time.Now(),
-				Creator:        types.CreatorTypeUser,
-				Mode:           types.SessionModeInference,
-				Message:        m.Content,
-				Files:          []string{},
-				State:          types.InteractionStateComplete,
-				Finished:       true,
-				Metadata:       map[string]string{},
-				DataPrepChunks: map[string][]types.DataPrepChunk{},
-			},
-		},
-		Priority:       true,
-		ActiveTools:    []string{},
-		AppQueryParams: map[string]string{},
-	}
 
 }
