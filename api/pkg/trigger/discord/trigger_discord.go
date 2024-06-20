@@ -4,25 +4,26 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/openai"
+	helixopenai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
-	"github.com/rs/zerolog/log"
+	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/bwmarrin/discordgo"
+	openai "github.com/lukemarsden/go-openai2"
+	"github.com/rs/zerolog/log"
 )
 
 type Discord struct {
 	cfg    *config.ServerConfig
 	store  store.Store
-	client openai.Client
+	client helixopenai.Client
 
 	botID string
 }
 
-func New(cfg *config.ServerConfig, store store.Store, client openai.Client) *Discord {
+func New(cfg *config.ServerConfig, store store.Store, client helixopenai.Client) *Discord {
 	return &Discord{
 		cfg:    cfg,
 		store:  store,
@@ -61,8 +62,13 @@ func (d *Discord) Start(ctx context.Context) error {
 	return nil
 }
 
-func (d *Discord) isDirectedAtBot(m *discordgo.MessageCreate) bool {
-	if strings.Contains(m.Content, "<@!"+d.botID+">") {
+// 2024-06-20T22:59:44Z INF pkg/trigger/discord/trigger_discord.go:98 >
+//received message bot_id=1251942355980779531
+//content="<@1251942355980779531> how about now" message_author_id=341274053312643073 state_user_id=1251942355980779531 trigger=discord
+
+func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	if strings.Contains(m.Content, "<@"+s.State.User.ID+">") {
+		fmt.Println("XX bot id")
 		return true
 	}
 	if m.MessageReference != nil && m.MessageReference.MessageID != "" {
@@ -71,10 +77,6 @@ func (d *Discord) isDirectedAtBot(m *discordgo.MessageCreate) bool {
 
 	return false
 }
-
-const timeout time.Duration = time.Second * 10
-
-var games map[string]time.Time = make(map[string]time.Time)
 
 // TODO:
 // 1. Look for bot name in the message
@@ -89,58 +91,83 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 	logger.Info().
 		Str("content", m.Content).
-		Str("bot_id", s.State.User.ID).
+		Str("bot_id", d.botID).
+		Str("state_user_id", s.State.User.ID).
 		Str("message_author_id", m.Author.ID).
 		Msg("received message")
 
-	if !d.isDirectedAtBot(m) {
+	if !d.isDirectedAtBot(s, m) {
 		logger.Debug().Msg("message not directed at bot")
 		return
 	}
 
-	if strings.Contains(m.Content, "ping") {
-		if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
-			thread, err := s.MessageThreadStartComplex(m.ChannelID, m.ID, &discordgo.ThreadStart{
-				Name:                "Pong game with " + m.Author.Username,
-				AutoArchiveDuration: 60,
-				Invitable:           false,
-				RateLimitPerUser:    10,
-			})
-			if err != nil {
-				log.Err(err).Msg("failed to create thread")
-				return
-			}
-			_, err = s.ChannelMessageSend(thread.ID, "pong")
-			if err != nil {
-				log.Err(err).Msg("failed to send message")
-			}
-
-			m.ChannelID = thread.ID
-		} else {
-			_, err = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
-			if err != nil {
-				log.Err(err).Msg("failed to send message")
-			}
-
+	if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
+		// Creating a new thread
+		thread, err := s.MessageThreadStartComplex(m.ChannelID, m.ID, &discordgo.ThreadStart{
+			Name:                "Conversation with " + m.Author.Username,
+			AutoArchiveDuration: 60,
+			Invitable:           false,
+			RateLimitPerUser:    10,
+		})
+		if err != nil {
+			log.Err(err).Msg("failed to create thread")
+			return
 		}
-		games[m.ChannelID] = time.Now()
-		<-time.After(timeout)
-		if time.Since(games[m.ChannelID]) >= timeout {
-			archived := true
-			locked := true
-			_, err := s.ChannelEditComplex(m.ChannelID, &discordgo.ChannelEdit{
-				Archived: &archived,
-				Locked:   &locked,
-			})
-			if err != nil {
-				log.Err(err).Msg("failed to archive channel")
-			}
+
+		logger.Info().Msg("calling llm")
+
+		resp, err := d.starChat(context.Background(), m)
+		if err != nil {
+			log.Err(err).Msg("failed to get response from inference API")
+			return
 		}
+
+		_, err = s.ChannelMessageSend(thread.ID, resp)
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+
+		m.ChannelID = thread.ID
+	} else {
+		// Get existing messages from the thread
+		fmt.Println("XX thread messages")
+		fmt.Println(ch.Messages)
+
+		_, err = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+
 	}
+
 }
 
-func (d *Discord) startSession(m *discordgo.MessageCreate) {
+func (d *Discord) starChat(ctx context.Context, m *discordgo.MessageCreate) (string, error) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
 
+	userMessage := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: m.Content,
+	}
+
+	messages := []openai.ChatCompletionMessage{userMessage}
+
+	resp, err := d.client.CreateChatCompletion(
+		ctx,
+		openai.ChatCompletionRequest{
+			Stream:   false,
+			Model:    string(types.Model_Ollama_Llama3_8b),
+			Messages: messages,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from inference API: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	return resp.Choices[0].Message.Content, nil
 }
