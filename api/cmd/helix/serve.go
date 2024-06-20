@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
@@ -247,7 +248,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.StartLooping()
 
-	trigger := trigger.NewTriggerManager(cfg, store, appController)
+	trigger := trigger.NewTriggerManager(cfg, store, openai.NewInternalHelixClient(cfg, ps, appController))
 	// Start integrations
 	go trigger.Start(ctx)
 
