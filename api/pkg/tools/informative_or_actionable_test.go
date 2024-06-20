@@ -80,7 +80,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage, "")
 	suite.Require().NoError(err)
 
 	suite.Equal("yes", resp.NeedsTool)
@@ -148,7 +148,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage, "")
 	suite.Require().NoError(err)
 
 	suite.Equal("yes", resp.NeedsTool)
@@ -191,7 +191,7 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 
 	currentMessage := "What's the reason why oceans have less fish??"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage, "")
 	suite.NoError(err)
 
 	suite.Equal("no", resp.NeedsTool)

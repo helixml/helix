@@ -24,10 +24,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string, appID string) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, tools, history, currentMessage)
+			return c.isActionable(ctx, tools, history, currentMessage, appID)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -42,7 +42,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	)
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string, appID string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
@@ -127,6 +127,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, h
 }
 
 func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
+
+	// isInformativeOrActionablePrompt = prompts.ToolsIsInformativeOrActionablePrompt()
+
 	// Render template
 	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
 	if err != nil {

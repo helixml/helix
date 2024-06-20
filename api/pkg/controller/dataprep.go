@@ -698,7 +698,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		}
 	}
 
-	systemPrompt, err := prompts.TextFinetuneSystemPrompt(docIDs, docGroupID)
+	systemPrompt, err := prompts.TextFinetuneSystemPrompt(session, docIDs, docGroupID)
 	if err != nil {
 		return nil, 0, err
 	}

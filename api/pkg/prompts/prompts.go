@@ -52,7 +52,7 @@ func getPromptTemplate(name string) (string, error) {
 }
 
 // this prompt is applied as the system prompt for a session that has been fine-tuned on some documents
-func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (string, error) {
+func TextFinetuneSystemPrompt(session *types.Session, documentIDs []string, documentGroupID string) (string, error) {
 	promptTemplate, err := getPromptTemplate("finetune-system-prompt")
 	if err != nil {
 		return "", err
@@ -77,7 +77,7 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
-func RAGInferencePrompt(userPrompt string, ragResults []*types.SessionRAGResult) (string, error) {
+func RAGInferencePrompt(session *types.Session, userPrompt string, ragResults []*types.SessionRAGResult) (string, error) {
 	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
 	if err != nil {
 		return "", err

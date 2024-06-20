@@ -509,7 +509,7 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			}
 			session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 				userInteraction.DisplayMessage = userInteraction.Message
-				injectedUserPrompt, err := prompts.RAGInferencePrompt(userInteraction.Message, ragResults)
+				injectedUserPrompt, err := prompts.RAGInferencePrompt(session, userInteraction.Message, ragResults)
 				if err != nil {
 					return nil, err
 				}
@@ -597,7 +597,8 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, tools, history, userInteraction.Message)
+	// todo need to be per-assistant configuration (polish assistant, german assistant...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, tools, history, userInteraction.Message, session.ParentApp)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil
