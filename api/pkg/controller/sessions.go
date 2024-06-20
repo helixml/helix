@@ -26,10 +26,6 @@ import (
 // set to false in production (will log messages to web UI)
 const DEBUG = true
 
-func (c *Controller) RunSession(ctx context.Context, req types.InternalSessionRequest) (*types.Session, error) {
-	return nil, nil
-}
-
 func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
 	systemInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
@@ -927,7 +923,7 @@ func (c *Controller) CloneUntilInteraction(
 	// * loop over each interaction files
 	//   * if CopyAllFiles then copy all interaction files into our file store
 	//   * otherwise only copy the
-	newSession, err := data.CloneSession(*oldSession, req.InteractionID, data.OwnerContextFromRequestContext(ctx))
+	newSession, err := data.CloneSession(*oldSession, req.InteractionID, data.OwnerContextFromRequestContext(user))
 	if err != nil {
 		return nil, err
 	}
