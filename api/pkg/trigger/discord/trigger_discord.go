@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/helixml/helix/api/pkg/config"
 	helixopenai "github.com/helixml/helix/api/pkg/openai"
@@ -21,13 +22,17 @@ type Discord struct {
 	client helixopenai.Client
 
 	botID string
+
+	threadsMu sync.Mutex
+	threads   map[string]bool
 }
 
 func New(cfg *config.ServerConfig, store store.Store, client helixopenai.Client) *Discord {
 	return &Discord{
-		cfg:    cfg,
-		store:  store,
-		client: client,
+		cfg:     cfg,
+		store:   store,
+		client:  client,
+		threads: make(map[string]bool), // TODO: store this in the database
 	}
 }
 
@@ -62,15 +67,19 @@ func (d *Discord) Start(ctx context.Context) error {
 	return nil
 }
 
-// 2024-06-20T22:59:44Z INF pkg/trigger/discord/trigger_discord.go:98 >
-//received message bot_id=1251942355980779531
-//content="<@1251942355980779531> how about now" message_author_id=341274053312643073 state_user_id=1251942355980779531 trigger=discord
-
 func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	if strings.Contains(m.Content, "<@"+s.State.User.ID+">") {
 		fmt.Println("XX bot id")
 		return true
 	}
+
+	d.threadsMu.Lock()
+	defer d.threadsMu.Unlock()
+
+	if _, ok := d.threads[m.ChannelID]; ok {
+		return true
+	}
+
 	if m.MessageReference != nil && m.MessageReference.MessageID != "" {
 		return true
 	}
@@ -128,6 +137,11 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		}
 
 		m.ChannelID = thread.ID
+
+		d.threadsMu.Lock()
+		d.threads[thread.ID] = true
+		d.threadsMu.Unlock()
+
 	} else {
 		// Get existing messages from the thread
 		fmt.Println("XX thread messages")
