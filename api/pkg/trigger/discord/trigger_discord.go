@@ -161,19 +161,26 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		}
 
 	}
-
 }
 
 func (d *Discord) starChat(ctx context.Context, m *discordgo.MessageCreate) (string, error) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
 
+	system := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
+	}
+
 	userMessage := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
 		Content: m.Content,
 	}
 
-	messages := []openai.ChatCompletionMessage{userMessage}
+	messages := []openai.ChatCompletionMessage{
+		system,
+		userMessage,
+	}
 
 	resp, err := d.client.CreateChatCompletion(
 		ctx,
