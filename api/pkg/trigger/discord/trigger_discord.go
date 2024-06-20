@@ -124,8 +124,6 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			return
 		}
 
-		logger.Info().Msg("calling llm")
-
 		resp, err := d.starChat(context.Background(), m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
@@ -146,10 +144,18 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 	} else {
 		// Get existing messages from the thread
 		fmt.Println("XX thread messages")
-		fmt.Println(ch.Messages)
+		spew.Dump(m)
+
+		fmt.Println("XX channel")
 		spew.Dump(ch)
 
-		_, err = s.ChannelMessageSendReply(m.ChannelID, "pong", m.Reference())
+		resp, err := d.starChat(context.Background(), m)
+		if err != nil {
+			log.Err(err).Msg("failed to get response from inference API")
+			return
+		}
+
+		_, err = s.ChannelMessageSendReply(m.ChannelID, resp, m.Reference())
 		if err != nil {
 			log.Err(err).Msg("failed to send message")
 		}
