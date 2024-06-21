@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	helixopenai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/store"
@@ -15,6 +14,11 @@ import (
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+)
+
+const (
+	// TODO: take from
+	discordModel = string(types.Model_Ollama_Llama3_8b)
 )
 
 type Discord struct {
@@ -157,12 +161,10 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	// Get existing messages from the thread
-	fmt.Println("XX thread messages")
-	spew.Dump(m)
-
-	fmt.Println("XX channel")
-	spew.Dump(history)
+	// Trim the last message as it's the current message
+	if len(history) > 0 {
+		history = history[:len(history)-1]
+	}
 
 	resp, err := d.starChat(context.Background(), s, history, m)
 	if err != nil {
@@ -212,13 +214,11 @@ func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []
 
 	messages = append(messages, userMessage)
 
-	spew.Dump(messages)
-
 	resp, err := d.client.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
 			Stream:   false,
-			Model:    string(types.Model_Ollama_Llama3_8b),
+			Model:    discordModel,
 			Messages: messages,
 		},
 	)
@@ -235,7 +235,7 @@ func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []
 
 func (d *Discord) getThreadName(ctx context.Context, m *discordgo.MessageCreate) (string, error) {
 	req := openai.ChatCompletionRequest{
-		Model:     string(types.Model_Ollama_Llama3_8b),
+		Model:     discordModel,
 		MaxTokens: int(50),
 		Messages: []openai.ChatCompletionMessage{
 			{
