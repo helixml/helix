@@ -124,7 +124,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			return
 		}
 
-		resp, err := d.starChat(context.Background(), m)
+		resp, err := d.starChat(context.Background(), s, []*discordgo.Message{}, m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
 			return
@@ -140,30 +140,37 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		d.threadsMu.Lock()
 		d.threads[thread.ID] = true
 		d.threadsMu.Unlock()
-
-	} else {
-		// Get existing messages from the thread
-		fmt.Println("XX thread messages")
-		spew.Dump(m)
-
-		fmt.Println("XX channel")
-		spew.Dump(ch)
-
-		resp, err := d.starChat(context.Background(), m)
-		if err != nil {
-			log.Err(err).Msg("failed to get response from inference API")
-			return
-		}
-
-		_, err = s.ChannelMessageSendReply(m.ChannelID, resp, m.Reference())
-		if err != nil {
-			log.Err(err).Msg("failed to send message")
-		}
-
+		return
 	}
+
+	history, err := s.ChannelMessages(m.ChannelID, 10, m.ID, "", "")
+	if err != nil {
+		// TODO: maybe reply directly?
+		log.Err(err).Msg("failed to get messages from thread")
+		return
+	}
+
+	// Get existing messages from the thread
+	fmt.Println("XX thread messages")
+	spew.Dump(m)
+
+	fmt.Println("XX channel")
+	spew.Dump(history)
+
+	resp, err := d.starChat(context.Background(), s, history, m)
+	if err != nil {
+		log.Err(err).Msg("failed to get response from inference API")
+		return
+	}
+
+	_, err = s.ChannelMessageSendReply(m.ChannelID, resp, m.Reference())
+	if err != nil {
+		log.Err(err).Msg("failed to send message")
+	}
+
 }
 
-func (d *Discord) starChat(ctx context.Context, m *discordgo.MessageCreate) (string, error) {
+func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
 
@@ -172,15 +179,33 @@ func (d *Discord) starChat(ctx context.Context, m *discordgo.MessageCreate) (str
 		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
 	}
 
+	messages := []openai.ChatCompletionMessage{
+		system,
+	}
+
+	for _, msg := range history {
+		switch {
+		case msg.Author.ID == s.State.User.ID:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: msg.Content,
+			})
+		default:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: msg.Content,
+			})
+		}
+	}
+
 	userMessage := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
 		Content: m.Content,
 	}
 
-	messages := []openai.ChatCompletionMessage{
-		system,
-		userMessage,
-	}
+	messages = append(messages, userMessage)
+
+	spew.Dump(messages)
 
 	resp, err := d.client.CreateChatCompletion(
 		ctx,
