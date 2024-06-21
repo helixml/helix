@@ -10,40 +10,40 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
-func (c *Controller) GetStatus(ctx types.RequestContext) (types.UserStatus, error) {
-	usermeta, err := c.Options.Store.GetUserMeta(ctx.Ctx, ctx.User.ID)
+func (c *Controller) GetStatus(ctx context.Context, user *types.User) (types.UserStatus, error) {
+	usermeta, err := c.Options.Store.GetUserMeta(ctx, user.ID)
 
 	if err != nil || usermeta == nil {
 		usermeta = &types.UserMeta{
-			ID:     ctx.User.ID,
+			ID:     user.ID,
 			Config: types.UserConfig{},
 		}
 	}
 
 	return types.UserStatus{
-		Admin:  ctx.User.Admin,
-		User:   ctx.User.ID,
+		Admin:  user.Admin,
+		User:   user.ID,
 		Config: usermeta.Config,
 	}, nil
 }
 
-func (c *Controller) CreateAPIKey(ctx types.RequestContext, apiKey *types.APIKey) (*types.APIKey, error) {
+func (c *Controller) CreateAPIKey(ctx context.Context, user *types.User, apiKey *types.APIKey) (*types.APIKey, error) {
 	key, err := system.GenerateAPIKey()
 	if err != nil {
 		return nil, err
 	}
 
 	apiKey.Key = key
-	apiKey.Owner = ctx.User.ID
-	apiKey.OwnerType = ctx.User.Type
+	apiKey.Owner = user.ID
+	apiKey.OwnerType = user.Type
 
-	return c.Options.Store.CreateAPIKey(ctx.Ctx, apiKey)
+	return c.Options.Store.CreateAPIKey(ctx, apiKey)
 }
 
-func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, error) {
-	apiKeys, err := c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
-		Owner:     ctx.User.ID,
-		OwnerType: ctx.User.Type,
+func (c *Controller) GetAPIKeys(ctx context.Context, user *types.User) ([]*types.APIKey, error) {
+	apiKeys, err := c.Options.Store.ListAPIKeys(ctx, &store.ListApiKeysQuery{
+		Owner:     user.ID,
+		OwnerType: user.Type,
 		// filter by APIKeyType_API when deciding whether to auto-create user
 		// API keys
 		Type: types.APIKeyType_API,
@@ -52,19 +52,19 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 		return nil, err
 	}
 	if len(apiKeys) == 0 {
-		_, err := c.CreateAPIKey(ctx, &types.APIKey{
+		_, err := c.CreateAPIKey(ctx, user, &types.APIKey{
 			Name: "default",
 			Type: types.APIKeyType_API,
 		})
 		if err != nil {
 			return nil, err
 		}
-		return c.GetAPIKeys(ctx)
+		return c.GetAPIKeys(ctx, user)
 	}
 	// return all api key types
-	apiKeys, err = c.Options.Store.ListAPIKeys(ctx.Ctx, &store.ListApiKeysQuery{
-		Owner:     ctx.User.ID,
-		OwnerType: ctx.User.Type,
+	apiKeys, err = c.Options.Store.ListAPIKeys(ctx, &store.ListApiKeysQuery{
+		Owner:     user.ID,
+		OwnerType: user.Type,
 	})
 	if err != nil {
 		return nil, err
@@ -72,8 +72,8 @@ func (c *Controller) GetAPIKeys(ctx types.RequestContext) ([]*types.APIKey, erro
 	return apiKeys, nil
 }
 
-func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error {
-	fetchedApiKey, err := c.Options.Store.GetAPIKey(ctx.Ctx, apiKey)
+func (c *Controller) DeleteAPIKey(ctx context.Context, user *types.User, apiKey string) error {
+	fetchedApiKey, err := c.Options.Store.GetAPIKey(ctx, apiKey)
 	if err != nil {
 		return err
 	}
@@ -81,10 +81,10 @@ func (c *Controller) DeleteAPIKey(ctx types.RequestContext, apiKey string) error
 		return errors.New("no such key")
 	}
 	// only the owner of an api key can delete it
-	if fetchedApiKey.Owner != ctx.User.ID || fetchedApiKey.OwnerType != ctx.User.Type {
+	if fetchedApiKey.Owner != user.ID || fetchedApiKey.OwnerType != user.Type {
 		return errors.New("unauthorized")
 	}
-	err = c.Options.Store.DeleteAPIKey(ctx.Ctx, fetchedApiKey.Key)
+	err = c.Options.Store.DeleteAPIKey(ctx, fetchedApiKey.Key)
 	if err != nil {
 		return err
 	}

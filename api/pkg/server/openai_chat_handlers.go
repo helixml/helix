@@ -32,8 +32,10 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
-	reqContext := getRequestContext(req)
-	if !hasUser(reqContext.User) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+
+	if !hasUser(user) {
 		http.Error(res, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -51,7 +53,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		return
 	}
 
-	status, err := apiServer.Controller.GetStatus(reqContext)
+	status, err := apiServer.Controller.GetStatus(ctx, user)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
@@ -100,7 +102,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 	}
 
 	// this will be assigned if the token being used is an app token
-	appID := reqContext.User.AppID
+	appID := user.AppID
 
 	// or we could be using a normal token and passing the app_id in the query string
 	if req.URL.Query().Get("app_id") != "" {
@@ -119,8 +121,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		ParentApp:        appID,
 		AssistantID:      assistantID,
 		Stream:           chatCompletionRequest.Stream,
-		Owner:            reqContext.User.ID,
-		OwnerType:        reqContext.User.Type,
+		Owner:            user.ID,
+		OwnerType:        user.Type,
 		UserInteractions: interactions,
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
@@ -131,7 +133,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 
 	// if we have an app then let's populate the InternalSessionRequest with values from it
 	if newSession.ParentApp != "" {
-		app, err := apiServer.Store.GetApp(reqContext.Ctx, newSession.ParentApp)
+		app, err := apiServer.Store.GetApp(ctx, newSession.ParentApp)
 		if err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
@@ -237,17 +239,17 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		sessionID: sessionID,
 		modelName: chatCompletionRequest.Model,
 		start: func() error {
-			_, err := apiServer.Controller.StartSession(reqContext, newSession)
+			_, err := apiServer.Controller.StartSession(ctx, user, newSession)
 			return err
 		},
 	}
 
 	if chatCompletionRequest.Stream {
-		apiServer.handleStreamingResponse(res, req, reqContext, startReq)
+		apiServer.handleStreamingResponse(res, req, user, startReq)
 		return
 	}
 
-	apiServer.handleBlockingResponse(res, req, reqContext, startReq)
+	apiServer.handleBlockingResponse(res, req, user, startReq)
 }
 
 type startSessionConfig struct {
@@ -256,7 +258,7 @@ type startSessionConfig struct {
 	start     func() error
 }
 
-func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *http.Request, userContext types.RequestContext, startReq *startSessionConfig) {
+func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
 	// Set chunking headers
 	res.Header().Set("Cache-Control", "no-cache")
 	res.Header().Set("Connection", "keep-alive")
@@ -267,7 +269,7 @@ func (apiServer *HelixAPIServer) handleStreamingResponse(res http.ResponseWriter
 
 	doneCh := make(chan struct{})
 
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {
@@ -424,7 +426,7 @@ func writeChunk(w io.Writer, chunk []byte) error {
 	return nil
 }
 
-func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, userContext types.RequestContext, startReq *startSessionConfig) {
+func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter, req *http.Request, user *types.User, startReq *startSessionConfig) {
 	res.Header().Set("Content-Type", "application/json")
 
 	doneCh := make(chan struct{})
@@ -433,7 +435,7 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	// Wait for the results from the session update. Last event will have the interaction with the full
 	// response from the model.
-	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(userContext.User.ID, startReq.sessionID), func(payload []byte) error {
+	sub, err := apiServer.pubsub.Subscribe(req.Context(), pubsub.GetSessionQueue(user.ID, startReq.sessionID), func(payload []byte) error {
 		var event types.WebsocketEvent
 		err := json.Unmarshal(payload, &event)
 		if err != nil {

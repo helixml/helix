@@ -27,6 +27,7 @@ type ServerConfig struct {
 	FineTuning         FineTuning
 	Apps               Apps
 	GPTScript          GPTScript
+	Triggers           Triggers
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -278,4 +279,18 @@ type GPTScript struct {
 		URL   string `envconfig:"HELIX_TESTFASTER_URL" description:"The URL to the testfaster cluster."`
 		Token string `envconfig:"HELIX_TESTFASTER_TOKEN"`
 	}
+}
+
+type Triggers struct {
+	Discord Discord
+	Cron    Cron
+}
+
+type Discord struct {
+	Enabled  bool   `envconfig:"DISCORD_ENABLED" default:"false"`
+	BotToken string `envconfig:"DISCORD_BOT_TOKEN"`
+}
+
+type Cron struct {
+	Enabled bool `envconfig:"CRON_ENABLED" default:"true"`
 }

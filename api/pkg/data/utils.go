@@ -283,10 +283,10 @@ func CloneSession(
 	return &session, nil
 }
 
-func OwnerContextFromRequestContext(ctx types.RequestContext) types.OwnerContext {
+func OwnerContextFromRequestContext(user *types.User) types.OwnerContext {
 	return types.OwnerContext{
-		Owner:     ctx.User.ID,
-		OwnerType: ctx.User.Type,
+		Owner:     user.ID,
+		OwnerType: user.Type,
 	}
 }
 

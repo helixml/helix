@@ -50,6 +50,8 @@ services:
       - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-}
       - EMAIL_SMTP_USERNAME=${EMAIL_SMTP_USERNAME:-}
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
+      # Discord integration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
     # entrypoint: ${API_ENTRYPOINT:-/helix serve}
     entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:

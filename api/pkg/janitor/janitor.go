@@ -106,12 +106,12 @@ func (j *Janitor) WriteSessionError(session *types.Session, sessionErr error) er
 	}
 }
 
-func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, ctx types.RequestContext, session *types.Session) error {
+func (j *Janitor) WriteSessionEvent(eventType types.SessionEventType, user *types.User, session *types.Session) error {
 	message := ""
 	if eventType == types.SessionEventTypeCreated {
-		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", ctx.User.Email, j.getSessionURL(session), session.Mode, session.ModelName)
+		message = fmt.Sprintf("🚀 %s created a NEW session %s (mode=%s, model=%s)", user.Email, j.getSessionURL(session), session.Mode, session.ModelName)
 	}
-	return j.SendMessage(ctx.User.Email, message)
+	return j.SendMessage(user.Email, message)
 }
 
 func (j *Janitor) WriteSubscriptionEvent(eventType types.SubscriptionEventType, user types.StripeUser) error {

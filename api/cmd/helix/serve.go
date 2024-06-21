@@ -17,12 +17,14 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/trigger"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/rs/zerolog/log"
@@ -245,6 +247,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 
 	go appController.StartLooping()
+
+	trigger := trigger.NewTriggerManager(cfg, store, openai.NewInternalHelixClient(cfg, ps, appController))
+	// Start integrations
+	go trigger.Start(ctx)
 
 	stripe := stripe.NewStripe(
 		cfg.Stripe,
