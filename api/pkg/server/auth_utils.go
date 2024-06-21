@@ -87,17 +87,9 @@ func setRequestUser(ctx context.Context, user types.User) context.Context {
 	return context.WithValue(ctx, userKey, user)
 }
 
-func getRequestUser(req *http.Request) types.User {
+func getRequestUser(req *http.Request) *types.User {
 	user := req.Context().Value(userKey).(types.User)
-	return user
-}
-
-func getRequestContext(req *http.Request) types.RequestContext {
-	user := getRequestUser(req)
-	return types.RequestContext{
-		Ctx:  req.Context(),
-		User: user,
-	}
+	return &user
 }
 
 func getOwnerContext(req *http.Request) types.OwnerContext {
@@ -148,23 +140,23 @@ func isDevelopmentMode(adminUserIDs []string) bool {
 	return false
 }
 
-func hasUser(user types.User) bool {
+func hasUser(user *types.User) bool {
 	return user.ID != ""
 }
 
-func isAdmin(user types.User) bool {
+func isAdmin(user *types.User) bool {
 	return hasUser(user) && user.Admin
 }
 
-func isRunner(user types.User) bool {
+func isRunner(user *types.User) bool {
 	return user.Token != "" && user.TokenType == types.TokenTypeRunner
 }
 
-func doesOwnSession(user types.User, session *types.Session) bool {
+func doesOwnSession(user *types.User, session *types.Session) bool {
 	return session.OwnerType == user.Type && session.Owner == user.ID
 }
 
-func canSeeSession(user types.User, session *types.Session) bool {
+func canSeeSession(user *types.User, session *types.Session) bool {
 	canEdit := canEditSession(user, session)
 	if canEdit {
 		return true
@@ -175,7 +167,7 @@ func canSeeSession(user types.User, session *types.Session) bool {
 	return false
 }
 
-func canEditSession(user types.User, session *types.Session) bool {
+func canEditSession(user *types.User, session *types.Session) bool {
 	if session.OwnerType == user.Type && session.Owner == user.ID {
 		return true
 	}

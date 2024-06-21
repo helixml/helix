@@ -1,7 +1,6 @@
 package types
 
 import (
-	"context"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
@@ -484,15 +483,6 @@ type User struct {
 	FullName string
 }
 
-// passed between the api server and the controller
-// we parse the token (if provided and then create this object)
-// the request context is always present - if for un-authenticated requests
-// in that case, the owner and token fields are empty
-type RequestContext struct {
-	Ctx  context.Context
-	User User
-}
-
 // a single envelope that is broadcast to users
 type WebsocketEvent struct {
 	Type               WebsocketEventType  `json:"type"`
@@ -870,6 +860,65 @@ func (AppConfig) GormDataType() string {
 	return "json"
 }
 
+type DiscordTrigger struct {
+}
+
+type CronTrigger struct {
+	Schedule string `json:"schedule,omitempty"`
+	Input    string `json:"input,omitempty"`
+}
+
+type Trigger struct {
+	Discord *DiscordTrigger `json:"discord,omitempty"`
+	Cron    *CronTrigger    `json:"cron,omitempty"`
+}
+
+func (m Trigger) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *Trigger) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result Trigger
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (Trigger) GormDataType() string {
+	return "json"
+}
+
+type Triggers []Trigger
+
+func (m Triggers) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *Triggers) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result []Trigger
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (Triggers) GormDataType() string {
+	return "json"
+}
+
 type App struct {
 	ID      string    `json:"id" gorm:"primaryKey"`
 	Created time.Time `json:"created"`
@@ -882,6 +931,7 @@ type App struct {
 	Global    bool      `json:"global"`
 	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
+	Triggers  Triggers  `json:"triggers" gorm:"jsonb"`
 }
 
 type KeyPair struct {
