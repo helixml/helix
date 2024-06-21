@@ -113,8 +113,15 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 	if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
 		// Creating a new thread
+
+		threadName, err := d.getThreadName(context.Background(), m)
+		if err != nil {
+			log.Err(err).Msg("failed to get thread name")
+			return
+		}
+
 		thread, err := s.MessageThreadStartComplex(m.ChannelID, m.ID, &discordgo.ThreadStart{
-			Name:                "Conversation with " + m.Author.Username,
+			Name:                threadName,
 			AutoArchiveDuration: 60,
 			Invitable:           false,
 			RateLimitPerUser:    10,
@@ -225,3 +232,47 @@ func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []
 
 	return resp.Choices[0].Message.Content, nil
 }
+
+func (d *Discord) getThreadName(ctx context.Context, m *discordgo.MessageCreate) (string, error) {
+	req := openai.ChatCompletionRequest{
+		Model:     string(types.Model_Ollama_Llama3_8b),
+		MaxTokens: int(50),
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role: "user",
+				Content: titleGenPrompt +
+					m.Content,
+			},
+		},
+		Stream: false,
+	}
+
+	resp, err := d.client.CreateChatCompletion(
+		ctx,
+		req,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from inference API: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	return fmt.Sprintf("Conversation with %s about %s", m.Author.Username, resp.Choices[0].Message.Content), nil
+}
+
+const titleGenPrompt = `You are an AI tool that writes concise, 3-5 word titles for the following query, strictly adhering to the 3-5 word limit and avoiding the use of the word "title".
+Examples:
+
+**User Input:** tell me about roman empire's early days and how it was formed
+**Title:** Roman empire's early days
+
+Another example:
+
+**User Input:** what is the best way to cook a steak
+**Title:** Cooking the perfect steak
+
+===END EXAMPLES===
+
+Based on the above, reply with those 3-5 words, nothing other commentary. Here is the user input/questions:`
