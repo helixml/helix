@@ -35,6 +35,14 @@ func CopyDir(dst, src string) error {
 		// destination with the path without the src on it.
 		dstPath := filepath.Join(dst, path[len(src):])
 
+		// If dstPath exists and has the same size as path, don't copy it again.
+		// We're mainly copying content addressed blobs here, so this is
+		// probably fine.
+		dstInfo, err := os.Stat(dstPath)
+		if err == nil && dstInfo.Size() == info.Size() {
+			return nil
+		}
+
 		// we don't want to try and copy the same file over itself.
 		if eq, err := SameFile(path, dstPath); eq {
 			return nil
