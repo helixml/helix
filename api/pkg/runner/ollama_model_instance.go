@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -324,8 +323,8 @@ func (i *OllamaModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no Ollama process to stop")
 	}
-	log.Info().Msgf("🟢 stop Ollama model instance group")
-	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+	log.Info().Msgf("🟢 stop Ollama model instance tree")
+	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
 		return err
 	}
