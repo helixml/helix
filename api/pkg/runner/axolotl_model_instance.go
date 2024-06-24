@@ -475,8 +475,8 @@ func (i *AxolotlModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no process to stop")
 	}
-	log.Info().Msgf("🟢 stop model process group")
-	if err := syscall.Kill(-i.currentCommand.Process.Pid, syscall.SIGKILL); err != nil {
+	log.Info().Msgf("🟢 stop model process tree")
+	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping model process: %s", err.Error())
 		return err
 	}
