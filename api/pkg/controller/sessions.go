@@ -833,6 +833,9 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 			}
 		}
 
+		targetInteraction.ToolCallID = taskResponse.ToolCallID
+		targetInteraction.ToolCalls = taskResponse.ToolCalls
+
 		if taskResponse.Progress != 0 {
 			targetInteraction.Progress = taskResponse.Progress
 		}
