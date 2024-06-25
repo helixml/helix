@@ -80,6 +80,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			creator = types.CreatorTypeUser
 		case "system":
 			creator = types.CreatorTypeSystem
+		case "tool":
+			creator = types.CreatorTypeTool
 		}
 
 		interaction := &types.Interaction{
@@ -96,6 +98,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			Finished:       true,
 			Metadata:       map[string]string{},
 			DataPrepChunks: map[string][]types.DataPrepChunk{},
+			ToolCalls:      m.ToolCalls,
+			ToolCallID:     m.ToolCallID,
 		}
 
 		interactions = append(interactions, interaction)
@@ -233,6 +237,14 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			Type:   types.ResponseFormatType(chatCompletionRequest.ResponseFormat.Type),
 			Schema: chatCompletionRequest.ResponseFormat.Schema,
 		}
+	}
+
+	if chatCompletionRequest.Tools != nil {
+		newSession.Tools = chatCompletionRequest.Tools
+	}
+
+	if chatCompletionRequest.ToolChoice != nil {
+		newSession.ToolChoice = chatCompletionRequest.ToolChoice
 	}
 
 	startReq := &startSessionConfig{
