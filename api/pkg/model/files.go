@@ -30,7 +30,7 @@ func downloadUserInteractionFiles(
 	session *types.Session,
 	fileManager ModelSessionFileManager,
 ) (*types.Session, error) {
-	interaction, err := data.GetUserInteraction(session)
+	interaction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
