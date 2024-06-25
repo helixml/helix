@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -264,8 +263,7 @@ WAIT:
 		for {
 			select {
 			case <-i.ctx.Done():
-				log.Info().Msgf("🟢 stopping Ollama model instance")
-				// TODO: does this need to call Stop()?
+				log.Info().Msgf("🟢 Ollama model instance has stopped, closing channel listener")
 				return
 			case session, ok := <-i.workCh:
 				if !ok {
@@ -325,9 +323,9 @@ func (i *OllamaModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no Ollama process to stop")
 	}
-	log.Info().Msgf("🟢 stop Ollama model instance")
-	if err := syscall.Kill(i.currentCommand.Process.Pid, syscall.SIGTERM); err != nil {
-		log.Error().Msgf("error stopping Ollama model instance: %s", err.Error())
+	log.Info().Msgf("🟢 stop Ollama model instance tree")
+	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
+		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
 		return err
 	}
 	log.Info().Msgf("🟢 stopped Ollama instance")
