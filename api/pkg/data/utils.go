@@ -77,8 +77,8 @@ func GetFirstUserInteraction(interactions []*types.Interaction) (*types.Interact
 }
 
 // get the most recent user interaction
-func GetUserInteraction(session *types.Session) (*types.Interaction, error) {
-	return GetLastUserInteraction(session.Interactions)
+func GetUserInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+	return GetLastUserInteraction(interactions)
 }
 
 func GetLastSystemInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
@@ -181,7 +181,7 @@ func UpdateInteraction(session *types.Session, id string, updater InteractionUpd
 }
 
 func UpdateUserInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
-	targetInteraction, err := GetUserInteraction(session)
+	targetInteraction, err := GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	userInteraction, err := GetUserInteraction(session)
+	userInteraction, err := GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
