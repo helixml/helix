@@ -16,9 +16,10 @@ const (
 	Model_Axolotl_Mistral7b ModelName = "mistralai/Mistral-7B-Instruct-v0.1"
 	Model_Cog_SDXL          ModelName = "stabilityai/stable-diffusion-xl-base-1.0"
 
-	Model_Ollama_Mistral7b ModelName = "mistral:7b-instruct"
-	Model_Ollama_Mixtral   ModelName = "mixtral:instruct"
-	Model_Ollama_CodeLlama ModelName = "codellama:70b-instruct-q2_K"
+	Model_Ollama_Mistral7b    ModelName = "mistral:7b-instruct"
+	Model_Ollama_Mistral7b_v3 ModelName = "mistral:v0.3"
+	Model_Ollama_Mixtral      ModelName = "mixtral:instruct"
+	Model_Ollama_CodeLlama    ModelName = "codellama:70b-instruct-q2_K"
 
 	Model_Ollama_NousHermes2Pro         ModelName = "adrienbrault/nous-hermes2pro:Q5_K_S"
 	Model_Ollama_NousHermes2ThetaLlama3 ModelName = "adrienbrault/nous-hermes2theta-llama3-8b:q8_0"
