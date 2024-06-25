@@ -35,7 +35,7 @@ type convertTextItem struct {
 }
 
 func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]string, error) {
-	userInteraction, err := data.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (c *Controller) getDocumentsToConvertToText(session *types.Session) ([]stri
 // in the case of a text fine tune - we need to convert all the documents first
 // TODO: there is no rate limiting on this path
 func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Session, int, error) {
-	userInteraction, err := data.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -221,7 +221,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 }
 
 func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, error) {
-	userInteraction, err := data.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +449,7 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 // given a user prompt and an existing session id
 // let's load from the vector store
 func (c *Controller) getRAGResults(session *types.Session) ([]*types.SessionRAGResult, error) {
-	userInteraction, err := data.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +464,7 @@ func (c *Controller) getRAGResults(session *types.Session) ([]*types.SessionRAGR
 }
 
 func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Session, int, error) {
-	userInteraction, err := data.GetUserInteraction(session)
+	userInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, 0, err
 	}

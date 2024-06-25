@@ -40,6 +40,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
 		ResponseFormat: req.ResponseFormat,
+		Tools:          req.Tools,
 	}
 
 	activeTools := req.ActiveTools
