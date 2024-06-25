@@ -449,6 +449,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 	for _, interaction := range interactions {
 		switch interaction.Creator {
+
 		case types.CreatorTypeUser:
 			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleUser,
@@ -459,10 +460,21 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: interaction.Message,
 			})
+		case types.CreatorTypeTool:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleUser,
+				Content:    interaction.Message,
+				ToolCalls:  interaction.ToolCalls,
+				ToolCallID: interaction.ToolCallID,
+			})
 		}
 	}
 
-	var responseFormat *openai.ChatCompletionResponseFormat
+	var (
+		responseFormat *openai.ChatCompletionResponseFormat
+		tools          []openai.Tool
+		toolChoice     any
+	)
 
 	// If the last interaction has response format, use it
 	last, _ := data.GetLastSystemInteraction(interactions)
@@ -471,6 +483,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
 			Schema: last.ResponseFormat.Schema,
 		}
+		tools = last.Tools
+		toolChoice = last.ToolChoice
 	}
 
 	switch {
@@ -481,6 +495,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Stream:         true,
 			Messages:       messages,
 			ResponseFormat: responseFormat,
+			Tools:          tools,
+			ToolChoice:     toolChoice,
 		}
 
 		stream, err := i.client.CreateChatCompletionStream(context.Background(), req)
