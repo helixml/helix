@@ -107,7 +107,7 @@ const Account: FC = () => {
   --header 'Authorization: Bearer ${apiKey}' \\
   --header 'Content-Type: application/json' \\
   --data '{
-    "model": "mistralai/Mistral-7B-Instruct-v0.1",
+    "model": "helix-3.5",
     "stream": false,
     "messages": [
       { "role": "system", "content": "You are a helpful assistant." },
