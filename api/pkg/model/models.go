@@ -32,6 +32,7 @@ func GetModels() (map[types.ModelName]Model, error) {
 
 	// Ollama
 	models[types.Model_Ollama_Mistral7b] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), MB*6440)
+	models[types.Model_Ollama_Mistral7b_v3] = NewOllamaGenericText(types.Model_Ollama_Mistral7b_v3.String(), MB*6440) // https://ollama.com/library/mistral:v0.3
 	models[types.Model_Ollama_Mixtral] = NewOllamaGenericText(types.Model_Ollama_Mistral7b.String(), GB*24)
 	models[types.Model_Ollama_CodeLlama] = NewOllamaGenericText(types.Model_Ollama_CodeLlama.String(), GB*24)
 

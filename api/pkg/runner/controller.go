@@ -565,7 +565,8 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 
 	}
 
-	log.Debug().
+	log.Info().
+		Str("model_instance", modelInstance.Filter().ModelName.String()).
 		Msgf("🔵 runner started model instance: %s", modelInstance.ID())
 
 	r.activeModelInstances.Store(modelInstance.ID(), modelInstance)

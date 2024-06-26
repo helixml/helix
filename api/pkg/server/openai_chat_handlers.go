@@ -80,6 +80,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			creator = types.CreatorTypeUser
 		case "system":
 			creator = types.CreatorTypeSystem
+		case "tool":
+			creator = types.CreatorTypeTool
 		}
 
 		interaction := &types.Interaction{
@@ -96,6 +98,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			Finished:       true,
 			Metadata:       map[string]string{},
 			DataPrepChunks: map[string][]types.DataPrepChunk{},
+			ToolCalls:      m.ToolCalls,
+			ToolCallID:     m.ToolCallID,
 		}
 
 		interactions = append(interactions, interaction)
@@ -127,6 +131,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
 		AppQueryParams:   map[string]string{},
+		Tools:            chatCompletionRequest.Tools,
 	}
 
 	useModel := chatCompletionRequest.Model
@@ -233,6 +238,14 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 			Type:   types.ResponseFormatType(chatCompletionRequest.ResponseFormat.Type),
 			Schema: chatCompletionRequest.ResponseFormat.Schema,
 		}
+	}
+
+	if chatCompletionRequest.Tools != nil {
+		newSession.Tools = chatCompletionRequest.Tools
+	}
+
+	if chatCompletionRequest.ToolChoice != nil {
+		newSession.ToolChoice = chatCompletionRequest.ToolChoice
 	}
 
 	startReq := &startSessionConfig{
@@ -501,8 +514,10 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	result = append(result, types.Choice{
 		Message: &types.OpenAIMessage{
-			Role:    "assistant",
-			Content: interaction.Message,
+			Role:       "assistant", // TODO: this might be "tool"
+			Content:    interaction.Message,
+			ToolCalls:  interaction.ToolCalls,
+			ToolCallID: interaction.ToolCallID,
 		},
 		FinishReason: "stop",
 	})
@@ -515,9 +530,9 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 		Object:  "chat.completion",
 		Usage: types.OpenAIUsage{
 			// TODO: calculate
-			PromptTokens:     0,
-			CompletionTokens: 0,
-			TotalTokens:      0,
+			PromptTokens:     interaction.Usage.PromptTokens,
+			CompletionTokens: interaction.Usage.CompletionTokens,
+			TotalTokens:      interaction.Usage.TotalTokens,
 		},
 	}
 
