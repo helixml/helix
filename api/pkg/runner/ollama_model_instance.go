@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
@@ -560,16 +559,10 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 		start := time.Now()
 
-		fmt.Println("XX non stream req")
-		spew.Dump(req)
-
 		response, err := i.client.CreateChatCompletion(context.Background(), req)
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
-
-		fmt.Println("XX resp")
-		spew.Dump(response)
 
 		log.Info().Str("session_id", session.ID).Msg("response received")
 
