@@ -64,6 +64,8 @@ type Interaction struct {
 
 	// For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.
 	ToolCallID string `json:"tool_call_id,omitempty"`
+
+	Usage Usage `json:"usage"`
 }
 
 type ResponseFormatType string
