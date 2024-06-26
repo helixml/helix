@@ -227,7 +227,8 @@ WAIT:
 		}
 	}
 
-	// TODO: make this dynamic
+	// TODO: 1. make this work only on the model instance that is being started
+	// TODO: 2. potentially move this logic outside of the model instance altogether
 
 	var wg sync.WaitGroup
 	wg.Add(len(i.runnerOptions.Config.Runtimes.Ollama.WarmupModels))
@@ -483,6 +484,9 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
 			Schema: last.ResponseFormat.Schema,
 		}
+	}
+
+	if last != nil && len(last.Tools) > 0 {
 		tools = last.Tools
 		toolChoice = last.ToolChoice
 	}
@@ -498,9 +502,6 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Tools:          tools,
 			ToolChoice:     toolChoice,
 		}
-
-		fmt.Println("XX req")
-		spew.Dump(req)
 
 		stream, err := i.client.CreateChatCompletionStream(context.Background(), req)
 		if err != nil {
@@ -553,14 +554,22 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Model:          string(session.ModelName),
 			Messages:       messages,
 			ResponseFormat: responseFormat,
+			Tools:          tools,
+			ToolChoice:     toolChoice,
 		}
 
 		start := time.Now()
+
+		fmt.Println("XX non stream req")
+		spew.Dump(req)
 
 		response, err := i.client.CreateChatCompletion(context.Background(), req)
 		if err != nil {
 			return fmt.Errorf("failed to get response from inference API: %w", err)
 		}
+
+		fmt.Println("XX resp")
+		spew.Dump(response)
 
 		log.Info().Str("session_id", session.ID).Msg("response received")
 

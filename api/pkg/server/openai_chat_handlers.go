@@ -131,6 +131,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, r
 		Priority:         status.Config.StripeSubscriptionActive,
 		ActiveTools:      []string{},
 		AppQueryParams:   map[string]string{},
+		Tools:            chatCompletionRequest.Tools,
 	}
 
 	useModel := chatCompletionRequest.Model
