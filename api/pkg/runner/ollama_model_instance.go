@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
@@ -227,7 +226,8 @@ WAIT:
 		}
 	}
 
-	// TODO: make this dynamic
+	// TODO: 1. make this work only on the model instance that is being started
+	// TODO: 2. potentially move this logic outside of the model instance altogether
 
 	var wg sync.WaitGroup
 	wg.Add(len(i.runnerOptions.Config.Runtimes.Ollama.WarmupModels))
@@ -449,6 +449,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 	for _, interaction := range interactions {
 		switch interaction.Creator {
+
 		case types.CreatorTypeUser:
 			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleUser,
@@ -459,10 +460,21 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: interaction.Message,
 			})
+		case types.CreatorTypeTool:
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleUser,
+				Content:    interaction.Message,
+				ToolCalls:  interaction.ToolCalls,
+				ToolCallID: interaction.ToolCallID,
+			})
 		}
 	}
 
-	var responseFormat *openai.ChatCompletionResponseFormat
+	var (
+		responseFormat *openai.ChatCompletionResponseFormat
+		tools          []openai.Tool
+		toolChoice     any
+	)
 
 	// If the last interaction has response format, use it
 	last, _ := data.GetLastSystemInteraction(interactions)
@@ -473,6 +485,11 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		}
 	}
 
+	if last != nil && len(last.Tools) > 0 {
+		tools = last.Tools
+		toolChoice = last.ToolChoice
+	}
+
 	switch {
 	case session.Metadata.Stream:
 		// Adding current message
@@ -481,6 +498,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Stream:         true,
 			Messages:       messages,
 			ResponseFormat: responseFormat,
+			Tools:          tools,
+			ToolChoice:     toolChoice,
 		}
 
 		stream, err := i.client.CreateChatCompletionStream(context.Background(), req)
@@ -492,6 +511,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 		var buf string
 
+		toolCalls := make(map[string]openai.ToolCall)
+
 		for {
 			response, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
@@ -500,7 +521,13 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 				i.emitStreamDone(session)
 				// Send the last message containing full output
 				// TODO: set usage
-				i.responseProcessor(session, types.Usage{}, buf, true)
+
+				toolCallsArr := make([]openai.ToolCall, 0, len(toolCalls))
+				for _, toolCall := range toolCalls {
+					toolCallsArr = append(toolCallsArr, toolCall)
+				}
+
+				i.responseProcessor(session, types.Usage{}, buf, toolCallsArr, "", true)
 				return nil
 			}
 
@@ -512,7 +539,13 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 
 			buf += response.Choices[0].Delta.Content
 
-			i.responseProcessor(session, types.Usage{}, response.Choices[0].Delta.Content, false)
+			if len(response.Choices[0].Delta.ToolCalls) > 0 {
+				for _, toolCall := range response.Choices[0].Delta.ToolCalls {
+					toolCalls[toolCall.ID] = toolCall
+				}
+			}
+
+			i.responseProcessor(session, types.Usage{}, response.Choices[0].Delta.Content, response.Choices[0].Delta.ToolCalls, "", false)
 		}
 	default:
 		// Non-streaming mode
@@ -520,9 +553,9 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			Model:          string(session.ModelName),
 			Messages:       messages,
 			ResponseFormat: responseFormat,
+			Tools:          tools,
+			ToolChoice:     toolChoice,
 		}
-
-		spew.Dump(req)
 
 		start := time.Now()
 
@@ -543,12 +576,23 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 		}
 
 		// Send the last message containing full output
-		i.responseProcessor(session, usage, response.Choices[0].Message.Content, true)
+		i.responseProcessor(session,
+			usage,
+			response.Choices[0].Message.Content,
+			response.Choices[0].Message.ToolCalls,
+			response.Choices[0].Message.ToolCallID,
+			true)
 		return nil
 	}
 }
 
-func (i *OllamaModelInstance) responseProcessor(session *types.Session, usage types.Usage, content string, done bool) {
+func (i *OllamaModelInstance) responseProcessor(
+	session *types.Session,
+	usage types.Usage,
+	content string,
+	toolCalls []openai.ToolCall,
+	toolCallID string,
+	done bool) {
 	if session == nil {
 		log.Error().Msgf("no current session")
 		return
@@ -569,6 +613,8 @@ func (i *OllamaModelInstance) responseProcessor(session *types.Session, usage ty
 		Done:          done,
 		Message:       content,
 		Usage:         usage,
+		ToolCalls:     toolCalls,
+		ToolCallID:    toolCallID,
 	}
 
 	if done {

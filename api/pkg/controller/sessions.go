@@ -40,6 +40,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		Metadata:       map[string]string{},
 		DataPrepChunks: map[string][]types.DataPrepChunk{},
 		ResponseFormat: req.ResponseFormat,
+		Tools:          req.Tools,
 	}
 
 	activeTools := req.ActiveTools
@@ -831,6 +832,11 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 				targetInteraction.Message += taskResponse.Message
 			}
 		}
+
+		targetInteraction.ToolCallID = taskResponse.ToolCallID
+		targetInteraction.ToolCalls = taskResponse.ToolCalls
+
+		targetInteraction.Usage = taskResponse.Usage
 
 		if taskResponse.Progress != 0 {
 			targetInteraction.Progress = taskResponse.Progress

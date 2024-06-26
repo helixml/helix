@@ -20,7 +20,7 @@ func getGenericTask(session *types.Session) (*types.RunnerTask, error) {
 	if len(session.Interactions) == 0 {
 		return nil, fmt.Errorf("session has no messages")
 	}
-	lastInteraction, err := data.GetUserInteraction(session)
+	lastInteraction, err := data.GetUserInteraction(session.Interactions)
 	if err != nil {
 		return nil, err
 	}
