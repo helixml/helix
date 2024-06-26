@@ -513,8 +513,10 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 
 	result = append(result, types.Choice{
 		Message: &types.OpenAIMessage{
-			Role:    "assistant",
-			Content: interaction.Message,
+			Role:       "assistant", // TODO: this might be "tool"
+			Content:    interaction.Message,
+			ToolCalls:  interaction.ToolCalls,
+			ToolCallID: interaction.ToolCallID,
 		},
 		FinishReason: "stop",
 	})
@@ -527,9 +529,9 @@ func (apiServer *HelixAPIServer) handleBlockingResponse(res http.ResponseWriter,
 		Object:  "chat.completion",
 		Usage: types.OpenAIUsage{
 			// TODO: calculate
-			PromptTokens:     0,
-			CompletionTokens: 0,
-			TotalTokens:      0,
+			PromptTokens:     interaction.Usage.PromptTokens,
+			CompletionTokens: interaction.Usage.CompletionTokens,
+			TotalTokens:      interaction.Usage.TotalTokens,
 		},
 	}
 
