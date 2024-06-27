@@ -1,55 +1,70 @@
-# Backend build
-FROM golang:1.22 AS go-build-env
+### API Base ###
+#---------------
+FROM golang:1.22-alpine AS api-base
 WORKDIR /app
-
-# <- COPY go.mod and go.sum files to the workspace
-COPY go.mod .
-COPY go.sum .
-
+COPY go.mod go.sum ./
 RUN go mod download
 
-# COPY the source code as the last step
-COPY api ./api
-COPY .git /.git
-
+### API Development ###
+#----------------------
+FROM api-base as api-dev-env
+# - Air provides hot reload for Go
+RUN go install github.com/air-verse/air@v1.52.3
+# - Copy the files and run a build to make startup faster
+COPY api /app/api
 WORKDIR /app/api
-
-# Build the Go app
+# - Run a build to make the intial air build faster
 RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /helix
+# - Entrypoint is the air command
+ENTRYPOINT ["air", "--build.bin", "/helix", "--build.cmd", "CGO_ENABLED=0 go build -ldflags \"-s -w\" -o /helix", "--"]
+CMD ["serve"]
 
-# Frontend build
-FROM node:21-alpine AS ui-build-env
 
+#### API Build ###
+#-----------------------
+FROM api-base AS api-build-env
+COPY api /app/api
+WORKDIR /app/api
+# - main.version is a variable required by Sentry and is set in .drone.yaml
+ARG APP_VERSION="v0.0.0+unknown" 
+RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$APP_VERSION" -o /helix
+
+### Frontend Base ###
+#--------------------
+FROM node:21-alpine AS ui-base
 WORKDIR /app
-
-RUN echo "installing apk packages" && \
-  apk update && \
-  apk upgrade && \
-  apk add \
-    bash \
-    git \
-    curl \
-    openssh
-
-# root config
+# - Install dependencies
 COPY ./frontend/*.json /app/
 COPY ./frontend/yarn.lock /app/yarn.lock
-
-# Install modules
 RUN yarn install
 
+
+### Frontend Development ###
+#---------------------------
+FROM ui-base AS ui-dev-env
+ENTRYPOINT ["yarn"]
+CMD ["run", "dev"]
+
+
+### Frontend Build ###
+#----------------------
+FROM ui-base AS ui-build-env
 # Copy the rest of the code
 COPY ./frontend /app
-
 # Build the frontend
 RUN yarn build
 
-FROM alpine:3.17
-RUN apk --update add ca-certificates
 
-COPY --from=go-build-env /helix /helix
+### Production Image ###
+#-----------------------
+FROM alpine:3.17
+RUN apk --update add --no-cache ca-certificates
+
+COPY --from=api-build-env /helix /helix
 COPY --from=ui-build-env /app/dist /www
 
 ENV FRONTEND_URL=/www
+
+EXPOSE 80
 
 ENTRYPOINT ["/helix", "serve"]
