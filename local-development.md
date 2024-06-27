@@ -112,13 +112,7 @@ helix/
 
     If you're familiar with [tmux](https://github.com/tmux/tmux/wiki) you will find it useful to do `./stack start` and `./stack stop` instead.
 
-    Build individual components with the following commands
-
-    - Build the api with
-        ```
-        go mod download
-        go build -o helix
-        ```
+    Both the frontend and the api have hot-reloads when in development mode. Rebuilds should only be required when adding libraries.
 
 4. **Tear down the Helix stack**
 
