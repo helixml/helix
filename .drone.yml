@@ -65,6 +65,8 @@ steps:
     username: admin
     password:
       from_secret: helix_registry_password
+    build_args:
+      - APP_VERSION=${DRONE_TAG:-${DRONE_COMMIT_SHA:-latest}} # Required for sentry
   volumes:
   - name: dockersocket
     path: /var/run/docker.sock

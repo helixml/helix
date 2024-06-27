@@ -4,7 +4,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
+      target: api-dev-env
     ports:
       - ${API_PORT:-8080}:80
     restart: always
@@ -52,8 +53,6 @@ services:
       - EMAIL_SMTP_PASSWORD=${EMAIL_SMTP_PASSWORD:-}
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
-    # entrypoint: ${API_ENTRYPOINT:-/helix serve}
-    entrypoint: ${API_ENTRYPOINT:-tail -f /dev/null}
     volumes:
       - ./go.mod:/app/go.mod
       - ./go.sum:/app/go.sum
@@ -201,13 +200,10 @@ services:
     ports:
       - 8081:${FRONTEND_INTERNAL_PORT:-8081}
     build:
-      context: frontend
+      context: .
       dockerfile: Dockerfile
-      # set FRONTEND_TARGET=deploy-frontend in .env to build production assets
-      target: ${FRONTEND_TARGET:-build-env}
+      target: ui-dev-env
     restart: always
-    # let it be defined but not empty (no colon below), since an empty entrypoint means use the one from the Dockerfile
-    entrypoint: ${FRONTEND_ENTRYPOINT-yarn run dev}
     volumes:
       - ./frontend/package.json:/app/package.json
       - ./frontend/src:/app/src
