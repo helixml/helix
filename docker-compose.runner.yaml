@@ -4,16 +4,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.runner    
-    network_mode: "host"
+    network_mode: "host" # So the runner can access the control plane that is running on the host
     volumes:      
       - ~/.cache/huggingface:/root/.cache/huggingface
     environment:
       - RUNNER_ID=local-dev-runner
-      - API_HOST=http://localhost:80
-      - API_TOKEN=${RUNNER_TOKEN-oh-hallo-insecure-token}
+      - API_HOST=${API_HOST-http://localhost:80}
+      - API_TOKEN=${API_TOKEN-oh-hallo-insecure-token}
       - MEMORY_STRING=12GB
       - ALLOW_MULTIPLE_COPIES=true
       - RUNNER_WARMUP_MODELS=llama3:instruct # Ollama runner
+    env_file:
+      - .env
     deploy:
       resources:
         reservations:
