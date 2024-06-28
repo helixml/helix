@@ -104,6 +104,36 @@ helix/
 
     Follow the [instructions on the docs to attach a runner](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
 
+    If you're local machine isn't able to host a runner, you have two options:
+
+    - use a VSCode remote SSH session to develop within a machine that does have the resources, or
+    - spin up a remote runner and connect it back to your localhost via an SSH tunnel.
+
+    To connect your localhost to a remote runner via an SSH tunnel, follow these steps:
+
+    1. In a separate window, SSH into a remote machine and open a connection from the remote back to local:
+
+        ```bash
+        ssh -p $SSH_PORT -R 8080:localhost:8080 user@remote.com
+        ```
+
+        Where 8080 is the port that your local API is running on.
+
+    2. On the remote: `git clone https://github.com/helixml/helix` somewhere
+
+    3. On the remote create a `.env` file with the following settings:
+
+        ```dotenv
+        SERVER_PORT=9080 # By default, the runner runs on 8080, so use another port.
+        API_HOST=http://localhost:8080 # You've just forwarded this port back to your local machine
+        API_TOKEN=oh-hallo-insecure-token # This should match the control plane
+        ```
+    
+    4. On the remote start the runner: `docker compose -f docker-compose.runner.yaml up -d`
+
+    5. Now go back to your local machine and browse to `/dashboard` in Helix. You should see the runner. If not, take a look at the runner logs on the remote.
+
+
 3. **Rebuild individual components**
 
     ```
