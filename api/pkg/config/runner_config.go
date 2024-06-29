@@ -7,6 +7,11 @@ import (
 )
 
 type RunnerConfig struct {
+	ApiHost  string `envconfig:"API_HOST" default:"http://localhost:8080"` // Control-plane API host
+	ApiToken string `envconfig:"API_TOKEN"`                                // Control-plane API token
+
+	GPUMemory string `envconfig:"GPU_MEMORY"` // Available GPU memory size for the runner (i.e. "24GB")
+
 	Models   Models
 	Runtimes Runtimes
 	CacheDir string `envconfig:"CACHE_DIR" default:"/root/.cache/huggingface"` // Used to download model weights. Ideally should be persistent
