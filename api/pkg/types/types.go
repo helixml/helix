@@ -1161,3 +1161,11 @@ type RunnerEventResponseEnvelope struct {
 	Reply     string `json:"reply"` // Where to send the reply
 	Payload   []byte `json:"payload"`
 }
+
+type RunnerLLMInferenceRequest struct {
+	UserID        string
+	SessionID     string
+	InteractionID string
+
+	Request *openai.ChatCompletionRequest
+}
