@@ -18,6 +18,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -680,7 +681,7 @@ func (c *Controller) WriteSession(session *types.Session) {
 		Session:   session,
 	}
 
-	c.UserWebsocketEventChanWriter <- event
+	_ = c.publishEvent(context.Background(), event)
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
@@ -697,17 +698,12 @@ func (c *Controller) WriteInteraction(session *types.Session, newInteraction *ty
 	return session
 }
 
-func (c *Controller) BroadcastWebsocketEvent(ctx context.Context, ev *types.WebsocketEvent) error {
-	c.UserWebsocketEventChanWriter <- ev
-	return nil
-}
-
 func (c *Controller) BroadcastProgress(
 	session *types.Session,
 	progress int,
 	status string,
 ) {
-	ev := &types.WebsocketEvent{
+	event := &types.WebsocketEvent{
 		Type:      types.WebsocketEventWorkerTaskResponse,
 		SessionID: session.ID,
 		Owner:     session.Owner,
@@ -719,7 +715,23 @@ func (c *Controller) BroadcastProgress(
 			Status:    status,
 		},
 	}
-	c.UserWebsocketEventChanWriter <- ev
+
+	_ = c.publishEvent(context.Background(), event)
+}
+
+func (c *Controller) publishEvent(ctx context.Context, event *types.WebsocketEvent) error {
+	message, err := json.Marshal(event)
+	if err != nil {
+		log.Error().Msgf("Error marshalling session update: %s", err.Error())
+		return err
+	}
+
+	err = c.Options.PubSub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)
+	if err != nil {
+		log.Error().Msgf("Error publishing event: %s", err.Error())
+	}
+
+	return err
 }
 
 func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
