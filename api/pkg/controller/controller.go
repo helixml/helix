@@ -36,15 +36,8 @@ type ControllerOptions struct {
 }
 
 type Controller struct {
-	Ctx     context.Context
-	Options ControllerOptions
-
-	// this is used to WRITE events to browsers
-	UserWebsocketEventChanWriter chan *types.WebsocketEvent
-
-	// this is used to READ events from runners
-	RunnerWebsocketEventChanReader chan *types.WebsocketEvent
-
+	Ctx          context.Context
+	Options      ControllerOptions
 	ToolsPlanner tools.Planner
 
 	// the backlog of sessions that need a GPU
@@ -88,15 +81,13 @@ func NewController(
 	}
 
 	controller := &Controller{
-		Ctx:                            ctx,
-		Options:                        options,
-		UserWebsocketEventChanWriter:   make(chan *types.WebsocketEvent),
-		RunnerWebsocketEventChanReader: make(chan *types.WebsocketEvent),
-		sessionQueue:                   []*types.Session{},
-		sessionSummaryQueue:            []*types.SessionSummary{},
-		models:                         models,
-		activeRunners:                  xsync.NewMapOf[string, *types.RunnerState](),
-		schedulingDecisions:            []*types.GlobalSchedulingDecision{},
+		Ctx:                 ctx,
+		Options:             options,
+		sessionQueue:        []*types.Session{},
+		sessionSummaryQueue: []*types.SessionSummary{},
+		models:              models,
+		activeRunners:       xsync.NewMapOf[string, *types.RunnerState](),
+		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
 
 	planner, err := tools.NewChainStrategy(options.Config, options.PubSub, options.GPTScriptExecutor, controller)
@@ -110,27 +101,6 @@ func NewController(
 }
 
 func (c *Controller) Initialize() error {
-
-	// here we are reading *types.WebsocketEvent from the runner websocket server
-	// it's the runners way of saying "here is an update"
-	// it is used for "stream" and "progress" events
-	// the "result" event is posted to the API (to ensure finality)
-	go func() {
-		for {
-			select {
-			case <-c.Ctx.Done():
-				return
-			case event := <-c.RunnerWebsocketEventChanReader:
-				log.Trace().Msgf("Runner websocket event: %+v", *event)
-
-				err := c.BroadcastWebsocketEvent(context.Background(), event)
-				if err != nil {
-					log.Error().Msgf("Error handling runner websocket event: %s", err.Error())
-				}
-			}
-		}
-	}()
-
 	// load the session queue from the database to survive restarts
 	err := c.loadSessionQueues(c.Ctx)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -95,7 +96,14 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 				continue
 			}
 
-			apiServer.Controller.RunnerWebsocketEventChanReader <- &event
+			switch event.Type {
+			case types.WebsocketEventSessionUpdate, types.WebsocketEventWorkerTaskResponse:
+
+				err = apiServer.pubsub.Publish(r.Context(), pubsub.GetSessionQueue(event.Owner, event.SessionID), messageBytes)
+				if err != nil {
+					log.Error().Msgf("Error publishing session update: %s", err.Error())
+				}
+			}
 		}
 
 		removeConnection(conn)
