@@ -133,8 +133,29 @@ helix/
 
     5. Now go back to your local machine and browse to `/dashboard` in Helix. You should see the runner. If not, take a look at the runner logs on the remote.
 
+3. **(Optional) Expose a Github Webhook**
 
-3. **Rebuild individual components**
+    If you're testing, developing or working with Apps then you will need to connect a Github OAuth app to be able to read from user's repositories. The current way of doing this is via https://webhookrelay.com/.
+
+    1. Create a free account with https://webhookrelay.com/
+    2. Create a "bucket", with "forward to an internal location: https://my.webhookrelay.com/new-internal-destination
+    3. Set the `Destination URL` to: `http://localhost:8080/api/v1/github/webhook`
+    4. This should produce a url that looks something like `https://xxxx.hooks.webhookrelay.com`
+    5. Go to the Github oauth app settings and find the HelixML app [called Helix apps development](https://github.com/organizations/helixml/settings/applications/2543199). Generate a new secret and grab the client ID.
+    6. Set the following environmental variables in the `.env` file:
+
+    ```dotenv
+    GITHUB_INTEGRATION_ENABLED=true
+    GITHUB_INTEGRATION_CLIENT_ID=6d04xxxxxxxx
+    GITHUB_INTEGRATION_CLIENT_SECRET=xxxxxx
+    GITHUB_INTEGRATION_WEBHOOK_URL=https://3nmlcxxxxx.hooks.webhookrelay.com/api/v1/github/webhook
+    ```
+
+    7. Restart the API and create an app.
+    8. If you have any problems check the logs in webhook relay bucket.
+
+
+4. **Rebuild individual components**
 
     ```
     ./stack rebuild <component>
@@ -144,7 +165,7 @@ helix/
 
     Both the frontend and the api have hot-reloads when in development mode. Rebuilds should only be required when adding libraries.
 
-4. **Tear down the Helix stack**
+5. **Tear down the Helix stack**
 
     Bring down the stack
 
