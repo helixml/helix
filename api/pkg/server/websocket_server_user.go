@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"sync"
 
@@ -35,32 +34,6 @@ func (apiServer *HelixAPIServer) startUserWebSocketServer(
 	r *mux.Router,
 	path string,
 ) {
-	// spawn a reader from the incoming message channel
-	// each message we get we fan out to all the currently connected websocket clients
-
-	// TODO: we should add some subscription channels here because right now we are
-	// splatting a lot of bytes down the write because everyone is hearing everything
-	go func() {
-		for {
-			select {
-			case event := <-apiServer.Controller.UserWebsocketEventChanWriter:
-				log.Trace().Msgf("User websocket event: %+v", event)
-				message, err := json.Marshal(event)
-				if err != nil {
-					log.Error().Msgf("Error marshalling session update: %s", err.Error())
-					continue
-				}
-
-				err = apiServer.pubsub.Publish(ctx, pubsub.GetSessionQueue(event.Owner, event.SessionID), message)
-				if err != nil {
-					log.Error().Msgf("Error publishing session update: %s", err.Error())
-				}
-
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
 
 	r.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		user, err := apiServer.authMiddleware.getUserFromToken(r.Context(), getRequestToken(r))
