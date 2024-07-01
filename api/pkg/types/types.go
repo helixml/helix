@@ -1169,3 +1169,11 @@ type RunnerLLMInferenceRequest struct {
 
 	Request *openai.ChatCompletionRequest
 }
+
+type RunnerLLMInferenceResponse struct {
+	UserID        string
+	SessionID     string
+	InteractionID string
+
+	Request *openai.ChatCompletionRequest
+}

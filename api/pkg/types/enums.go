@@ -130,6 +130,7 @@ type WebsocketEventType string
 const (
 	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
 	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
+	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
 )
 
 type WorkerTaskResponseType string
