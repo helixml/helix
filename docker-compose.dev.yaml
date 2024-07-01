@@ -43,6 +43,10 @@ services:
       - SENTRY_DSN_API=${SENTRY_DSN_API:-}
       - SENTRY_DSN_FRONTEND=${SENTRY_DSN_FRONTEND:-}
       - GOOGLE_ANALYTICS_FRONTEND=${GOOGLE_ANALYTICS_FRONTEND:-}
+      # Tools configuration
+      - TOOLS_ENABLED=true
+      - TOOLS_PROVIDER=${TOOLS_PROVIDER:-helix}
+      - TOOLS_MODEL=${TOOLS_MODEL:-llama3:instruct}
       # Email notifications
       - EMAIL_MAILGUN_DOMAIN=${EMAIL_MAILGUN_DOMAIN:-}
       - EMAIL_MAILGUN_API_KEY=${EMAIL_MAILGUN_API_KEY:-}
@@ -116,14 +120,12 @@ services:
     command: ["start-dev"]
   webhook_relay_stripe:
     image: webhookrelay/webhookrelayd
-    entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
     environment:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET:-}
   webhook_relay_github:
     image: webhookrelay/webhookrelayd
-    entrypoint: ${WEBHOOK_RELAY_ENTRYPOINT:-tail -f /dev/null}
     environment:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
