@@ -25,6 +25,8 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		return nil, fmt.Errorf("tool ID not found in interaction metadata")
 	}
 
+	systemPrompt := ""
+
 	if session.ParentApp != "" {
 		app, err := c.Options.Store.GetApp(ctx, session.ParentApp)
 		if err != nil {
@@ -42,6 +44,8 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		if assistant == nil {
 			return nil, fmt.Errorf("we could not find the assistant with the id: %s", assistantID)
 		}
+
+		systemPrompt = assistant.SystemPrompt
 
 		for _, appTool := range assistant.Tools {
 			if appTool.ID == toolID {
@@ -80,7 +84,9 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		history = history[:len(history)-2]
 	}
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, tool, history, userInteraction.Message, action)
+	message := fmt.Sprintf("%s %s", systemPrompt, userInteraction.Message)
+	log.Info().Str("tool", tool.Name).Str("action", action).Str("message", message).Msg("Running tool action")
+	resp, err := c.ToolsPlanner.RunAction(ctx, tool, history, message, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
