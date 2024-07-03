@@ -266,53 +266,53 @@ WAIT:
 			case <-i.ctx.Done():
 				log.Info().Msgf("🟢 Ollama model instance has stopped, closing channel listener")
 				return
-			case session, ok := <-i.workCh:
+			case req, ok := <-i.workCh:
 				if !ok {
 					log.Info().Msg("🟢 workCh closed, exiting")
 					return
 				}
-				log.Info().Str("session_id", session.SessionID).Msg("🟢 processing interaction")
+				log.Info().Str("session_id", req.SessionID).Msg("🟢 processing request")
 
-				i.currentRequest = session
+				i.currentRequest = req
 				i.lastActivity = time.Now()
 
-				err := i.processInteraction(session)
+				err := i.processInteraction(req)
 				if err != nil {
 					log.Error().
-						Str("session_id", session.SessionID).
+						Str("session_id", req.SessionID).
 						Err(err).
-						Msg("error processing interaction")
-					i.errorSession(session, err)
+						Msg("error processing request")
+					i.errorSession(req, err)
 					if strings.Contains(err.Error(), "connection refused") {
 						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
 						os.Exit(1)
 					}
 				} else {
 					log.Info().
-						Str("session_id", session.SessionID).
-						Bool("stream", session.Request.Stream).
-						Msg("🟢 interaction processed")
+						Str("session_id", req.SessionID).
+						Bool("stream", req.Request.Stream).
+						Msg("🟢 request processed")
 				}
 
 				i.currentRequest = nil
 			default:
-				// Get next session
-				session, err := i.getNextRequest()
+				// Get next chat request
+				req, err := i.getNextRequest()
 				if err != nil {
-					log.Error().Err(err).Msg("error getting next session")
+					log.Error().Err(err).Msg("error getting next request")
 					time.Sleep(300 * time.Millisecond)
 					continue
 				}
 
-				if session == nil {
-					log.Trace().Msg("no next session")
+				if req == nil {
+					log.Trace().Msg("no next request")
 					time.Sleep(300 * time.Millisecond)
 					continue
 				}
 
-				log.Info().Str("session_id", session.SessionID).Msg("🟢 enqueuing session")
+				log.Info().Str("session_id", req.SessionID).Msg("🟢 enqueuing request")
 
-				i.workCh <- session
+				i.workCh <- req
 			}
 		}
 	}()
