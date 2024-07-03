@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -96,8 +98,14 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 				continue
 			}
 
+			fmt.Println("XX event")
+			spew.Dump(event)
+
 			switch event.Type {
-			case types.WebsocketEventSessionUpdate, types.WebsocketEventWorkerTaskResponse, types.WebsocketLLMInferenceResponse:
+			case
+				types.WebsocketEventSessionUpdate,      // Delta session update
+				types.WebsocketEventWorkerTaskResponse, // Complete response
+				types.WebsocketLLMInferenceResponse:    // LLM inference (v2) response
 				err = apiServer.pubsub.Publish(r.Context(), pubsub.GetSessionQueue(event.Owner, event.SessionID), messageBytes)
 				if err != nil {
 					log.Error().Msgf("Error publishing session update: %s", err.Error())
