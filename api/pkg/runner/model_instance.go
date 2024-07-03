@@ -5,7 +5,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 )
 
 type ModelInstance interface {
@@ -33,12 +32,9 @@ type ModelInstance interface {
 type LLMModelInstance interface {
 	ID() string
 	Stale() bool
-	Model() model.Model
+	Model() types.ModelName
 	GetState() (*types.ModelInstanceState, error)
 
 	Run(ctx context.Context) error
 	Stop() error
-
-	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
-	CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 }
