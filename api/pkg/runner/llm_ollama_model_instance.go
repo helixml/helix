@@ -54,18 +54,9 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		modelName:       modelName,
 		responseHandler: cfg.ResponseHandler,
 		getNextRequest:  cfg.GetNextRequest,
-		// model: cfg.I
-		// model 				 aiModel,
-
-		// filter: types.SessionFilter{
-		// 	ModelName: cfg.InitialSession.ModelName,
-		// 	Mode:      cfg.InitialSession.Mode,
-		// 	LoraDir:   cfg.InitialSession.LoraDir,
-		// 	Type:      cfg.InitialSession.Type,
-		// },
-		runnerOptions: cfg.RunnerOptions,
-		jobHistory:    []*types.SessionSummary{},
-		lastActivity:  time.Now(),
+		runnerOptions:   cfg.RunnerOptions,
+		jobHistory:      []*types.SessionSummary{},
+		lastActivity:    time.Now(),
 	}
 
 	return i, nil
@@ -76,7 +67,6 @@ type OllamaInferenceModelInstance struct {
 
 	model     model.Model
 	modelName types.ModelName
-	// filter types.SessionFilter
 
 	runnerOptions RunnerOptions
 
@@ -517,10 +507,6 @@ func (i *OllamaInferenceModelInstance) emitStreamDone(req *types.RunnerLLMInfere
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
 	}
-}
-
-func (i *OllamaInferenceModelInstance) GetQueuedSession() *types.Session {
-	return nil
 }
 
 func (i *OllamaInferenceModelInstance) Done() <-chan bool {
