@@ -53,7 +53,7 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		model:           aiModel,
 		modelName:       modelName,
 		responseHandler: cfg.ResponseHandler,
-		getNextSession:  cfg.GetNextRequest,
+		getNextRequest:  cfg.GetNextRequest,
 		// model: cfg.I
 		// model 				 aiModel,
 
@@ -93,7 +93,7 @@ type OllamaInferenceModelInstance struct {
 	responseHandler func(res *types.RunnerTaskResponse) error
 
 	// Pulls the next session from the API
-	getNextSession func() (*types.RunnerLLMInferenceRequest, error)
+	getNextRequest func() (*types.RunnerLLMInferenceRequest, error)
 
 	// we create a cancel context for the running process
 	// which is derived from the main runner context
@@ -104,10 +104,10 @@ type OllamaInferenceModelInstance struct {
 	currentCommand *exec.Cmd
 
 	// the request that meant this model booted in the first place
-	initialSession *types.RunnerLLMInferenceRequest
+	initialRequest *types.RunnerLLMInferenceRequest
 
 	// // the session currently running on this model
-	currentSession *types.RunnerLLMInferenceRequest
+	currentRequest *types.RunnerLLMInferenceRequest
 
 	// the timestamp of when this model instance either completed a job
 	// or a new job was pulled and allocated
@@ -186,8 +186,8 @@ func (i *OllamaInferenceModelInstance) Run(ctx context.Context) error {
 			log.Error().Msgf("Ollama model instance exited with error: %s", err.Error())
 
 			errMsg := string(stderrBuf.Bytes())
-			if i.currentSession != nil {
-				i.errorSession(i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errMsg))
+			if i.currentRequest != nil {
+				i.errorSession(i.currentRequest, fmt.Errorf("%s from cmd - %s", err.Error(), errMsg))
 			}
 
 			return
@@ -273,7 +273,7 @@ WAIT:
 				}
 				log.Info().Str("session_id", session.SessionID).Msg("🟢 processing interaction")
 
-				i.currentSession = session
+				i.currentRequest = session
 				i.lastActivity = time.Now()
 
 				err := i.processInteraction(session)
@@ -294,10 +294,10 @@ WAIT:
 						Msg("🟢 interaction processed")
 				}
 
-				i.currentSession = nil
+				i.currentRequest = nil
 			default:
 				// Get next session
-				session, err := i.getNextSession()
+				session, err := i.getNextRequest()
 				if err != nil {
 					log.Error().Err(err).Msg("error getting next session")
 					time.Sleep(300 * time.Millisecond)
@@ -349,7 +349,7 @@ func (i *OllamaInferenceModelInstance) Model() types.ModelName {
 }
 
 func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, error) {
-	if i.initialSession == nil {
+	if i.initialRequest == nil {
 		return nil, fmt.Errorf("no initial session")
 	}
 
@@ -358,7 +358,7 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 		// err            error
 	)
 
-	if i.currentSession != nil {
+	if i.currentRequest != nil {
 		// TODO:
 		// sessionSummary, err = data.GetSessionSummary(i.currentSession)
 		// if err != nil {
@@ -377,7 +377,7 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 		ID:               i.id,
 		ModelName:        i.modelName,
 		Mode:             types.SessionModeInference,
-		InitialSessionID: i.initialSession.SessionID,
+		InitialSessionID: i.initialRequest.SessionID,
 		CurrentSession:   sessionSummary,
 		JobHistory:       i.jobHistory,
 		Timeout:          int(i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL.Seconds()),
