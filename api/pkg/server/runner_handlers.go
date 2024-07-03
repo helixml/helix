@@ -72,10 +72,17 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		return nil, err
 	}
 
+	systemInteraction, err := data.GetSystemInteraction(nextSession)
+	if err != nil {
+		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		return nil, fmt.Errorf("error getting system interaction: %w", err)
+	}
+
 	return &types.RunnerLLMInferenceRequest{
-		UserID:    nextSession.Owner,
-		SessionID: nextSession.ID,
-		Request:   chatCompletionsRequest,
+		Owner:         nextSession.Owner,
+		SessionID:     nextSession.ID,
+		InteractionID: systemInteraction.ID,
+		Request:       chatCompletionsRequest,
 	}, nil
 }
 
