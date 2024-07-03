@@ -1163,7 +1163,7 @@ type RunnerEventResponseEnvelope struct {
 }
 
 type RunnerLLMInferenceRequest struct {
-	UserID        string
+	Owner         string
 	SessionID     string
 	InteractionID string
 
