@@ -24,11 +24,13 @@ import (
 )
 
 type InferenceModelInstanceConfig struct {
-	ResponseHandler func(res *types.RunnerTaskResponse) error
+	RunnerOptions RunnerOptions
 
+	// Get next chat completion request
 	GetNextRequest func() (*types.RunnerLLMInferenceRequest, error)
 
-	RunnerOptions RunnerOptions
+	// Response writer
+	ResponseHandler func(res *types.RunnerTaskResponse) error
 }
 
 var (
