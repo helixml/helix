@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"runtime/debug"
 	"sort"
@@ -215,6 +216,50 @@ func (r *Runner) startTaskLoop() {
 	}
 }
 
+func (r *Runner) pollInferenceRequests(ctx context.Context) error {
+	// session, err := r.getNextWarmupSession()
+	// if err != nil {
+	// 	return err
+	// }
+
+	var (
+		request *types.RunnerLLMInferenceRequest
+		err     error
+	)
+
+	if request == nil {
+		// ask the api server if it currently has any work based on the amount of
+		// memory we could free if we killed stale sessions
+		request, err = r.getNextGlobalLLMInferenceRequest(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	if request != nil {
+		// if we need to kill any stale sessions, do it now
+
+		// check for running model instances that have not seen a job in a while
+		// and kill them if they are over the timeout AND the session requires it
+
+		// TODO: get the timeout to be configurable from the api and so dynamic
+		// based on load
+		err = r.checkForStaleModelInstances(ctx, session)
+		if err != nil {
+			return err
+		}
+
+		log.Debug().
+			Msgf("🔵 runner start model instance")
+		err = r.createModelInstance(ctx, session)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *Runner) taskLoop(ctx context.Context) error {
 	session, err := r.getNextWarmupSession()
 	if err != nil {
@@ -292,7 +337,7 @@ func GiB(bytes int64) float32 {
 
 // loop over the active model instances and stop any that have not processed a job
 // in the last timeout seconds
-func (r *Runner) checkForStaleModelInstances(_ context.Context, newSession *types.Session) error {
+func (r *Runner) checkForStaleModelInstances(_ context.Context, newModel model.Model, mode types.SessionMode) error {
 	// calculate stale model instances
 	// sort by memory usage
 	// kill as few of them as possible to free up newSession much memory
@@ -316,23 +361,6 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newSession *type
 		return stales[i].Model().GetMemoryRequirements(stales[i].Filter().Mode) < stales[j].Model().GetMemoryRequirements(stales[j].Filter().Mode)
 	})
 
-	// calculate mem required by new session
-	modelInstance, err := NewAxolotlModelInstance(
-		r.Ctx,
-		&ModelInstanceConfig{
-			InitialSession:    newSession,
-			InitialSessionURL: r.Options.InitialSessionURL,
-			NextTaskURL:       r.Options.TaskURL,
-			ResponseHandler: func(res *types.RunnerTaskResponse) error {
-				return nil
-			},
-			RunnerOptions: r.Options,
-		},
-	)
-	if err != nil {
-		return err
-	}
-
 	// we don't need to free as much memory as we already have free
 	currentlyAvailableMemory := r.getFreeMemory()
 	if currentlyAvailableMemory < 0 {
@@ -340,7 +368,7 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newSession *type
 	}
 
 	// for this session
-	newSessionMemory := modelInstance.model.GetMemoryRequirements(newSession.Mode)
+	newSessionMemory := newModel.GetMemoryRequirements(mode)
 	// this can go negative, so it needs to be a signed integer!
 	requiredMemoryFreed := int64(newSessionMemory) - int64(currentlyAvailableMemory)
 
@@ -462,6 +490,65 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 	}
 
 	return session, nil
+}
+
+func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.RunnerLLMInferenceRequest, error) {
+	freeMemory := r.getHypotheticalFreeMemory()
+
+	// only run one for dev mode
+	if r.Options.MaxModelInstances > 0 && r.activeModelInstances.Size() >= r.Options.MaxModelInstances {
+		return nil, nil
+	}
+
+	if freeMemory < int64(r.lowestMemoryRequirement) {
+		// we don't have enough memory to run anything
+		// so we just wait for more memory to become available
+		return nil, nil
+	}
+
+	queryParams := url.Values{}
+
+	// this means "only give me sessions that will fit in this much RAM"
+	queryParams.Add("memory", fmt.Sprintf("%d", freeMemory))
+
+	// give currently running models a head start on claiming jobs - this is for
+	// when we have > 1 runner
+	//
+	// TODO: using timing for this prioitization heuristic is flaky and adds
+	// latency unnecessarily, instead we could have a bidding system where the
+	// api requests bids from all the connected runners and they bid on how
+	// quickly they could service the request (e.g. what is their queue length,
+	// do they have the model loaded into memory)
+	queryParams.Add("older", "2s")
+
+	if !r.Options.AllowMultipleCopies {
+		// if we are not allowed to run multiple copies of the same model
+		// then we need to tell the api what we are currently running
+		r.activeModelInstances.Range(func(key string, modelInstance ModelInstance) bool {
+			queryParams.Add("reject", fmt.Sprintf(
+				"%s:%s:%s",
+				modelInstance.Filter().ModelName,
+				modelInstance.Filter().Mode,
+				modelInstance.Filter().LoraDir,
+			))
+			return true
+		})
+	}
+
+	if r.Options.FilterModelName != "" {
+		queryParams.Add("model_name", string(r.Options.FilterModelName))
+	}
+
+	request, err := r.getNextLLMInferenceRequest(ctx, queryParams)
+	if err != nil {
+		return nil, err
+	}
+
+	if request != nil {
+		r.addSchedulingDecision(fmt.Sprintf("loaded global session %s from api with params %s", request.SessionID, queryParams.Encode()))
+	}
+
+	return request, nil
 }
 
 // used by the Python code to know that a session has finished preparing and is ready to pull from the
@@ -698,6 +785,51 @@ func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*
 	}
 
 	return session, nil
+}
+
+// getNextLLMInferenceRequest returns the next LLM inference request from the controlplane
+func (r *Runner) getNextLLMInferenceRequest(ctx context.Context, queryParams url.Values) (*types.RunnerLLMInferenceRequest, error) {
+	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/llm-inference-request", r.Options.ID))))
+	if err != nil {
+		return nil, err
+	}
+	parsedURL.RawQuery = queryParams.Encode()
+
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	err = system.AddAuthHeadersRetryable(req, r.httpClientOptions.Token)
+	if err != nil {
+		return nil, err
+	}
+
+	client := system.NewRetryClient(3)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var buffer bytes.Buffer
+	_, err = io.Copy(&buffer, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Error().Msgf("error from runner getNextLLMInferenceRequest GET %s: %s", parsedURL.String(), buffer.String())
+		return nil, nil
+	}
+
+	var inferenceRequest *types.RunnerLLMInferenceRequest
+	err = json.Unmarshal(buffer.Bytes(), &inferenceRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	return inferenceRequest, nil
 }
 
 func (r *Runner) getUsedMemory() uint64 {
