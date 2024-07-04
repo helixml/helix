@@ -61,6 +61,11 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		lastActivity:    time.Now(),
 	}
 
+	// Enqueue the first request
+	go func() {
+		i.workCh <- request
+	}()
+
 	return i, nil
 }
 
