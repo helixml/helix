@@ -368,6 +368,24 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 		// if err != nil {
 		// 	return nil, err
 		// }
+
+		var summary string
+		// Get last message
+		if len(i.currentRequest.Request.Messages) > 0 {
+			summary = i.currentRequest.Request.Messages[len(i.currentRequest.Request.Messages)-1].Content
+		}
+
+		sessionSummary = &types.SessionSummary{
+			SessionID:     i.currentRequest.SessionID,
+			Name:          "",
+			InteractionID: i.currentRequest.InteractionID,
+			Mode:          types.SessionModeInference,
+			Type:          types.SessionTypeText,
+			ModelName:     i.modelName,
+			Owner:         i.currentRequest.Owner,
+			LoraDir:       "",
+			Summary:       summary,
+		}
 	}
 
 	stale := false
