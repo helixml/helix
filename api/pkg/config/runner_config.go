@@ -31,7 +31,8 @@ type Models struct {
 }
 
 type Runtimes struct {
-	Axolotl struct {
+	V2Engine bool `envconfig:"RUNTIME_V2_ENGINE" default:"true"`
+	Axolotl  struct {
 		Enabled      bool          `envconfig:"RUNTIME_AXOLOTL_ENABLED" default:"true"`
 		WarmupModels []string      `envconfig:"RUNTIME_AXOLOTL_WARMUP_MODELS" default:"mistralai/Mistral-7B-Instruct-v0.1"`
 		InstanceTTL  time.Duration `envconfig:"RUNTIME_AXOLOTL_INSTANCE_TTL" default:"10s"`

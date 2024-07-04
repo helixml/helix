@@ -207,18 +207,22 @@ func (r *Runner) startTaskLoop() {
 		case <-r.Ctx.Done():
 			return
 		case <-time.After(time.Millisecond * time.Duration(r.Options.GetTaskDelayMilliseconds)):
-			err := r.pollInferenceRequests(r.Ctx)
-			if err != nil {
-				log.Error().Msgf("error in inference request polling: %s", err.Error())
-				debug.PrintStack()
+			// Experiment, transparent path for LLM inference requests
+			if r.Options.Config.Runtimes.V2Engine {
+				err := r.pollInferenceRequests(r.Ctx)
+				if err != nil {
+					log.Error().Msgf("error in inference request polling: %s", err.Error())
+					debug.PrintStack()
+				}
+			} else {
+				// Old-school session polling (images, finetuning, ollama)
+				err := r.pollSessions(r.Ctx)
+				if err != nil {
+					log.Error().Msgf("error in session polling: %s", err.Error())
+					debug.PrintStack()
+				}
 			}
 
-			// Old-school session polling (images, finetuning, ollama)
-			err = r.pollSessions(r.Ctx)
-			if err != nil {
-				log.Error().Msgf("error in session polling: %s", err.Error())
-				debug.PrintStack()
-			}
 		}
 	}
 }
