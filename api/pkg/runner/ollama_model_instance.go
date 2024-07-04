@@ -54,6 +54,7 @@ func NewOllamaModelInstance(ctx context.Context, cfg *ModelInstanceConfig) (*Oll
 		model:           aiModel,
 		responseHandler: cfg.ResponseHandler,
 		getNextSession:  cfg.GetNextSession,
+		initialSession:  cfg.InitialSession,
 		filter: types.SessionFilter{
 			ModelName: cfg.InitialSession.ModelName,
 			Mode:      cfg.InitialSession.Mode,
@@ -116,9 +117,7 @@ type OllamaModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func (i *OllamaModelInstance) Start(session *types.Session) error {
-	i.initialSession = session
-
+func (i *OllamaModelInstance) Start(ctx context.Context) error {
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
