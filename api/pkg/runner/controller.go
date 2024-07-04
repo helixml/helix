@@ -207,60 +207,23 @@ func (r *Runner) startTaskLoop() {
 		case <-r.Ctx.Done():
 			return
 		case <-time.After(time.Millisecond * time.Duration(r.Options.GetTaskDelayMilliseconds)):
-			err := r.taskLoop(r.Ctx)
+			err := r.pollInferenceRequests(r.Ctx)
 			if err != nil {
-				log.Error().Msgf("error in task loop: %s", err.Error())
+				log.Error().Msgf("error in inference request polling: %s", err.Error())
+				debug.PrintStack()
+			}
+
+			// Old-school session polling (images, finetuning, ollama)
+			err = r.pollSessions(r.Ctx)
+			if err != nil {
+				log.Error().Msgf("error in session polling: %s", err.Error())
 				debug.PrintStack()
 			}
 		}
 	}
 }
 
-func (r *Runner) pollInferenceRequests(ctx context.Context) error {
-	// session, err := r.getNextWarmupSession()
-	// if err != nil {
-	// 	return err
-	// }
-
-	var (
-		request *types.RunnerLLMInferenceRequest
-		err     error
-	)
-
-	if request == nil {
-		// ask the api server if it currently has any work based on the amount of
-		// memory we could free if we killed stale sessions
-		request, err = r.getNextGlobalLLMInferenceRequest(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	if request != nil {
-		// if we need to kill any stale sessions, do it now
-
-		// check for running model instances that have not seen a job in a while
-		// and kill them if they are over the timeout AND the session requires it
-
-		// TODO: get the timeout to be configurable from the api and so dynamic
-		// based on load
-		err = r.checkForStaleModelInstances(ctx, session)
-		if err != nil {
-			return err
-		}
-
-		log.Debug().
-			Msgf("🔵 runner start model instance")
-		err = r.createModelInstance(ctx, session)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *Runner) taskLoop(ctx context.Context) error {
+func (r *Runner) pollSessions(ctx context.Context) error {
 	session, err := r.getNextWarmupSession()
 	if err != nil {
 		return err
@@ -276,6 +239,11 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 	}
 
 	if session != nil {
+
+		aiModel, err := model.GetModel(session.ModelName)
+		if err != nil {
+			return fmt.Errorf("error getting model %s: %s", session.ModelName, err.Error())
+		}
 		// if we need to kill any stale sessions, do it now
 
 		// check for running model instances that have not seen a job in a while
@@ -283,7 +251,7 @@ func (r *Runner) taskLoop(ctx context.Context) error {
 
 		// TODO: get the timeout to be configurable from the api and so dynamic
 		// based on load
-		err = r.checkForStaleModelInstances(ctx, session)
+		err = r.checkForStaleModelInstances(ctx, aiModel, session.Mode)
 		if err != nil {
 			return err
 		}
@@ -665,7 +633,7 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 	// the files have downloaded
 	go modelInstance.QueueSession(initialSession, true)
 
-	err = modelInstance.Start(initialSession)
+	err = modelInstance.Start(ctx)
 	if err != nil {
 		return err
 	}
