@@ -54,6 +54,7 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		workCh:          make(chan *types.RunnerLLMInferenceRequest, 1),
 		model:           aiModel,
 		modelName:       modelName,
+		initialRequest:  request,
 		responseHandler: cfg.ResponseHandler,
 		getNextRequest:  cfg.GetNextRequest,
 		runnerOptions:   cfg.RunnerOptions,
