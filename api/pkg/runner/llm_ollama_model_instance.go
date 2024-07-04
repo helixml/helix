@@ -34,7 +34,7 @@ type InferenceModelInstanceConfig struct {
 }
 
 var (
-	_ LLMModelInstance = &OllamaInferenceModelInstance{}
+	_ ModelInstance = &OllamaInferenceModelInstance{}
 )
 
 func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelInstanceConfig, request *types.RunnerLLMInferenceRequest) (*OllamaInferenceModelInstance, error) {
@@ -110,7 +110,7 @@ type OllamaInferenceModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func (i *OllamaInferenceModelInstance) Run(ctx context.Context) error {
+func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
@@ -332,12 +332,19 @@ func (i *OllamaInferenceModelInstance) ID() string {
 	return i.id
 }
 
+func (i *OllamaInferenceModelInstance) Filter() types.SessionFilter {
+	return types.SessionFilter{
+		ModelName: i.modelName,
+		Mode:      types.SessionModeInference,
+	}
+}
+
 func (i *OllamaInferenceModelInstance) Stale() bool {
 	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL
 }
 
-func (i *OllamaInferenceModelInstance) Model() types.ModelName {
-	return i.modelName
+func (i *OllamaInferenceModelInstance) Model() model.Model {
+	return i.model
 }
 
 func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, error) {
@@ -541,4 +548,12 @@ func (i *OllamaInferenceModelInstance) errorSession(req *types.RunnerLLMInferenc
 	if apiUpdateErr != nil {
 		log.Error().Msgf("Error reporting error to api: %v\n", apiUpdateErr.Error())
 	}
+}
+
+func (i *OllamaInferenceModelInstance) NextSession() *types.Session                                { return nil }
+func (i *OllamaInferenceModelInstance) SetNextSession(session *types.Session)                      {}
+func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
+func (i *OllamaInferenceModelInstance) GetQueuedSession() *types.Session                           { return nil }
+func (i *OllamaInferenceModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
+	return nil, nil
 }

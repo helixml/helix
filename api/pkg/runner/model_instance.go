@@ -14,7 +14,7 @@ type ModelInstance interface {
 	Model() model.Model
 	GetState() (*types.ModelInstanceState, error)
 
-	Start(session *types.Session) error
+	Start(ctx context.Context) error
 
 	NextSession() *types.Session
 	SetNextSession(session *types.Session)
@@ -27,14 +27,4 @@ type ModelInstance interface {
 	Stop() error
 
 	Done() <-chan bool
-}
-
-type LLMModelInstance interface {
-	ID() string
-	Stale() bool
-	Model() types.ModelName
-	GetState() (*types.ModelInstanceState, error)
-
-	Run(ctx context.Context) error
-	Stop() error
 }
