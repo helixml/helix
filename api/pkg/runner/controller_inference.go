@@ -11,10 +11,7 @@ import (
 )
 
 func (r *Runner) pollInferenceRequests(ctx context.Context) error {
-	// session, err := r.getNextWarmupSession()
-	// if err != nil {
-	// 	return err
-	// }
+	// TODO: warmup models
 
 	var (
 		request *types.RunnerLLMInferenceRequest
@@ -39,12 +36,8 @@ func (r *Runner) pollInferenceRequests(ctx context.Context) error {
 		}
 
 		// if we need to kill any stale sessions, do it now
-
 		// check for running model instances that have not seen a job in a while
 		// and kill them if they are over the timeout AND the session requires it
-
-		// TODO: get the timeout to be configurable from the api and so dynamic
-		// based on load
 		err = r.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
 		if err != nil {
 			return err
@@ -77,7 +70,6 @@ func (r *Runner) createInferenceModelInstance(ctx context.Context, request *type
 
 				queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
 				queryParams.Add("mode", string(modelInstance.Filter().Mode))
-				// queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
 
 				nextRequest, err := r.getNextLLMInferenceRequest(ctx, queryParams)
 				if err != nil {
