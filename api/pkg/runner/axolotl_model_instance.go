@@ -335,7 +335,7 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 // run the model process
 // we pass the instance context in so we can cancel it using our stopProcess function
-func (i *AxolotlModelInstance) Start(session *types.Session) error {
+func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 	cmd, err := i.model.GetCommand(i.ctx, i.filter, types.RunnerProcessConfig{
 		InstanceID:        i.id,
 		NextTaskURL:       i.nextTaskURL,
@@ -350,12 +350,12 @@ func (i *AxolotlModelInstance) Start(session *types.Session) error {
 	if cmd == nil {
 		return fmt.Errorf("no command to run")
 	}
-	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", session.ID, cmd.Args, cmd.Env)
+	log.Debug().Msgf("🔵 runner start process: %s %+v %+v", i.initialSession.ID, cmd.Args, cmd.Env)
 
 	log.Info().
 		Msgf("🟢 run model instance: %s, %+v, %s", cmd.Dir, cmd.Args, cmd.Env)
 
-	sessionCopy := *session
+	sessionCopy := *i.initialSession
 	for i, itx := range sessionCopy.Interactions {
 		if itx.Error != "" {
 			sessionCopy.Interactions[i].Error = "<old error redacted for developer sanity>"
@@ -363,7 +363,7 @@ func (i *AxolotlModelInstance) Start(session *types.Session) error {
 	}
 
 	log.Info().
-		Msgf("🟢 initial session: %s, %+v", session.ID, sessionCopy)
+		Msgf("🟢 initial session: %s, %+v", i.initialSession.ID, sessionCopy)
 
 	i.currentCommand = cmd
 
@@ -395,7 +395,7 @@ func (i *AxolotlModelInstance) Start(session *types.Session) error {
 	// in all cases - each model get's to decide what formatting
 	// it's Python needs to use so that these text streams will
 	// parse correctly
-	stdout, stderr, err := i.model.GetTextStreams(session.Mode, i.taskResponseHandler)
+	stdout, stderr, err := i.model.GetTextStreams(i.initialSession.Mode, i.taskResponseHandler)
 	if err != nil {
 		return err
 	}
