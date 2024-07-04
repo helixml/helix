@@ -363,13 +363,8 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 	)
 
 	if i.currentRequest != nil {
-		// TODO:
-		// sessionSummary, err = data.GetSessionSummary(i.currentSession)
-		// if err != nil {
-		// 	return nil, err
-		// }
-
 		var summary string
+
 		// Get last message
 		if len(i.currentRequest.Request.Messages) > 0 {
 			summary = i.currentRequest.Request.Messages[len(i.currentRequest.Request.Messages)-1].Content
