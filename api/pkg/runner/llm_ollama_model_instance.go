@@ -359,7 +359,6 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 
 	var (
 		sessionSummary *types.SessionSummary
-		// err            error
 	)
 
 	if i.currentRequest != nil {
