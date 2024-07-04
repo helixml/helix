@@ -3,11 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/helixml/helix/api/pkg/pubsub"
@@ -97,9 +95,6 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 				log.Error().Msgf("Error unmarshalling websocket event: %s", err.Error())
 				continue
 			}
-
-			fmt.Println("XX event")
-			spew.Dump(event)
 
 			switch event.Type {
 			case
