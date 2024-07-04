@@ -196,7 +196,7 @@ func (r *Runner) Initialize(ctx context.Context) error {
 }
 
 // this should be run in a go-routine
-func (r *Runner) StartLooping() {
+func (r *Runner) Run() {
 	go r.startTaskLoop()
 	go r.startReportStateLoop()
 }
