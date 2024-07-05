@@ -460,6 +460,11 @@ func (r *Runner) getNextGlobalSession(ctx context.Context) (*types.Session, erro
 		queryParams.Add("mode", string(r.Options.FilterMode))
 	}
 
+	// If v2 engine is enabled, filter only axolotl models
+	if r.Options.Config.Runtimes.V2Engine {
+		queryParams.Add("runtime", types.InferenceRuntimeAxolotl.String())
+	}
+
 	session, err := r.getNextApiSession(ctx, queryParams)
 	if err != nil {
 		return nil, err
