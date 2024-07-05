@@ -48,7 +48,7 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 	return InferenceRuntimeAxolotl
 }
 
-func TransformModelName(modelName string, acceptEmpty bool) (ModelName, error) {
+func TransformModelName(modelName string) (ModelName, error) {
 	if strings.HasPrefix(modelName, "gpt-3") {
 		modelName = Model_Ollama_Llama3_8b.String()
 	}
@@ -95,7 +95,7 @@ func ProcessModelName(
 				// allow user-provided model name (e.g. assume API users
 				// know what they're doing). Also, add OpenAI model name
 				// compatibility here.
-				return TransformModelName(modelName, false)
+				return TransformModelName(modelName)
 			}
 		}
 	case SessionTypeImage:

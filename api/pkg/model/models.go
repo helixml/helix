@@ -11,7 +11,7 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	modelName, err = types.TransformModelName(modelName.String(), true)
+	modelName, err = types.TransformModelName(modelName.String())
 	if err != nil {
 		return nil, err
 	}

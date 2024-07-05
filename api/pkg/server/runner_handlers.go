@@ -25,7 +25,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		return nil, fmt.Errorf("cannot get next session without runner id")
 	}
 
-	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"), true)
+	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"))
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, err
 	}
 
-	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"), true)
+	modelName, err := types.TransformModelName(req.URL.Query().Get("model_name"))
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 			var rejectLoraDir string
 			var err error
 			if len(triple) == 4 {
-				rejectModelName, err = types.TransformModelName(triple[0]+":"+triple[1], false)
+				rejectModelName, err = types.TransformModelName(triple[0] + ":" + triple[1])
 				if err != nil {
 					return nil, err
 				}
@@ -226,7 +226,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 				}
 				rejectLoraDir = triple[3]
 			} else if len(triple) == 3 {
-				rejectModelName, err = types.TransformModelName(triple[0], false)
+				rejectModelName, err = types.TransformModelName(triple[0])
 				if err != nil {
 					return nil, err
 				}
