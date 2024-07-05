@@ -18,9 +18,11 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 		r.Ctx,
 		&InferenceModelInstanceConfig{
 			ResponseHandler: func(res *types.RunnerTaskResponse) error {
+				// No-op
 				return nil
 			},
 			GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
+				// No-op
 				return nil, nil
 			},
 			RunnerOptions: r.Options,
@@ -44,42 +46,37 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 }
 
 func (r *Runner) pollInferenceRequests(ctx context.Context) error {
-	var (
-		request *types.RunnerLLMInferenceRequest
-		err     error
-	)
-
-	if request == nil {
-		// ask the api server if it currently has any work based on the amount of
-		// memory we could free if we killed stale sessions
-		request, err = r.getNextGlobalLLMInferenceRequest(ctx)
-		if err != nil {
-			return err
-		}
+	// Query for the next global inference request
+	request, err := r.getNextGlobalLLMInferenceRequest(ctx)
+	if err != nil {
+		return err
 	}
 
-	if request != nil {
-		modelName := types.ModelName(request.Request.Model)
+	if request == nil {
+		// Nothing to do
+		return nil
+	}
 
-		aiModel, err := model.GetModel(modelName)
-		if err != nil {
-			return fmt.Errorf("error getting model %s: %s", modelName, err.Error())
-		}
+	modelName := types.ModelName(request.Request.Model)
 
-		// if we need to kill any stale sessions, do it now
-		// check for running model instances that have not seen a job in a while
-		// and kill them if they are over the timeout AND the session requires it
-		err = r.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
-		if err != nil {
-			return err
-		}
+	aiModel, err := model.GetModel(modelName)
+	if err != nil {
+		return fmt.Errorf("error getting model %s: %s", modelName, err.Error())
+	}
 
-		log.Debug().
-			Msgf("🔵 runner start model instance")
-		err = r.createInferenceModelInstance(ctx, request)
-		if err != nil {
-			return err
-		}
+	// if we need to kill any stale sessions, do it now
+	// check for running model instances that have not seen a job in a while
+	// and kill them if they are over the timeout AND the session requires it
+	err = r.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
+	if err != nil {
+		return err
+	}
+
+	log.Debug().
+		Msgf("🔵 runner start model instance")
+	err = r.createInferenceModelInstance(ctx, request)
+	if err != nil {
+		return fmt.Errorf("failed to create inference model instance: %w", err)
 	}
 
 	return nil
