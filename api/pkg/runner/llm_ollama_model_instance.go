@@ -116,8 +116,119 @@ type OllamaInferenceModelInstance struct {
 	jobHistory []*types.SessionSummary
 }
 
-func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
+// Warmup starts Ollama server and pulls the models
+func (i *OllamaInferenceModelInstance) Warmup(ctx context.Context) error {
+	err := i.startOllamaServer(ctx)
+	if err != nil {
+		return err
+	}
 
+	return i.warmup(ctx)
+}
+
+func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
+	err := i.startOllamaServer(ctx)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-i.ctx.Done():
+				log.Info().Msgf("🟢 Ollama model instance has stopped, closing channel listener")
+				return
+			case req, ok := <-i.workCh:
+				if !ok {
+					log.Info().Msg("🟢 workCh closed, exiting")
+					return
+				}
+				log.Info().Str("session_id", req.SessionID).Msg("🟢 processing request")
+
+				i.currentRequest = req
+				i.lastActivity = time.Now()
+
+				err := i.processInteraction(req)
+				if err != nil {
+					log.Error().
+						Str("session_id", req.SessionID).
+						Err(err).
+						Msg("error processing request")
+					i.errorSession(req, err)
+					if strings.Contains(err.Error(), "connection refused") {
+						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
+						os.Exit(1)
+					}
+				} else {
+					log.Info().
+						Str("session_id", req.SessionID).
+						Bool("stream", req.Request.Stream).
+						Msg("🟢 request processed")
+				}
+
+				i.currentRequest = nil
+			default:
+				// Get next chat request
+				req, err := i.getNextRequest()
+				if err != nil {
+					log.Error().Err(err).Msg("error getting next request")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
+				if req == nil {
+					log.Trace().Msg("no next request")
+					time.Sleep(300 * time.Millisecond)
+					continue
+				}
+
+				log.Info().Str("session_id", req.SessionID).Msg("🟢 enqueuing request")
+
+				i.workCh <- req
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
+	var err error
+	var wg sync.WaitGroup
+
+	wg.Add(len(i.runnerOptions.Config.Runtimes.Ollama.WarmupModels))
+
+	for _, modelName := range i.runnerOptions.Config.Runtimes.Ollama.WarmupModels {
+		go func(modelName string) {
+			defer wg.Done()
+
+			log.Info().Msgf("🟢 Pulling model %s", modelName)
+
+			err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
+				Model: modelName,
+			}, func(progress api.ProgressResponse) error {
+				log.Info().Msgf("🟢 Pulling model %s (%d/%d)", modelName, progress.Completed, progress.Total)
+				return nil
+			})
+
+			if err != nil {
+				log.Error().Msgf("error pulling model: %s", err.Error())
+				return
+			}
+
+			log.Info().Msgf("🟢 Model '%s' pulled", modelName)
+
+		}(modelName)
+	}
+
+	if err != nil {
+		return fmt.Errorf("error pulling model: %s", err.Error())
+	}
+
+	return nil
+}
+
+func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) error {
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
@@ -224,96 +335,6 @@ WAIT:
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-
-	// TODO: 1. make this work only on the model instance that is being started
-	// TODO: 2. potentially move this logic outside of the model instance altogether
-
-	var wg sync.WaitGroup
-	wg.Add(len(i.runnerOptions.Config.Runtimes.Ollama.WarmupModels))
-
-	for _, modelName := range i.runnerOptions.Config.Runtimes.Ollama.WarmupModels {
-		go func(modelName string) {
-			defer wg.Done()
-
-			log.Info().Msgf("🟢 Pulling model %s", modelName)
-
-			err = i.ollamaClient.Pull(i.ctx, &api.PullRequest{
-				Model: modelName,
-			}, func(progress api.ProgressResponse) error {
-				log.Info().Msgf("🟢 Pulling model %s (%d/%d)", modelName, progress.Completed, progress.Total)
-				return nil
-			})
-
-			if err != nil {
-				log.Error().Msgf("error pulling model: %s", err.Error())
-				return
-			}
-
-			log.Info().Msgf("🟢 Model '%s' pulled", modelName)
-
-		}(modelName)
-	}
-
-	if err != nil {
-		return fmt.Errorf("error pulling model: %s", err.Error())
-	}
-
-	go func() {
-		for {
-			select {
-			case <-i.ctx.Done():
-				log.Info().Msgf("🟢 Ollama model instance has stopped, closing channel listener")
-				return
-			case req, ok := <-i.workCh:
-				if !ok {
-					log.Info().Msg("🟢 workCh closed, exiting")
-					return
-				}
-				log.Info().Str("session_id", req.SessionID).Msg("🟢 processing request")
-
-				i.currentRequest = req
-				i.lastActivity = time.Now()
-
-				err := i.processInteraction(req)
-				if err != nil {
-					log.Error().
-						Str("session_id", req.SessionID).
-						Err(err).
-						Msg("error processing request")
-					i.errorSession(req, err)
-					if strings.Contains(err.Error(), "connection refused") {
-						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
-						os.Exit(1)
-					}
-				} else {
-					log.Info().
-						Str("session_id", req.SessionID).
-						Bool("stream", req.Request.Stream).
-						Msg("🟢 request processed")
-				}
-
-				i.currentRequest = nil
-			default:
-				// Get next chat request
-				req, err := i.getNextRequest()
-				if err != nil {
-					log.Error().Err(err).Msg("error getting next request")
-					time.Sleep(300 * time.Millisecond)
-					continue
-				}
-
-				if req == nil {
-					log.Trace().Msg("no next request")
-					time.Sleep(300 * time.Millisecond)
-					continue
-				}
-
-				log.Info().Str("session_id", req.SessionID).Msg("🟢 enqueuing request")
-
-				i.workCh <- req
-			}
-		}
-	}()
 
 	return nil
 }
