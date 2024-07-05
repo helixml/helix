@@ -19,9 +19,5 @@ type ModelInstance interface {
 	Done() <-chan bool
 
 	// TODO: remove all below
-	NextSession() *types.Session
-	SetNextSession(session *types.Session)
 	QueueSession(session *types.Session, isInitialSession bool)
-	GetQueuedSession() *types.Session
-	AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error)
 }
