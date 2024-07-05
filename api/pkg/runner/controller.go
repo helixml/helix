@@ -197,6 +197,14 @@ func (r *Runner) Initialize(ctx context.Context) error {
 
 // this should be run in a go-routine
 func (r *Runner) Run() {
+	err := r.warmupInference(context.Background())
+	if err != nil {
+		log.Error().Msgf("error in warmup inference: %s", err.Error())
+		debug.PrintStack()
+	} else {
+		log.Info().Msg("🟢 warmup inference complete")
+	}
+
 	go r.startTaskLoop()
 	go r.startReportStateLoop()
 }
