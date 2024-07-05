@@ -7,8 +7,39 @@ import (
 
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
+
+func (r *Runner) warmupInference(ctx context.Context) error {
+	instance, err := NewOllamaInferenceModelInstance(
+		r.Ctx,
+		&InferenceModelInstanceConfig{
+			ResponseHandler: func(res *types.RunnerTaskResponse) error {
+				return nil
+			},
+			GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
+				return nil, nil
+			},
+			RunnerOptions: r.Options,
+		},
+		&types.RunnerLLMInferenceRequest{
+			Request: &openai.ChatCompletionRequest{
+				Model: string(types.Model_Ollama_Llama3_8b),
+			},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	err = instance.Warmup(ctx)
+	if err != nil {
+		return fmt.Errorf("error warming up inference model instance: %s", err.Error())
+	}
+
+	return nil
+}
 
 func (r *Runner) pollInferenceRequests(ctx context.Context) error {
 	// TODO: warmup models
