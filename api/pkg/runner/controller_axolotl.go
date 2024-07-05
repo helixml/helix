@@ -96,10 +96,16 @@ func (r *Runner) readInitialWorkerSession(instanceID string) (*types.Session, er
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	genericModelInstance, ok := r.activeModelInstances.Load(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
 	}
+
+	modelInstance, ok := genericModelInstance.(*AxolotlModelInstance)
+	if !ok {
+		return nil, fmt.Errorf("expected axolotl model instance, got :%v", genericModelInstance)
+	}
+
 	if modelInstance.NextSession() == nil {
 		return nil, fmt.Errorf("no session found")
 	}
@@ -117,9 +123,14 @@ func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.Run
 	if instanceID == "" {
 		return nil, fmt.Errorf("instanceid is required")
 	}
-	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	genericModelInstance, ok := r.activeModelInstances.Load(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	modelInstance, ok := genericModelInstance.(*AxolotlModelInstance)
+	if !ok {
+		return nil, fmt.Errorf("expected axolotl model instance, got :%v", genericModelInstance)
 	}
 
 	var session *types.Session

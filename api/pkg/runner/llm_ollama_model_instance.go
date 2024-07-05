@@ -568,10 +568,4 @@ func (i *OllamaInferenceModelInstance) errorSession(req *types.RunnerLLMInferenc
 	}
 }
 
-func (i *OllamaInferenceModelInstance) NextSession() *types.Session                                { return nil }
-func (i *OllamaInferenceModelInstance) SetNextSession(session *types.Session)                      {}
 func (i *OllamaInferenceModelInstance) QueueSession(session *types.Session, isInitialSession bool) {}
-func (i *OllamaInferenceModelInstance) GetQueuedSession() *types.Session                           { return nil }
-func (i *OllamaInferenceModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
-	return nil, nil
-}
