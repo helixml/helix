@@ -41,6 +41,13 @@ func (c *Controller) getMatchingSessionFilterIndex(_ context.Context, filter typ
 			continue
 		}
 
+		if filter.Runtime != "" {
+			// Filter by runtime
+			if session.ModelName.InferenceRuntime() != filter.Runtime {
+				continue
+			}
+		}
+
 		if filter.LoraDir == types.LORA_DIR_NONE {
 			// the filter is NONE - we cannot have a finetune file
 			if session.LoraDir != "" {
