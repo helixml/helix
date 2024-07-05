@@ -85,3 +85,21 @@ func (runnerServer *RunnerServer) readInitialWorkerSession(res http.ResponseWrit
 	}
 	return runnerServer.Controller.readInitialWorkerSession(vars["instanceid"])
 }
+
+// used by the Python code to know that a session has finished preparing and is ready to pull from the
+// queue - this won't actually pull the session from the queue (in the form of a task i.e. getNextTask)
+// but it gives the python code a chance to wait for Lora weights to download before loading them
+// into GPU memory - at which point it would start pulling from the queue as normal
+func (r *Runner) readInitialWorkerSession(instanceID string) (*types.Session, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+	if modelInstance.NextSession() == nil {
+		return nil, fmt.Errorf("no session found")
+	}
+	return modelInstance.NextSession(), nil
+}
