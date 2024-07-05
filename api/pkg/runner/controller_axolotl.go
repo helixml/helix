@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // TODO: move server into the axolotl model instance struct and
@@ -102,4 +104,67 @@ func (r *Runner) readInitialWorkerSession(instanceID string) (*types.Session, er
 		return nil, fmt.Errorf("no session found")
 	}
 	return modelInstance.NextSession(), nil
+}
+
+// given a running model instance id
+// get the next session that it should run
+// this is either the nextSession property on the instance
+// or it's what is returned by the master API server (if anything)
+// this function being called means "I am ready for more work"
+// because the child processes are blocking - the child will not be
+// asking for more work until it's ready to accept and run it
+func (r *Runner) popNextTask(ctx context.Context, instanceID string) (*types.RunnerTask, error) {
+	if instanceID == "" {
+		return nil, fmt.Errorf("instanceid is required")
+	}
+	modelInstance, ok := r.activeModelInstances.Load(instanceID)
+	if !ok {
+		return nil, fmt.Errorf("instance not found: %s", instanceID)
+	}
+
+	var session *types.Session
+
+	if modelInstance.NextSession() != nil {
+		// if there is a session in the nextSession cache then we return it immediately
+		log.Debug().Msgf("🟣🟣 loading modelInstance.nextSession %+v", modelInstance.NextSession())
+		session = modelInstance.NextSession()
+		modelInstance.SetNextSession(nil)
+	} else if modelInstance.GetQueuedSession() != nil {
+		// if there is a session in the queuedSession cache then we are waiting for
+		// a task to complete before we want to actually run the session
+		log.Debug().Msgf("🟡🟡 waiting modelInstance.queuedSession %+v", modelInstance.GetQueuedSession())
+	} else {
+		// ask the upstream api server if there is another task
+		// if there is - then assign it to the queuedSession
+		// and call "pre"
+		if r.httpClientOptions.Host != "" {
+			queryParams := url.Values{}
+
+			queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
+			queryParams.Add("mode", string(modelInstance.Filter().Mode))
+			queryParams.Add("lora_dir", string(modelInstance.Filter().LoraDir))
+
+			apiSession, err := r.getNextApiSession(ctx, queryParams)
+			if err != nil {
+				return nil, err
+			}
+
+			if apiSession != nil {
+				go modelInstance.QueueSession(apiSession, false)
+			}
+		}
+	}
+
+	// we don't have any work for this model instance
+	if session == nil {
+		// TODO: this should be a 404 not a 500?
+		return nil, fmt.Errorf("no session found")
+	}
+
+	task, err := modelInstance.AssignSessionTask(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+
+	return task, nil
 }
