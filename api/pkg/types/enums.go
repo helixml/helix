@@ -208,6 +208,17 @@ const (
 	// TODO: vllm
 )
 
+func ValidateRuntime(runtime string) InferenceRuntime {
+	switch runtime {
+	case string(InferenceRuntimeAxolotl):
+		return InferenceRuntimeAxolotl
+	case string(InferenceRuntimeOllama):
+		return InferenceRuntimeOllama
+	default:
+		return ""
+	}
+}
+
 var (
 	WarmupTextSessionID  = "warmup-text"
 	WarmupImageSessionID = "warmup-image"

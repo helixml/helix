@@ -175,6 +175,8 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		return nil, fmt.Errorf("cannot get next session without runner id")
 	}
 
+	runtime := types.ValidateRuntime(req.URL.Query().Get("runtime"))
+
 	sessionMode, err := types.ValidateSessionMode(req.URL.Query().Get("mode"), true)
 	if err != nil {
 		return nil, err
@@ -259,6 +261,7 @@ func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, r
 		Type:      sessionType,
 		ModelName: modelName,
 		Memory:    memory,
+		Runtime:   runtime,
 		Reject:    reject,
 		LoraDir:   loraDir,
 		Older:     types.Duration(olderDuration),
