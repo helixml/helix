@@ -29,6 +29,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// TODO: remove, replaced by llm_ollama_model_instance
+
 var (
 	_ ModelInstance = &OllamaModelInstance{}
 )
@@ -394,20 +396,6 @@ func (i *OllamaModelInstance) GetState() (*types.ModelInstanceState, error) {
 	}, nil
 }
 
-func (i *OllamaModelInstance) NextSession() *types.Session {
-	// No-op for ollama instance, only used in runner server
-	return nil
-}
-
-func (i *OllamaModelInstance) AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error) {
-	// Noop for ollama model instance, this is only needed for the axolotl model instance
-	return &types.RunnerTask{}, nil
-}
-
-func (i *OllamaModelInstance) SetNextSession(session *types.Session) {
-	// No-op for ollama instance, only used in runner server
-}
-
 func (i *OllamaModelInstance) QueueSession(session *types.Session, isInitialSession bool) {
 	err := i.addJobToHistory(session)
 	if err != nil {
@@ -641,10 +629,6 @@ func (i *OllamaModelInstance) emitStreamDone(session *types.Session) {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
 	}
-}
-
-func (i *OllamaModelInstance) GetQueuedSession() *types.Session {
-	return nil
 }
 
 func (i *OllamaModelInstance) Done() <-chan bool {
