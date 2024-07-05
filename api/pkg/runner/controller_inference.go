@@ -11,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// warmupInference downloads the model weights for the inference model,
+// this function should be called when the runner is initialized
 func (r *Runner) warmupInference(ctx context.Context) error {
 	instance, err := NewOllamaInferenceModelInstance(
 		r.Ctx,
@@ -42,8 +44,6 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 }
 
 func (r *Runner) pollInferenceRequests(ctx context.Context) error {
-	// TODO: warmup models
-
 	var (
 		request *types.RunnerLLMInferenceRequest
 		err     error
