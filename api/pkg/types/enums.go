@@ -130,6 +130,7 @@ type WebsocketEventType string
 const (
 	WebsocketEventSessionUpdate      WebsocketEventType = "session_update"
 	WebsocketEventWorkerTaskResponse WebsocketEventType = "worker_task_response"
+	WebsocketLLMInferenceResponse    WebsocketEventType = "llm_inference_response"
 )
 
 type WorkerTaskResponseType string
@@ -206,6 +207,17 @@ const (
 	InferenceRuntimeOllama  InferenceRuntime = "ollama"
 	// TODO: vllm
 )
+
+func ValidateRuntime(runtime string) InferenceRuntime {
+	switch runtime {
+	case string(InferenceRuntimeAxolotl):
+		return InferenceRuntimeAxolotl
+	case string(InferenceRuntimeOllama):
+		return InferenceRuntimeOllama
+	default:
+		return ""
+	}
+}
 
 var (
 	WarmupTextSessionID  = "warmup-text"
