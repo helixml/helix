@@ -11,11 +11,11 @@ type Knowledge struct {
 	Owner     string         `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType      `json:"owner_type"`         // e.g. user, system, org
 
-	RefreshEnabled  bool   `json:"refresh_enabled"`
-	RefreshSchedule string `json:"refresh_schedule"`
-
-	Source        KnowledgeSource `json:"source" gorm:"jsonb"`
-	IntegrationID string          `json:"integration_id" gorm:"index"`
+	RefreshEnabled  bool            `json:"refresh_enabled"`
+	RefreshSchedule string          `json:"refresh_schedule"`
+	Source          KnowledgeSource `json:"source" gorm:"jsonb"`
+	IntegrationID   string          `json:"integration_id"`
+	Store           KnowledgeStore  `json:"store" gorm:"jsonb"`
 }
 
 type KnowledgeSourceType string
@@ -67,4 +67,9 @@ type KnowledgeSourceGithub struct {
 
 type KnowledgeSourceNotion struct {
 	PageIDs []string `json:"page_ids"`
+}
+
+type KnowledgeStore struct {
+	// TODO:
+	// quadrant, pgvector
 }
