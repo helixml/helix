@@ -10,13 +10,6 @@ import (
 	openai "github.com/lukemarsden/go-openai2"
 )
 
-type Module struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Cost     int    `json:"cost"`
-	Template string `json:"template"`
-}
-
 type Interaction struct {
 	ID        string      `json:"id"`
 	Created   time.Time   `json:"created"`
@@ -1161,3 +1154,27 @@ type RunnerEventResponseEnvelope struct {
 	Reply     string `json:"reply"` // Where to send the reply
 	Payload   []byte `json:"payload"`
 }
+
+// Integrations table holds integration/authentication data
+// for external services
+type Integration struct {
+	ID        string          `json:"id" gorm:"primaryKey"`
+	Created   time.Time       `json:"created"`
+	Updated   time.Time       `json:"updated"`
+	Name      string          `json:"name"`
+	Type      IntegrationType `json:"type"`
+	Owner     string          `json:"owner" gorm:"index"`
+	OwnerType OwnerType       `json:"owner_type"`
+	Config    []byte          `json:"config"` // Encrypted config data
+}
+
+type IntegrationType string
+
+const (
+	IntegrationTypeDiscord IntegrationType = "discord" // Token
+	IntegrationTypeNotion  IntegrationType = "notion"  // Token
+	IntegrationTypeGoogle  IntegrationType = "google"  // User token from OAuth
+	IntegrationTypeAWS     IntegrationType = "aws"
+	IntegrationTypeGCP     IntegrationType = "gcp" // GCP service account
+	IntegrationTypeGitHub  IntegrationType = "github"
+)
