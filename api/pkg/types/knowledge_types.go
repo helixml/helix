@@ -11,11 +11,24 @@ type Knowledge struct {
 	Owner     string         `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType      `json:"owner_type"`         // e.g. user, system, org
 
-	RefreshEnabled  bool            `json:"refresh_enabled"`
-	RefreshSchedule string          `json:"refresh_schedule"`
-	Source          KnowledgeSource `json:"source" gorm:"jsonb"`
-	IntegrationID   string          `json:"integration_id"`
-	Store           KnowledgeStore  `json:"store" gorm:"jsonb"`
+	// Source defines where the raw data is fetched from. It can be
+	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+	Source KnowledgeSource `json:"source" gorm:"jsonb"`
+	// IntegrationID defines which integration is used to access the
+	// data source. By default Helix looks up based on the source type
+	// if only one integration for type is set.
+	IntegrationID string `json:"integration_id"`
+	// Store defines where the processed data is stored. Defaults to Helix default
+	// store if not specified (pgvector/quadrant/etc)
+	Store KnowledgeStore `json:"store" gorm:"jsonb"`
+	// RefreshEnabled defines if the knowledge should be refreshed periodically
+	// or on events. For example a Google Drive knowledge can be refreshed
+	// every 24 hours.
+	RefreshEnabled bool `json:"refresh_enabled"`
+	// RefreshSchedule defines the schedule for refreshing the knowledge.
+	// It can be specified in cron format or as a duration for example '@every 2h'
+	// or 'every 5m' or '0 0 * * *' for daily at midnight.
+	RefreshSchedule string `json:"refresh_schedule"`
 }
 
 type KnowledgeSourceType string
