@@ -945,12 +945,13 @@ type App struct {
 	// uuid of owner entity
 	Owner string `json:"owner" gorm:"index"`
 	// e.g. user, system, org
-	OwnerType OwnerType `json:"owner_type"`
-	AppSource AppSource `json:"app_source" gorm:"column:app_type"`
-	Global    bool      `json:"global"`
-	Shared    bool      `json:"shared"`
-	Config    AppConfig `json:"config" gorm:"jsonb"`
-	Triggers  Triggers  `json:"triggers" gorm:"jsonb"`
+	OwnerType  OwnerType    `json:"owner_type"`
+	AppSource  AppSource    `json:"app_source" gorm:"column:app_type"`
+	Global     bool         `json:"global"`
+	Shared     bool         `json:"shared"`
+	Config     AppConfig    `json:"config" gorm:"jsonb"`
+	Triggers   Triggers     `json:"triggers" gorm:"jsonb"`
+	Knowledges []*Knowledge `json:"knowledges"` // Link to the knowledge table for reusability
 }
 
 type KeyPair struct {
