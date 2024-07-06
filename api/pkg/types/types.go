@@ -428,6 +428,8 @@ type SessionFilter struct {
 	// this means "only give me sessions that will fit in this much ram"
 	Memory uint64 `json:"memory"`
 
+	Runtime InferenceRuntime `json:"runtime"`
+
 	// the list of model name / mode combos that we should skip over
 	// normally used by runners that are running multiple types in parallel
 	// who don't want another version of what they are already running
@@ -1160,4 +1162,20 @@ type RunnerEventResponseEnvelope struct {
 	RequestID string `json:"request_id"`
 	Reply     string `json:"reply"` // Where to send the reply
 	Payload   []byte `json:"payload"`
+}
+
+type RunnerLLMInferenceRequest struct {
+	Owner         string
+	SessionID     string
+	InteractionID string
+
+	Request *openai.ChatCompletionRequest
+}
+
+type RunnerLLMInferenceResponse struct {
+	UserID        string
+	SessionID     string
+	InteractionID string
+
+	Request *openai.ChatCompletionRequest
 }

@@ -14,17 +14,10 @@ type ModelInstance interface {
 	Model() model.Model
 	GetState() (*types.ModelInstanceState, error)
 
-	Start(session *types.Session) error
-
-	NextSession() *types.Session
-	SetNextSession(session *types.Session)
-
-	QueueSession(session *types.Session, isInitialSession bool)
-	GetQueuedSession() *types.Session
-
-	AssignSessionTask(ctx context.Context, session *types.Session) (*types.RunnerTask, error)
-
+	Start(ctx context.Context) error
 	Stop() error
-
 	Done() <-chan bool
+
+	// TODO: remove all below
+	QueueSession(session *types.Session, isInitialSession bool)
 }

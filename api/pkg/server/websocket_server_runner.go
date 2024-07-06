@@ -97,8 +97,10 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 			}
 
 			switch event.Type {
-			case types.WebsocketEventSessionUpdate, types.WebsocketEventWorkerTaskResponse:
-
+			case
+				types.WebsocketEventSessionUpdate,      // Delta session update
+				types.WebsocketEventWorkerTaskResponse, // Complete response
+				types.WebsocketLLMInferenceResponse:    // LLM inference (v2) response
 				err = apiServer.pubsub.Publish(r.Context(), pubsub.GetSessionQueue(event.Owner, event.SessionID), messageBytes)
 				if err != nil {
 					log.Error().Msgf("Error publishing session update: %s", err.Error())
