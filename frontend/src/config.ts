@@ -28,6 +28,10 @@ export const HELIX_TEXT_MODELS: IHelixModel[] = [{
   id: 'helix-small',
   title: 'Helix Small',
   description: 'Phi-3 Mini 3.8B, fast and memory efficient',
+}, {
+  id: 'helix-efficient',
+  title: 'Helix Efficient',
+  description: 'Gemma2 9B, capable and memory efficient',
 }]
 
 export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'
