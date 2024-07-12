@@ -31,7 +31,7 @@ export const HELIX_TEXT_MODELS: IHelixModel[] = [{
 }, {
   id: 'helix-efficient',
   title: 'Helix Efficient',
-  description: 'Gemma2 9B, capable and memory efficient',
+  description: 'Gemma2 27B, capable and memory efficient',
 }]
 
 export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'

@@ -90,7 +90,7 @@ func ProcessModelName(
 		case "helix-small":
 			return Model_Ollama_Phi3, nil
 		case "helix-efficient":
-			return Model_Ollama_Gemma2_9b, nil
+			return Model_Ollama_Gemma2_27b, nil
 		default:
 			if modelName == "" {
 				// default text model for non-finetune inference
