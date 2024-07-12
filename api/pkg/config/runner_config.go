@@ -34,7 +34,7 @@ type Runtimes struct {
 	}
 	Ollama struct {
 		Enabled      bool          `envconfig:"RUNTIME_OLLAMA_ENABLED" default:"true"`
-		WarmupModels []string      `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"llama3:instruct,mixtral:instruct,codellama:70b-instruct-q2_K,adrienbrault/nous-hermes2theta-llama3-8b:q8_0,phi3:instruct,gemma2:9b"`
+		WarmupModels []string      `envconfig:"RUNTIME_OLLAMA_WARMUP_MODELS" default:"llama3:instruct,mixtral:instruct,codellama:70b-instruct-q2_K,adrienbrault/nous-hermes2theta-llama3-8b:q8_0,phi3:instruct,gemma2:27b"`
 		InstanceTTL  time.Duration `envconfig:"RUNTIME_OLLAMA_INSTANCE_TTL" default:"10s"`
 	}
 }
