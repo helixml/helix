@@ -30,10 +30,9 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
 			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
 
 			return call, nil
-		})
+		}).Times(2)
 
 	getPetDetailsAPI := &types.Tool{
 		Name:        "getPetDetail",
@@ -145,6 +144,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 			return call, nil
 		})
 
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepInterpretResponse, call.Step)
+
+			return call, nil
+		})
+
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
 
@@ -207,10 +214,8 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
 			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
 			return call, nil
-		})
+		}).Times(2)
 
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
