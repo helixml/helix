@@ -97,7 +97,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -113,17 +113,23 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, tool *types
 		userPrompt,
 	}
 
-	resp, err := c.apiClient.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Stream:   false,
-			Model:    c.cfg.Tools.Model,
-			Messages: messages,
-		},
-	)
+	req := openai.ChatCompletionRequest{
+		Stream:   false,
+		Model:    c.cfg.Tools.Model,
+		Messages: messages,
+	}
+
+	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logLLMCall(ctx, sessionID, types.LLMCallStepPrepareAPIRequest, &req, &resp)
+	}()
+
 	answer := resp.Choices[0].Message.Content
 
 	// var params map[string]string
