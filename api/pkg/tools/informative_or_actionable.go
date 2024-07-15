@@ -24,10 +24,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, tools, history, currentMessage)
+			return c.isActionable(ctx, sessionID, tools, history, currentMessage)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -35,6 +35,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 		retry.OnRetry(func(n uint, err error) {
 			log.Warn().
 				Err(err).
+				Str("session_id", sessionID).
 				Str("user_input", currentMessage).
 				Uint("retry_number", n).
 				Msg("retrying isActionable")
@@ -42,7 +43,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, tools []*types.Tool, h
 	)
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
@@ -95,17 +96,22 @@ func (c *ChainStrategy) isActionable(ctx context.Context, tools []*types.Tool, h
 		},
 	)
 
-	resp, err := c.apiClient.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Stream:   false,
-			Model:    c.cfg.Tools.Model,
-			Messages: messages,
-		},
-	)
+	req := openai.ChatCompletionRequest{
+		Stream:   false,
+		Model:    c.cfg.Tools.Model,
+		Messages: messages,
+	}
+
+	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logLLMCall(ctx, sessionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
+	}()
 
 	var actionableResponse IsActionableResponse
 

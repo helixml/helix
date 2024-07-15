@@ -8,6 +8,7 @@ import (
 	"time"
 
 	openai "github.com/lukemarsden/go-openai2"
+	"gorm.io/datatypes"
 )
 
 type Module struct {
@@ -1178,4 +1179,32 @@ type RunnerLLMInferenceResponse struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+}
+
+// LLMCallStep used to categorize LLM call steps
+// where it's applicable
+type LLMCallStep string
+
+const (
+	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
+	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
+	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
+)
+
+// LLMCall used to store the request and response of LLM calls
+// done by helix to LLM providers such as openai, togetherai or helix itself
+type LLMCall struct {
+	ID               string         `json:"id" gorm:"primaryKey"`
+	Created          time.Time      `json:"created"`
+	Updated          time.Time      `json:"updated"`
+	SessionID        string         `json:"session_id" gorm:"index"`
+	Model            string         `json:"model"`
+	Provider         string         `json:"provider"`
+	Step             LLMCallStep    `json:"step" gorm:"index"`
+	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
+	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
+	DurationMs       int64          `json:"duration_ms"`
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
 }

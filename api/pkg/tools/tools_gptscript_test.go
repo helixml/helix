@@ -36,7 +36,7 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
 
 	currentMessage := "echo back 'Hello World'"
 
-	resp, err := suite.strategy.RunAction(suite.ctx, echoGptScript, history, currentMessage, "echo")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", echoGptScript, history, currentMessage, "echo")
 	suite.NoError(err)
 
 	suite.Assert().Contains(resp.Message, "Hello World")
@@ -79,7 +79,7 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
 
 	currentMessage := "can I get info about the volvo truck?"
 
-	resp, err := suite.strategy.RunAction(suite.ctx, echoGptScript, history, currentMessage, "echo")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", echoGptScript, history, currentMessage, "echo")
 	suite.NoError(err)
 
 	suite.Assert().Contains(resp.Message, `Thanks for asking "can I get info about the volvo truck?", I'm am looking into it and will send you an email once I am done!`)
