@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,10 +161,18 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage, "showPetById")
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+
+			return call, nil
+		})
+
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
 
-	spew.Dump(resp)
+	suite.strategy.wg.Wait()
 
 	suite.Require().Len(resp, 1, "expected to find a single parameter")
 	suite.Equal(resp["petId"], "55443")
@@ -193,7 +203,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
 
 	spew.Dump(resp)
