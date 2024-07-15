@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 
@@ -11,15 +12,16 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 // TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
 type Planner interface {
-	IsActionable(ctx context.Context, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
+	IsActionable(ctx context.Context, sessionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
 	// TODO: RAG lookup
-	RunAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
+	RunAction(ctx context.Context, sessionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
 	// Validation and defaulting
 	ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 }
@@ -29,12 +31,14 @@ var _ Planner = &ChainStrategy{}
 
 type ChainStrategy struct {
 	cfg               *config.ServerConfig
+	store             store.Store
 	apiClient         openai.Client
 	httpClient        *http.Client
 	gptScriptExecutor gptscript.Executor
+	wg                sync.WaitGroup
 }
 
-func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, gptScriptExecutor gptscript.Executor, controller openai.Controller) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, store store.Store, gptScriptExecutor gptscript.Executor, controller openai.Controller) (*ChainStrategy, error) {
 	var apiClient openai.Client
 
 	switch cfg.Tools.Provider {
@@ -77,6 +81,7 @@ func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, gptScriptExecu
 	return &ChainStrategy{
 		cfg:               cfg,
 		apiClient:         apiClient,
+		store:             store,
 		gptScriptExecutor: gptScriptExecutor,
 		httpClient:        retryClient.StandardClient(),
 	}, nil

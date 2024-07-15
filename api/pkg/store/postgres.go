@@ -97,6 +97,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.SessionToolBinding{},
 		&types.DataEntity{},
 		&types.ScriptRun{},
+		&types.LLMCall{},
 		&MigrationScript{},
 	)
 	if err != nil {

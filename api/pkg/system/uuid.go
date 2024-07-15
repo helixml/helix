@@ -15,6 +15,7 @@ const (
 	GptScriptRunnerTaskPrefix = "gst_"
 	RequestPrefix             = "req_"
 	DataEntityPrefix          = "dent_"
+	LLMCallPrefix             = "llmc_"
 )
 
 func GenerateUUID() string {
@@ -47,4 +48,8 @@ func GenerateGptScriptTaskID() string {
 
 func GenerateRequestID() string {
 	return fmt.Sprintf("%s%s", RequestPrefix, newID())
+}
+
+func GenerateLLMCallID() string {
+	return fmt.Sprintf("%s%s", LLMCallPrefix, newID())
 }
