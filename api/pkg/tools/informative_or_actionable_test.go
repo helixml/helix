@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/golang/mock/gomock"
@@ -23,6 +24,7 @@ type ActionTestSuite struct {
 	suite.Suite
 	ctrl     *gomock.Controller
 	executor *gptscript.MockExecutor
+	store    *store.MockStore
 	ctx      context.Context
 	strategy *ChainStrategy
 }
@@ -33,12 +35,13 @@ func (suite *ActionTestSuite) SetupTest() {
 	suite.ctrl = gomock.NewController(suite.T())
 
 	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
+	suite.store = store.NewMockStore(suite.ctrl)
 
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
-	strategy, err := NewChainStrategy(&cfg, nil, suite.executor, nil)
+	strategy, err := NewChainStrategy(&cfg, nil, suite.store, suite.executor, nil)
 	suite.NoError(err)
 
 	suite.strategy = strategy
@@ -80,8 +83,18 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepIsActionable, call.Step)
+
+			return call, nil
+		})
+
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
 	suite.Require().NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	suite.Equal("yes", resp.NeedsTool)
 	suite.Equal("getWeather", resp.Api)
@@ -112,6 +125,14 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 			},
 		},
 	}, nil)
+
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepIsActionable, call.Step)
+
+			return call, nil
+		}).Times(2)
 
 	tools := []*types.Tool{
 		{
@@ -148,8 +169,10 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
 	suite.Require().NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	suite.Equal("yes", resp.NeedsTool)
 	suite.Equal("getWeather", resp.Api)
@@ -191,8 +214,18 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 
 	currentMessage := "What's the reason why oceans have less fish??"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, tools, history, currentMessage)
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepIsActionable, call.Step)
+
+			return call, nil
+		})
+
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
 	suite.NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	suite.Equal("no", resp.NeedsTool)
 	suite.Equal("", resp.Api)
