@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 
+	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/davecgh/go-spew/spew"
@@ -24,6 +26,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		called = true
 	}))
 	defer ts.Close()
+
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+
+			return call, nil
+		})
 
 	getPetDetailsAPI := &types.Tool{
 		Name:        "getPetDetail",
@@ -63,6 +73,8 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	spew.Dump(resp)
 
@@ -125,6 +137,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 	}))
 	defer ts.Close()
 
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+
+			return call, nil
+		})
+
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
 
@@ -158,6 +178,8 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
 	suite.NoError(err)
 
+	suite.strategy.wg.Wait()
+
 	spew.Dump(resp)
 
 	suite.True(called, "expected to call the API")
@@ -181,6 +203,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 		called = true
 	}))
 	defer ts.Close()
+
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+
+			return call, nil
+		})
 
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
@@ -223,6 +253,8 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 
 	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getWeatherAPI, history, currentMessage, "CurrentWeatherData")
 	suite.NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	spew.Dump(resp)
 
