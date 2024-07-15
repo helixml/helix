@@ -5,25 +5,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 )
 
-func (c *ChainStrategy) interpretResponse(ctx context.Context, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
+func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleErrorResponse(ctx, tool, resp.StatusCode, bts)
+		return c.handleErrorResponse(ctx, sessionID, tool, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponse(ctx, tool, currentMessage, resp.StatusCode, bts)
+	return c.handleSuccessResponse(ctx, sessionID, tool, currentMessage, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID string, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -35,17 +36,24 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, _ *types.Tool
 		},
 	}
 
-	resp, err := c.apiClient.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Stream:   false,
-			Model:    c.cfg.Tools.Model,
-			Messages: messages,
-		},
-	)
+	req := openai.ChatCompletionRequest{
+		Stream:   false,
+		Model:    c.cfg.Tools.Model,
+		Messages: messages,
+	}
+
+	started := time.Now()
+
+	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logLLMCall(ctx, sessionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+	}()
 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response from inference API")
@@ -57,7 +65,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, _ *types.Tool
 	}, nil
 }
 
-func (c *ChainStrategy) handleErrorResponse(ctx context.Context, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID string, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -69,17 +77,24 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, _ *types.Tool, 
 		},
 	}
 
-	resp, err := c.apiClient.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Stream:   false,
-			Model:    c.cfg.Tools.Model,
-			Messages: messages,
-		},
-	)
+	req := openai.ChatCompletionRequest{
+		Stream:   false,
+		Model:    c.cfg.Tools.Model,
+		Messages: messages,
+	}
+
+	started := time.Now()
+
+	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
+
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.logLLMCall(ctx, sessionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+	}()
 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response from inference API")
