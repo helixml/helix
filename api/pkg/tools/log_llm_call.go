@@ -23,12 +23,16 @@ func (c *ChainStrategy) logLLMCall(ctx context.Context, sessionID string, step t
 	}
 
 	llmCall := &types.LLMCall{
-		SessionID:  sessionID,
-		Model:      req.Model,
-		Step:       step,
-		Request:    reqBts,
-		Response:   respBts,
-		DurationMs: durationMs,
+		SessionID:        sessionID,
+		Model:            req.Model,
+		Step:             step,
+		Request:          reqBts,
+		Response:         respBts,
+		Provider:         string(c.cfg.Tools.Provider),
+		DurationMs:       durationMs,
+		PromptTokens:     int64(resp.Usage.PromptTokens),
+		CompletionTokens: int64(resp.Usage.CompletionTokens),
+		TotalTokens:      int64(resp.Usage.TotalTokens),
 	}
 
 	_, err = c.store.CreateLLMCall(ctx, llmCall)
