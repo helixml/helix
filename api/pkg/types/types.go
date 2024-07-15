@@ -8,6 +8,7 @@ import (
 	"time"
 
 	openai "github.com/lukemarsden/go-openai2"
+	"gorm.io/datatypes"
 )
 
 type Module struct {
@@ -1178,4 +1179,15 @@ type RunnerLLMInferenceResponse struct {
 	InteractionID string
 
 	Request *openai.ChatCompletionRequest
+}
+
+// LLMCall used to store the request and response of a LLM call
+type LLMCall struct {
+	ID        string         `json:"id" gorm:"primaryKey"`
+	Created   time.Time      `json:"created"`
+	Updated   time.Time      `json:"updated"`
+	SessionID string         `json:"session_id" gorm:"index"`
+	Model     string         `json:"model"`
+	Request   datatypes.JSON `json:"request" gorm:"type:jsonb"`
+	Response  datatypes.JSON `json:"response" gorm:"type:jsonb"`
 }
