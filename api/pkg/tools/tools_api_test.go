@@ -203,8 +203,18 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
+	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+			suite.Equal("session-123", call.SessionID)
+			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+
+			return call, nil
+		})
+
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
+
+	suite.strategy.wg.Wait()
 
 	spew.Dump(resp)
 }
