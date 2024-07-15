@@ -1181,13 +1181,24 @@ type RunnerLLMInferenceResponse struct {
 	Request *openai.ChatCompletionRequest
 }
 
-// LLMCall used to store the request and response of a LLM call
+// LLMCallStep used to categorize LLM call steps
+// where it's applicable
+type LLMCallStep string
+
+const (
+	LLMCallStepIsActionable      = "is_actionable"
+	LLMCallStepPrepareAPIRequest = "prepare_api_request"
+)
+
+// LLMCall used to store the request and response of LLM calls
+// done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID        string         `json:"id" gorm:"primaryKey"`
 	Created   time.Time      `json:"created"`
 	Updated   time.Time      `json:"updated"`
 	SessionID string         `json:"session_id" gorm:"index"`
 	Model     string         `json:"model"`
+	Step      LLMCallStep    `json:"step" gorm:"index"`
 	Request   datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response  datatypes.JSON `json:"response" gorm:"type:jsonb"`
 }
