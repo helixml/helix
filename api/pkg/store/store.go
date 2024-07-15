@@ -102,6 +102,8 @@ type Store interface {
 	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
 	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
 	DeleteScriptRun(ctx context.Context, id string) error
+
+	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
 }
 
 var ErrNotFound = errors.New("not found")
