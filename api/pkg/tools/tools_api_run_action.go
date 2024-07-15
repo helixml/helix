@@ -102,5 +102,5 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID string, tool
 
 	defer resp.Body.Close()
 
-	return c.interpretResponse(ctx, tool, currentMessage, resp)
+	return c.interpretResponse(ctx, sessionID, tool, currentMessage, resp)
 }
