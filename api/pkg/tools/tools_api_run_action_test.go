@@ -70,7 +70,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 
 	currentMessage := "Can you please give me the details for pet 99944?"
 
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -182,7 +182,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 
 	currentMessage := "What's the weather like in London?"
 
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -256,7 +256,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 
 	currentMessage := "What's the weather like there?"
 
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", getWeatherAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, currentMessage, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
