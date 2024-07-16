@@ -599,7 +599,13 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, tools, history, userInteraction.Message)
+	// Actionable, converting interaction mode to "action"
+	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
+	}
+
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, tools, history, userInteraction.Message)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil
@@ -614,12 +620,6 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	if !isActionable.Actionable() {
 		return session, nil
-	}
-
-	// Actionable, converting interaction mode to "action"
-	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
 	}
 
 	lastInteraction.Mode = types.SessionModeAction

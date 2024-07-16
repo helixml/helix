@@ -91,7 +91,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 			return call, nil
 		})
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -169,7 +169,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -222,7 +222,7 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 			return call, nil
 		})
 
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()

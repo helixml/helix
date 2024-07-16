@@ -1198,6 +1198,7 @@ type LLMCall struct {
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
+	InteractionID    string         `json:"interaction_id" gorm:"index"`
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`

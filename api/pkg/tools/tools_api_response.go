@@ -11,20 +11,20 @@ import (
 	openai "github.com/lukemarsden/go-openai2"
 )
 
-func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
+func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleErrorResponse(ctx, sessionID, tool, resp.StatusCode, bts)
+		return c.handleErrorResponse(ctx, sessionID, interactionID, tool, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponse(ctx, sessionID, tool, currentMessage, resp.StatusCode, bts)
+	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, currentMessage, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID string, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -52,7 +52,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID str
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	if len(resp.Choices) == 0 {
@@ -65,7 +65,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID str
 	}, nil
 }
 
-func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID string, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, interactionID string, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
@@ -93,7 +93,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID strin
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	if len(resp.Choices) == 0 {

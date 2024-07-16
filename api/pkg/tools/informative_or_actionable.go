@@ -24,10 +24,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, sessionID, tools, history, currentMessage)
+			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -43,7 +43,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID string, tool
 	)
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, sessionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
@@ -110,7 +110,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID string, tool
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	var actionableResponse IsActionableResponse

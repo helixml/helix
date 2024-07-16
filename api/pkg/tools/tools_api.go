@@ -98,7 +98,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -130,7 +130,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID s
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
+		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
 	}()
 
 	answer := resp.Choices[0].Message.Content
