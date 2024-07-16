@@ -21,14 +21,14 @@ type RunActionResponse struct {
 	Error      string `json:"error"`
 }
 
-func (c *ChainStrategy) RunAction(ctx context.Context, sessionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
 	case types.ToolTypeAPI:
 		return retry.DoWithData(
 			func() (*RunActionResponse, error) {
-				return c.runApiAction(ctx, sessionID, tool, history, currentMessage, action)
+				return c.runApiAction(ctx, sessionID, interactionID, tool, history, currentMessage, action)
 			},
 			retry.Attempts(apiActionRetries),
 			retry.Delay(delayBetweenApiRetries),
@@ -39,7 +39,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID string, tool *t
 	}
 }
 
-func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -61,7 +61,7 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID string, tool
 	started := time.Now()
 
 	// Get API request parameters
-	params, err := c.getAPIRequestParameters(ctx, sessionID, tool, history, currentMessage, action)
+	params, err := c.getAPIRequestParameters(ctx, sessionID, interactionID, tool, history, currentMessage, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get api request parameters: %w", err)
 	}
@@ -102,5 +102,5 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID string, tool
 
 	defer resp.Body.Close()
 
-	return c.interpretResponse(ctx, sessionID, tool, currentMessage, resp)
+	return c.interpretResponse(ctx, sessionID, interactionID, tool, currentMessage, resp)
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (c *ChainStrategy) logLLMCall(ctx context.Context, sessionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
+func (c *ChainStrategy) logLLMCall(ctx context.Context, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
 	reqBts, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal LLM request")
@@ -24,6 +24,7 @@ func (c *ChainStrategy) logLLMCall(ctx context.Context, sessionID string, step t
 
 	llmCall := &types.LLMCall{
 		SessionID:        sessionID,
+		InteractionID:    interactionID,
 		Model:            req.Model,
 		Step:             step,
 		Request:          reqBts,
