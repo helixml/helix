@@ -27,6 +27,10 @@ const (
 	Model_Ollama_Llama3_8b  ModelName = "llama3:instruct"
 	Model_Ollama_Llama3_70b ModelName = "llama3:70b"
 
+	Model_Ollama_Llama3_8b_fp16 ModelName = "llama3:8b-instruct-fp16"
+	Model_Ollama_Llama3_8b_q6_K ModelName = "llama3:8b-instruct-q6_K"
+	Model_Ollama_Llama3_8b_q8_0 ModelName = "llama3:8b-instruct-q8_0"
+
 	Model_Ollama_Phi3 ModelName = "phi3:instruct"
 )
 
