@@ -1,6 +1,6 @@
 #syntax=docker/dockerfile:1.4
 
-ARG TAG=latest-empty
+ARG TAG=upgrade-cuda-base-empty
 
 ### BUILD
 
