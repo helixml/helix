@@ -69,7 +69,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	messages = append(messages, systemPrompt)
 
+	log.Info().Msgf("iterating over history:")
 	for _, interaction := range history {
+		log.Info().Msgf("%+v", interaction)
 		switch interaction.Creator {
 		case types.CreatorTypeUser:
 			messages = append(messages, openai.ChatCompletionMessage{
@@ -83,6 +85,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 			})
 		}
 	}
+	log.Info().Msgf("finished iterating over history!")
 
 	// Adding current message
 	messages = append(messages,
