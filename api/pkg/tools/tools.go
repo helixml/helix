@@ -21,7 +21,7 @@ import (
 
 // TODO: probably move planner into a separate package so we can decide when we want to call APIs, when to go with RAG, etc.
 type Planner interface {
-	IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error)
+	IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error)
 	// TODO: RAG lookup
 	RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error)
 	// Validation and defaulting
