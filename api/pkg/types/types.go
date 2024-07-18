@@ -810,6 +810,10 @@ type AssistantAPI struct {
 	URL         string            `json:"url" yaml:"url"`
 	Headers     map[string]string `json:"headers" yaml:"headers"`
 	Query       map[string]string `json:"query" yaml:"query"`
+
+	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
+	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
+	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
 }
 
 // apps are a collection of assistants
@@ -823,14 +827,22 @@ type AssistantConfig struct {
 	Model       string `json:"model" yaml:"model"`
 	// so we can have fine tuned image assistants or system prompt augmentedimage inference
 	// defaults to text
-	Type         SessionType `json:"type" yaml:"type"`
-	SystemPrompt string      `json:"system_prompt" yaml:"system_prompt"`
+	Type SessionType `json:"type" yaml:"type"`
+
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+
 	// the data entity ID that we have created as the RAG source
 	RAGSourceID string `json:"rag_source_id" yaml:"rag_source_id"`
+
 	// the data entity ID that we have created for the lora fine tune
 	LoraID string `json:"lora_id" yaml:"lora_id"`
+
+	// Template for determining if the request is actionable or informative
+	IsActionableTemplate string `json:"is_actionable_template" yaml:"is_actionable_template"`
+
 	// the list of api tools this assistant will use
 	APIs []AssistantAPI `json:"apis" yaml:"apis"`
+
 	// the list of gpt scripts this assistant will use
 	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
 	// these are populated from the APIs and GPTScripts on create and update
