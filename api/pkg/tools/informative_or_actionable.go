@@ -76,7 +76,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	started := time.Now()
 
-	systemPrompt, err := c.getActionableSystemPrompt(tools)
+	systemPrompt, err := c.getActionableSystemPrompt(tools, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
@@ -148,9 +148,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	return &actionableResponse, nil
 }
 
-func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options Options) (openai.ChatCompletionMessage, error) {
 	// Render template
-	tmpl, err := template.New("system_prompt").Parse(c.isActionableTemplate)
+	tmpl, err := template.New("system_prompt").Parse(options.isActionableTemplate)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to parse 'isInformativeOrActionablePrompt' template")
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to parse 'isInformativeOrActionablePrompt' template: %w", err)
