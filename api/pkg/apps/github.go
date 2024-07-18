@@ -316,7 +316,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 						Description: script.Description,
 					})
 					newTools = append(newTools, types.Tool{
-						ID:       system.GenerateUUID(),
+						ID:       system.GenerateToolID(),
 						Name:     file,
 						ToolType: types.ToolTypeGPTScript,
 						Config: types.ToolConfig{
@@ -334,7 +334,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 				}
 				newScripts = append(newScripts, script)
 				newTools = append(newTools, types.Tool{
-					ID:          system.GenerateUUID(),
+					ID:          system.GenerateToolID(),
 					Name:        script.Name,
 					Description: script.Description,
 					ToolType:    types.ToolTypeGPTScript,
@@ -372,20 +372,23 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 			}
 
 			newTools = append(newTools, types.Tool{
-				ID:          system.GenerateUUID(),
+				ID:          system.GenerateToolID(),
+				Created:     time.Now(),
+				Updated:     time.Now(),
 				Name:        api.Name,
 				Description: api.Description,
 				ToolType:    types.ToolTypeAPI,
 				Config: types.ToolConfig{
 					API: &types.ToolApiConfig{
-						URL:     api.URL,
-						Schema:  api.Schema,
-						Headers: api.Headers,
-						Query:   api.Query,
+						URL:                     api.URL,
+						Schema:                  api.Schema,
+						Headers:                 api.Headers,
+						Query:                   api.Query,
+						RequestPrepTemplate:     api.RequestPrepTemplate,
+						ResponseSuccessTemplate: api.ResponseSuccessTemplate,
+						ResponseErrorTemplate:   api.ResponseErrorTemplate,
 					},
 				},
-				Created: time.Now(),
-				Updated: time.Now(),
 			})
 		}
 
