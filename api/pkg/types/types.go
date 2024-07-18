@@ -1166,19 +1166,29 @@ type RunnerEventResponseEnvelope struct {
 }
 
 type RunnerLLMInferenceRequest struct {
+	// RequestID is generated when a new request
+	// is received on the internal Helix OpenAI client
+	// to generate a chat completions call
+	RequestID string
+
 	Owner         string
-	SessionID     string
-	InteractionID string
+	SessionID     string // TODO: remove
+	InteractionID string // TODO: remove
 
 	Request *openai.ChatCompletionRequest
 }
 
 type RunnerLLMInferenceResponse struct {
-	UserID        string
-	SessionID     string
-	InteractionID string
+	// RequestID is used to match the response
+	// to the request
+	RequestID string
 
-	Request *openai.ChatCompletionRequest
+	UserID        string
+	SessionID     string // TODO: remove
+	InteractionID string // TODO: remove
+
+	Response       *openai.ChatCompletionResponse
+	StreamResponse *openai.ChatCompletionStreamResponse
 }
 
 // LLMCallStep used to categorize LLM call steps
