@@ -24,10 +24,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage)
+			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage, options...)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -43,7 +43,23 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 	)
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) getDefaultOptions() Options {
+	return Options{
+		isActionableTemplate: c.isActionableTemplate,
+	}
+}
+
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
