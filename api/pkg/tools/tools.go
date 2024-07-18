@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -30,12 +32,13 @@ type Planner interface {
 var _ Planner = &ChainStrategy{}
 
 type ChainStrategy struct {
-	cfg               *config.ServerConfig
-	store             store.Store
-	apiClient         openai.Client
-	httpClient        *http.Client
-	gptScriptExecutor gptscript.Executor
-	wg                sync.WaitGroup
+	cfg                  *config.ServerConfig
+	store                store.Store
+	apiClient            openai.Client
+	httpClient           *http.Client
+	gptScriptExecutor    gptscript.Executor
+	isActionableTemplate string
+	wg                   sync.WaitGroup
 }
 
 func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, store store.Store, gptScriptExecutor gptscript.Executor, controller openai.Controller) (*ChainStrategy, error) {
@@ -77,12 +80,43 @@ func NewChainStrategy(cfg *config.ServerConfig, ps pubsub.PubSub, store store.St
 		log.Warn().Msg("no tools provider configured")
 	}
 
+	isActionableTemplate, err := getIsActionablePromptTemplate(cfg)
+	if err != nil {
+		log.Err(err).Msg("failed to get actionable template, falling back to default")
+		// Use default so things don't break
+		isActionableTemplate = isInformativeOrActionablePrompt
+	}
+
 	retryClient := system.NewRetryClient(3)
 	return &ChainStrategy{
-		cfg:               cfg,
-		apiClient:         apiClient,
-		store:             store,
-		gptScriptExecutor: gptScriptExecutor,
-		httpClient:        retryClient.StandardClient(),
+		cfg:                  cfg,
+		apiClient:            apiClient,
+		store:                store,
+		gptScriptExecutor:    gptScriptExecutor,
+		httpClient:           retryClient.StandardClient(),
+		isActionableTemplate: isActionableTemplate,
 	}, nil
+}
+
+func getIsActionablePromptTemplate(cfg *config.ServerConfig) (string, error) {
+	if cfg.Tools.IsActionableTemplate == "" {
+		return isInformativeOrActionablePrompt, nil
+	}
+
+	// If path - read it
+	if _, err := os.Stat(cfg.Tools.IsActionableTemplate); err == nil {
+		bts, err := os.ReadFile(cfg.Tools.IsActionableTemplate)
+		if err != nil {
+			return "", err
+		}
+
+		return string(bts), nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(cfg.Tools.IsActionableTemplate)
+	if err != nil {
+		return cfg.Tools.IsActionableTemplate, nil
+	}
+
+	return string(decoded), nil
 }
