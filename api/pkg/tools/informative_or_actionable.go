@@ -134,7 +134,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
 	// Render template
-	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
+	tmpl, err := template.New("system_prompt").Parse(c.isActionableTemplate)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to parse 'isInformativeOrActionablePrompt' template")
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to parse 'isInformativeOrActionablePrompt' template: %w", err)
