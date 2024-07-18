@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -536,7 +537,10 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	ctx := context.Background()
 
-	tools := []*types.Tool{}
+	var (
+		activeTools []*types.Tool
+		assistant   *types.AssistantConfig
+	)
 	// if this session is spawned from an app then we populate the list of tools from the app rather than the linked
 	// database record
 	if session.ParentApp != "" {
@@ -555,12 +559,12 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 			if assistantID == "" {
 				assistantID = "0"
 			}
-			assistant := data.GetAssistant(app, assistantID)
+			assistant = data.GetAssistant(app, assistantID)
 			if assistant == nil {
 				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
 			}
 			for _, tool := range assistant.Tools {
-				tools = append(tools, &tool)
+				activeTools = append(activeTools, &tool)
 			}
 		}
 	} else {
@@ -578,11 +582,11 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 				return nil, system.NewHTTPError403(fmt.Sprintf("you do not have access to the tool with the id: %s", tool.ID))
 			}
 
-			tools = append(tools, tool)
+			activeTools = append(activeTools, tool)
 		}
 	}
 
-	if len(tools) == 0 {
+	if len(activeTools) == 0 {
 		// No tools available, nothing to check
 		return session, nil
 	}
@@ -605,7 +609,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, tools, history, userInteraction.Message)
+	var options []tools.Option
+
+	// If assistant has configured an actionable template, use it
+	if assistant != nil && assistant.IsActionableTemplate != "" {
+		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
+	}
+
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, history, userInteraction.Message, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil
@@ -628,7 +639,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	lastInteraction.Metadata["tool_action"] = isActionable.Api
 	lastInteraction.Metadata["tool_action_justification"] = isActionable.Justification
 
-	actionTool, ok := getToolFromAction(tools, isActionable.Api)
+	actionTool, ok := getToolFromAction(activeTools, isActionable.Api)
 	if !ok {
 		return nil, fmt.Errorf("tool not found for action: %s", isActionable.Api)
 	}
