@@ -760,6 +760,10 @@ type ToolApiConfig struct {
 
 	Headers map[string]string `json:"headers" yaml:"headers"` // Headers (authentication, etc)
 	Query   map[string]string `json:"query" yaml:"query"`     // Query parameters that will be always set
+
+	RequestPrepTemplate     string `json:"request_prep_template" yaml:"request_prep_template"`         // Template for request preparation, leave empty for default
+	ResponseSuccessTemplate string `json:"response_success_template" yaml:"response_success_template"` // Template for successful response, leave empty for default
+	ResponseErrorTemplate   string `json:"response_error_template" yaml:"response_error_template"`     // Template for error response, leave empty for default
 }
 
 // ToolApiConfig is parsed from the OpenAPI spec
