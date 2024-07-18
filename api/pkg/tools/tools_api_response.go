@@ -115,7 +115,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 }
 
 const successResponsePrompt = `Present the key information in a concise manner.
-Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability.
+Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability where appropriate, but don't mention formatting in your response unless it's relevant to the user's query.
 Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
