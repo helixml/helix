@@ -186,7 +186,13 @@ func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletion
 
 func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Interaction, currentMessage, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
-	tmpl, err := template.New("api_params").Parse(apiUserPrompt)
+	apiUserPromptTemplate := apiUserPrompt
+
+	if tool.Config.API.RequestPrepTemplate != "" {
+		apiUserPromptTemplate = tool.Config.API.RequestPrepTemplate
+	}
+
+	tmpl, err := template.New("api_params").Parse(apiUserPromptTemplate)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
