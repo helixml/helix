@@ -69,8 +69,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	messages = append(messages, systemPrompt)
 
-	log.Info().Msgf("iterating over history:")
-	for _, interaction := range history {
+	log.Info().Msgf("iterating over history except last two items (which is user's query and stupid empty system response):")
+	for i := 0; i < len(history)-2; i++ {
+		interaction := history[i]
 		log.Info().Msgf("%+v", interaction)
 		switch interaction.Creator {
 		case types.CreatorTypeUser:
@@ -194,7 +195,7 @@ type modelTool struct {
 	ToolType    string
 }
 
-const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an tool. If the user asks about a specific item or person, always check with an appropriate tool rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools.
+const isInformativeOrActionablePrompt = `You are an AI that classifies whether user input requires the use of a tool or not. You should recommend using a tool if the user request matches one of the tool descriptions below. Such user requests can be fulfilled by calling a tool or external API to either execute something or fetch more data to help in answering the question. Also, if the user question is asking you to perform actions (e.g. list, create, update, delete) then you will need to use an tool. If the user asks about a specific item or person, always check with an appropriate tool rather than making something up/depending on your background knowledge. There are two types of tools: api tools and gptscript tools. API tools are used to call APIs. gptscript tools can do anything. If the user mentions gptscript, use one of the gptscript tools. If the user asks if you have any of an object, and there's a way to search or query for products or things, use the appropriate tool. If you say "needs_tool": "yes", then ALWAYS specify a tool, pick the closest tool. Never respond with an empty tool.
 
 Examples:  
 

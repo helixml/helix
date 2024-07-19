@@ -40,7 +40,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,
-			Content: "Now present the response in a non-tech way:",
+			Content: "Now present the response in a non-tech way. If the api response is empty, say that there's nothing of that type available:",
 		},
 	}
 
