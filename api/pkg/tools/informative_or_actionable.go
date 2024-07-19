@@ -24,10 +24,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage)
+			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage, options...)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -43,7 +43,23 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 	)
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string) (*IsActionableResponse, error) {
+func (c *ChainStrategy) getDefaultOptions() Options {
+	return Options{
+		isActionableTemplate: c.isActionableTemplate,
+	}
+}
+
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+	opts := c.getDefaultOptions()
+
+	for _, opt := range options {
+		if opt != nil {
+			if err := opt(&opts); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if len(tools) == 0 {
 		return &IsActionableResponse{
 			NeedsTool:     "no",
@@ -60,7 +76,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	started := time.Now()
 
-	systemPrompt, err := c.getActionableSystemPrompt(tools)
+	systemPrompt, err := c.getActionableSystemPrompt(tools, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
@@ -136,9 +152,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	return &actionableResponse, nil
 }
 
-func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options Options) (openai.ChatCompletionMessage, error) {
 	// Render template
-	tmpl, err := template.New("system_prompt").Parse(isInformativeOrActionablePrompt)
+	tmpl, err := template.New("system_prompt").Parse(options.isActionableTemplate)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to parse 'isInformativeOrActionablePrompt' template")
 		return openai.ChatCompletionMessage{}, fmt.Errorf("failed to parse 'isInformativeOrActionablePrompt' template: %w", err)

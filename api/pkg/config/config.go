@@ -78,6 +78,10 @@ type Tools struct {
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
 	// - Helix: llama3:instruct or adrienbrault/nous-hermes2pro:Q5_K_S or maybe adrienbrault/nous-hermes2theta-llama3-8b:q8_0
 	Model string `envconfig:"TOOLS_MODEL" default:"meta-llama/Llama-3-8b-chat-hf"`
+
+	// IsActionableTemplate is used to determine whether Helix should
+	// use a tool or not. Leave empty for default
+	IsActionableTemplate string `envconfig:"TOOLS_IS_ACTIONABLE_TEMPLATE"` // Either plain text, base64 or path to a file
 }
 
 // Keycloak is used for authentication. You can find keycloak documentation
