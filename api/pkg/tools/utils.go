@@ -6,6 +6,11 @@ import (
 )
 
 func unmarshalJSON(data string, v interface{}) error {
+	// sometimes LLM just gives us a single ``` at the start; just strip that off
+	if strings.HasPrefix(data, "```\n") {
+		data = strings.Split(data, "```\n")[1]
+	}
+
 	if strings.Contains(data, "```json") {
 		data = strings.Split(data, "```json")[1]
 	}
