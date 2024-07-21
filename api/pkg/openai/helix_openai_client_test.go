@@ -136,6 +136,34 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {
 	suite.Equal("Hello, world!", resp.Choices[0].Message.Content)
 }
 
+func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
+	var (
+		ownerID       = "owner1"
+		sessionID     = "session1"
+		interactionID = "interaction1"
+	)
+
+	// Fake running will pick up our request and send a response
+	go startFakeRunner(suite.T(), suite.srv, []*types.RunnerLLMInferenceResponse{
+		{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+			Error:         "too many tokens",
+		},
+	})
+
+	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+
+	_, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Stream:   false,
+		Messages: []openai.ChatCompletionMessage{},
+	})
+	suite.Error(err)
+	suite.Contains(err.Error(), "too many tokens")
+}
+
 // startFakeRunner starts polling the queue for requests and sends responses. Exits once context
 // is done
 func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.RunnerLLMInferenceResponse) {
