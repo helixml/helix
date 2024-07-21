@@ -1195,7 +1195,7 @@ type RunnerLLMInferenceRequest struct {
 
 	CreatedAt time.Time
 
-	Priority      int
+	Priority      bool
 	OwnerID       string
 	SessionID     string // TODO: remove
 	InteractionID string // TODO: remove

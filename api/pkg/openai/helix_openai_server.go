@@ -23,9 +23,6 @@ type InternalHelixServer struct {
 	pubsub     pubsub.PubSub // Used to get responses from the runners
 	controller Controller    // Used to create sessions
 
-	runnersMu sync.Mutex
-	runners   map[string]*types.RunnerState
-
 	queueMu sync.Mutex
 	queue   []*types.RunnerLLMInferenceRequest
 
@@ -55,9 +52,9 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 		return nil, nil
 	}
 
-	req := filteredReqs[0]
+	req, index := pickRequest(filteredReqs)
 
-	c.queue = append(c.queue[:0], c.queue[1:]...)
+	c.queue = append(c.queue[:index], c.queue[index+1:]...)
 
 	c.addSchedulingDecision(filter, runnerID, runnerID, req.SessionID, req.InteractionID)
 
@@ -69,6 +66,22 @@ func (c *InternalHelixServer) enqueueRequest(req *types.RunnerLLMInferenceReques
 	defer c.queueMu.Unlock()
 
 	c.queue = append(c.queue, req)
+}
+
+func pickRequest(reqs []*types.RunnerLLMInferenceRequest) (*types.RunnerLLMInferenceRequest, int) {
+	if len(reqs) == 0 {
+		return nil, 0
+	}
+
+	// First look for any requests with priority
+	for idx, req := range reqs {
+		if req.Priority {
+			return req, idx
+		}
+	}
+
+	// If no requests have priority, return the first one (oldest)
+	return reqs[0], 0
 }
 
 func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter types.InferenceRequestFilter) ([]*types.RunnerLLMInferenceRequest, error) {
