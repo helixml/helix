@@ -398,7 +398,7 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 			Mode:          types.SessionModeInference,
 			Type:          types.SessionTypeText,
 			ModelName:     i.modelName,
-			Owner:         i.currentRequest.Owner,
+			Owner:         i.currentRequest.OwnerID,
 			LoraDir:       "",
 			Summary:       summary,
 		}
@@ -522,7 +522,7 @@ func (i *OllamaInferenceModelInstance) responseProcessor(
 	resp := &types.RunnerTaskResponse{
 		SessionID:     req.SessionID,
 		InteractionID: req.InteractionID,
-		Owner:         req.Owner,
+		Owner:         req.OwnerID,
 		Done:          done,
 		Message:       content,
 		Usage:         usage,
@@ -547,7 +547,7 @@ func (i *OllamaInferenceModelInstance) emitStreamDone(req *types.RunnerLLMInfere
 	err := i.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeStream,
 		SessionID: req.SessionID,
-		Owner:     req.Owner,
+		Owner:     req.OwnerID,
 		Message:   "",
 		Done:      true,
 	})
@@ -580,7 +580,7 @@ func (i *OllamaInferenceModelInstance) errorSession(req *types.RunnerLLMInferenc
 	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
 		Type:      types.WorkerTaskResponseTypeResult,
 		SessionID: req.SessionID,
-		Owner:     req.Owner,
+		Owner:     req.OwnerID,
 		Error:     err.Error(),
 	})
 

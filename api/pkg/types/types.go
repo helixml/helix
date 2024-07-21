@@ -1195,7 +1195,8 @@ type RunnerLLMInferenceRequest struct {
 
 	CreatedAt time.Time
 
-	Owner         string
+	Priority      int
+	OwnerID       string
 	SessionID     string // TODO: remove
 	InteractionID string // TODO: remove
 
@@ -1207,7 +1208,7 @@ type RunnerLLMInferenceResponse struct {
 	// to the request
 	RequestID string
 
-	UserID        string
+	OwnerID       string
 	SessionID     string // TODO: remove
 	InteractionID string // TODO: remove
 

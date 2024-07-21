@@ -81,7 +81,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 	}
 
 	return &types.RunnerLLMInferenceRequest{
-		Owner:         nextSession.Owner,
+		OwnerID:       nextSession.Owner,
 		SessionID:     nextSession.ID,
 		InteractionID: systemInteraction.ID,
 		Request:       chatCompletionsRequest,
