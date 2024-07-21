@@ -14,6 +14,13 @@ import (
 	openai "github.com/lukemarsden/go-openai2"
 )
 
+type HelixClient interface {
+	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
+}
+
+var _ HelixClient = &InternalHelixServer{}
+
 var chatCompletionTimeout = 180 * time.Second
 
 func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
