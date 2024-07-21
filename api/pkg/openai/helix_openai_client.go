@@ -93,9 +93,6 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 }
 
 func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)
-	defer cancel()
-
 	request.Stream = true
 
 	requestID := system.GenerateRequestID()
@@ -107,9 +104,6 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 
 	doneCh := make(chan struct{})
 
-	config := openai.DefaultConfig("helix")
-	client := openai.NewClientWithConfig(config)
-
 	pr, pw := io.Pipe()
 
 	ht := &helixTransport{
@@ -118,9 +112,12 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	}
 
 	// Create a fake HTTP client with a custom transport that will be feeding the stream
+	config := openai.DefaultConfig("helix")
 	config.HTTPClient = &http.Client{
 		Transport: ht,
 	}
+
+	client := openai.NewClientWithConfig(config)
 
 	// Subscribe to the runner response from the runner
 	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(ownerID, requestID), func(payload []byte) error {
@@ -136,7 +133,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 				return fmt.Errorf("error marshalling stream response: %w", err)
 			}
 
-			_, err = pw.Write(bts)
+			err = writeChunk(pw, bts)
 			if err != nil {
 				return fmt.Errorf("error writing to stream: %w", err)
 			}
@@ -166,8 +163,11 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	})
 
 	go func() {
+		ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)
+		defer cancel()
+
 		<-ctx.Done()
-		sub.Unsubscribe()
+		_ = sub.Unsubscribe()
 	}()
 
 	// Initiate through our client
@@ -186,4 +186,18 @@ func (t *helixTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		StatusCode: 200,
 		Body:       readCloser,
 	}, nil
+}
+
+func writeChunk(w io.Writer, chunk []byte) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", string(chunk))
+	if err != nil {
+		return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
+	}
+
+	// Flush the ResponseWriter buffer to send the chunk immediately
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	return nil
 }

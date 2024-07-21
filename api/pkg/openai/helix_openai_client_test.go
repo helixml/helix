@@ -3,6 +3,9 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -163,6 +166,86 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
 	suite.Contains(err.Error(), "too many tokens")
 }
 
+func (suite *HelixClientTestSuite) Test_CreateChatCompletion_StreamingResponse() {
+	var (
+		ownerID       = "owner1"
+		sessionID     = "session1"
+		interactionID = "interaction1"
+	)
+
+	// Fake running will pick up our request and send a response
+	go startFakeRunner(suite.T(), suite.srv, []*types.RunnerLLMInferenceResponse{
+		{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+			StreamResponse: &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: "One,",
+						},
+					},
+				},
+			},
+		},
+		{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+			StreamResponse: &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: "Two,",
+						},
+					},
+				},
+			},
+		},
+		{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+			StreamResponse: &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: "Three.",
+						},
+					},
+				},
+			},
+			Done: true,
+		},
+	})
+
+	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+
+	stream, err := suite.srv.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
+		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Stream:   true,
+		Messages: []openai.ChatCompletionMessage{},
+	})
+	suite.NoError(err)
+
+	defer stream.Close()
+
+	var resp string
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		suite.NoError(err)
+
+		resp += response.Choices[0].Delta.Content
+	}
+
+	suite.Equal("One,Two,Three.", resp)
+}
+
 // startFakeRunner starts polling the queue for requests and sends responses. Exits once context
 // is done
 func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.RunnerLLMInferenceResponse) {
@@ -196,6 +279,7 @@ func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.
 				err = srv.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
 				require.NoError(t, err)
 			}
+			fmt.Println("all responses sent")
 			t.Log("all responses sent")
 
 		}
