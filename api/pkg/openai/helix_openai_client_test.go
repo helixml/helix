@@ -1,0 +1,126 @@
+package openai
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+
+	gomock "github.com/golang/mock/gomock"
+	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+)
+
+func TestHelixClientTestSuite(t *testing.T) {
+	suite.Run(t, new(HelixClientTestSuite))
+}
+
+type HelixClientTestSuite struct {
+	ctx context.Context
+	suite.Suite
+	ctrl   *gomock.Controller
+	pubsub pubsub.PubSub
+
+	srv *InternalHelixServer
+}
+
+func (suite *HelixClientTestSuite) SetupTest() {
+	suite.ctx = context.Background()
+	suite.ctrl = gomock.NewController(suite.T())
+
+	pubsub, err := pubsub.NewInMemoryNats(suite.T().TempDir())
+	suite.Require().NoError(err)
+
+	suite.pubsub = pubsub
+
+	cfg := &config.ServerConfig{}
+
+	suite.srv = NewInternalHelixServer(cfg, pubsub)
+}
+
+func (suite *HelixClientTestSuite) Test_CreateChatCompletion() {
+	var (
+		ownerID       = "owner1"
+		sessionID     = "session1"
+		interactionID = "interaction1"
+	)
+
+	// Fake running will pick up our request and send a response
+	go startFakeRunner(suite.T(), suite.srv, []*types.RunnerLLMInferenceResponse{
+		{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+			Response: &openai.ChatCompletionResponse{
+				Choices: []openai.ChatCompletionChoice{
+					{
+						Message: openai.ChatCompletionMessage{
+							Content: "Hello, world!",
+						},
+					},
+				},
+				Usage: openai.Usage{
+					PromptTokens:     5,
+					CompletionTokens: 12,
+					TotalTokens:      17,
+				},
+			},
+		},
+	})
+
+	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+
+	resp, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:    types.Model_Ollama_Llama3_8b.String(),
+		Stream:   false,
+		Messages: []openai.ChatCompletionMessage{},
+	})
+	suite.NoError(err)
+
+	suite.Equal("Hello, world!", resp.Choices[0].Message.Content)
+}
+
+// startFakeRunner starts polling the queue for requests and sends responses. Exits once context
+// is done
+func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.RunnerLLMInferenceResponse) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	t.Cleanup(func() {
+		cancel()
+	})
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("CTX done")
+			return
+		default:
+			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, "runner1")
+			require.NoError(t, err)
+
+			if req == nil {
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+
+			t.Logf("sending response for request %s (owner: %s | session: %s)", req.RequestID, req.OwnerID, req.SessionID)
+
+			for _, resp := range responses {
+				bts, err := json.Marshal(resp)
+				require.NoError(t, err)
+
+				err = srv.pubsub.Publish(ctx, pubsub.GetRunnerResponsesQueue(req.OwnerID, req.RequestID), bts)
+				require.NoError(t, err)
+			}
+			t.Log("all responses sent")
+
+		}
+	}
+}
