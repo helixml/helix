@@ -440,6 +440,12 @@ type SessionFilter struct {
 	Older Duration `json:"older"`
 }
 
+type InferenceRequestFilter struct {
+	ModelName ModelName     `json:"model_name"`
+	Memory    uint64        `json:"memory"`
+	Older     time.Duration `json:"older"`
+}
+
 type APIKey struct {
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
@@ -1187,6 +1193,8 @@ type RunnerLLMInferenceRequest struct {
 	// to generate a chat completions call
 	RequestID string
 
+	CreatedAt time.Time
+
 	Owner         string
 	SessionID     string // TODO: remove
 	InteractionID string // TODO: remove
@@ -1205,6 +1213,11 @@ type RunnerLLMInferenceResponse struct {
 
 	Response       *openai.ChatCompletionResponse
 	StreamResponse *openai.ChatCompletionStreamResponse
+
+	// Error is set if there was an error
+	Error string
+
+	Done bool
 }
 
 // LLMCallStep used to categorize LLM call steps
