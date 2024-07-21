@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -178,7 +177,6 @@ func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("CTX done")
 			return
 		default:
 			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, "runner1")
