@@ -24,6 +24,10 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 
 	ownerID, sessionID, interactionID := GetContextValues(ctx)
 
+	if ownerID == "" {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("ownerID not set in context, use 'openai.SetContextValues()' before calling this method")
+	}
+
 	var (
 		resp      openai.ChatCompletionResponse
 		respError error
@@ -59,7 +63,7 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
-		Owner:         ownerID,
+		OwnerID:       ownerID,
 		SessionID:     sessionID,
 		InteractionID: interactionID,
 		Request:       &request,
