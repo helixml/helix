@@ -24,11 +24,16 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, intera
 	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, currentMessage, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, _ *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
+	systemPrompt := successResponsePrompt
+	if tool.Config.API.ResponseSuccessTemplate != "" {
+		systemPrompt = tool.Config.API.ResponseSuccessTemplate
+	}
+
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: successResponsePrompt,
+			Content: systemPrompt,
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,
@@ -65,11 +70,16 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 	}, nil
 }
 
-func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, interactionID string, _ *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
+	systemPrompt := errorResponsePrompt
+	if tool.Config.API.ResponseErrorTemplate != "" {
+		systemPrompt = tool.Config.API.ResponseErrorTemplate
+	}
+
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: errorResponsePrompt,
+			Content: systemPrompt,
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,

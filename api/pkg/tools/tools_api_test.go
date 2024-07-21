@@ -11,6 +11,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/mock/gomock"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -311,6 +312,43 @@ func (suite *ActionTestSuite) Test_prepareRequest_Query() {
 
 func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Query_MultipleParams() {
 	// TODO
+}
+
+func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
+	defer suite.ctrl.Finish()
+
+	apiClient := openai.NewMockClient(suite.ctrl)
+	suite.strategy.apiClient = apiClient
+
+	tool := &types.Tool{
+		Name:     "productsAPI",
+		ToolType: types.ToolTypeAPI,
+		Config: types.ToolConfig{
+			API: &types.ToolApiConfig{
+				URL:                 "https://example.com",
+				Schema:              petStoreApiSpec,
+				RequestPrepTemplate: `CUSTOM_TEMPLATE_HERE`,
+				Actions: []*types.ToolApiAction{
+					{
+						Name:        "getProductDetails",
+						Description: "database API that can be used to query product information in the database",
+					},
+				},
+			},
+		},
+	}
+
+	history := []*types.Interaction{}
+
+	currentMessage := "What is the weather like in San Francisco?"
+
+	chatReq, err := suite.strategy.getApiUserPrompt(tool, history, currentMessage, "getProductDetails")
+	suite.Require().NoError(err)
+
+	suite.Equal("CUSTOM_TEMPLATE_HERE", chatReq.Content)
+
+	suite.strategy.wg.Wait()
+
 }
 
 func Test_getActionsFromSchema(t *testing.T) {
