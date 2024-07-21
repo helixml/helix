@@ -26,7 +26,8 @@ type InternalHelixServer struct {
 	queueMu sync.Mutex
 	queue   []*types.RunnerLLMInferenceRequest
 
-	schedulingDecisions []*types.GlobalSchedulingDecision
+	schedulingDecisionsMu sync.Mutex
+	schedulingDecisions   []*types.GlobalSchedulingDecision
 }
 
 func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, controller Controller) *InternalHelixServer {
@@ -127,6 +128,17 @@ func (c *InternalHelixClient) ProcessRunnerResponse(ctx context.Context, resp *t
 	}
 
 	return nil
+}
+
+func (c *InternalHelixServer) GetSchedulingDecision() []*types.GlobalSchedulingDecision {
+	c.schedulingDecisionsMu.Lock()
+	defer c.schedulingDecisionsMu.Unlock()
+
+	// Copy scheduling decisions
+	queue := make([]*types.GlobalSchedulingDecision, len(c.schedulingDecisions))
+	copy(queue, c.schedulingDecisions)
+
+	return queue
 }
 
 func (c *InternalHelixServer) addSchedulingDecision(filter types.InferenceRequestFilter, model, runnerID, sessionID, interactionID string) {
