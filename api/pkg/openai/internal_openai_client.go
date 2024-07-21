@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -23,12 +22,6 @@ type InternalHelixClient struct {
 
 	pubsub     pubsub.PubSub // Used to get responses from the runners
 	controller Controller    // Used to create sessions
-
-	runnersMu sync.Mutex
-	runners   map[string]*types.RunnerState
-
-	queueMu sync.Mutex
-	queue   []*types.RunnerLLMInferenceRequest
 
 	schedulingDecisions []*types.GlobalSchedulingDecision
 }
