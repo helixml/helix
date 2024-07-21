@@ -20,8 +20,8 @@ const schedulingDecisionHistorySize = 10
 type InternalHelixServer struct {
 	cfg *config.ServerConfig
 
-	pubsub     pubsub.PubSub // Used to get responses from the runners
-	controller Controller    // Used to create sessions
+	pubsub pubsub.PubSub // Used to get responses from the runners
+	// controller Controller    // Used to create sessions
 
 	queueMu sync.Mutex
 	queue   []*types.RunnerLLMInferenceRequest
@@ -30,11 +30,10 @@ type InternalHelixServer struct {
 	schedulingDecisions   []*types.GlobalSchedulingDecision
 }
 
-func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub, controller Controller) *InternalHelixServer {
+func NewInternalHelixServer(cfg *config.ServerConfig, pubsub pubsub.PubSub) *InternalHelixServer {
 	return &InternalHelixServer{
-		cfg:        cfg,
-		pubsub:     pubsub,
-		controller: controller,
+		cfg:    cfg,
+		pubsub: pubsub,
 	}
 }
 
@@ -90,9 +89,11 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 
 	modelName := types.ModelName(filter.ModelName)
 
+	var memoryRequirement uint64
+
 	model, err := model.GetModel(modelName)
-	if err != nil {
-		return nil, fmt.Errorf("error getting model: %w", err)
+	if err == nil {
+		memoryRequirement = model.GetMemoryRequirements(types.SessionModeInference)
 	}
 
 	for _, req := range reqs {
@@ -100,7 +101,7 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 			continue
 		}
 
-		if filter.Memory != 0 && model.GetMemoryRequirements(types.SessionModeInference) > filter.Memory {
+		if filter.Memory != 0 && memoryRequirement > filter.Memory {
 			continue
 		}
 
