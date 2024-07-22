@@ -1198,8 +1198,8 @@ type RunnerLLMInferenceRequest struct {
 
 	Priority      bool
 	OwnerID       string
-	SessionID     string // TODO: remove
-	InteractionID string // TODO: remove
+	SessionID     string
+	InteractionID string
 
 	Request *openai.ChatCompletionRequest
 }
@@ -1210,14 +1210,16 @@ type RunnerLLMInferenceResponse struct {
 	RequestID string
 
 	OwnerID       string
-	SessionID     string // TODO: remove
-	InteractionID string // TODO: remove
+	SessionID     string
+	InteractionID string
 
 	Response       *openai.ChatCompletionResponse
 	StreamResponse *openai.ChatCompletionStreamResponse
 
 	// Error is set if there was an error
 	Error string
+
+	DurationMs int64
 
 	Done bool
 }

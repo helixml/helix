@@ -30,7 +30,7 @@ type InferenceModelInstanceConfig struct {
 	GetNextRequest func() (*types.RunnerLLMInferenceRequest, error)
 
 	// Response writer
-	ResponseHandler func(res *types.RunnerTaskResponse) error
+	ResponseHandler func(res *types.RunnerLLMInferenceResponse) error
 }
 
 var (
@@ -88,7 +88,7 @@ type OllamaInferenceModelInstance struct {
 	ollamaClient *ollamaClient
 
 	// Streaming response handler
-	responseHandler func(res *types.RunnerTaskResponse) error
+	responseHandler func(res *types.RunnerLLMInferenceResponse) error
 
 	// Pulls the next session from the API
 	getNextRequest func() (*types.RunnerLLMInferenceRequest, error)
@@ -154,7 +154,7 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 						Str("session_id", req.SessionID).
 						Err(err).
 						Msg("error processing request")
-					i.errorSession(req, err)
+					i.errorResponse(req, err)
 					if strings.Contains(err.Error(), "connection refused") {
 						log.Error().Msg("detected connection refused, exiting and hoping we get restarted - see https://github.com/helixml/helix/issues/242")
 						os.Exit(1)
@@ -296,7 +296,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) er
 
 			errMsg := string(stderrBuf.Bytes())
 			if i.currentRequest != nil {
-				i.errorSession(i.currentRequest, fmt.Errorf("%s from cmd - %s", err.Error(), errMsg))
+				i.errorResponse(i.currentRequest, fmt.Errorf("%s from cmd - %s", err.Error(), errMsg))
 			}
 
 			return
@@ -435,43 +435,27 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 
 		defer stream.Close()
 
-		var buf string
-
-		toolCalls := make(map[string]openai.ToolCall)
+		start := time.Now()
 
 		for {
 			response, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
-				log.Info().Str("session_id", inferenceReq.SessionID).Msg("stream finished")
-				// Signal the end of the stream
-				i.emitStreamDone(inferenceReq)
-				// Send the last message containing full output
-				// TODO: set usage
+				log.Info().
+					Str("request_id", inferenceReq.RequestID).
+					Str("session_id", inferenceReq.SessionID).
+					Msg("stream finished")
 
-				toolCallsArr := make([]openai.ToolCall, 0, len(toolCalls))
-				for _, toolCall := range toolCalls {
-					toolCallsArr = append(toolCallsArr, toolCall)
-				}
-
-				i.responseProcessor(inferenceReq, types.Usage{}, buf, toolCallsArr, "", true)
+				i.responseStreamProcessor(inferenceReq, nil, true, time.Since(start).Milliseconds())
 				return nil
 			}
 
 			if err != nil {
 				log.Error().Err(err).Msg("stream error")
-				i.errorSession(inferenceReq, err)
+				i.errorResponse(inferenceReq, err)
 				return err
 			}
 
-			buf += response.Choices[0].Delta.Content
-
-			if len(response.Choices[0].Delta.ToolCalls) > 0 {
-				for _, toolCall := range response.Choices[0].Delta.ToolCalls {
-					toolCalls[toolCall.ID] = toolCall
-				}
-			}
-
-			i.responseProcessor(inferenceReq, types.Usage{}, response.Choices[0].Delta.Content, response.Choices[0].Delta.ToolCalls, "", false)
+			i.responseStreamProcessor(inferenceReq, &response, false, time.Since(start).Milliseconds())
 		}
 	default:
 		start := time.Now()
@@ -485,33 +469,43 @@ func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.Ru
 			Str("session_id", inferenceReq.SessionID).
 			Msg("response received")
 
-		i.emitStreamDone(inferenceReq)
-
-		usage := types.Usage{
-			PromptTokens:     response.Usage.PromptTokens,
-			CompletionTokens: response.Usage.CompletionTokens,
-			TotalTokens:      response.Usage.TotalTokens,
-			DurationMs:       time.Since(start).Milliseconds(),
-		}
-
 		// Send the last message containing full output
-		i.responseProcessor(inferenceReq,
-			usage,
-			response.Choices[0].Message.Content,
-			response.Choices[0].Message.ToolCalls,
-			response.Choices[0].Message.ToolCallID,
-			true)
+		i.responseProcessor(inferenceReq, &response, time.Since(start).Milliseconds())
 		return nil
 	}
 }
 
-func (i *OllamaInferenceModelInstance) responseProcessor(
-	req *types.RunnerLLMInferenceRequest,
-	usage types.Usage,
-	content string,
-	toolCalls []openai.ToolCall,
-	toolCallID string,
-	done bool) {
+func (i *OllamaInferenceModelInstance) responseStreamProcessor(req *types.RunnerLLMInferenceRequest, resp *openai.ChatCompletionStreamResponse, done bool, durationMs int64) {
+	if req == nil {
+		log.Error().Msgf("no current request")
+		return
+	}
+
+	if resp == nil {
+		// Stub response for the last "done" entry
+		resp = &openai.ChatCompletionStreamResponse{}
+	}
+
+	var err error
+
+	inferenceResp := &types.RunnerLLMInferenceResponse{
+		RequestID:      req.RequestID,
+		OwnerID:        req.OwnerID,
+		SessionID:      req.SessionID,
+		InteractionID:  req.InteractionID,
+		StreamResponse: resp,
+		DurationMs:     durationMs,
+		Done:           done,
+	}
+
+	err = i.responseHandler(inferenceResp)
+	if err != nil {
+		log.Error().Msgf("error writing event: %s", err.Error())
+		return
+	}
+}
+
+func (i *OllamaInferenceModelInstance) responseProcessor(req *types.RunnerLLMInferenceRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
 	if req == nil {
 		log.Error().Msgf("no current request")
 		return
@@ -519,24 +513,17 @@ func (i *OllamaInferenceModelInstance) responseProcessor(
 
 	var err error
 
-	resp := &types.RunnerTaskResponse{
+	inferenceResp := &types.RunnerLLMInferenceResponse{
+		RequestID:     req.RequestID,
+		OwnerID:       req.OwnerID,
 		SessionID:     req.SessionID,
 		InteractionID: req.InteractionID,
-		Owner:         req.OwnerID,
-		Done:          done,
-		Message:       content,
-		Usage:         usage,
-		ToolCalls:     toolCalls,
-		ToolCallID:    toolCallID,
+		Response:      resp,
+		DurationMs:    durationMs,
+		Done:          true,
 	}
 
-	if done {
-		resp.Type = types.WorkerTaskResponseTypeResult
-	} else {
-		resp.Type = types.WorkerTaskResponseTypeStream
-	}
-
-	err = i.responseHandler(resp)
+	err = i.responseHandler(inferenceResp)
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
 		return
@@ -544,12 +531,12 @@ func (i *OllamaInferenceModelInstance) responseProcessor(
 }
 
 func (i *OllamaInferenceModelInstance) emitStreamDone(req *types.RunnerLLMInferenceRequest) {
-	err := i.responseHandler(&types.RunnerTaskResponse{
-		Type:      types.WorkerTaskResponseTypeStream,
-		SessionID: req.SessionID,
-		Owner:     req.OwnerID,
-		Message:   "",
-		Done:      true,
+	err := i.responseHandler(&types.RunnerLLMInferenceResponse{
+		RequestID:     req.RequestID,
+		OwnerID:       req.OwnerID,
+		SessionID:     req.SessionID,
+		InteractionID: req.InteractionID,
+		Done:          true,
 	})
 	if err != nil {
 		log.Error().Msgf("error writing event: %s", err.Error())
@@ -576,12 +563,13 @@ func (i *OllamaInferenceModelInstance) addJobToHistory(session *types.Session) e
 	return nil
 }
 
-func (i *OllamaInferenceModelInstance) errorSession(req *types.RunnerLLMInferenceRequest, err error) {
-	apiUpdateErr := i.responseHandler(&types.RunnerTaskResponse{
-		Type:      types.WorkerTaskResponseTypeResult,
-		SessionID: req.SessionID,
-		Owner:     req.OwnerID,
-		Error:     err.Error(),
+func (i *OllamaInferenceModelInstance) errorResponse(req *types.RunnerLLMInferenceRequest, err error) {
+	apiUpdateErr := i.responseHandler(&types.RunnerLLMInferenceResponse{
+		RequestID:     req.RequestID,
+		OwnerID:       req.OwnerID,
+		SessionID:     req.SessionID,
+		InteractionID: req.InteractionID,
+		Error:         err.Error(),
 	})
 
 	if apiUpdateErr != nil {
