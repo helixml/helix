@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
@@ -59,6 +60,7 @@ type HelixAPIServer struct {
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
 	gptScriptExecutor gptscript.Executor
+	inferenceServer   openai.HelixServer // Helix OpenAI server
 	router            *mux.Router
 }
 
@@ -67,6 +69,7 @@ func NewServer(
 	store store.Store,
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
+	inferenceServer openai.HelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
@@ -95,6 +98,7 @@ func NewServer(
 		Controller:        controller,
 		Janitor:           janitor,
 		gptScriptExecutor: gptScriptExecutor,
+		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
