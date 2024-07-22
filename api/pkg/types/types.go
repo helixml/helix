@@ -515,11 +515,12 @@ type User struct {
 
 // a single envelope that is broadcast to users
 type WebsocketEvent struct {
-	Type               WebsocketEventType  `json:"type"`
-	SessionID          string              `json:"session_id"`
-	Owner              string              `json:"owner"`
-	Session            *Session            `json:"session"`
-	WorkerTaskResponse *RunnerTaskResponse `json:"worker_task_response"`
+	Type               WebsocketEventType          `json:"type"`
+	SessionID          string                      `json:"session_id"`
+	Owner              string                      `json:"owner"`
+	Session            *Session                    `json:"session"`
+	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
+	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 }
 
 // the context of a long running python process
