@@ -53,7 +53,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: RUNTIME_AXOLOTL_ENABLED
-              value: "true"
+              value: {{ .Values.runner.axolotl }}
             - name: RUNTIME_AXOLOTL_WARMUP_MODELS
               value: "mistralai/Mistral-7B-Instruct-v0.1"
             - name: HF_TOKEN
