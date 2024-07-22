@@ -220,6 +220,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	textExtractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
 
+	helixInference := openai.NewInternalHelixServer(cfg, ps)
+
 	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
 
 	var appController *controller.Controller
@@ -259,7 +261,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, keycloakAuthenticator, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor)
 	if err != nil {
 		return err
 	}
