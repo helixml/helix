@@ -785,6 +785,17 @@ func (r *Runner) handleWorkerResponse(res *types.RunnerTaskResponse) error {
 	}
 }
 
+func (r *Runner) handleInferenceResponse(resp *types.RunnerLLMInferenceResponse) error {
+	r.websocketEventChannel <- &types.WebsocketEvent{
+		Type:              types.WebsocketLLMInferenceResponse,
+		SessionID:         resp.SessionID,
+		Owner:             resp.OwnerID,
+		InferenceResponse: resp,
+	}
+
+	return nil
+}
+
 func (r *Runner) sendWorkerResponseToWebsocket(res *types.RunnerTaskResponse) error {
 	r.websocketEventChannel <- &types.WebsocketEvent{
 		Type:               types.WebsocketEventWorkerTaskResponse,
