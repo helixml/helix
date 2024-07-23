@@ -385,14 +385,6 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 		return
 	}
 
-	// For LLM sessions we go into the direct OpenAI client path which
-	// can be using either 3rd party models or our own models (helix inference server)
-	if preparedSession.Type == types.SessionTypeText && preparedSession.Mode == types.SessionModeInference {
-		c.processTextInferenceSession(preparedSession)
-		return
-	}
-	// Legacy path
-
 	// it's ok if we did not get a session back here
 	// it means there will be a later action that will add the session to the queue
 	// in the case the user needs to edit some data before it can be run for example

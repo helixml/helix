@@ -174,6 +174,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 	return settings, nil
 }
 
+// TODO: remove, not used
 func (apiServer *HelixAPIServer) createSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
 	user := getRequestUser(req)
 	ctx := req.Context()

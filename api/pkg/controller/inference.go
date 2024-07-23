@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"context"
+
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -8,15 +10,25 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (c *Controller) processTextInferenceSession(session *types.Session) {
-	// TODO: ability to switch models/providers here
+type ChatCompletionOptions struct {
+	AppID       string
+	AssistantID string
+	RAGSourceID string
+}
 
-	chatReq, err := sessionToChatCompletion(session)
-	if err != nil {
-		log.Err(err).Msg("error converting session to chat completion")
-		return
-	}
+// ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
+// Runs the OpenAI with tools/app configuration and returns the response. Result is saved as a single session.
+func (c *Controller) ChatCompletion(ctx *context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
 
+	return nil, nil
+}
+
+// ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
+// Runs the OpenAI with tools/app configuration and returns the stream. Once stream is complete,
+// result is saved as a single session.
+func (c *Controller) ChatCompletionStream(ctx *context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
+
+	return nil, nil
 }
 
 func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequest, error) {
