@@ -22,8 +22,6 @@ type InternalHelixClient struct {
 
 	pubsub     pubsub.PubSub // Used to get responses from the runners
 	controller Controller    // Used to create sessions
-
-	schedulingDecisions []*types.GlobalSchedulingDecision
 }
 
 func NewInternalHelixClient(cfg *config.ServerConfig, pubsub pubsub.PubSub, controller Controller) *InternalHelixClient {
@@ -32,6 +30,10 @@ func NewInternalHelixClient(cfg *config.ServerConfig, pubsub pubsub.PubSub, cont
 		pubsub:     pubsub,
 		controller: controller,
 	}
+}
+
+func (c *InternalHelixClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *InternalHelixClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {

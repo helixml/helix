@@ -17,18 +17,40 @@ type ChatCompletionOptions struct {
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
-// Runs the OpenAI with tools/app configuration and returns the response. Result is saved as a single session.
-func (c *Controller) ChatCompletion(ctx *context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
+// Runs the OpenAI with tools/app configuration and returns the response.
+func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (openai.ChatCompletionResponse, error) {
 
-	return nil, nil
+	// TODO: setup app settings
+	// TODO: setup RAG prompt if source set
+
+	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
+	if err != nil {
+		log.Err(err).Msg("error creating chat completion")
+		return openai.ChatCompletionResponse{}, err
+	}
+
+	return resp, nil
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
-// Runs the OpenAI with tools/app configuration and returns the stream. Once stream is complete,
-// result is saved as a single session.
-func (c *Controller) ChatCompletionStream(ctx *context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
+// Runs the OpenAI with tools/app configuration and returns the stream.
+func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
 
-	return nil, nil
+	// TODO: setup app settings
+	// TODO: setup RAG prompt if source set
+
+	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		log.Err(err).Msg("error creating chat completion stream")
+		return nil, err
+	}
+
+	return stream, nil
+}
+
+// SaveChatCompletion used to persist the chat completion response to the database as a session.
+func (c *Controller) SaveChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, resp openai.ChatCompletionResponse) error {
+	return nil
 }
 
 func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequest, error) {
