@@ -54,20 +54,28 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		return
 	}
 
+	options := &controller.ChatCompletionOptions{}
+
 	if chatCompletionRequest.Stream {
+		stream, err := apiServer.Controller.ChatCompletionStream(r.Context(), user, chatCompletionRequest, options)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Write the stream into the response
 
 		return
 	}
 
 	// Non-streaming request
-	resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, &controller.ChatCompletionOptions{})
+	resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	rw.Header().Set("Content-Type", "application/json")
-
 	err = json.NewEncoder(rw).Encode(resp)
 	if err != nil {
 		log.Err(err).Msg("error writing response")
