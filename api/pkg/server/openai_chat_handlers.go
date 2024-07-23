@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -26,7 +28,55 @@ const (
 
 // https://platform.openai.com/docs/api-reference/chat/create
 // POST https://app.tryhelix.ai//v1/chat/completions
-func (apiServer *HelixAPIServer) createChatCompletion(res http.ResponseWriter, req *http.Request) {
+func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
+	addCorsHeaders(rw)
+	if r.Method == "OPTIONS" {
+		return
+	}
+
+	user := getRequestUser(r)
+
+	if !hasUser(user) {
+		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var chatCompletionRequest openai.ChatCompletionRequest
+	err = json.Unmarshal(body, &chatCompletionRequest)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if chatCompletionRequest.Stream {
+
+		return
+	}
+
+	// Non-streaming request
+	resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, &controller.ChatCompletionOptions{})
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "application/json")
+
+	err = json.NewEncoder(rw).Encode(resp)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+	}
+}
+
+// https://platform.openai.com/docs/api-reference/chat/create
+// POST https://app.tryhelix.ai//v1/chat/completions
+func (apiServer *HelixAPIServer) _createChatCompletion(res http.ResponseWriter, req *http.Request) {
 	addCorsHeaders(res)
 	if req.Method == "OPTIONS" {
 		return
