@@ -142,7 +142,7 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
-    entrypoint: ${LLAMAINDEX_ENTRYPOINT:-tail -f /dev/null}
+    # entrypoint: ${LLAMAINDEX_ENTRYPOINT:-tail -f /dev/null}
     restart: always
     volumes:
       - ./llamaindex/src:/home/app/src
