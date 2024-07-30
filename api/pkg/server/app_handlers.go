@@ -398,7 +398,7 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 // @Description Run a GPT script inside a github app.
 // @Tags    apps
 
-// @Success 200 {object} types.GptScriptResult
+// @Success 200 {object} types.GptScriptResponse
 // @Param request    body types.GptScriptRequest true "Request body with script configuration.")
 // @Router /api/v1/apps/{id}/gptscript [post]
 // @Security BearerAuth
