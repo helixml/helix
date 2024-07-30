@@ -1,4 +1,258 @@
 definitions:
+  github_com_helixml_helix_api_pkg_types.Tool:
+    properties:
+      config:
+        $ref: '#/definitions/types.ToolConfig'
+      created:
+        type: string
+      description:
+        type: string
+      global:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      owner:
+        description: uuid of owner entity
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      tool_type:
+        $ref: '#/definitions/types.ToolType'
+      updated:
+        type: string
+    type: object
+  github_com_lukemarsden_go-openai2.FunctionCall:
+    properties:
+      arguments:
+        description: call function with arguments in JSON format
+        type: string
+      name:
+        type: string
+    type: object
+  github_com_lukemarsden_go-openai2.FunctionDefinition:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      parameters:
+        description: |-
+          Parameters is an object describing the function.
+          You can pass json.RawMessage to describe the schema,
+          or you can pass in a struct which serializes to the proper JSON schema.
+          The jsonschema package is provided for convenience, but you should
+          consider another specialized library if you require more complex schemas.
+    type: object
+  github_com_lukemarsden_go-openai2.Tool:
+    properties:
+      function:
+        $ref: '#/definitions/github_com_lukemarsden_go-openai2.FunctionDefinition'
+      type:
+        $ref: '#/definitions/github_com_lukemarsden_go-openai2.ToolType'
+    type: object
+  github_com_lukemarsden_go-openai2.ToolCall:
+    properties:
+      function:
+        $ref: '#/definitions/github_com_lukemarsden_go-openai2.FunctionCall'
+      id:
+        type: string
+      index:
+        description: Index is not nil only in chat completion chunk object
+        type: integer
+      type:
+        $ref: '#/definitions/github_com_lukemarsden_go-openai2.ToolType'
+    type: object
+  github_com_lukemarsden_go-openai2.ToolType:
+    enum:
+    - function
+    type: string
+    x-enum-varnames:
+    - ToolTypeFunction
+  types.App:
+    properties:
+      app_source:
+        $ref: '#/definitions/types.AppSource'
+      config:
+        $ref: '#/definitions/types.AppConfig'
+      created:
+        type: string
+      global:
+        type: boolean
+      id:
+        type: string
+      owner:
+        description: uuid of owner entity
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      shared:
+        type: boolean
+      triggers:
+        items:
+          $ref: '#/definitions/types.Trigger'
+        type: array
+      updated:
+        type: string
+    type: object
+  types.AppConfig:
+    properties:
+      allowed_domains:
+        items:
+          type: string
+        type: array
+      github:
+        $ref: '#/definitions/types.AppGithubConfig'
+      helix:
+        $ref: '#/definitions/types.AppHelixConfig'
+      secrets:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  types.AppGithubConfig:
+    properties:
+      hash:
+        type: string
+      key_pair:
+        $ref: '#/definitions/types.KeyPair'
+      last_update:
+        $ref: '#/definitions/types.AppGithubConfigUpdate'
+      repo:
+        type: string
+      webhook_secret:
+        type: string
+    type: object
+  types.AppGithubConfigUpdate:
+    properties:
+      error:
+        type: string
+      hash:
+        type: string
+      updated:
+        type: string
+    type: object
+  types.AppHelixConfig:
+    properties:
+      assistants:
+        items:
+          $ref: '#/definitions/types.AssistantConfig'
+        type: array
+      avatar:
+        type: string
+      description:
+        type: string
+      external_url:
+        type: string
+      image:
+        type: string
+      name:
+        type: string
+    type: object
+  types.AppSource:
+    enum:
+    - helix
+    - github
+    type: string
+    x-enum-varnames:
+    - AppSourceHelix
+    - AppSourceGithub
+  types.AssistantAPI:
+    properties:
+      description:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      query:
+        additionalProperties:
+          type: string
+        type: object
+      request_prep_template:
+        description: Template for request preparation, leave empty for default
+        type: string
+      response_error_template:
+        description: Template for error response, leave empty for default
+        type: string
+      response_success_template:
+        description: Template for successful response, leave empty for default
+        type: string
+      schema:
+        type: string
+      url:
+        type: string
+    type: object
+  types.AssistantConfig:
+    properties:
+      apis:
+        description: the list of api tools this assistant will use
+        items:
+          $ref: '#/definitions/types.AssistantAPI'
+        type: array
+      avatar:
+        type: string
+      description:
+        type: string
+      gptscripts:
+        description: the list of gpt scripts this assistant will use
+        items:
+          $ref: '#/definitions/types.AssistantGPTScript'
+        type: array
+      id:
+        type: string
+      image:
+        type: string
+      is_actionable_template:
+        description: Template for determining if the request is actionable or informative
+        type: string
+      lora_id:
+        description: the data entity ID that we have created for the lora fine tune
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      rag_source_id:
+        description: the data entity ID that we have created as the RAG source
+        type: string
+      system_prompt:
+        type: string
+      tools:
+        description: |-
+          these are populated from the APIs and GPTScripts on create and update
+          we include tools in the JSON that we send to the browser
+          but we don't include it in the yaml which feeds this struct because
+          we populate the tools array from the APIs and GPTScripts arrays
+          so - Tools is readonly - hence only JSON for the frontend to see
+        items:
+          $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
+        type: array
+      type:
+        allOf:
+        - $ref: '#/definitions/types.SessionType'
+        description: |-
+          so we can have fine tuned image assistants or system prompt augmentedimage inference
+          defaults to text
+    type: object
+  types.AssistantGPTScript:
+    properties:
+      content:
+        type: string
+      description:
+        type: string
+      file:
+        type: string
+      name:
+        type: string
+    type: object
   types.Choice:
     properties:
       delta:
@@ -17,11 +271,158 @@ definitions:
     - system
     - assistant
     - user
+    - tool
     type: string
     x-enum-varnames:
     - CreatorTypeSystem
     - CreatorTypeAssistant
     - CreatorTypeUser
+    - CreatorTypeTool
+  types.CronTrigger:
+    properties:
+      input:
+        type: string
+      schedule:
+        type: string
+    type: object
+  types.DataPrepChunk:
+    properties:
+      error:
+        type: string
+      index:
+        type: integer
+      prompt_name:
+        type: string
+      question_count:
+        type: integer
+    type: object
+  types.DiscordTrigger:
+    type: object
+  types.GptScriptRequest:
+    properties:
+      file_path:
+        type: string
+      input:
+        type: string
+    type: object
+  types.GptScriptResponse:
+    properties:
+      error:
+        type: string
+      output:
+        type: string
+      retries:
+        type: integer
+    type: object
+  types.Interaction:
+    properties:
+      completed:
+        type: string
+      created:
+        type: string
+      creator:
+        allOf:
+        - $ref: '#/definitions/types.CreatorType'
+        description: e.g. User
+      data_prep_chunks:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/types.DataPrepChunk'
+          type: array
+        type: object
+      data_prep_limit:
+        description: If true, the data prep is limited to a certain number of chunks
+          due to quotas
+        type: integer
+      data_prep_limited:
+        description: If true, the data prep is limited to a certain number of chunks
+          due to quotas
+        type: boolean
+      data_prep_stage:
+        $ref: '#/definitions/types.TextDataPrepStage'
+      data_prep_total_chunks:
+        type: integer
+      display_message:
+        description: if this is defined, the UI will always display it instead of
+          the message (so we can augment the internal prompt with RAG context)
+        type: string
+      error:
+        type: string
+      files:
+        description: list of filepath paths
+        items:
+          type: string
+        type: array
+      finished:
+        description: if true, the message has finished being written to, and is ready
+          for a response (e.g. from the other participant)
+        type: boolean
+      id:
+        type: string
+      lora_dir:
+        description: we hoist this from files so a single interaction knows that it
+          "Created a finetune file"
+        type: string
+      message:
+        description: e.g. Prove pythagoras
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        description: different modes and models can put values here - for example,
+          the image fine tuning will keep labels here to display in the frontend
+        type: object
+      mode:
+        allOf:
+        - $ref: '#/definitions/types.SessionMode'
+        description: |-
+          this let's us know if this interaction is part of the fine tuning process
+          or if it's a chat interaction that the user is using to interact with the model
+          once it's been fine-tuned
+          for fine-tune models, we can filter out inference interactions
+          to get down to what actually matters
+      progress:
+        description: e.g. 0-100
+        type: integer
+      rag_results:
+        items:
+          $ref: '#/definitions/types.SessionRAGResult'
+        type: array
+      response_format:
+        allOf:
+        - $ref: '#/definitions/types.ResponseFormat'
+        description: e.g. json
+      runner:
+        description: the ID of the runner that processed this interaction
+        type: string
+      scheduled:
+        type: string
+      state:
+        $ref: '#/definitions/types.InteractionState'
+      status:
+        type: string
+      tool_call_id:
+        description: For Role=tool prompts this should be set to the ID given in the
+          assistant's prior request to call a tool.
+        type: string
+      tool_calls:
+        description: For Role=assistant prompts this may be set to the tool calls
+          generated by the model, such as function calls.
+        items:
+          $ref: '#/definitions/github_com_lukemarsden_go-openai2.ToolCall'
+        type: array
+      tool_choice:
+        description: This can be either a string or an ToolChoice object.
+      tools:
+        description: Model function calling, not to be mistaken with Helix tools
+        items:
+          $ref: '#/definitions/github_com_lukemarsden_go-openai2.Tool'
+        type: array
+      updated:
+        type: string
+      usage:
+        $ref: '#/definitions/types.Usage'
+    type: object
   types.InteractionState:
     enum:
     - ""
@@ -50,6 +451,15 @@ definitions:
         type: string
       url:
         description: Images
+        type: string
+    type: object
+  types.KeyPair:
+    properties:
+      privateKey:
+        type: string
+      publicKey:
+        type: string
+      type:
         type: string
     type: object
   types.Message:
@@ -90,6 +500,40 @@ definitions:
     type: string
     x-enum-varnames:
     - MessageContentTypeText
+  types.ModelName:
+    enum:
+    - ""
+    - mistralai/Mistral-7B-Instruct-v0.1
+    - stabilityai/stable-diffusion-xl-base-1.0
+    - mistral:7b-instruct
+    - mistral:v0.3
+    - mixtral:instruct
+    - codellama:70b-instruct-q2_K
+    - adrienbrault/nous-hermes2pro:Q5_K_S
+    - adrienbrault/nous-hermes2theta-llama3-8b:q8_0
+    - llama3:instruct
+    - llama3:70b
+    - llama3:8b-instruct-fp16
+    - llama3:8b-instruct-q6_K
+    - llama3:8b-instruct-q8_0
+    - phi3:instruct
+    type: string
+    x-enum-varnames:
+    - Model_None
+    - Model_Axolotl_Mistral7b
+    - Model_Cog_SDXL
+    - Model_Ollama_Mistral7b
+    - Model_Ollama_Mistral7b_v3
+    - Model_Ollama_Mixtral
+    - Model_Ollama_CodeLlama
+    - Model_Ollama_NousHermes2Pro
+    - Model_Ollama_NousHermes2ThetaLlama3
+    - Model_Ollama_Llama3_8b
+    - Model_Ollama_Llama3_70b
+    - Model_Ollama_Llama3_8b_fp16
+    - Model_Ollama_Llama3_8b_q6_K
+    - Model_Ollama_Llama3_8b_q8_0
+    - Model_Ollama_Phi3
   types.OpenAIMessage:
     properties:
       content:
@@ -98,6 +542,16 @@ definitions:
       role:
         description: The message role
         type: string
+      tool_call_id:
+        description: For Role=tool prompts this should be set to the ID given in the
+          assistant's prior request to call a tool.
+        type: string
+      tool_calls:
+        description: For Role=assistant prompts this may be set to the tool calls
+          generated by the model, such as function calls.
+        items:
+          $ref: '#/definitions/github_com_lukemarsden_go-openai2.ToolCall'
+        type: array
     type: object
   types.OpenAIResponse:
     properties:
@@ -132,24 +586,111 @@ definitions:
   types.OwnerType:
     enum:
     - user
+    - system
     type: string
     x-enum-varnames:
     - OwnerTypeUser
+    - OwnerTypeSystem
+  types.ResponseFormat:
+    properties:
+      schema:
+        additionalProperties: true
+        type: object
+      type:
+        $ref: '#/definitions/types.ResponseFormatType'
+    type: object
+  types.ResponseFormatType:
+    enum:
+    - json_object
+    - text
+    type: string
+    x-enum-varnames:
+    - ResponseFormatTypeJSONObject
+    - ResponseFormatTypeText
+  types.Session:
+    properties:
+      config:
+        allOf:
+        - $ref: '#/definitions/types.SessionMetadata'
+        description: named config for backward compat
+      created:
+        type: string
+      id:
+        type: string
+      interactions:
+        description: |-
+          for now we just whack the entire history of the interaction in here, json
+          style
+        items:
+          $ref: '#/definitions/types.Interaction'
+        type: array
+      lora_dir:
+        description: |-
+          if type == finetune, we record a filestore path to e.g. lora file here
+          currently the only place you can do inference on a finetune is within the
+          session where the finetune was generated
+        type: string
+      mode:
+        allOf:
+        - $ref: '#/definitions/types.SessionMode'
+        description: e.g. inference, finetune
+      model_name:
+        allOf:
+        - $ref: '#/definitions/types.ModelName'
+        description: |-
+          huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or
+          stabilityai/stable-diffusion-xl-base-1.0
+      name:
+        description: |-
+          name that goes in the UI - ideally autogenerated by AI but for now can be
+          named manually
+        type: string
+      owner:
+        description: uuid of owner entity
+        type: string
+      owner_type:
+        allOf:
+        - $ref: '#/definitions/types.OwnerType'
+        description: e.g. user, system, org
+      parent_app:
+        description: the app this session was spawned from
+        type: string
+      parent_session:
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/types.SessionType'
+        description: e.g. text, image
+      updated:
+        type: string
+    type: object
   types.SessionChatRequest:
     properties:
+      app_id:
+        description: Assign the session settings from the specified app
+        type: string
+      assistant_id:
+        description: Which assistant are we speaking to?
+        type: string
+      legacy:
+        description: 'If true, we will add the session to the controller queue and
+          return it right away, TODO: make the frontend work with our new streaming
+          responses'
+        type: boolean
       lora_dir:
+        type: string
+      lora_id:
+        description: the fine tuned data entity we produced from this session
         type: string
       messages:
         description: Initial messages
         items:
           $ref: '#/definitions/types.Message'
         type: array
-      mode:
-        allOf:
-        - $ref: '#/definitions/types.SessionMode'
-        description: e.g. inference, finetune
       model:
         description: The model to use
+        type: string
+      rag_source_id:
         type: string
       session_id:
         description: If empty, we will start a new session
@@ -157,6 +698,9 @@ definitions:
       stream:
         description: If true, we will stream the response
         type: boolean
+      system:
+        description: System message, only applicable when starting a new session
+        type: string
       tools:
         description: Available tools to use in the session
         items:
@@ -166,6 +710,113 @@ definitions:
         allOf:
         - $ref: '#/definitions/types.SessionType'
         description: e.g. text, image
+    type: object
+  types.SessionLearnRequest:
+    properties:
+      data_entity_id:
+        description: FINE-TUNE MODE ONLY
+        type: string
+      rag_enabled:
+        description: |-
+          Do we want to create a RAG data entity from this session?
+          You must provide a data entity ID for the uploaded documents if yes
+        type: boolean
+      rag_settings:
+        allOf:
+        - $ref: '#/definitions/types.SessionRAGSettings'
+        description: The settings we use for the RAG source
+      text_finetune_enabled:
+        description: |-
+          Do we want to create a lora output from this session?
+          You must provide a data entity ID for the uploaded documents if yes
+        type: boolean
+      type:
+        allOf:
+        - $ref: '#/definitions/types.SessionType'
+        description: e.g. text, image
+    type: object
+  types.SessionMetadata:
+    properties:
+      active_tools:
+        items:
+          type: string
+        type: array
+      app_query_params:
+        additionalProperties:
+          type: string
+        description: Passing through user defined app params
+        type: object
+      assistant_id:
+        description: which assistant are we talking to?
+        type: string
+      avatar:
+        type: string
+      document_group_id:
+        type: string
+      document_ids:
+        additionalProperties:
+          type: string
+        type: object
+      eval_automatic_reason:
+        type: string
+      eval_automatic_score:
+        type: string
+      eval_manual_reason:
+        type: string
+      eval_manual_score:
+        type: string
+      eval_original_user_prompts:
+        items:
+          type: string
+        type: array
+      eval_run_id:
+        description: |-
+          Evals are cool. Scores are strings of floats so we can distinguish ""
+          (not rated) from "0.0"
+        type: string
+      eval_user_reason:
+        type: string
+      eval_user_score:
+        type: string
+      finetune_data_entity_id:
+        description: the fine tuned data entity we produced from this session
+        type: string
+      helix_version:
+        type: string
+      manually_review_questions:
+        type: boolean
+      origin:
+        $ref: '#/definitions/types.SessionOrigin'
+      original_mode:
+        $ref: '#/definitions/types.SessionMode'
+      priority:
+        type: boolean
+      rag_enabled:
+        description: |-
+          these settings control which features of a session we want to use
+          even if we have a Lora file and RAG indexed prepared
+          we might choose to not use them (this will help our eval framework know what works the best)
+          we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
+          and what the threshold for a "good" answer is
+        type: boolean
+      rag_settings:
+        $ref: '#/definitions/types.SessionRAGSettings'
+      rag_source_data_entity_id:
+        description: the RAG source data entity we produced from this session
+        type: string
+      shared:
+        type: boolean
+      stream:
+        type: boolean
+      system_prompt:
+        type: string
+      text_finetune_enabled:
+        description: without any user input, this will default to true
+        type: boolean
+      uploaded_data_entity_id:
+        description: when we do fine tuning or RAG, we need to know which data entity
+          we used
+        type: string
     type: object
   types.SessionMode:
     enum:
@@ -181,6 +832,66 @@ definitions:
     - SessionModeInference
     - SessionModeFinetune
     - SessionModeAction
+  types.SessionOrigin:
+    properties:
+      cloned_interaction_id:
+        type: string
+      cloned_session_id:
+        type: string
+      type:
+        $ref: '#/definitions/types.SessionOriginType'
+    type: object
+  types.SessionOriginType:
+    enum:
+    - ""
+    - user_created
+    - cloned
+    type: string
+    x-enum-varnames:
+    - SessionOriginTypeNone
+    - SessionOriginTypeUserCreated
+    - SessionOriginTypeCloned
+  types.SessionRAGResult:
+    properties:
+      content:
+        type: string
+      content_offset:
+        type: integer
+      distance:
+        type: number
+      document_group_id:
+        type: string
+      document_id:
+        type: string
+      filename:
+        type: string
+      id:
+        type: string
+      interaction_id:
+        type: string
+      session_id:
+        type: string
+    type: object
+  types.SessionRAGSettings:
+    properties:
+      chunk_overflow:
+        description: the amount of overlap between chunks - will default to 32 bytes
+        type: integer
+      chunk_size:
+        description: the size of each text chunk - will default to 512 bytes
+        type: integer
+      distance_function:
+        description: this is one of l2, inner_product or cosine - will default to
+          cosine
+        type: string
+      results_count:
+        description: this is the max number of results to return - will default to
+          3
+        type: integer
+      threshold:
+        description: this is the threshold for a "good" answer - will default to 0.2
+        type: number
+    type: object
   types.SessionType:
     enum:
     - ""
@@ -191,34 +902,26 @@ definitions:
     - SessionTypeNone
     - SessionTypeText
     - SessionTypeImage
-  types.Tool:
-    properties:
-      config:
-        allOf:
-        - $ref: '#/definitions/types.ToolConfig'
-        description: |-
-          TODO: tool configuration
-          such as OpenAPI spec, function code, etc.
-      created:
-        type: string
-      description:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      owner:
-        description: uuid of owner entity
-        type: string
-      owner_type:
-        allOf:
-        - $ref: '#/definitions/types.OwnerType'
-        description: e.g. user, system, org
-      tool_type:
-        $ref: '#/definitions/types.ToolType'
-      updated:
-        type: string
-    type: object
+  types.TextDataPrepStage:
+    enum:
+    - ""
+    - edit_files
+    - extract_text
+    - index_rag
+    - generate_questions
+    - edit_questions
+    - finetune
+    - complete
+    type: string
+    x-enum-varnames:
+    - TextDataPrepStageNone
+    - TextDataPrepStageEditFiles
+    - TextDataPrepStageExtractText
+    - TextDataPrepStageIndexRag
+    - TextDataPrepStageGenerateQuestions
+    - TextDataPrepStageEditQuestions
+    - TextDataPrepStageFineTune
+    - TextDataPrepStageComplete
   types.ToolApiAction:
     properties:
       description:
@@ -247,6 +950,15 @@ definitions:
           type: string
         description: Query parameters that will be always set
         type: object
+      request_prep_template:
+        description: Template for request preparation, leave empty for default
+        type: string
+      response_error_template:
+        description: Template for error response, leave empty for default
+        type: string
+      response_success_template:
+        description: Template for successful response, leave empty for default
+        type: string
       schema:
         type: string
       url:
@@ -257,15 +969,45 @@ definitions:
     properties:
       api:
         $ref: '#/definitions/types.ToolApiConfig'
+      gptscript:
+        $ref: '#/definitions/types.ToolGPTScriptConfig'
+    type: object
+  types.ToolGPTScriptConfig:
+    properties:
+      script:
+        description: Program code
+        type: string
+      script_url:
+        description: URL to download the script
+        type: string
     type: object
   types.ToolType:
     enum:
     - api
-    - function
+    - gptscript
     type: string
     x-enum-varnames:
     - ToolTypeAPI
-    - ToolTypeFunction
+    - ToolTypeGPTScript
+  types.Trigger:
+    properties:
+      cron:
+        $ref: '#/definitions/types.CronTrigger'
+      discord:
+        $ref: '#/definitions/types.DiscordTrigger'
+    type: object
+  types.Usage:
+    properties:
+      completion_tokens:
+        type: integer
+      duration_ms:
+        description: How long the request took in milliseconds
+        type: integer
+      prompt_tokens:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
 host: app.tryhelix.ai
 info:
   contact:
@@ -279,6 +1021,114 @@ info:
     altText: Helix logo
     url: https://avatars.githubusercontent.com/u/149581110?s=200&v=4
 paths:
+  /api/v1/apps:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+    post:
+      parameters:
+      - description: Request body with app configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.App'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+  /api/v1/apps/{id}:
+    delete:
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      security:
+      - BearerAuth: []
+    get:
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+    put:
+      parameters:
+      - description: Request body with app configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.App'
+      - description: Tool ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
+  /api/v1/apps/{id}/gptscript:
+    post:
+      parameters:
+      - description: Request body with script configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.GptScriptRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GptScriptResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/apps/github/{id}:
+    put:
+      parameters:
+      - description: Request body with app configuration.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.App'
+      - description: Tool ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.App'
+      security:
+      - BearerAuth: []
   /api/v1/sessions/chat:
     post:
       parameters:
@@ -295,13 +1145,29 @@ paths:
             $ref: '#/definitions/types.OpenAIResponse'
       security:
       - BearerAuth: []
+  /api/v1/sessions/learn:
+    post:
+      parameters:
+      - description: Request body with settings for the learn session.
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/types.SessionLearnRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.Session'
+      security:
+      - BearerAuth: []
   /api/v1/tools:
     get:
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.Tool'
+            $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
       security:
       - BearerAuth: []
     post:
@@ -312,12 +1178,12 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/types.Tool'
+          $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.Tool'
+            $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
       security:
       - BearerAuth: []
   /api/v1/tools/{id}:
@@ -341,7 +1207,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/types.Tool'
+          $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
       - description: Tool ID
         in: path
         name: id
@@ -351,7 +1217,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/types.Tool'
+            $ref: '#/definitions/github_com_helixml_helix_api_pkg_types.Tool'
       security:
       - BearerAuth: []
 schemes:

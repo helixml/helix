@@ -23,6 +23,192 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/apps": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with app configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/github/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with app configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with app configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.App"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "App ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
+        "/api/v1/apps/{id}/gptscript": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with script configuration.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.GptScriptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.GptScriptResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sessions/chat": {
             "post": {
                 "security": [
@@ -51,6 +237,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sessions/learn": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "description": "Request body with settings for the learn session.",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/types.SessionLearnRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/types.Session"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tools": {
             "get": {
                 "security": [
@@ -62,7 +276,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.Tool"
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                         }
                     }
                 }
@@ -80,7 +294,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/types.Tool"
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                         }
                     }
                 ],
@@ -88,7 +302,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.Tool"
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                         }
                     }
                 }
@@ -108,7 +322,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/types.Tool"
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                         }
                     },
                     {
@@ -123,7 +337,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.Tool"
+                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
                         }
                     }
                 }
@@ -152,6 +366,374 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_helixml_helix_api_pkg_types.Tool": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/definitions/types.ToolConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of owner entity",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "tool_type": {
+                    "$ref": "#/definitions/types.ToolType"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_lukemarsden_go-openai2.FunctionCall": {
+            "type": "object",
+            "properties": {
+                "arguments": {
+                    "description": "call function with arguments in JSON format",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_lukemarsden_go-openai2.FunctionDefinition": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "parameters": {
+                    "description": "Parameters is an object describing the function.\nYou can pass json.RawMessage to describe the schema,\nor you can pass in a struct which serializes to the proper JSON schema.\nThe jsonschema package is provided for convenience, but you should\nconsider another specialized library if you require more complex schemas."
+                }
+            }
+        },
+        "github_com_lukemarsden_go-openai2.Tool": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionDefinition"
+                },
+                "type": {
+                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolType"
+                }
+            }
+        },
+        "github_com_lukemarsden_go-openai2.ToolCall": {
+            "type": "object",
+            "properties": {
+                "function": {
+                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.FunctionCall"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "index": {
+                    "description": "Index is not nil only in chat completion chunk object",
+                    "type": "integer"
+                },
+                "type": {
+                    "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolType"
+                }
+            }
+        },
+        "github_com_lukemarsden_go-openai2.ToolType": {
+            "type": "string",
+            "enum": [
+                "function"
+            ],
+            "x-enum-varnames": [
+                "ToolTypeFunction"
+            ]
+        },
+        "types.App": {
+            "type": "object",
+            "properties": {
+                "app_source": {
+                    "$ref": "#/definitions/types.AppSource"
+                },
+                "config": {
+                    "$ref": "#/definitions/types.AppConfig"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "global": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of owner entity",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "shared": {
+                    "type": "boolean"
+                },
+                "triggers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Trigger"
+                    }
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AppConfig": {
+            "type": "object",
+            "properties": {
+                "allowed_domains": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "github": {
+                    "$ref": "#/definitions/types.AppGithubConfig"
+                },
+                "helix": {
+                    "$ref": "#/definitions/types.AppHelixConfig"
+                },
+                "secrets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "types.AppGithubConfig": {
+            "type": "object",
+            "properties": {
+                "hash": {
+                    "type": "string"
+                },
+                "key_pair": {
+                    "$ref": "#/definitions/types.KeyPair"
+                },
+                "last_update": {
+                    "$ref": "#/definitions/types.AppGithubConfigUpdate"
+                },
+                "repo": {
+                    "type": "string"
+                },
+                "webhook_secret": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AppGithubConfigUpdate": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "hash": {
+                    "type": "string"
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AppHelixConfig": {
+            "type": "object",
+            "properties": {
+                "assistants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantConfig"
+                    }
+                },
+                "avatar": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "external_url": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AppSource": {
+            "type": "string",
+            "enum": [
+                "helix",
+                "github"
+            ],
+            "x-enum-varnames": [
+                "AppSourceHelix",
+                "AppSourceGithub"
+            ]
+        },
+        "types.AssistantAPI": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "request_prep_template": {
+                    "description": "Template for request preparation, leave empty for default",
+                    "type": "string"
+                },
+                "response_error_template": {
+                    "description": "Template for error response, leave empty for default",
+                    "type": "string"
+                },
+                "response_success_template": {
+                    "description": "Template for successful response, leave empty for default",
+                    "type": "string"
+                },
+                "schema": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.AssistantConfig": {
+            "type": "object",
+            "properties": {
+                "apis": {
+                    "description": "the list of api tools this assistant will use",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantAPI"
+                    }
+                },
+                "avatar": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "gptscripts": {
+                    "description": "the list of gpt scripts this assistant will use",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.AssistantGPTScript"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "is_actionable_template": {
+                    "description": "Template for determining if the request is actionable or informative",
+                    "type": "string"
+                },
+                "lora_id": {
+                    "description": "the data entity ID that we have created for the lora fine tune",
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "rag_source_id": {
+                    "description": "the data entity ID that we have created as the RAG source",
+                    "type": "string"
+                },
+                "system_prompt": {
+                    "type": "string"
+                },
+                "tools": {
+                    "description": "these are populated from the APIs and GPTScripts on create and update\nwe include tools in the JSON that we send to the browser\nbut we don't include it in the yaml which feeds this struct because\nwe populate the tools array from the APIs and GPTScripts arrays\nso - Tools is readonly - hence only JSON for the frontend to see",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
+                    }
+                },
+                "type": {
+                    "description": "so we can have fine tuned image assistants or system prompt augmentedimage inference\ndefaults to text",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionType"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.AssistantGPTScript": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "file": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "types.Choice": {
             "type": "object",
             "properties": {
@@ -177,13 +759,215 @@ const docTemplate = `{
             "enum": [
                 "system",
                 "assistant",
-                "user"
+                "user",
+                "tool"
             ],
             "x-enum-varnames": [
                 "CreatorTypeSystem",
                 "CreatorTypeAssistant",
-                "CreatorTypeUser"
+                "CreatorTypeUser",
+                "CreatorTypeTool"
             ]
+        },
+        "types.CronTrigger": {
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string"
+                },
+                "schedule": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.DataPrepChunk": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "index": {
+                    "type": "integer"
+                },
+                "prompt_name": {
+                    "type": "string"
+                },
+                "question_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.DiscordTrigger": {
+            "type": "object"
+        },
+        "types.GptScriptRequest": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string"
+                },
+                "input": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.GptScriptResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "output": {
+                    "type": "string"
+                },
+                "retries": {
+                    "type": "integer"
+                }
+            }
+        },
+        "types.Interaction": {
+            "type": "object",
+            "properties": {
+                "completed": {
+                    "type": "string"
+                },
+                "created": {
+                    "type": "string"
+                },
+                "creator": {
+                    "description": "e.g. User",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.CreatorType"
+                        }
+                    ]
+                },
+                "data_prep_chunks": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/types.DataPrepChunk"
+                        }
+                    }
+                },
+                "data_prep_limit": {
+                    "description": "If true, the data prep is limited to a certain number of chunks due to quotas",
+                    "type": "integer"
+                },
+                "data_prep_limited": {
+                    "description": "If true, the data prep is limited to a certain number of chunks due to quotas",
+                    "type": "boolean"
+                },
+                "data_prep_stage": {
+                    "$ref": "#/definitions/types.TextDataPrepStage"
+                },
+                "data_prep_total_chunks": {
+                    "type": "integer"
+                },
+                "display_message": {
+                    "description": "if this is defined, the UI will always display it instead of the message (so we can augment the internal prompt with RAG context)",
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "files": {
+                    "description": "list of filepath paths",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "finished": {
+                    "description": "if true, the message has finished being written to, and is ready for a response (e.g. from the other participant)",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lora_dir": {
+                    "description": "we hoist this from files so a single interaction knows that it \"Created a finetune file\"",
+                    "type": "string"
+                },
+                "message": {
+                    "description": "e.g. Prove pythagoras",
+                    "type": "string"
+                },
+                "metadata": {
+                    "description": "different modes and models can put values here - for example, the image fine tuning will keep labels here to display in the frontend",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "mode": {
+                    "description": "this let's us know if this interaction is part of the fine tuning process\nor if it's a chat interaction that the user is using to interact with the model\nonce it's been fine-tuned\nfor fine-tune models, we can filter out inference interactions\nto get down to what actually matters",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionMode"
+                        }
+                    ]
+                },
+                "progress": {
+                    "description": "e.g. 0-100",
+                    "type": "integer"
+                },
+                "rag_results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.SessionRAGResult"
+                    }
+                },
+                "response_format": {
+                    "description": "e.g. json",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ResponseFormat"
+                        }
+                    ]
+                },
+                "runner": {
+                    "description": "the ID of the runner that processed this interaction",
+                    "type": "string"
+                },
+                "scheduled": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/types.InteractionState"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolCall"
+                    }
+                },
+                "tool_choice": {
+                    "description": "This can be either a string or an ToolChoice object."
+                },
+                "tools": {
+                    "description": "Model function calling, not to be mistaken with Helix tools",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.Tool"
+                    }
+                },
+                "updated": {
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/types.Usage"
+                }
+            }
         },
         "types.InteractionState": {
             "type": "string",
@@ -222,6 +1006,20 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "Images",
+                    "type": "string"
+                }
+            }
+        },
+        "types.KeyPair": {
+            "type": "object",
+            "properties": {
+                "privateKey": {
+                    "type": "string"
+                },
+                "publicKey": {
+                    "type": "string"
+                },
+                "type": {
                     "type": "string"
                 }
             }
@@ -277,6 +1075,43 @@ const docTemplate = `{
                 "MessageContentTypeText"
             ]
         },
+        "types.ModelName": {
+            "type": "string",
+            "enum": [
+                "",
+                "mistralai/Mistral-7B-Instruct-v0.1",
+                "stabilityai/stable-diffusion-xl-base-1.0",
+                "mistral:7b-instruct",
+                "mistral:v0.3",
+                "mixtral:instruct",
+                "codellama:70b-instruct-q2_K",
+                "adrienbrault/nous-hermes2pro:Q5_K_S",
+                "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
+                "llama3:instruct",
+                "llama3:70b",
+                "llama3:8b-instruct-fp16",
+                "llama3:8b-instruct-q6_K",
+                "llama3:8b-instruct-q8_0",
+                "phi3:instruct"
+            ],
+            "x-enum-varnames": [
+                "Model_None",
+                "Model_Axolotl_Mistral7b",
+                "Model_Cog_SDXL",
+                "Model_Ollama_Mistral7b",
+                "Model_Ollama_Mistral7b_v3",
+                "Model_Ollama_Mixtral",
+                "Model_Ollama_CodeLlama",
+                "Model_Ollama_NousHermes2Pro",
+                "Model_Ollama_NousHermes2ThetaLlama3",
+                "Model_Ollama_Llama3_8b",
+                "Model_Ollama_Llama3_70b",
+                "Model_Ollama_Llama3_8b_fp16",
+                "Model_Ollama_Llama3_8b_q6_K",
+                "Model_Ollama_Llama3_8b_q8_0",
+                "Model_Ollama_Phi3"
+            ]
+        },
         "types.OpenAIMessage": {
             "type": "object",
             "properties": {
@@ -287,6 +1122,17 @@ const docTemplate = `{
                 "role": {
                     "description": "The message role",
                     "type": "string"
+                },
+                "tool_call_id": {
+                    "description": "For Role=tool prompts this should be set to the ID given in the assistant's prior request to call a tool.",
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "description": "For Role=assistant prompts this may be set to the tool calls generated by the model, such as function calls.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_lukemarsden_go-openai2.ToolCall"
+                    }
                 }
             }
         },
@@ -339,24 +1185,64 @@ const docTemplate = `{
         "types.OwnerType": {
             "type": "string",
             "enum": [
-                "user"
+                "user",
+                "system"
             ],
             "x-enum-varnames": [
-                "OwnerTypeUser"
+                "OwnerTypeUser",
+                "OwnerTypeSystem"
             ]
         },
-        "types.SessionChatRequest": {
+        "types.ResponseFormat": {
             "type": "object",
             "properties": {
-                "lora_dir": {
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "type": {
+                    "$ref": "#/definitions/types.ResponseFormatType"
+                }
+            }
+        },
+        "types.ResponseFormatType": {
+            "type": "string",
+            "enum": [
+                "json_object",
+                "text"
+            ],
+            "x-enum-varnames": [
+                "ResponseFormatTypeJSONObject",
+                "ResponseFormatTypeText"
+            ]
+        },
+        "types.Session": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "description": "named config for backward compat",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionMetadata"
+                        }
+                    ]
+                },
+                "created": {
                     "type": "string"
                 },
-                "messages": {
-                    "description": "Initial messages",
+                "id": {
+                    "type": "string"
+                },
+                "interactions": {
+                    "description": "for now we just whack the entire history of the interaction in here, json\nstyle",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/types.Message"
+                        "$ref": "#/definitions/types.Interaction"
                     }
+                },
+                "lora_dir": {
+                    "description": "if type == finetune, we record a filestore path to e.g. lora file here\ncurrently the only place you can do inference on a finetune is within the\nsession where the finetune was generated",
+                    "type": "string"
                 },
                 "mode": {
                     "description": "e.g. inference, finetune",
@@ -366,8 +1252,84 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "model_name": {
+                    "description": "huggingface model name e.g. mistralai/Mistral-7B-Instruct-v0.1 or\nstabilityai/stable-diffusion-xl-base-1.0",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.ModelName"
+                        }
+                    ]
+                },
+                "name": {
+                    "description": "name that goes in the UI - ideally autogenerated by AI but for now can be\nnamed manually",
+                    "type": "string"
+                },
+                "owner": {
+                    "description": "uuid of owner entity",
+                    "type": "string"
+                },
+                "owner_type": {
+                    "description": "e.g. user, system, org",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.OwnerType"
+                        }
+                    ]
+                },
+                "parent_app": {
+                    "description": "the app this session was spawned from",
+                    "type": "string"
+                },
+                "parent_session": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "e.g. text, image",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionType"
+                        }
+                    ]
+                },
+                "updated": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SessionChatRequest": {
+            "type": "object",
+            "properties": {
+                "app_id": {
+                    "description": "Assign the session settings from the specified app",
+                    "type": "string"
+                },
+                "assistant_id": {
+                    "description": "Which assistant are we speaking to?",
+                    "type": "string"
+                },
+                "legacy": {
+                    "description": "If true, we will add the session to the controller queue and return it right away, TODO: make the frontend work with our new streaming responses",
+                    "type": "boolean"
+                },
+                "lora_dir": {
+                    "type": "string"
+                },
+                "lora_id": {
+                    "description": "the fine tuned data entity we produced from this session",
+                    "type": "string"
+                },
+                "messages": {
+                    "description": "Initial messages",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Message"
+                    }
+                },
                 "model": {
                     "description": "The model to use",
+                    "type": "string"
+                },
+                "rag_source_id": {
                     "type": "string"
                 },
                 "session_id": {
@@ -377,6 +1339,10 @@ const docTemplate = `{
                 "stream": {
                     "description": "If true, we will stream the response",
                     "type": "boolean"
+                },
+                "system": {
+                    "description": "System message, only applicable when starting a new session",
+                    "type": "string"
                 },
                 "tools": {
                     "description": "Available tools to use in the session",
@@ -392,6 +1358,148 @@ const docTemplate = `{
                             "$ref": "#/definitions/types.SessionType"
                         }
                     ]
+                }
+            }
+        },
+        "types.SessionLearnRequest": {
+            "type": "object",
+            "properties": {
+                "data_entity_id": {
+                    "description": "FINE-TUNE MODE ONLY",
+                    "type": "string"
+                },
+                "rag_enabled": {
+                    "description": "Do we want to create a RAG data entity from this session?\nYou must provide a data entity ID for the uploaded documents if yes",
+                    "type": "boolean"
+                },
+                "rag_settings": {
+                    "description": "The settings we use for the RAG source",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionRAGSettings"
+                        }
+                    ]
+                },
+                "text_finetune_enabled": {
+                    "description": "Do we want to create a lora output from this session?\nYou must provide a data entity ID for the uploaded documents if yes",
+                    "type": "boolean"
+                },
+                "type": {
+                    "description": "e.g. text, image",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/types.SessionType"
+                        }
+                    ]
+                }
+            }
+        },
+        "types.SessionMetadata": {
+            "type": "object",
+            "properties": {
+                "active_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "app_query_params": {
+                    "description": "Passing through user defined app params",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "assistant_id": {
+                    "description": "which assistant are we talking to?",
+                    "type": "string"
+                },
+                "avatar": {
+                    "type": "string"
+                },
+                "document_group_id": {
+                    "type": "string"
+                },
+                "document_ids": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "eval_automatic_reason": {
+                    "type": "string"
+                },
+                "eval_automatic_score": {
+                    "type": "string"
+                },
+                "eval_manual_reason": {
+                    "type": "string"
+                },
+                "eval_manual_score": {
+                    "type": "string"
+                },
+                "eval_original_user_prompts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "eval_run_id": {
+                    "description": "Evals are cool. Scores are strings of floats so we can distinguish \"\"\n(not rated) from \"0.0\"",
+                    "type": "string"
+                },
+                "eval_user_reason": {
+                    "type": "string"
+                },
+                "eval_user_score": {
+                    "type": "string"
+                },
+                "finetune_data_entity_id": {
+                    "description": "the fine tuned data entity we produced from this session",
+                    "type": "string"
+                },
+                "helix_version": {
+                    "type": "string"
+                },
+                "manually_review_questions": {
+                    "type": "boolean"
+                },
+                "origin": {
+                    "$ref": "#/definitions/types.SessionOrigin"
+                },
+                "original_mode": {
+                    "$ref": "#/definitions/types.SessionMode"
+                },
+                "priority": {
+                    "type": "boolean"
+                },
+                "rag_enabled": {
+                    "description": "these settings control which features of a session we want to use\neven if we have a Lora file and RAG indexed prepared\nwe might choose to not use them (this will help our eval framework know what works the best)\nwe well as activate RAG - we also get to control some properties, e.g. which distance function to use,\nand what the threshold for a \"good\" answer is",
+                    "type": "boolean"
+                },
+                "rag_settings": {
+                    "$ref": "#/definitions/types.SessionRAGSettings"
+                },
+                "rag_source_data_entity_id": {
+                    "description": "the RAG source data entity we produced from this session",
+                    "type": "string"
+                },
+                "shared": {
+                    "type": "boolean"
+                },
+                "stream": {
+                    "type": "boolean"
+                },
+                "system_prompt": {
+                    "type": "string"
+                },
+                "text_finetune_enabled": {
+                    "description": "without any user input, this will default to true",
+                    "type": "boolean"
+                },
+                "uploaded_data_entity_id": {
+                    "description": "when we do fine tuning or RAG, we need to know which data entity we used",
+                    "type": "string"
                 }
             }
         },
@@ -413,6 +1521,90 @@ const docTemplate = `{
                 "SessionModeAction"
             ]
         },
+        "types.SessionOrigin": {
+            "type": "object",
+            "properties": {
+                "cloned_interaction_id": {
+                    "type": "string"
+                },
+                "cloned_session_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/types.SessionOriginType"
+                }
+            }
+        },
+        "types.SessionOriginType": {
+            "type": "string",
+            "enum": [
+                "",
+                "user_created",
+                "cloned"
+            ],
+            "x-enum-varnames": [
+                "SessionOriginTypeNone",
+                "SessionOriginTypeUserCreated",
+                "SessionOriginTypeCloned"
+            ]
+        },
+        "types.SessionRAGResult": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "content_offset": {
+                    "type": "integer"
+                },
+                "distance": {
+                    "type": "number"
+                },
+                "document_group_id": {
+                    "type": "string"
+                },
+                "document_id": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "interaction_id": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "types.SessionRAGSettings": {
+            "type": "object",
+            "properties": {
+                "chunk_overflow": {
+                    "description": "the amount of overlap between chunks - will default to 32 bytes",
+                    "type": "integer"
+                },
+                "chunk_size": {
+                    "description": "the size of each text chunk - will default to 512 bytes",
+                    "type": "integer"
+                },
+                "distance_function": {
+                    "description": "this is one of l2, inner_product or cosine - will default to cosine",
+                    "type": "string"
+                },
+                "results_count": {
+                    "description": "this is the max number of results to return - will default to 3",
+                    "type": "integer"
+                },
+                "threshold": {
+                    "description": "this is the threshold for a \"good\" answer - will default to 0.2",
+                    "type": "number"
+                }
+            }
+        },
         "types.SessionType": {
             "type": "string",
             "enum": [
@@ -426,48 +1618,28 @@ const docTemplate = `{
                 "SessionTypeImage"
             ]
         },
-        "types.Tool": {
-            "type": "object",
-            "properties": {
-                "config": {
-                    "description": "TODO: tool configuration\nsuch as OpenAPI spec, function code, etc.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.ToolConfig"
-                        }
-                    ]
-                },
-                "created": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "owner": {
-                    "description": "uuid of owner entity",
-                    "type": "string"
-                },
-                "owner_type": {
-                    "description": "e.g. user, system, org",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/types.OwnerType"
-                        }
-                    ]
-                },
-                "tool_type": {
-                    "$ref": "#/definitions/types.ToolType"
-                },
-                "updated": {
-                    "type": "string"
-                }
-            }
+        "types.TextDataPrepStage": {
+            "type": "string",
+            "enum": [
+                "",
+                "edit_files",
+                "extract_text",
+                "index_rag",
+                "generate_questions",
+                "edit_questions",
+                "finetune",
+                "complete"
+            ],
+            "x-enum-varnames": [
+                "TextDataPrepStageNone",
+                "TextDataPrepStageEditFiles",
+                "TextDataPrepStageExtractText",
+                "TextDataPrepStageIndexRag",
+                "TextDataPrepStageGenerateQuestions",
+                "TextDataPrepStageEditQuestions",
+                "TextDataPrepStageFineTune",
+                "TextDataPrepStageComplete"
+            ]
         },
         "types.ToolApiAction": {
             "type": "object",
@@ -510,6 +1682,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "request_prep_template": {
+                    "description": "Template for request preparation, leave empty for default",
+                    "type": "string"
+                },
+                "response_error_template": {
+                    "description": "Template for error response, leave empty for default",
+                    "type": "string"
+                },
+                "response_success_template": {
+                    "description": "Template for successful response, leave empty for default",
+                    "type": "string"
+                },
                 "schema": {
                     "type": "string"
                 },
@@ -524,6 +1708,22 @@ const docTemplate = `{
             "properties": {
                 "api": {
                     "$ref": "#/definitions/types.ToolApiConfig"
+                },
+                "gptscript": {
+                    "$ref": "#/definitions/types.ToolGPTScriptConfig"
+                }
+            }
+        },
+        "types.ToolGPTScriptConfig": {
+            "type": "object",
+            "properties": {
+                "script": {
+                    "description": "Program code",
+                    "type": "string"
+                },
+                "script_url": {
+                    "description": "URL to download the script",
+                    "type": "string"
                 }
             }
         },
@@ -531,12 +1731,41 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "api",
-                "function"
+                "gptscript"
             ],
             "x-enum-varnames": [
                 "ToolTypeAPI",
-                "ToolTypeFunction"
+                "ToolTypeGPTScript"
             ]
+        },
+        "types.Trigger": {
+            "type": "object",
+            "properties": {
+                "cron": {
+                    "$ref": "#/definitions/types.CronTrigger"
+                },
+                "discord": {
+                    "$ref": "#/definitions/types.DiscordTrigger"
+                }
+            }
+        },
+        "types.Usage": {
+            "type": "object",
+            "properties": {
+                "completion_tokens": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "description": "How long the request took in milliseconds",
+                    "type": "integer"
+                },
+                "prompt_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
         }
     }
 }`
