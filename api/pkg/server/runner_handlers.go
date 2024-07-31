@@ -55,6 +55,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		ModelName: modelName,
 		Memory:    memory,
 		Reject:    []types.SessionFilterModel{},
+		LoraDir:   types.LORA_DIR_NONE,
 		Older:     types.Duration(olderDuration),
 	}
 
