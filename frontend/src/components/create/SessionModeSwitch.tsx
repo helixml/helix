@@ -67,6 +67,7 @@ const SessionModeSwitch: FC<{
         }}
       >
         <Typography
+           id='learn-mode'
           sx={{
             color: mode === SESSION_MODE_FINETUNE ? 'text.primary' : 'text.secondary',
             fontWeight: mode === SESSION_MODE_FINETUNE ? 'bold' : 'normal',
@@ -75,7 +76,7 @@ const SessionModeSwitch: FC<{
             cursor: 'pointer',
           }}
           onClick={() => onSetMode(SESSION_MODE_FINETUNE)}
-        >
+         >
           Learn
         </Typography>
       </Cell>

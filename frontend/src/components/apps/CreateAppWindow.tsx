@@ -101,7 +101,7 @@ export const CreateAppWindow: FC<{
           flexDirection: 'column',
           height: '100%',
         }}
-      >
+       >
         <Box
           sx={{
             flexGrow: 0,
@@ -113,7 +113,7 @@ export const CreateAppWindow: FC<{
               mb: 2,
               textAlign: 'left',
             }}
-          >
+           >
             Create a new app by linking a github repo with a helix.yaml file to configure the app.
           </Typography>
         </Box>
@@ -209,12 +209,13 @@ export const CreateAppWindow: FC<{
                             </Button>
                             &nbsp;
                             <Button
+                              id="connect-repo-button"
                               color="secondary"
                               variant="contained"
                               size="small"
                               disabled={ connectLoading }
                               onClick={ async () => onConnectRepo(activeRepo) }
-                            >
+                             >
                               Connect Repo
                             </Button>
                           </Grid>
@@ -258,7 +259,7 @@ export const CreateAppWindow: FC<{
                             sx={{
                               width: '100%'
                             }}
-                          >
+                           >
                             <InputLabel>Org</InputLabel>
                             <Select
                               sx={{
@@ -266,7 +267,7 @@ export const CreateAppWindow: FC<{
                               }}
                               value={ filterOrg }
                               onChange={ (ev) => setFilterOrg(ev.target.value) }
-                            >
+                             >
                               <MenuItem value={'any'}>Any</MenuItem>
                               {
                                 groups.map(group => (
@@ -278,6 +279,7 @@ export const CreateAppWindow: FC<{
                         </Grid>
                         <Grid item xs={ 6 }>
                           <TextField
+                          id="filter-textfield"
                             label="Filter"
                             helperText={`Find repos containing the text`}
                             value={ filterText }
@@ -302,9 +304,9 @@ export const CreateAppWindow: FC<{
                               }}>
                                 <ListItemText primary={ repo } />
                                 <ListItemSecondaryAction>
-                                  <IconButton color="primary" component="span" onClick={ () => {
+                                  <IconButton id="play-circle-button" color="primary" component="span" onClick={ () => {
                                     setActiveRepo(repo)
-                                  }}>
+                                   }}>
                                     <PlayCircleOutlineIcon />
                                   </IconButton>
                                 </ListItemSecondaryAction>
@@ -324,6 +326,7 @@ export const CreateAppWindow: FC<{
           githubStatus.redirect_url && (
             <>
               <Button
+              id="connect-github-account"
                 variant="contained"
                 color="secondary"
                 endIcon={<GitHubIcon />}

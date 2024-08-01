@@ -207,6 +207,13 @@ func (s *FileSystemStorage) CopyFile(ctx context.Context, fromPath string, toPat
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
+	// Check if the destination file already exists
+	if _, err := os.Stat(fullToPath); err == nil {
+		// Destination file already exists, no need to create a hard link
+		return nil
+	}
+
+	// Create the hard link
 	if err := os.Link(fullFromPath, fullToPath); err != nil {
 		return fmt.Errorf("failed to create hard link: %w", err)
 	}

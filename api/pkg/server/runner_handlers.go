@@ -52,11 +52,6 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		Memory:    memory,
 		Older:     olderDuration,
 	}, runnerID)
-	if err != nil {
-		log.Err(err).
-			Msg("error getting next LLM inference request")
-		return nil, err
-	}
 
 	return nextReq, nil
 }
