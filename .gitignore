@@ -13,3 +13,4 @@ kubeconfig
 ./helix
 helix
 .vscode
+integration-test/frontend/screenshots
