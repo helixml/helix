@@ -224,6 +224,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
           <Grid item xs={6} style={{ textAlign: 'right' }} >
             {showButton && onDone && (
               <Button
+                id="continue-button"
                 variant="contained"
                 sx={{
                   backgroundColor: '#3BF959', 
@@ -233,7 +234,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
                   },
                 }}
                 onClick={onDone}
-              >
+               >
                 Continue
               </Button>
             )}

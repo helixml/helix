@@ -20,12 +20,12 @@ export const AddFilesWindow: FC<{
   session: ISession,
   // if this is defined it means "add the files to this specific interaction"
   interactionID?: string,
-  onClose: (filesAdded: boolean) => void,
-}> = ({
-  session,
-  interactionID,
-  onClose,
-}) => {
+ onClose: (filesAdded: boolean) => void,
+  }> = ({
+    session,
+    interactionID,
+    onClose,
+  }) => {
   const snackbar = useSnackbar()
   const api = useApi()
   const inputs = useCreateInputs()

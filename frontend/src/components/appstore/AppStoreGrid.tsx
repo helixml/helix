@@ -62,6 +62,7 @@ const AppStoreSection: FC<{
                     name={ getAppName(app) }
                     description={ getAppDescription(app) }
                     onClick={ () => onClick(app.id) }
+                    id={`launch-button-${index}`}
                   />
                 </Grid>
               )
