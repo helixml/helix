@@ -28,6 +28,7 @@ import {
 import {
   DEFAULT_SESSION_CONFIG,
 } from '../config'
+import { parse } from 'path'
 
 export interface IFinetuneInputs {
   inputValue: string,
@@ -165,10 +166,10 @@ export const useCreateInputs = () => {
       rag_enabled: sessionConfig.ragEnabled,
       rag_settings: {
         distance_function: sessionConfig.ragDistanceFunction,
-        threshold: sessionConfig.ragThreshold,
-        results_count: sessionConfig.ragResultsCount,
-        chunk_size: sessionConfig.ragChunkSize,
-        chunk_overflow: sessionConfig.ragChunkOverflow,
+        threshold: parseFloat(sessionConfig.ragThreshold.toString()),
+        results_count: Number(sessionConfig.ragResultsCount),
+        chunk_size: Number(sessionConfig.ragChunkSize),
+        chunk_overflow: Number(sessionConfig.ragChunkOverflow),
       },
     }
 

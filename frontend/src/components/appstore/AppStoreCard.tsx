@@ -23,6 +23,7 @@ const AppStoreCard: FC<{
   selected?: boolean,
   sx?: SxProps,
   onClick?: () => void,
+  id?: string,
 }> = ({
   avatar,
   image,
@@ -33,6 +34,7 @@ const AppStoreCard: FC<{
   selected = false,
   sx = {},
   onClick,
+  id,
 }) => {
   return (
     <Card
@@ -104,6 +106,7 @@ const AppStoreCard: FC<{
                 />
               ) : (
                 <Button
+                  id={ id } 
                   size="small"
                   color="secondary"
                   disabled={ disabled }

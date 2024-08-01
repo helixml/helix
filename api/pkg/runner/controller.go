@@ -222,15 +222,14 @@ func (r *Runner) startTaskLoop() {
 					log.Error().Msgf("error in inference request polling: %s", err.Error())
 					debug.PrintStack()
 				}
-			} else {
-				// Old-school session polling (images, finetuning, ollama)
-				err := r.pollSessions(r.Ctx)
-				if err != nil {
-					log.Error().Msgf("error in session polling: %s", err.Error())
-					debug.PrintStack()
-				}
 			}
 
+			// Old-school session polling (images, finetuning, ollama)
+			err := r.pollSessions(r.Ctx)
+			if err != nil {
+				log.Error().Msgf("error in session polling: %s", err.Error())
+				debug.PrintStack()
+			}
 		}
 	}
 }

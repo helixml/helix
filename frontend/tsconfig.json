@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "rootDir": ".",
-    "outDir": "lib",
+    "rootDir": "./src",
+    "outDir": "./lib",
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "target": "es2015",
@@ -11,9 +11,11 @@
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "allowJs": true
   },
   "include": [
-    "src/**/*"
+    "src/**/*.tsx",
+    "src/**/*.ts"
   ]
 }

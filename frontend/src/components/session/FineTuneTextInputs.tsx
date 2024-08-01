@@ -45,7 +45,7 @@ import { ListItem, ListItemButton, ListItemText, ListItemIcon, IconButton, List 
 
 interface CustomFile {
   file: File;
-  type: 'text' | 'url' | 'file' ;
+  type: 'text' | 'url' | 'file';
   content?: string; // Optional property to store the text content
 }
 
@@ -65,25 +65,23 @@ export const FineTuneTextInputs: FC<{
   initialCounter,
   initialFiles,
   showButton = false,
-  
   showSystemInteraction = true,
   onChange,
   onDone,
 }) => {
-  const snackbar = useSnackbar()
+  const snackbar = useSnackbar();
 
-  const [manualTextFileCounter, setManualTextFileCounter] = useState(initialCounter || 0)
-  const [manualTextFile, setManualTextFile] = useState('')
-  const [manualURL, setManualURL] = useState('')
-  const [manuallyReviewQuestions, setManuallyReviewQuestions] = useState(false)
+  const [manualTextFileCounter, setManualTextFileCounter] = useState(initialCounter || 0);
+  const [manualTextFile, setManualTextFile] = useState('');
+  const [manualURL, setManualURL] = useState('');
+  const [manuallyReviewQuestions, setManuallyReviewQuestions] = useState(false);
   // If initialFiles is an array of File objects, map it to an array of CustomFile objects
-const [files, setFiles] = useState<CustomFile[]>(
-  initialFiles?.map(file => ({ file, type: 'file' as 'text' | 'url' | 'file' })) || []
-);
-  const themeConfig = useThemeConfig()
-  const theme = useTheme()
+  const [files, setFiles] = useState<CustomFile[]>(
+    initialFiles?.map(file => ({ file, type: 'file' as 'text' | 'url' | 'file' })) || []
+  );
+  const themeConfig = useThemeConfig();
+  const theme = useTheme();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  
 
   const onAddURL = useCallback(() => {
     if (!manualURL.match(/^https?:\/\//i)) {
@@ -102,6 +100,7 @@ const [files, setFiles] = useState<CustomFile[]>(
     setFiles([...files, newFile]);
     setManualURL('');
   }, [manualURL, files]);
+
   const toggleDrawer = (open: boolean) => (event: React.KeyboardEvent | React.MouseEvent) => {
     if (
       event.type === 'keydown' &&
@@ -110,7 +109,6 @@ const [files, setFiles] = useState<CustomFile[]>(
     ) {
       return;
     }
-  
     setDrawerOpen(open);
   };
 
@@ -131,13 +129,14 @@ const [files, setFiles] = useState<CustomFile[]>(
       all[customFile.file.name] = true;
       return all;
     }, {});
-  
+
     const filteredNewFiles: CustomFile[] = newFiles
       .filter(file => !existingFiles[file.name])
       .map(file => ({ file, type: 'file' })); // Assuming 'file' is a valid type for CustomFile
-  
+
     setFiles(files.concat(filteredNewFiles));
   }, [files]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -163,19 +162,18 @@ const [files, setFiles] = useState<CustomFile[]>(
     // Extract the File objects from the CustomFile array
     const fileArray = files.map(customFile => customFile.file);
     onChange(manualTextFileCounter, fileArray);
-    
   }, [
     manualTextFileCounter,
     files,
   ]);
 
   function handleDownloadFile(file: File): void {
-    throw new Error('Function not implemented.')
+    throw new Error('Function not implemented.');
   }
 
   function handleRemoveFile(index: number): void {
     setFiles(currentFiles => currentFiles.filter((_, i) => i !== index));
-    throw new Error('Function not implemented.')
+    throw new Error('Function not implemented.');
   }
 
   return (
@@ -187,7 +185,7 @@ const [files, setFiles] = useState<CustomFile[]>(
         minHeight: '100vh',
         overflow: 'hidden',
       }}
-     >
+    >
       {showSystemInteraction && (
         <Box
           sx={{
@@ -234,6 +232,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           }}
         >
           <TextField
+            // id='url-input'
             fullWidth
             label="Type or paste a link (eg https://google.com)"
             value={manualURL}
@@ -273,11 +272,11 @@ const [files, setFiles] = useState<CustomFile[]>(
               width: '100%',
             }}
             variant="contained"
-            color={ BUTTON_STATES.addUrlColor }
+            color={BUTTON_STATES.addUrlColor}
             endIcon={<AddCircleIcon />}
-            onClick={ onAddURL }
+            onClick={onAddURL}
           >
-            { BUTTON_STATES.addUrlLabel }
+            {BUTTON_STATES.addUrlLabel}
           </Button>
         </Cell>
       </Row>
@@ -313,6 +312,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           }}
         >
           <TextField
+            id='manual-text-file-input'
             sx={{
               height: '100px',
               maxHeight: '100px',
@@ -353,14 +353,13 @@ const [files, setFiles] = useState<CustomFile[]>(
               width: '100%',
             }}
             variant="contained"
-            color={ BUTTON_STATES.addTextColor }
+            color={BUTTON_STATES.addTextColor}
             endIcon={<AddCircleIcon />}
-            onClick={ onAddTextFile }
+            onClick={onAddTextFile}
           >
-            { BUTTON_STATES.addTextLabel }
+            {BUTTON_STATES.addTextLabel}
           </Button>
         </Cell>
-        
       </Row>
       <Typography
         sx={{
@@ -372,7 +371,6 @@ const [files, setFiles] = useState<CustomFile[]>(
       >
         Files
       </Typography>
-     
       <FileUpload
         sx={{
           width: '100%',
@@ -422,7 +420,7 @@ const [files, setFiles] = useState<CustomFile[]>(
                   cursor: 'pointer',
                 }}
                 onClick={handleManualUploadClick}
-               >
+              >
                 Drag files here to upload 
                 <span
                   style={{textDecoration: 'underline',}}>
@@ -450,16 +448,14 @@ const [files, setFiles] = useState<CustomFile[]>(
                 width: '100%',
               }}
               variant="contained"
-              color={ BUTTON_STATES.uploadFilesColor }
+              color={BUTTON_STATES.uploadFilesColor}
               endIcon={<CloudUploadIcon />}
             >
-              { BUTTON_STATES.uploadFilesLabel }
+              {BUTTON_STATES.uploadFilesLabel}
             </Button>
           </Cell>
-          
         </Row>
       </FileUpload>
-
       <Box
         sx={{
           flexGrow: 1,
@@ -467,7 +463,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           mt: 2,
           mb: 2,
         }}
-       >
+      >
         <Grid container spacing={3} direction="row" justifyContent="flex-start">
           {files.length > 0 && files.map((customFile, index) => {
             const IconComponent = customFile.type === 'url' ? LinkIcon : TextFieldsIcon;
@@ -492,8 +488,7 @@ const [files, setFiles] = useState<CustomFile[]>(
           })}
         </Grid>
       </Box>
-
-      <Box  sx={{flexGrow: 0, }}>
+      <Box sx={{ flexGrow: 0 }}>
         <Grid container spacing={3} direction="row" justifyContent="space-between" alignItems="center" sx={{ flexGrow: 0, mt: 10, mb: 2 }}>
           <Grid item xs={6}>
             {files.length > 0 && (
@@ -503,7 +498,7 @@ const [files, setFiles] = useState<CustomFile[]>(
                   component="button"
                   onClick={() => setDrawerOpen(true)}
                   sx={{ ml: 0.5, textDecoration: 'underline', color: '#ffff00' }}
-                 >
+                >
                   View or edit files
                 </Link>
               </Typography>
@@ -511,7 +506,9 @@ const [files, setFiles] = useState<CustomFile[]>(
           </Grid>
           <Grid item xs={6} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
             {files.length > 0 && showButton && onDone && (
+              
               <Button
+                id="continue-button" 
                 sx={{
                   bgcolor: '#ffff00',
                   color: 'black',
@@ -528,89 +525,89 @@ const [files, setFiles] = useState<CustomFile[]>(
             )}
           </Grid>
         </Grid>
-       </Box>
-
-    <Drawer
-      anchor="right"
-      open={drawerOpen}
-      onClose={() => setDrawerOpen(false)}
-      sx={{
-        '& .MuiDrawer-paper': {
-          backgroundColor: '#070714',
-          overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
-        },
-      }}
-     >
-      <Box
+      </Box>
+      <Drawer
+        anchor="right"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
         sx={{
-          width: '50vh', 
-          maxWidth: '100%', 
+          '& .MuiDrawer-paper': {
+            backgroundColor: '#070714',
+            overflowY: 'auto', // Allows scrolling if the content is taller than the drawer
+          },
         }}
-        role="presentation"
-        >
+      >
         <Box
           sx={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '8px 16px',
-            borderBottom: '1px solid #e0e0e0', // optional border for visual separation
+            width: '50vh',
+            maxWidth: '100%',
           }}
-         >
-          <Typography variant="h6">
-            Browse files ({files.length})
-          </Typography>
-          <IconButton onClick={() => setDrawerOpen(false)}>
-            <CloseIcon /> 
-          </IconButton>
-        </Box>
-
-        {/* Drawer content: List of links, text, and files */}
-        <List>
-          {files.map((customFile, index) => (
-            <React.Fragment key={customFile.file.name}>
-              <ListItem
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-                secondaryAction={
-                  <Box sx={{ display: 'flex' }}>
-                    {/* Download Icon */}
-                    <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
-                      <FileDownloadIcon />
-                    </IconButton>
-                    {/* Delete Icon */}
-                    <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
-                }
-              >
-                <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
-                  {customFile.type === 'url' && <LinkIcon />}
-                  {customFile.type === 'text' && <TextFieldsIcon />}
-                </ListItemIcon>
-                <ListItemText
-                  primary={customFile.type === 'text' ? customFile.content : customFile.file.name}
+          role="presentation"
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 16px',
+              borderBottom: '1px solid #e0e0e0', // optional border for visual separation
+            }}
+          >
+            <Typography variant="h6">
+              Browse files ({files.length})
+            </Typography>
+            <IconButton onClick={() => setDrawerOpen(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          {/* Drawer content: List of links, text, and files */}
+          <List>
+            {files.map((customFile, index) => (
+              <React.Fragment key={customFile.file.name}>
+                <ListItem
                   sx={{
-                    mr: 4,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
-                 />
-               </ListItem>
-              {index < files.length - 1 && (
-                <Divider sx={{ my: 0 }} /> 
-              )}
-            </React.Fragment>
-          ))}
-        </List>
-      </Box>
-    </Drawer>
-  </Box>
-      )}
+                  secondaryAction={
+                    <Box sx={{ display: 'flex' }}>
+                      {/* Download Icon */}
+                      <IconButton edge="end" aria-label="download" onClick={() => handleDownloadFile(customFile.file)}>
+                        <FileDownloadIcon />
+                      </IconButton>
+                      {/* Delete Icon */}
+                      <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveFile(index)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  }
+                >
+                  <ListItemIcon sx={{ minWidth: 'auto', mr: 2 }}>
+                    {customFile.type === 'url' && <LinkIcon />}
+                    {customFile.type === 'text' && <TextFieldsIcon />}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={customFile.type === 'text' ? customFile.content : customFile.file.name}
+                    sx={{
+                      mr: 4,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  />
+                </ListItem>
+                {index < files.length - 1 && (
+                  <Divider sx={{ my: 0 }} />
+                )}
+              </React.Fragment>
+            ))}
+          </List>
+        </Box>
+      </Drawer>
+    </Box>
+  );
+}
 
 export default FineTuneTextInputs;
+

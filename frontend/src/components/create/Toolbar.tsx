@@ -89,6 +89,7 @@ const CreateToolbar: FC<{
         {
           !account.user && (bigScreen ? (
             <Button
+              id='login-button'
               size="medium"
               variant="contained"
               color="primary"

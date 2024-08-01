@@ -732,13 +732,14 @@ const Session: FC = () => {
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
+                      id="send-button"
                       aria-label="send"
                       disabled={session.data?.mode == SESSION_MODE_FINETUNE}
                       onClick={() => onSend(inputValue)}
                       sx={{
                         color: theme.palette.mode === 'light' ? themeConfig.lightIcon : themeConfig.darkIcon,
                       }}
-                    >
+                     >
                       <SendIcon />
                     </IconButton>
                   </InputAdornment>
@@ -835,7 +836,7 @@ const Session: FC = () => {
             withCancel
             cancelTitle="Close"
             submitTitle="Login / Register"
-          >
+           >
             <Typography gutterBottom>
               You can login with your Google account or with your email address.
             </Typography>

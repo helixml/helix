@@ -15,10 +15,12 @@ import {
 } from '../../config'
 
 const SidebarMainLink: FC<{
+  id?: string;
   routeName: string,
   title: string,
   icon: React.ReactNode,
 }> = ({
+  id,
   routeName,
   title,
   icon,
@@ -33,6 +35,7 @@ const SidebarMainLink: FC<{
       dense={ isBigScreen ? false : true }
     >
       <ListItemButton
+        id={id}
         selected={ isActive }
         sx={{
           // so it lines up with the toolbar

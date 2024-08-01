@@ -609,6 +609,7 @@ export interface IFeatureAction {
   color: 'primary' | 'secondary',
   variant: 'text' | 'contained' | 'outlined',
   handler: (navigate: IRouterNavigateFunction) => void,
+  id?: string;
 }
 
 export interface IFeature {
