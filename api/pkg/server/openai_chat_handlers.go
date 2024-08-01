@@ -62,8 +62,32 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		defer stream.Close()
+
+		rw.Header().Set("Content-Type", "text/event-stream")
+		rw.Header().Set("Cache-Control", "no-cache")
+		rw.Header().Set("Connection", "keep-alive")
 
 		// Write the stream into the response
+		for {
+			response, err := stream.Recv()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Write the response to the client
+			bts, err := json.Marshal(response)
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			writeChunk(rw, bts)
+		}
 
 		return
 	}
