@@ -279,6 +279,7 @@ const App: FC = () => {
           }}
         >
           <Button
+            id="cancelButton" 
             sx={{
               mr: 2,
             }}
@@ -286,7 +287,7 @@ const App: FC = () => {
             color="primary"
             variant="outlined"
             onClick={ () => navigate('apps') }
-          >
+           >
             Cancel
           </Button>
           <Button

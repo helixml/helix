@@ -89,6 +89,7 @@ export const AddDocumentsForm: FC<{
         Links
       </Typography>
       <TextField
+        id= 'url-input'
         fullWidth
         label="Type or paste a link (eg https://google.com)"
         value={ manualURL }
@@ -128,7 +129,7 @@ export const AddDocumentsForm: FC<{
                 height: '40px',
                 backgroundColor: 'transparent',
               }}
-            >
+             >
               <AddIcon sx={{ color: '#ffff00' }} />
             </IconButton>
           ),
@@ -148,6 +149,7 @@ export const AddDocumentsForm: FC<{
         Text
       </Typography>
       <TextField
+      id='text-input'
         fullWidth
         label="Paste some text here"
         value={ manualTextFile }
@@ -182,6 +184,7 @@ export const AddDocumentsForm: FC<{
           style: { borderRadius: 0 },
           endAdornment: manualTextFile && (
             <IconButton
+              id='text-add-icon-button'
               onClick={onAddTextFile}
               sx={{
                 marginLeft: 'auto',

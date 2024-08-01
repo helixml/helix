@@ -138,6 +138,7 @@ const Window: FC<WindowProps> = ({
                 {
                   withCancel && (
                     <Button
+                      id="cancelButton" 
                       sx={{
                         marginLeft: 2,
                       }}
