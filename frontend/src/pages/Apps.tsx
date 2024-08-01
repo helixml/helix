@@ -97,6 +97,7 @@ const Apps: FC = () => {
       topbarContent={(
         <div>
           <Button
+              id="new-app-button"
               variant="contained"
               color="secondary"
               endIcon={<AddIcon />}

@@ -30,6 +30,7 @@ import Cell from '../widgets/Cell'
 import useAccount from '../../hooks/useAccount'
 import useRouter from '../../hooks/useRouter'
 
+
 import {
   IFeature,
 } from '../../types'
@@ -44,6 +45,7 @@ const CHAT_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => navigate('new'),
+    id: 'chat-button',
   }, {
     title: 'Docs',
     color: 'primary',
@@ -62,6 +64,7 @@ const IMAGE_GEN_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => {navigate('new', {mode:"inference", type:"image"})},
+    id: 'create-button', 
   }, {
     title: 'Docs',
     color: 'primary',
@@ -80,6 +83,7 @@ const APPS_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => navigate('appstore'),
+    id: 'browse-button',
   }, {
     title: 'Docs',
     color: 'primary',
@@ -99,6 +103,7 @@ const RAG_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => navigate('new', {mode:"finetune", type:"text", rag:"true"}),
+    id: 'upload-button'
   }, {
     title: 'Docs (coming soon)',
     color: 'primary',
@@ -163,6 +168,9 @@ const JS_APP_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => {navigate('apps')},
+    id: 'apps-button'
+    
+    
   }, {
     title: 'Docs',
     color: 'primary',
@@ -264,6 +272,7 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
+  console.log('Feature actions:', feature.actions); // Add this line to debug
   return (
     <Card>
       <CardActionArea
@@ -325,17 +334,19 @@ const HomeFeatureCard: FC<{
         </CardContent>
       </CardActionArea>
       <CardActions>
+
         <Row>
           {
             feature.actions.map((action, index) => (
               <Cell key={ index }>
                 <Button
+                id={ action.id }
                   size="small"
                   variant={ action.variant }
                   color={ action.color }
                   onClick={ () => action.handler(router.navigate) }
-                  disabled={ feature.disabled }
-                >
+                  disabled={ feature.disabled } 
+                 >
                   { action.title }
                 </Button>
               </Cell>
