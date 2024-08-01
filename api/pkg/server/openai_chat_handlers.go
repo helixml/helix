@@ -54,7 +54,11 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		return
 	}
 
-	options := &controller.ChatCompletionOptions{}
+	options := &controller.ChatCompletionOptions{
+		AppID:       r.URL.Query().Get("app_id"),
+		AssistantID: r.URL.Query().Get("assistant_id"),
+		RAGSourceID: r.URL.Query().Get("rag_source_id"),
+	}
 
 	if chatCompletionRequest.Stream {
 		stream, err := apiServer.Controller.ChatCompletionStream(r.Context(), user, chatCompletionRequest, options)
