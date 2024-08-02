@@ -238,7 +238,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
 	case config.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey != "" {
+		if cfg.Providers.TogetherAI.APIKey == "" {
 			return errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
 		log.Info().
