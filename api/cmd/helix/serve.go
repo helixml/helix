@@ -3,6 +3,7 @@ package helix
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -222,6 +223,38 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
+	var controllerOpenAIClient openai.Client
+
+	switch cfg.Inference.Provider {
+	case config.ProviderOpenAI:
+		if cfg.Providers.OpenAI.APIKey == "" {
+			return errors.New("OpenAI API key (OPENAI_API_KEY) is required")
+		}
+		log.Info().
+			Str("base_url", cfg.Providers.OpenAI.BaseURL).
+			Msg("using OpenAI provider for controller inference")
+
+		controllerOpenAIClient = openai.New(
+			cfg.Providers.OpenAI.APIKey,
+			cfg.Providers.OpenAI.BaseURL)
+	case config.ProviderTogetherAI:
+		if cfg.Providers.TogetherAI.APIKey != "" {
+			return errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
+		}
+		log.Info().
+			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
+			Msg("using TogetherAI provider for controller inference")
+
+		controllerOpenAIClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL)
+	case config.ProviderHelix:
+		// Using helix infernece server (runners need to be connected)
+		log.Info().Msg("using Helix provider for inference")
+
+		controllerOpenAIClient = helixInference
+	}
+
 	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
 
 	var appController *controller.Controller
@@ -236,6 +269,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Filestore:         fs,
 		Janitor:           janitor,
 		Notifier:          notifier,
+		OpenAIClient:      controllerOpenAIClient,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
