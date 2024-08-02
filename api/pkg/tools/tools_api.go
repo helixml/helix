@@ -130,7 +130,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
+		c.logLLMCall(sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
 	}()
 
 	answer := resp.Choices[0].Message.Content

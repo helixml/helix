@@ -126,7 +126,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(sessionID, interactionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	var actionableResponse IsActionableResponse
