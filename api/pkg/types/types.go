@@ -857,7 +857,7 @@ type AssistantConfig struct {
 	// but we don't include it in the yaml which feeds this struct because
 	// we populate the tools array from the APIs and GPTScripts arrays
 	// so - Tools is readonly - hence only JSON for the frontend to see
-	Tools []Tool `json:"tools"`
+	Tools []*Tool `json:"tools"`
 }
 
 type AppHelixConfig struct {
