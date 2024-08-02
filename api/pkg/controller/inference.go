@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	openai "github.com/lukemarsden/go-openai2"
@@ -16,21 +17,29 @@ type ChatCompletionOptions struct {
 	AppID       string
 	AssistantID string
 	RAGSourceID string
+
+	// TODO: API tool query param overrides
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (openai.ChatCompletionResponse, error) {
 
-	if opts.AppID != "" {
-		app, err := c.Options.Store.GetApp(ctx, opts.AppID)
-		if err != nil {
-			return openai.ChatCompletionResponse{}, fmt.Errorf("error getting app: %w", err)
-		}
+	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to load tools: %w", err)
+	}
 
-		if err := c.authorizeUserToApp(user, app); err != nil {
-			return openai.ChatCompletionResponse{}, err
-		}
+	if ok {
+		return openai.ChatCompletionResponse{
+			Choices: []openai.ChatCompletionChoice{
+				{
+					Message: openai.ChatCompletionMessage{
+						Content: toolResp.Message,
+					},
+				},
+			},
+		}, nil
 	}
 
 	// TODO: setup RAG prompt if source set
@@ -52,9 +61,61 @@ func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error 
 	return nil
 }
 
-func (c *Controller) loadTools(ctx context.Context, user *types.User, opts *ChatCompletionOptions) ([]*types.Tool, error) {
+func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*tools.RunActionResponse, bool, error) {
+	assistant, err := c.loadAssistant(ctx, user, opts)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(assistant.Tools) == 0 {
+		return nil, false, fmt.Errorf("no tools found in assistant")
+	}
+
+	// Get last message from the chat completion messages
+	var lastMessage string
+
+	if len(req.Messages) > 0 {
+		lastMessage = req.Messages[len(req.Messages)-1].Content
+	}
+
+	var options []tools.Option
+
+	// If assistant has configured an actionable template, use it
+	if assistant != nil && assistant.IsActionableTemplate != "" {
+		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
+	}
+
+	// TODO: replace history with other types so we don't put in whole
+	// integrations as we don't have that type here
+
+	history := []*types.Interaction{}
+
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, "dummy", "dummy", assistant.Tools, history, lastMessage, options...)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
+		return nil, false, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+	}
+
+	if !isActionable.Actionable() {
+		return nil, false, nil
+	}
+
+	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.Api)
+	if !ok {
+		return nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+	}
+
+	resp, err := c.ToolsPlanner.RunAction(ctx, "dummy", "dummy", selectedTool, history, lastMessage, isActionable.Api)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to perform action: %w", err)
+	}
+
+	return resp, true, nil
+}
+
+func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
 	if opts.AppID == "" {
-		return []*types.Tool{}, nil
+		return &types.AssistantConfig{}, nil
 	}
 
 	app, err := c.Options.Store.GetApp(ctx, opts.AppID)
@@ -72,7 +133,7 @@ func (c *Controller) loadTools(ctx context.Context, user *types.User, opts *Chat
 		return nil, fmt.Errorf("we could not find the assistant with ID %s, in app %s", opts.AssistantID, app.ID)
 	}
 
-	return assistant.Tools, nil
+	return assistant, nil
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
