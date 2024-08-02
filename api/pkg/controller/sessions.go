@@ -603,6 +603,8 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
+	messageHistory := types.HistoryFromInteractions(history)
+
 	// Actionable, converting interaction mode to "action"
 	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
 	if err != nil {
@@ -616,7 +618,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, history, userInteraction.Message, options...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, userInteraction.Message, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil
