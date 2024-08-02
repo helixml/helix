@@ -57,7 +57,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	if len(resp.Choices) == 0 {
@@ -103,7 +103,7 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+		c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
 	if len(resp.Choices) == 0 {
