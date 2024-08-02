@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/data"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -18,7 +19,7 @@ type ChatCompletionOptions struct {
 	AssistantID string
 	RAGSourceID string
 
-	// TODO: API tool query param overrides
+	QueryParams map[string]string
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
@@ -90,7 +91,9 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 
 	history := []*types.Interaction{}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, "dummy", "dummy", assistant.Tools, history, lastMessage, options...)
+	_, sessionID, interactionID := oai.GetContextValues(ctx)
+
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, sessionID, interactionID, assistant.Tools, history, lastMessage, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return nil, false, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
@@ -105,7 +108,15 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		return nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
 	}
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, "dummy", "dummy", selectedTool, history, lastMessage, isActionable.Api)
+	if len(opts.QueryParams) > 0 && selectedTool.Config.API != nil {
+		selectedTool.Config.API.Query = make(map[string]string)
+
+		for k, v := range opts.QueryParams {
+			selectedTool.Config.API.Query[k] = v
+		}
+	}
+
+	resp, err := c.ToolsPlanner.RunAction(ctx, sessionID, interactionID, selectedTool, history, lastMessage, isActionable.Api)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
