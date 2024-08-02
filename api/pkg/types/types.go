@@ -716,6 +716,19 @@ type ToolHistoryMessage struct {
 	Content string
 }
 
+func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
+	var history []*ToolHistoryMessage
+
+	for _, message := range req.Messages {
+		history = append(history, &ToolHistoryMessage{
+			Role:    message.Role,
+			Content: message.Content,
+		})
+	}
+
+	return history
+}
+
 func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
 	var history []*ToolHistoryMessage
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -52,7 +53,14 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	if len(ragResults) > 0 {
+		// Extend last message with the RAG results
+		extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
+		if err != nil {
+			return openai.ChatCompletionResponse{}, fmt.Errorf("failed to extend message with RAG results: %w", err)
+		}
 
+		// Update the last message with the extended message
+		req.Messages[len(req.Messages)-1].Content = extended
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
@@ -83,11 +91,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	}
 
 	// Get last message from the chat completion messages
-	var lastMessage string
-
-	if len(req.Messages) > 0 {
-		lastMessage = req.Messages[len(req.Messages)-1].Content
-	}
+	lastMessage := getLastMessage(req)
 
 	var options []tools.Option
 
@@ -99,7 +103,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	// TODO: replace history with other types so we don't put in whole
 	// integrations as we don't have that type here
 
-	history := []*types.ToolHistoryMessage{}
+	history := types.HistoryFromChatCompletionRequest(req)
 
 	_, sessionID, interactionID := oai.GetContextValues(ctx)
 
@@ -171,15 +175,8 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
 	}
 
-	// Get last message from the chat completion messages
-	var lastMessage string
-
-	if len(req.Messages) > 0 {
-		lastMessage = req.Messages[len(req.Messages)-1].Content
-	}
-
 	return c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
-		Prompt:            lastMessage,
+		Prompt:            getLastMessage(req),
 		DataEntityID:      entity.ID,
 		DistanceThreshold: entity.Config.RAGSettings.Threshold,
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
@@ -206,6 +203,14 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 // SaveChatCompletion used to persist the chat completion response to the database as a session.
 func (c *Controller) SaveChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, resp openai.ChatCompletionResponse) error {
 	return nil
+}
+
+func getLastMessage(req openai.ChatCompletionRequest) string {
+	if len(req.Messages) > 0 {
+		return req.Messages[len(req.Messages)-1].Content
+	}
+
+	return ""
 }
 
 func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequest, error) {
