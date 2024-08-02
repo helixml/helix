@@ -68,7 +68,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	}
 
 	if len(assistant.Tools) == 0 {
-		return nil, false, fmt.Errorf("no tools found in assistant")
+		return nil, false, nil
 	}
 
 	// Get last message from the chat completion messages
