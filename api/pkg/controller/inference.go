@@ -72,6 +72,55 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	return resp, nil
 }
 
+// ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
+// Runs the OpenAI with tools/app configuration and returns the stream.
+func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
+
+	// Check whether the app is configured for the call,
+	// if yes, execute the tools and return the response
+	// toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to load tools: %w", err)
+	// }
+
+	// if ok {
+	// return openai.ChatCompletionStream{
+	// 	Choices: []openai.ChatCompletionChoice{
+	// 		{
+	// 			Message: openai.ChatCompletionMessage{
+	// 				Content: toolResp.Message,
+	// 			},
+	// 		},
+	// 	},
+	// }, nil
+	// }
+
+	// Check for an extra RAG context
+	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load RAG: %w", err)
+	}
+
+	if len(ragResults) > 0 {
+		// Extend last message with the RAG results
+		extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
+		if err != nil {
+			return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
+		}
+
+		// Update the last message with the extended message
+		req.Messages[len(req.Messages)-1].Content = extended
+	}
+
+	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		log.Err(err).Msg("error creating chat completion stream")
+		return nil, err
+	}
+
+	return stream, nil
+}
+
 func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
 	if (!app.Global && !app.Shared) && app.Owner != user.ID {
 		return system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
@@ -182,22 +231,6 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 	})
-}
-
-// ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
-// Runs the OpenAI with tools/app configuration and returns the stream.
-func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
-
-	// TODO: setup app settings
-	// TODO: setup RAG prompt if source set
-
-	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
-	if err != nil {
-		log.Err(err).Msg("error creating chat completion stream")
-		return nil, err
-	}
-
-	return stream, nil
 }
 
 // SaveChatCompletion used to persist the chat completion response to the database as a session.
