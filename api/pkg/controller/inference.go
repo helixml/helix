@@ -89,7 +89,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	// TODO: replace history with other types so we don't put in whole
 	// integrations as we don't have that type here
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	_, sessionID, interactionID := oai.GetContextValues(ctx)
 
