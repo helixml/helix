@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/helixml/helix/api/pkg/data"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 
 	openai "github.com/lukemarsden/go-openai2"
@@ -20,7 +22,17 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (openai.ChatCompletionResponse, error) {
 
-	// TODO: setup app settings
+	if opts.AppID != "" {
+		app, err := c.Options.Store.GetApp(ctx, opts.AppID)
+		if err != nil {
+			return openai.ChatCompletionResponse{}, fmt.Errorf("error getting app: %w", err)
+		}
+
+		if err := c.authorizeUserToApp(user, app); err != nil {
+			return openai.ChatCompletionResponse{}, err
+		}
+	}
+
 	// TODO: setup RAG prompt if source set
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
@@ -30,6 +42,37 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	return resp, nil
+}
+
+func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
+	if (!app.Global && !app.Shared) && app.Owner != user.ID {
+		return system.NewHTTPError403(fmt.Sprintf("you do not have access to the app with the id: %s", app.ID))
+	}
+
+	return nil
+}
+
+func (c *Controller) loadTools(ctx context.Context, user *types.User, opts *ChatCompletionOptions) ([]*types.Tool, error) {
+	if opts.AppID == "" {
+		return []*types.Tool{}, nil
+	}
+
+	app, err := c.Options.Store.GetApp(ctx, opts.AppID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting app: %w", err)
+	}
+
+	if (!app.Global && !app.Shared) && app.Owner != user.ID {
+		return nil, fmt.Errorf("you do not have access to the app with the id: %s", app.ID)
+	}
+
+	assistant := data.GetAssistant(app, opts.AssistantID)
+
+	if assistant == nil {
+		return nil, fmt.Errorf("we could not find the assistant with ID %s, in app %s", opts.AssistantID, app.ID)
+	}
+
+	return assistant.Tools, nil
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.

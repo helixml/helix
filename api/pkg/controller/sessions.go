@@ -564,7 +564,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
 			}
 			for _, tool := range assistant.Tools {
-				activeTools = append(activeTools, &tool)
+				activeTools = append(activeTools, tool)
 			}
 		}
 	} else {

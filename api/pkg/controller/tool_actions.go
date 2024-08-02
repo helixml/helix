@@ -49,7 +49,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 
 		for _, appTool := range assistant.Tools {
 			if appTool.ID == toolID {
-				tool = &appTool
+				tool = appTool
 			}
 		}
 	} else {
