@@ -26,6 +26,8 @@ type ChatCompletionOptions struct {
 // Runs the OpenAI with tools/app configuration and returns the response.
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (openai.ChatCompletionResponse, error) {
 
+	// Check whether the app is configured for the call,
+	// if yes, execute the tools and return the response
 	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 	if err != nil {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to load tools: %w", err)
@@ -43,7 +45,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		}, nil
 	}
 
-	// TODO: setup RAG prompt if source set
+	// Check for an extra RAG context
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
 	if err != nil {
