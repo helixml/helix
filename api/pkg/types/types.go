@@ -711,6 +711,37 @@ type Counter struct {
 	Count int64 `json:"count"`
 }
 
+type ToolHistoryMessage struct {
+	Role    string
+	Content string
+}
+
+func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
+	var history []*ToolHistoryMessage
+
+	for _, interaction := range interactions {
+		switch interaction.Creator {
+		case CreatorTypeUser:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: interaction.Message,
+			})
+		case CreatorTypeSystem:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		case CreatorTypeTool:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleTool,
+				Content: interaction.Message,
+			})
+		}
+	}
+
+	return history
+}
+
 type ToolType string
 
 const (

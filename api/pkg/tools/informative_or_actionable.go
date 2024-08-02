@@ -24,7 +24,7 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, currentMessage string, options ...Option) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
 			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage, options...)
@@ -49,7 +49,7 @@ func (c *ChainStrategy) getDefaultOptions() Options {
 	}
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.Interaction, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, currentMessage string, options ...Option) (*IsActionableResponse, error) {
 	opts := c.getDefaultOptions()
 
 	for _, opt := range options {
@@ -85,19 +85,19 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	messages = append(messages, systemPrompt)
 
-	for _, interaction := range history {
-		switch interaction.Creator {
-		case types.CreatorTypeUser:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleUser,
-				Content: interaction.Message,
-			})
-		case types.CreatorTypeSystem:
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: interaction.Message,
-			})
-		}
+	for _, msg := range history {
+		// switch msg. {
+		// case types.CreatorTypeUser:
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+		// case types.CreatorTypeSystem:
+		// 	messages = append(messages, openai.ChatCompletionMessage{
+		// 		Role:    openai.ChatMessageRoleAssistant,
+		// 		Content: interaction.Message,
+		// 	})
+		// }
 	}
 
 	// Adding current message
