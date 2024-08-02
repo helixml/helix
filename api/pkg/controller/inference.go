@@ -46,6 +46,14 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	}
 
 	// Check for an extra RAG context
+	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	if err != nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to load RAG: %w", err)
+	}
+
+	if len(ragResults) > 0 {
+
+	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -147,6 +155,36 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	}
 
 	return assistant, nil
+}
+
+func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*types.SessionRAGResult, error) {
+	if opts.RAGSourceID == "" {
+		return []*types.SessionRAGResult{}, nil
+	}
+
+	entity, err := c.Options.Store.GetDataEntity(ctx, opts.RAGSourceID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting data entity: %w", err)
+	}
+
+	if entity.Owner != user.ID {
+		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
+	}
+
+	// Get last message from the chat completion messages
+	var lastMessage string
+
+	if len(req.Messages) > 0 {
+		lastMessage = req.Messages[len(req.Messages)-1].Content
+	}
+
+	return c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
+		Prompt:            lastMessage,
+		DataEntityID:      entity.ID,
+		DistanceThreshold: entity.Config.RAGSettings.Threshold,
+		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
+		MaxResults:        entity.Config.RAGSettings.ResultsCount,
+	})
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
