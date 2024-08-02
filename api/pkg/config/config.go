@@ -28,6 +28,7 @@ type ServerConfig struct {
 	Apps               Apps
 	GPTScript          GPTScript
 	Triggers           Triggers
+	Inference          Inference
 }
 
 func LoadServerConfig() (ServerConfig, error) {
@@ -37,6 +38,10 @@ func LoadServerConfig() (ServerConfig, error) {
 		return ServerConfig{}, err
 	}
 	return cfg, nil
+}
+
+type Inference struct {
+	Provider Provider `envconfig:"INFERENCE_PROVIDER" default:"togetherai"`
 }
 
 // Providers is used to configure the various AI providers that we use
