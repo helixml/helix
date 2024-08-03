@@ -148,7 +148,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		go func() {
-			s.streamUpdates(user, startReq.SessionID, stream)
+			s.streamUpdates(user, session, stream)
 		}()
 
 		sessionDataJSON, err := json.Marshal(session)
@@ -168,9 +168,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 // streamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, stream *openai.ChatCompletionStream) {
+func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	var responseMessage string
+
 	for {
 		response, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -181,10 +184,13 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, strea
 			return
 		}
 
+		// Accumulate the response
+		responseMessage += response.Choices[0].Delta.Content
+
 		bts, err := json.Marshal(&types.WebsocketEvent{
 			Type: "worker_task_response",
 			Session: &types.Session{
-				ID: sessionID,
+				ID: session.ID,
 			},
 			WorkerTaskResponse: &types.RunnerTaskResponse{
 				Type:    types.WorkerTaskResponseTypeStream,
@@ -193,7 +199,7 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, strea
 			},
 		})
 
-		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
+		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to publish message")
 		}
@@ -203,7 +209,7 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, strea
 	bts, err := json.Marshal(&types.WebsocketEvent{
 		Type: "worker_task_response",
 		Session: &types.Session{
-			ID: sessionID,
+			ID: session.ID,
 		},
 		WorkerTaskResponse: &types.RunnerTaskResponse{
 			Type:    types.WorkerTaskResponseTypeStream,
@@ -212,21 +218,13 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, strea
 		},
 	})
 
-	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
+	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish message")
 	}
 
-	// Now send the updated session
-	bts, err = json.Marshal(&types.WebsocketEvent{
-		Type: "session_update",
-		Session: &types.Session{
-			ID: sessionID,
-		},
-	})
+	// Update last interaction
+	session.Interactions[len(session.Interactions)-1].Message = responseMessage
 
-	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to publish message")
-	}
+	s.Controller.WriteSession(session)
 }
