@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
@@ -97,10 +99,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
 		}
+
+		session *types.Session
 	)
 
 	if startReq.SessionID != "" {
-		session, err := s.Store.GetSession(ctx, startReq.SessionID)
+		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
 			return
@@ -108,6 +112,28 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 		if session.Owner != user.ID {
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		session, err = s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
+			SessionID: startReq.SessionID,
+			UserInteraction: &types.Interaction{
+				ID:        system.GenerateUUID(),
+				Created:   time.Now(),
+				Updated:   time.Now(),
+				Scheduled: time.Now(),
+				Completed: time.Now(),
+				Mode:      types.SessionModeInference,
+				Creator:   types.CreatorTypeUser,
+				State:     types.InteractionStateComplete,
+				Finished:  true,
+				Message:   message,
+			},
+			SessionMode: types.SessionModeInference,
+		})
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
+			log.Error().Err(err).Msg("failed to start session")
 			return
 		}
 	} else {
@@ -125,18 +151,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			s.streamUpdates(user, startReq.SessionID, stream)
 		}()
 
-		return
-	}
-
-	if !startReq.Stream {
-		resp, err := s.Controller.ChatCompletion(req.Context(), user, chatCompletionRequest, options)
+		sessionDataJSON, err := json.Marshal(session)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		rw.Write(sessionDataJSON)
 
 		return
 	}
+
+	http.Error(rw, "not implemented", http.StatusNotImplemented)
 }
 
 // streamUpdates writes the event to pubsub so user's browser can pick them
@@ -202,5 +229,4 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, strea
 	if err != nil {
 		log.Error().Err(err).Msg("failed to publish message")
 	}
-
 }
