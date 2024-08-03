@@ -65,6 +65,7 @@ func TransformModelName(modelName string) (ModelName, error) {
 
 // this will handle aliases and defaults
 func ProcessModelName(
+	provider string,
 	modelName string,
 	sessionMode SessionMode,
 	sessionType SessionType,
@@ -76,6 +77,13 @@ func ProcessModelName(
 		if sessionType == SessionTypeText && !ragEnabled && (sessionMode == SessionModeFinetune || hasFinetune) {
 			// fine tuning doesn't work with ollama yet
 			return Model_Axolotl_Mistral7b, nil
+		}
+
+		switch provider {
+		case "togetherai":
+			return ModelName("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"), nil
+		default:
+			// TODO
 		}
 
 		// switch based on user toggle

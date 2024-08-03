@@ -68,6 +68,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	if err != nil {
+		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Default to text
 	if startReq.Type == "" {
 		startReq.Type = types.SessionTypeText
@@ -81,7 +87,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: startReq.Model,
+			Model: modelName.String(),
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -114,33 +120,62 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-
-		session, err = s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-			SessionID: startReq.SessionID,
-			UserInteraction: &types.Interaction{
-				ID:        system.GenerateUUID(),
-				Created:   time.Now(),
-				Updated:   time.Now(),
-				Scheduled: time.Now(),
-				Completed: time.Now(),
-				Mode:      types.SessionModeInference,
-				Creator:   types.CreatorTypeUser,
-				State:     types.InteractionStateComplete,
-				Finished:  true,
-				Message:   message,
-			},
-			SessionMode: types.SessionModeInference,
-		})
-		if err != nil {
-			http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-			log.Error().Err(err).Msg("failed to start session")
-			return
-		}
 	} else {
 		// Create session
+		session = &types.Session{
+			ID:        system.GenerateSessionID(),
+			Mode:      types.SessionModeInference,
+			Type:      types.SessionTypeText,
+			ModelName: types.ModelName(startReq.Model),
+			ParentApp: startReq.AppID,
+			Owner:     user.ID,
+			OwnerType: user.Type,
+			Metadata: types.SessionMetadata{
+				RAGSourceID: options.RAGSourceID,
+				AssistantID: options.AssistantID,
+			},
+		}
+
+		if options.RAGSourceID != "" {
+			session.Metadata.RagEnabled = true
+		}
+	}
+
+	session.Interactions = append(session.Interactions,
+		&types.Interaction{
+			ID:        system.GenerateUUID(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Scheduled: time.Now(),
+			Completed: time.Now(),
+			Mode:      types.SessionModeInference,
+			Creator:   types.CreatorTypeUser,
+			State:     types.InteractionStateComplete,
+			Finished:  true,
+			Message:   message,
+		},
+		&types.Interaction{
+			ID:       system.GenerateUUID(),
+			Created:  time.Now(),
+			Updated:  time.Now(),
+			Creator:  types.CreatorTypeSystem,
+			Mode:     types.SessionModeInference,
+			Message:  "",
+			State:    types.InteractionStateWaiting,
+			Finished: false,
+			Metadata: map[string]string{},
+		},
+	)
+
+	// Write session
+	err = s.Controller.WriteSession(session)
+	if err != nil {
+		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if startReq.Legacy {
+		fmt.Println("XXX going into legacy mode", session.ID)
 		stream, err := s.Controller.ChatCompletionStream(req.Context(), user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -172,6 +207,9 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	fmt.Println("stream start")
+	defer fmt.Println("stream stop")
+
 	var responseMessage string
 
 	for {
@@ -183,6 +221,8 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 			log.Err(err).Msg("error receiving stream")
 			return
 		}
+
+		fmt.Println("XX response", response)
 
 		// Accumulate the response
 		responseMessage += response.Choices[0].Delta.Content

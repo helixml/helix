@@ -678,13 +678,14 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 // generic "update this session handler"
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
-func (c *Controller) WriteSession(session *types.Session) {
+func (c *Controller) WriteSession(session *types.Session) error {
 	log.Trace().
 		Msgf("🔵 update session: %s %+v", session.ID, session)
 
 	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
+		return err
 	}
 
 	event := &types.WebsocketEvent{
@@ -695,6 +696,8 @@ func (c *Controller) WriteSession(session *types.Session) {
 	}
 
 	_ = c.publishEvent(context.Background(), event)
+
+	return nil
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {
