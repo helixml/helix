@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,30 +25,9 @@ import (
 // @Param request    body types.SessionChatRequest true "Request body with the message and model to start chat completion.")
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
-func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+func (s *HelixAPIServer) startChatSessionLegacyHandler(ctx context.Context, user *types.User, startReq *types.SessionChatRequest, req *http.Request, rw http.ResponseWriter) {
 
-	var startReq types.SessionChatRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
-	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if len(startReq.Messages) == 0 {
-		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
-		return
-	}
-
-	// If more than 1, also not allowed just yet for simplification
-	if len(startReq.Messages) > 1 {
-		http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
-		return
-	}
-
-	ctx := req.Context()
-	user := getRequestUser(req)
-
-	status, err := s.Controller.GetStatus(req.Context(), user)
+	status, err := s.Controller.GetStatus(ctx, user)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
