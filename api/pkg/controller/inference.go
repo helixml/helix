@@ -46,13 +46,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	if len(ragResults) > 0 {
 		// Extend last message with the RAG results
-		extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
+		err := extendMessageWithRAGResults(&req, ragResults)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
+			return nil, err
 		}
-
-		// Update the last message with the extended message
-		req.Messages[len(req.Messages)-1].Content = extended
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
@@ -84,13 +81,17 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	if len(ragResults) > 0 {
 		// Extend last message with the RAG results
-		extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
+		err := extendMessageWithRAGResults(&req, ragResults)
 		if err != nil {
-			return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
+			return nil, err
 		}
+		// extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
+		// }
 
-		// Update the last message with the extended message
-		req.Messages[len(req.Messages)-1].Content = extended
+		// // Update the last message with the extended message
+		// req.Messages[len(req.Messages)-1].Content = extended
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
@@ -258,6 +259,19 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 	})
+}
+
+func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults []*types.SessionRAGResult) error {
+	lastMessage := getLastMessage(*req)
+
+	extended, err := prompts.RAGInferencePrompt(lastMessage, ragResults)
+	if err != nil {
+		return fmt.Errorf("failed to extend message with RAG results: %w", err)
+	}
+
+	req.Messages[len(req.Messages)-1].Content = extended
+
+	return nil
 }
 
 // SaveChatCompletion used to persist the chat completion response to the database as a session.
