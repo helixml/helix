@@ -85,13 +85,6 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		if err != nil {
 			return nil, err
 		}
-		// extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
-		// }
-
-		// // Update the last message with the extended message
-		// req.Messages[len(req.Messages)-1].Content = extended
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
