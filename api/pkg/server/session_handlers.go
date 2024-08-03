@@ -2,11 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
-	"github.com/helixml/helix/api/pkg/system"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
 )
 
 // startSessionHandler godoc
@@ -27,6 +29,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	// Allow overriding from URL queries
+	if appID := req.URL.Query().Get("app_id"); appID != "" {
+		startReq.AppID = appID
+	}
+
+	if ragSourceID := req.URL.Query().Get("assistant_id"); ragSourceID != "" {
+		startReq.RAGSourceID = ragSourceID
+	}
+
+	if assistantID := req.URL.Query().Get("rag_source_id"); assistantID != "" {
+		startReq.AssistantID = assistantID
+	}
+
 	if len(startReq.Messages) == 0 {
 		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
 		return
@@ -41,11 +56,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	ctx := req.Context()
 	user := getRequestUser(req)
 
-	status, err := s.Controller.GetStatus(req.Context(), user)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// status, err := s.Controller.GetStatus(req.Context(), user)
+	// if err != nil {
+	// 	http.Error(rw, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" {
@@ -58,103 +73,63 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	if startReq.SessionID == "" {
-
-	}
-}
-
-// startLearnSessionHandler godoc
-// @Summary Start new fine tuning and/or rag source generation session
-// @Description Start new fine tuning and/or RAG source generation session
-// @Tags    learn
-
-// @Success 200 {object} types.Session
-// @Param request    body types.SessionLearnRequest true "Request body with settings for the learn session.")
-// @Router /api/v1/sessions/learn [post]
-// @Security BearerAuth
-func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *http.Request) {
-
-	var startReq types.SessionLearnRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
-	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
+	message, ok := startReq.Message()
+	if !ok {
+		http.Error(rw, "invalid message", http.StatusBadRequest)
 		return
 	}
 
-	if startReq.DataEntityID == "" {
-		http.Error(rw, "data entity ID not be empty", http.StatusBadRequest)
+	var (
+		chatCompletionRequest = openai.ChatCompletionRequest{
+			Model: startReq.Model,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: startReq.SystemPrompt,
+				},
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: message,
+				},
+			},
+		}
+
+		options = &controller.ChatCompletionOptions{
+			AppID:       startReq.AppID,
+			AssistantID: startReq.AssistantID,
+			RAGSourceID: startReq.RAGSourceID,
+		}
+	)
+
+	if startReq.SessionID != "" {
+		session, err := s.Store.GetSession(ctx, startReq.SessionID)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
+			return
+		}
+
+		if session.Owner != user.ID {
+			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+	}
+
+	if startReq.Legacy {
+
+		// TODO:
+		// 1. Write session
+
 		return
 	}
 
-	user := getRequestUser(req)
-	ctx := req.Context()
+	if !startReq.Stream {
+		resp, err := s.Controller.ChatCompletion(req.Context(), user, chatCompletionRequest, options)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	ownerContext := getOwnerContext(req)
-
-	status, err := s.Controller.GetStatus(ctx, user)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Default to text
-	if startReq.Type == "" {
-		startReq.Type = types.SessionTypeText
-	}
-
-	dataEntity, err := s.Store.GetDataEntity(ctx, startReq.DataEntityID)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if dataEntity.Owner != user.ID {
-		http.Error(rw, "you must own the data entity", http.StatusBadRequest)
-		return
-	}
-
-	// TODO: data entity pipelines where we don't even need a session
-	userInteraction, err := s.getUserInteractionFromDataEntity(dataEntity, ownerContext)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sessionID := system.GenerateSessionID()
-	createRequest := types.InternalSessionRequest{
-		ID:                  sessionID,
-		Mode:                types.SessionModeFinetune,
-		ModelName:           model,
-		Type:                startReq.Type,
-		Stream:              true,
-		Owner:               user.ID,
-		OwnerType:           user.Type,
-		UserInteractions:    []*types.Interaction{userInteraction},
-		Priority:            status.Config.StripeSubscriptionActive,
-		UploadedDataID:      dataEntity.ID,
-		RAGEnabled:          startReq.RagEnabled,
-		TextFinetuneEnabled: startReq.TextFinetuneEnabled,
-		RAGSettings:         startReq.RagSettings,
-	}
-
-	sessionData, err := s.Controller.StartSession(ctx, user, createRequest)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sessionDataJSON, err := json.Marshal(sessionData)
-	if err != nil {
-		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	rw.Header().Set("Content-Type", "application/json")
-	rw.WriteHeader(http.StatusOK)
-	rw.Write(sessionDataJSON)
 }
