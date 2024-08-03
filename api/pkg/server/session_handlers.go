@@ -1,14 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
+	"github.com/rs/zerolog/log"
 )
 
 // startSessionHandler godoc
@@ -55,12 +59,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	ctx := req.Context()
 	user := getRequestUser(req)
-
-	// status, err := s.Controller.GetStatus(req.Context(), user)
-	// if err != nil {
-	// 	http.Error(rw, err.Error(), http.StatusInternalServerError)
-	// 	return
-	// }
 
 	// For finetunes, legacy route
 	if startReq.LoraDir != "" {
@@ -112,12 +110,20 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
+	} else {
+		// Create session
 	}
 
 	if startReq.Legacy {
+		stream, err := s.Controller.ChatCompletionStream(req.Context(), user, chatCompletionRequest, options)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-		// TODO:
-		// 1. Write session
+		go func() {
+			s.streamUpdates(user, startReq.SessionID, stream)
+		}()
 
 		return
 	}
@@ -130,6 +136,71 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		return
+	}
+}
+
+// streamUpdates writes the event to pubsub so user's browser can pick them
+// up and update the session in the UI
+func (s *HelixAPIServer) streamUpdates(user *types.User, sessionID string, stream *openai.ChatCompletionStream) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			log.Err(err).Msg("error receiving stream")
+			return
+		}
+
+		bts, err := json.Marshal(&types.WebsocketEvent{
+			Type: "worker_task_response",
+			Session: &types.Session{
+				ID: sessionID,
+			},
+			WorkerTaskResponse: &types.RunnerTaskResponse{
+				Type:    types.WorkerTaskResponseTypeStream,
+				Message: response.Choices[0].Delta.Content,
+				Done:    false,
+			},
+		})
+
+		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to publish message")
+		}
+	}
+
+	// Send the final message that it's done
+	bts, err := json.Marshal(&types.WebsocketEvent{
+		Type: "worker_task_response",
+		Session: &types.Session{
+			ID: sessionID,
+		},
+		WorkerTaskResponse: &types.RunnerTaskResponse{
+			Type:    types.WorkerTaskResponseTypeStream,
+			Message: "",
+			Done:    true,
+		},
+	})
+
+	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish message")
+	}
+
+	// Now send the updated session
+	bts, err = json.Marshal(&types.WebsocketEvent{
+		Type: "session_update",
+		Session: &types.Session{
+			ID: sessionID,
+		},
+	})
+
+	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, sessionID), bts)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish message")
 	}
 
 }
