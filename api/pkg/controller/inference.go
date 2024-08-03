@@ -212,13 +212,6 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	}
 
 	return selectedTool, isActionable, true, nil
-
-	// resp, err := c.ToolsPlanner.RunAction(ctx, sessionID, interactionID, selectedTool, history, lastMessage, isActionable.Api)
-	// if err != nil {
-	// 	return nil, false, fmt.Errorf("failed to perform action: %w", err)
-	// }
-
-	// return resp, true, nil
 }
 
 func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *ChatCompletionOptions) (*types.AssistantConfig, error) {
