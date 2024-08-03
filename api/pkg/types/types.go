@@ -206,6 +206,18 @@ type SessionChatRequest struct {
 	LoraID string `json:"lora_id"`
 }
 
+func (s *SessionChatRequest) Message() (string, bool) {
+	if len(s.Messages) == 0 {
+		return "", false
+	}
+	if len(s.Messages[0].Content.Parts) == 0 {
+		return "", false
+	}
+
+	message, ok := s.Messages[0].Content.Parts[0].(string)
+	return message, ok
+}
+
 // the user wants to create a Lora or RAG source
 // we turn this into a InternalSessionRequest
 type SessionLearnRequest struct {
