@@ -719,6 +719,11 @@ type ToolHistoryMessage struct {
 func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
 	var history []*ToolHistoryMessage
 
+	// If it's just one message, return an empty history
+	if len(req.Messages) <= 1 {
+		return history
+	}
+
 	// Copy the messages from the request into history messages
 	// Remove the last message, as it's the one we're currently processing
 	for _, message := range req.Messages[:len(req.Messages)-1] {
