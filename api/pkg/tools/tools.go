@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 
+	oai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -24,6 +25,7 @@ type Planner interface {
 	IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, currentMessage string, options ...Option) (*IsActionableResponse, error)
 	// TODO: RAG lookup
 	RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error)
+	RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*oai.ChatCompletionStream, error)
 	// Validation and defaulting
 	ValidateAndDefault(ctx context.Context, tool *types.Tool) (*types.Tool, error)
 }
