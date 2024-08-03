@@ -233,6 +233,7 @@ export const replaceMessageText = (
 ): string => {
   const document_ids = session.config.document_ids || {}
   const allNonTextFiles = session.interactions.reduce((acc: string[], interaction) => {
+    if (!interaction.files || interaction.files.length <= 0) return acc
     return acc.concat(interaction.files.filter(f => f.match(/\.txt$/i) ? false : true))
   }, [])
 

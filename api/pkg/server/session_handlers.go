@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
@@ -129,6 +130,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Create session
 		session = &types.Session{
 			ID:        system.GenerateSessionID(),
+			Name:      system.GenerateAmusingName(),
 			Created:   time.Now(),
 			Updated:   time.Now(),
 			Mode:      types.SessionModeInference,
@@ -138,8 +140,14 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			Owner:     user.ID,
 			OwnerType: user.Type,
 			Metadata: types.SessionMetadata{
-				RAGSourceID: options.RAGSourceID,
-				AssistantID: options.AssistantID,
+				Stream:       startReq.Stream,
+				SystemPrompt: startReq.SystemPrompt,
+				RAGSourceID:  options.RAGSourceID,
+				AssistantID:  options.AssistantID,
+				Origin: types.SessionOrigin{
+					Type: types.SessionOriginTypeUserCreated,
+				},
+				HelixVersion: data.GetHelixVersion(),
 			},
 		}
 
