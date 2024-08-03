@@ -25,30 +25,30 @@ type ChatCompletionOptions struct {
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
-func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (openai.ChatCompletionResponse, error) {
+func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
 
 	// Check whether the app is configured for the call,
 	// if yes, execute the tools and return the response
 	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 	if err != nil {
-		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to load tools: %w", err)
+		return nil, fmt.Errorf("failed to load tools: %w", err)
 	}
 
 	if ok {
-		return *toolResp, nil
+		return toolResp, nil
 	}
 
 	// Check for an extra RAG context
 	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
 	if err != nil {
-		return openai.ChatCompletionResponse{}, fmt.Errorf("failed to load RAG: %w", err)
+		return nil, fmt.Errorf("failed to load RAG: %w", err)
 	}
 
 	if len(ragResults) > 0 {
 		// Extend last message with the RAG results
 		extended, err := prompts.RAGInferencePrompt(getLastMessage(req), ragResults)
 		if err != nil {
-			return openai.ChatCompletionResponse{}, fmt.Errorf("failed to extend message with RAG results: %w", err)
+			return nil, fmt.Errorf("failed to extend message with RAG results: %w", err)
 		}
 
 		// Update the last message with the extended message
@@ -58,10 +58,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
-		return openai.ChatCompletionResponse{}, err
+		return nil, err
 	}
 
-	return resp, nil
+	return &resp, nil
 }
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
