@@ -2,14 +2,14 @@ import puppeteer from 'puppeteer'
 
 
 (async () => {
-  const browser = await puppeteer.launch({headless: true });
+  const browser = await puppeteer.launch({headless: false });
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
 
-  await page.goto('http://localhost:8080');
+  await page.goto('http://app.tryhelix.ai');
  
 
-  await page.waitForSelector('#login-button', { visible: false });
+  await page.waitForSelector('#login-button', { visible: true });
   await page.click('#login-button');
   await page.screenshot({ path: 'screenshots/after-click-login-button.png', fullPage: true });
  
@@ -31,7 +31,7 @@ import puppeteer from 'puppeteer'
   await page.click('#new-session-link');
   await page.screenshot({ path: 'screenshots/after-click-new-session-link.png', fullPage: true });
 
-  await page.waitForSelector('#learn-mode', { visible: true });
+  await page.waitForSelector('#learn-mode', { visible: true, timeout: 60000 });
   await page.click('#learn-mode');
   await page.screenshot({ path: 'screenshots/after-click-learn-mode.png', fullPage: true });
 
