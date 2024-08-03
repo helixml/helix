@@ -67,25 +67,6 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
-
-	// Check whether the app is configured for the call,
-	// if yes, execute the tools and return the response
-	// toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to load tools: %w", err)
-	// }
-
-	// if ok {
-	// return openai.ChatCompletionStream{
-	// 	Choices: []openai.ChatCompletionChoice{
-	// 		{
-	// 			Message: openai.ChatCompletionMessage{
-	// 				Content: toolResp.Message,
-	// 			},
-	// 		},
-	// 	},
-	// }, nil
-	// }
 	toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tools: %w", err)
