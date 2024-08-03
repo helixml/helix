@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -79,6 +80,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
+	if startReq.SystemPrompt == "" {
+		startReq.SystemPrompt = "You are a helpful assistant."
+	}
+
 	message, ok := startReq.Message()
 	if !ok {
 		http.Error(rw, "invalid message", http.StatusBadRequest)
@@ -124,6 +129,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		// Create session
 		session = &types.Session{
 			ID:        system.GenerateSessionID(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
 			Mode:      types.SessionModeInference,
 			Type:      types.SessionTypeText,
 			ModelName: types.ModelName(startReq.Model),
@@ -174,9 +181,13 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
+
 	if startReq.Legacy {
-		fmt.Println("XXX going into legacy mode", session.ID)
-		stream, err := s.Controller.ChatCompletionStream(req.Context(), user, chatCompletionRequest, options)
+		// Always set to streaming for legacy sessions
+		chatCompletionRequest.Stream = true
+
+		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
