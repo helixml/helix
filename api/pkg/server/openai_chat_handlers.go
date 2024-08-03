@@ -52,52 +52,53 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		RAGSourceID: r.URL.Query().Get("rag_source_id"),
 	}
 
-	if chatCompletionRequest.Stream {
-		stream, err := apiServer.Controller.ChatCompletionStream(r.Context(), user, chatCompletionRequest, options)
+	// Non-streaming request returns the response immediately
+	if !chatCompletionRequest.Stream {
+		resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer stream.Close()
 
-		rw.Header().Set("Content-Type", "text/event-stream")
-		rw.Header().Set("Cache-Control", "no-cache")
-		rw.Header().Set("Connection", "keep-alive")
-
-		// Write the stream into the response
-		for {
-			response, err := stream.Recv()
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// Write the response to the client
-			bts, err := json.Marshal(response)
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			writeChunk(rw, bts)
+		rw.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(rw).Encode(resp)
+		if err != nil {
+			log.Err(err).Msg("error writing response")
 		}
-
 		return
 	}
 
-	// Non-streaming request
-	resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, options)
+	// Streaming request, receive and write the stream in chunks
+	stream, err := apiServer.Controller.ChatCompletionStream(r.Context(), user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer stream.Close()
 
-	rw.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(rw).Encode(resp)
-	if err != nil {
-		log.Err(err).Msg("error writing response")
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+
+	// Write the stream into the response
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Write the response to the client
+		bts, err := json.Marshal(response)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeChunk(rw, bts)
 	}
+
 }
