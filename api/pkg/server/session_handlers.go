@@ -295,6 +295,10 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			return err
 		}
 
+		// Accumulate the response
+		fullResponse += response.Choices[0].Delta.Content
+
+		// Update the response with the interaction ID
 		response.ID = interactionID
 
 		// Write the response to the client
@@ -332,8 +336,6 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 			log.Err(err).Msg("error receiving stream")
 			return
 		}
-
-		fmt.Println("streaming response", response.Choices[0].Delta.Content)
 
 		// Accumulate the response
 		responseMessage += response.Choices[0].Delta.Content
