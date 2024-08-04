@@ -218,12 +218,16 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			log.Err(err).Msg("error handling blocking session")
 		}
 		return
 	}
 
-	http.Error(rw, "not implemented", http.StatusNotImplemented)
+	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
+	if err != nil {
+		log.Err(err).Msg("error handling blocking session")
+	}
+	return
 }
 
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
