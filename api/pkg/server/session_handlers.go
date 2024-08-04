@@ -220,7 +220,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 		}
-
 		return
 	}
 
@@ -257,7 +256,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 			ToolCalls:  chatCompletionResponse.Choices[0].Message.ToolCalls,
 			ToolCallID: chatCompletionResponse.Choices[0].Message.ToolCallID,
 		},
-		FinishReason: "stop",
+		FinishReason: string(chatCompletionResponse.Choices[0].FinishReason),
 	})
 
 	resp := &types.OpenAIResponse{
@@ -281,6 +280,55 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	}
 
 	return nil
+}
+
+func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	// Ensure request is not streaming
+	chatCompletionRequest.Stream = true
+	// Call the LLM
+	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return nil
+	}
+	defer stream.Close()
+
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+
+	var fullResponse string
+
+	// Write the stream into the response
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+
+		chunk := createChatCompletionChunk(session.ID, chatCompletionRequest.Model, response.Choices[0].Delta.Content)
+		chunk.Choices[0].FinishReason = string(response.Choices[0].FinishReason)
+
+		fullResponse += response.Choices[0].Delta.Content
+
+		// Write the response to the client
+		bts, err := json.Marshal(chunk)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+
+		writeChunk(rw, bts)
+	}
+
+	// Update last interaction
+	session.Interactions[len(session.Interactions)-1].Message = fullResponse
+
+	return s.Controller.WriteSession(session)
 }
 
 // legacyStreamUpdates writes the event to pubsub so user's browser can pick them
