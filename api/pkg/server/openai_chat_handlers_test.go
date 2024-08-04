@@ -16,7 +16,10 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -29,8 +32,9 @@ func TestOpenAIChatSuite(t *testing.T) {
 type OpenAIChatSuite struct {
 	suite.Suite
 
-	store  *store.MockStore
-	pubsub pubsub.PubSub
+	store        *store.MockStore
+	pubsub       pubsub.PubSub
+	openAiClient *openai.MockClient
 
 	authCtx context.Context
 	userID  string
@@ -45,7 +49,11 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	ps, err := pubsub.New(suite.T().TempDir())
 	suite.NoError(err)
 
+	suite.openAiClient = openai.NewMockClient(ctrl)
 	suite.pubsub = ps
+
+	filestoreMock := filestore.NewMockFileStore(ctrl)
+	extractorMock := extract.NewMockExtractor(ctrl)
 
 	suite.userID = "user_id"
 	suite.authCtx = setRequestUser(context.Background(), types.User{
@@ -57,15 +65,26 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
 
+	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
+		Config:       cfg,
+		Store:        suite.store,
+		Janitor:      janitor.NewJanitor(config.Janitor{}),
+		OpenAIClient: suite.openAiClient,
+		Filestore:    filestoreMock,
+		Extractor:    extractorMock,
+	})
+	suite.NoError(err)
+
 	suite.server = &HelixAPIServer{
-		pubsub: suite.pubsub,
-		Controller: &controller.Controller{
-			Options: controller.ControllerOptions{
-				Config:  cfg,
-				Store:   suite.store,
-				Janitor: janitor.NewJanitor(config.Janitor{}),
-			},
-		},
+		pubsub:     suite.pubsub,
+		Controller: c,
+		// Controller: &controller.Controller{
+		// 	Options: controller.ControllerOptions{
+		// 		Config:  cfg,
+		// 		Store:   suite.store,
+		// 		Janitor: janitor.NewJanitor(config.Janitor{}),
+		// 	},
+		// },
 	}
 }
 
