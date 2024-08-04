@@ -193,9 +193,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
 
 	if startReq.Legacy {
-		// Always set to streaming for legacy sessions
-		chatCompletionRequest.Stream = true
-
 		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -203,6 +200,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		go func() {
+			fmt.Println("streaming updates")
+			defer fmt.Println("streaming updates done")
 			s.streamUpdates(user, session, stream)
 		}()
 
@@ -303,6 +302,8 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 			log.Err(err).Msg("error receiving stream")
 			return
 		}
+
+		fmt.Println("streaming response", response.Choices[0].Delta.Content)
 
 		// Accumulate the response
 		responseMessage += response.Choices[0].Delta.Content
