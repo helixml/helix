@@ -231,6 +231,9 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 }
 
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	// Ensure request is not streaming
+	chatCompletionRequest.Stream = false
+	// Call the LLM
 	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
@@ -273,6 +276,8 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		},
 	}
 
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
 	err = json.NewEncoder(rw).Encode(resp)
 	if err != nil {
 		log.Err(err).Msg("error writing response")
