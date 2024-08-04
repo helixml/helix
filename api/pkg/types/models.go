@@ -81,7 +81,8 @@ func ProcessModelName(
 
 		switch provider {
 		case "togetherai":
-			return ModelName("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"), nil
+			// return ModelName("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"), nil
+			return ModelName("meta-llama/Meta-Llama-3-8B-Instruct-Lite"), nil
 		default:
 			// TODO
 		}
