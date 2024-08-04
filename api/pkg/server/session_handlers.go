@@ -200,9 +200,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		go func() {
-			fmt.Println("streaming updates")
-			defer fmt.Println("streaming updates done")
-			s.streamUpdates(user, session, stream)
+			s.legacyStreamUpdates(user, session, stream)
 		}()
 
 		sessionDataJSON, err := json.Marshal(session)
@@ -285,11 +283,13 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	return nil
 }
 
-// streamUpdates writes the event to pubsub so user's browser can pick them
+// legacyStreamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	interactionID := session.Interactions[len(session.Interactions)-1].ID
 
 	var responseMessage string
 
@@ -309,14 +309,18 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 		responseMessage += response.Choices[0].Delta.Content
 
 		bts, err := json.Marshal(&types.WebsocketEvent{
-			Type: "worker_task_response",
+			Type:      "worker_task_response",
+			SessionID: session.ID,
 			Session: &types.Session{
 				ID: session.ID,
 			},
 			WorkerTaskResponse: &types.RunnerTaskResponse{
-				Type:    types.WorkerTaskResponseTypeStream,
-				Message: response.Choices[0].Delta.Content,
-				Done:    false,
+				Owner:         user.ID,
+				Type:          types.WorkerTaskResponseTypeStream,
+				SessionID:     session.ID,
+				InteractionID: interactionID,
+				Message:       response.Choices[0].Delta.Content,
+				Done:          false,
 			},
 		})
 
@@ -328,14 +332,18 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 
 	// Send the final message that it's done
 	bts, err := json.Marshal(&types.WebsocketEvent{
-		Type: "worker_task_response",
+		Type:      "worker_task_response",
+		SessionID: session.ID,
 		Session: &types.Session{
 			ID: session.ID,
 		},
 		WorkerTaskResponse: &types.RunnerTaskResponse{
-			Type:    types.WorkerTaskResponseTypeStream,
-			Message: "",
-			Done:    true,
+			Owner:         user.ID,
+			SessionID:     session.ID,
+			InteractionID: interactionID,
+			Type:          types.WorkerTaskResponseTypeStream,
+			Message:       "",
+			Done:          true,
 		},
 	})
 
