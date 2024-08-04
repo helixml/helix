@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	oai "github.com/lukemarsden/go-openai2"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -78,17 +80,10 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.server = &HelixAPIServer{
 		pubsub:     suite.pubsub,
 		Controller: c,
-		// Controller: &controller.Controller{
-		// 	Options: controller.ControllerOptions{
-		// 		Config:  cfg,
-		// 		Store:   suite.store,
-		// 		Janitor: janitor.NewJanitor(config.Janitor{}),
-		// 	},
-		// },
 	}
 }
 
-func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
+func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
 		"model": "mistralai/Mistral-7B-Instruct-v0.1",
@@ -110,49 +105,27 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 
 	rec := httptest.NewRecorder()
 
-	// First we check whether user should get the priority
-	suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
-		Config: types.UserConfig{
-			StripeSubscriptionActive: true,
-		},
-	}, nil)
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionResponse, error) {
+			suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", req.Model)
 
-	// Creating the session
-	suite.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, session types.Session) (*types.Session, error) {
-			suite.Equal("user_id", session.Owner)
-			// suite.Equal(types.OwnerTypeUser, session.OwnerType)
-			suite.Equal(suite.userID, session.Owner)
-			suite.Equal(types.SessionModeInference, session.Mode)
-			suite.Equal(types.SessionTypeText, session.Type)
-			suite.Equal(types.ModelName("mistralai/Mistral-7B-Instruct-v0.1"), session.ModelName)
-			suite.Equal("You are a helpful assistant.", session.Interactions[0].Message)
-			suite.Equal("tell me about oceans!", session.Interactions[1].Message)
-			suite.Equal(types.CreatorTypeSystem, session.Interactions[0].Creator)
-			suite.Equal(types.CreatorTypeUser, session.Interactions[1].Creator)
-			suite.NotEmpty(session.ID, "session ID should be set")
+			suite.Require().Equal(2, len(req.Messages))
 
-			bts, err := json.Marshal(&types.WebsocketEvent{
-				Type: "session_update",
-				Session: &types.Session{
-					ID: "session_id",
-					Interactions: []*types.Interaction{
-						{
-							State:   types.InteractionStateComplete,
-							Message: "**model-result**",
+			suite.Equal("system", req.Messages[0].Role)
+			suite.Equal("user", req.Messages[1].Role)
+
+			return &oai.ChatCompletionResponse{
+				Model: "mistralai/Mistral-7B-Instruct-v0.1",
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Role:    "assistant",
+							Content: "**model-result**",
 						},
+						FinishReason: "stop",
 					},
-				}})
-			suite.NoError(err)
-
-			time.AfterFunc(100*time.Millisecond, func() {
-				suite.pubsub.Publish(
-					context.Background(),
-					pubsub.GetSessionQueue("user_id", session.ID),
-					bts)
-			})
-
-			return &session, nil
+				},
+			}, nil
 		})
 
 	// Begin the chat
@@ -160,12 +133,12 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Blocking() {
 
 	suite.Equal(http.StatusOK, rec.Code)
 
-	var resp types.OpenAIResponse
+	var resp oai.ChatCompletionResponse
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	suite.NoError(err)
 
 	suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", resp.Model)
-	suite.Equal(1, len(resp.Choices))
+	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
 	suite.Equal("stop", resp.Choices[0].FinishReason)
 	suite.Equal("assistant", resp.Choices[0].Message.Role)
 	suite.Equal("**model-result**", resp.Choices[0].Message.Content)

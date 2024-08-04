@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/prompts"
@@ -57,6 +58,8 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		log.Err(err).Msg("error creating chat completion")
 		return nil, err
 	}
+
+	spew.Dump(resp)
 
 	return &resp, nil
 }
