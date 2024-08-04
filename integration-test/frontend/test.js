@@ -1,5 +1,5 @@
 import puppeteer from 'puppeteer'
-import bluebird from 'bluebird'
+
 
 (async () => {
   const browser = await puppeteer.launch({headless: false });
