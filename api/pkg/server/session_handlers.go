@@ -182,7 +182,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		},
 	)
 
-	// Write session
+	// Write the initial session that has the user prompt and also the placeholder interaction
+	// for the system response which will be updated later once the response is received
 	err = s.Controller.WriteSession(session)
 	if err != nil {
 		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
@@ -217,7 +218,67 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	if !startReq.Stream {
+		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+		}
+
+		return
+	}
+
 	http.Error(rw, "not implemented", http.StatusNotImplemented)
+}
+
+func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		// Update the session with the response
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+	} else {
+		if len(chatCompletionResponse.Choices) == 0 {
+			return errors.New("no data in the LLM response")
+		}
+		// Update the session with the response
+		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
+	}
+
+	err = s.Controller.WriteSession(session)
+	if err != nil {
+		return err
+	}
+
+	var result []types.Choice
+
+	result = append(result, types.Choice{
+		Message: &types.OpenAIMessage{
+			Role:       chatCompletionResponse.Choices[0].Message.Role,
+			Content:    chatCompletionResponse.Choices[0].Message.Content,
+			ToolCalls:  chatCompletionResponse.Choices[0].Message.ToolCalls,
+			ToolCallID: chatCompletionResponse.Choices[0].Message.ToolCallID,
+		},
+		FinishReason: "stop",
+	})
+
+	resp := &types.OpenAIResponse{
+		ID:      session.ID,
+		Created: int(time.Now().Unix()),
+		Model:   chatCompletionRequest.Model, // we have to return what the user sent here, due to OpenAI spec.
+		Choices: result,
+		Object:  "chat.completion",
+		Usage: types.OpenAIUsage{
+			PromptTokens:     chatCompletionResponse.Usage.PromptTokens,
+			CompletionTokens: chatCompletionResponse.Usage.CompletionTokens,
+			TotalTokens:      chatCompletionResponse.Usage.TotalTokens,
+		},
+	}
+
+	err = json.NewEncoder(rw).Encode(resp)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+	}
+
+	return nil
 }
 
 // streamUpdates writes the event to pubsub so user's browser can pick them
