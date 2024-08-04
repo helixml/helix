@@ -23,9 +23,7 @@ import puppeteer from 'puppeteer'
 
   await page.click('#kc-login');
 
-  await page.waitForSelector('#new-session-link', { visible: true });
-  await page.click('#new-session-link');
-  await page.screenshot({ path: 'screenshots/after-click-new-session-link.png', fullPage: true });
+  await page.waitForNavigation()
 
   await page.waitForSelector('#new-session-link', { visible: true });
   await page.click('#new-session-link');
