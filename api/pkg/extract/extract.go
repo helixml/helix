@@ -17,6 +17,8 @@ type ExtractRequest struct {
 	Content []byte `json:"content"`
 }
 
+//go:generate mockgen -source $GOFILE -destination extractor_mocks.go -package $GOPACKAGE
+
 type Extractor interface {
 	Extract(ctx context.Context, req *ExtractRequest) (string, error)
 }
