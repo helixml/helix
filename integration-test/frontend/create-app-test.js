@@ -23,12 +23,14 @@ import puppeteer from 'puppeteer'
 
   await page.click('#kc-login');
 
+  await page.waitForNavigation()
+
   await page.waitForSelector('#apps-button', { visible: true, timeout: 60000  });
   await page.screenshot({ path: 'screenshots/after-click-login.png', fullPage: true });
   await page.click('#apps-button');
-
   await page.screenshot({ path: 'screenshots/after-click-apps-button.png', fullPage: true });
 
+  
   await page.waitForSelector('#new-app-button', { visible: true, timeout: 60000 });
   await page.click('#new-app-button');
 
