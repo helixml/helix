@@ -232,6 +232,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 }
 
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	interactionID := session.Interactions[len(session.Interactions)-1].ID
+
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 	// Call the LLM
@@ -252,34 +254,11 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		return err
 	}
 
-	var result []types.Choice
-
-	result = append(result, types.Choice{
-		Message: &types.OpenAIMessage{
-			Role:       chatCompletionResponse.Choices[0].Message.Role,
-			Content:    chatCompletionResponse.Choices[0].Message.Content,
-			ToolCalls:  chatCompletionResponse.Choices[0].Message.ToolCalls,
-			ToolCallID: chatCompletionResponse.Choices[0].Message.ToolCallID,
-		},
-		FinishReason: string(chatCompletionResponse.Choices[0].FinishReason),
-	})
-
-	resp := &types.OpenAIResponse{
-		ID:      session.ID,
-		Created: int(time.Now().Unix()),
-		Model:   chatCompletionRequest.Model, // we have to return what the user sent here, due to OpenAI spec.
-		Choices: result,
-		Object:  "chat.completion",
-		Usage: types.OpenAIUsage{
-			PromptTokens:     chatCompletionResponse.Usage.PromptTokens,
-			CompletionTokens: chatCompletionResponse.Usage.CompletionTokens,
-			TotalTokens:      chatCompletionResponse.Usage.TotalTokens,
-		},
-	}
+	chatCompletionResponse.ID = interactionID
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(rw).Encode(resp)
+	err = json.NewEncoder(rw).Encode(chatCompletionResponse)
 	if err != nil {
 		log.Err(err).Msg("error writing response")
 	}
@@ -288,6 +267,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 }
 
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	interactionID := session.Interactions[len(session.Interactions)-1].ID
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
@@ -315,13 +295,10 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 			return err
 		}
 
-		chunk := createChatCompletionChunk(session.ID, chatCompletionRequest.Model, response.Choices[0].Delta.Content)
-		chunk.Choices[0].FinishReason = string(response.Choices[0].FinishReason)
-
-		fullResponse += response.Choices[0].Delta.Content
+		response.ID = interactionID
 
 		// Write the response to the client
-		bts, err := json.Marshal(chunk)
+		bts, err := json.Marshal(response)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return err
