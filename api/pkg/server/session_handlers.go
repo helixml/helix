@@ -192,6 +192,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
 
+	// TODO: remove once frontend is removed
 	if startReq.Legacy {
 		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 		if err != nil {
@@ -211,9 +212,9 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		rw.Header().Set("Content-Type", "application/json")
 		rw.WriteHeader(http.StatusOK)
 		rw.Write(sessionDataJSON)
-
 		return
 	}
+	// End of TODO
 
 	if !startReq.Stream {
 		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
