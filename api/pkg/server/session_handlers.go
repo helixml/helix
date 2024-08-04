@@ -226,9 +226,6 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fmt.Println("stream start")
-	defer fmt.Println("stream stop")
-
 	var responseMessage string
 
 	for {
@@ -240,8 +237,6 @@ func (s *HelixAPIServer) streamUpdates(user *types.User, session *types.Session,
 			log.Err(err).Msg("error receiving stream")
 			return
 		}
-
-		fmt.Println("XX response", response)
 
 		// Accumulate the response
 		responseMessage += response.Choices[0].Delta.Content
