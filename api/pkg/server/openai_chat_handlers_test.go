@@ -86,7 +86,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
-		"model": "mistralai/Mistral-7B-Instruct-v0.1",
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 		"stream": false,
 		"messages": [
 			{
@@ -106,16 +106,16 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 	rec := httptest.NewRecorder()
 
 	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionResponse, error) {
-			suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", req.Model)
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", req.Model)
 
 			suite.Require().Equal(2, len(req.Messages))
 
 			suite.Equal("system", req.Messages[0].Role)
 			suite.Equal("user", req.Messages[1].Role)
 
-			return &oai.ChatCompletionResponse{
-				Model: "mistralai/Mistral-7B-Instruct-v0.1",
+			return oai.ChatCompletionResponse{
+				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				Choices: []oai.ChatCompletionChoice{
 					{
 						Message: oai.ChatCompletionMessage{
@@ -137,9 +137,9 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	suite.NoError(err)
 
-	suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", resp.Model)
+	suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", resp.Model)
 	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
-	suite.Equal("stop", resp.Choices[0].FinishReason)
+	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
 	suite.Equal("assistant", resp.Choices[0].Message.Role)
 	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
 }
