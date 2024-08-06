@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/golang/mock/gomock"
 	oai "github.com/lukemarsden/go-openai2"
@@ -173,70 +173,35 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 		},
 	}, nil)
 
-	var sessionID string
+	stream, writer, err := openai.NewOpenAIStreamingAdapter(oai.ChatCompletionRequest{})
+	suite.Require().NoError(err)
 
-	// Creating the session
-	suite.store.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, session types.Session) (*types.Session, error) {
-			suite.Equal("user_id", session.Owner)
-			// suite.Equal(types.OwnerTypeUser, session.OwnerType)
-			suite.Equal(suite.userID, session.Owner)
-			suite.Equal(types.SessionModeInference, session.Mode)
-			suite.Equal(types.SessionTypeText, session.Type)
-			suite.Equal(types.ModelName("mistralai/Mistral-7B-Instruct-v0.1"), session.ModelName)
-			suite.Equal("You are a helpful assistant.", session.Interactions[0].Message)
-			suite.Equal("tell me about oceans!", session.Interactions[1].Message)
-			suite.Equal(types.CreatorTypeSystem, session.Interactions[0].Creator)
-			suite.Equal(types.CreatorTypeUser, session.Interactions[1].Creator)
-			suite.NotEmpty(session.ID, "session ID should be set")
+	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
+			return stream, nil
+		})
 
-			sessionID = session.ID
-
-			modelMessages := []*types.RunnerTaskResponse{
-				{
-					Message: "msg-1",
-				},
-				{
-					Message: "msg-2",
-				},
-				{
-					Message: "msg-3",
-				},
-				{
-					Done: true,
+	go func() {
+		for i := 0; i < 3; i++ {
+			// Create a chat completion chunk and encode it to json
+			chunk := oai.ChatCompletionStreamChoice{
+				Delta: oai.ChatCompletionStreamChoiceDelta{
+					Content: fmt.Sprintf("msg-%d", i),
 				},
 			}
-			// Publish messages
-			time.AfterFunc(100*time.Millisecond, func() {
-				for _, msg := range modelMessages {
-					msg1, err := json.Marshal(&types.WebsocketEvent{
-						Type: "worker_task_response",
-						Session: &types.Session{
-							ID: "session_id",
-						},
-						WorkerTaskResponse: &types.RunnerTaskResponse{
-							Message: msg.Message,
-							Done:    msg.Done,
-						},
-					})
-					suite.NoError(err)
 
-					suite.pubsub.Publish(
-						context.Background(),
-						pubsub.GetSessionQueue("user_id", session.ID),
-						msg1)
-				}
-			})
+			bts, err := json.Marshal(chunk)
+			suite.NoError(err)
 
-			return &session, nil
-		})
+			_, err = writer.Write(bts)
+			suite.NoError(err)
+		}
+	}()
 
 	// Begin the chat
 	suite.server.createChatCompletion(rec, req)
 
 	suite.Equal(http.StatusOK, rec.Code)
-
-	suite.T().Logf("session ID: %s", sessionID)
 
 	// validate headers
 	suite.Equal("text/event-stream", rec.Header().Get("Content-Type"))
