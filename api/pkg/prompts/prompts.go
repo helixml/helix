@@ -83,16 +83,24 @@ func RAGInferencePrompt(userPrompt string, ragResults []*types.SessionRAGResult)
 		return "", err
 	}
 
-	// convert the RAG results to a list of strings
-	var ragResultStrings []string
-	for _, result := range ragResults {
-		ragResultStrings = append(ragResultStrings, result.Content)
+	type RAGResult struct {
+		DocumentID string
+		Content    string
 	}
+
+	ragResultList := make([]RAGResult, len(ragResults))
+	for i, ragResult := range ragResults {
+		ragResultList[i] = RAGResult{
+			DocumentID: ragResult.DocumentID,
+			Content:    ragResult.Content,
+		}
+	}
+
 	tmplData := struct {
-		RagResults []string
+		RagResults []RAGResult
 		Question   string
 	}{
-		RagResults: ragResultStrings,
+		RagResults: ragResultList,
 		Question:   userPrompt,
 	}
 	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(promptTemplate))
