@@ -15,12 +15,16 @@ prompts:
   # used when we have some RAG results and are now asking the model for an answer whilst including the RAG results
  - name: rag-inference-prompt
    template: |
-    Here is the question from the user:
-    {{.Question}}
-
     We have found the following context you may refer to in your answer:
     {{- range .RagResults }}
-      {{ . }}
+      <article>
+      DocumentID: {{ .DocumentID }}
+      Content: {{ .Content }}
+      </article>
     {{- end }}
 
+    Please provided references in your answer in the format `[DOC_ID:DocumentID]`. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+
+    Here is the question from the user:
+    {{.Question}}
     
