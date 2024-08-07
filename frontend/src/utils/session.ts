@@ -1,24 +1,23 @@
-import React, { ReactNode } from 'react'
 
 import {
   IApp,
-  ISession,
-  ISessionSummary,
-  ISessionMode,
-  ISessionType,
-  IInteraction,
-  ITextDataPrepStage,
-  IModelInstanceState,
   IDataPrepChunkWithFilename,
   IDataPrepStats,
+  IInteraction,
+  IModelInstanceState,
   IPageBreadcrumb,
+  ISession,
+  ISessionMode,
+  ISessionSummary,
+  ISessionType,
+  ITextDataPrepStage,
   SESSION_CREATOR_SYSTEM,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
+  TEXT_DATA_PREP_DISPLAY_STAGES,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGES,
-  TEXT_DATA_PREP_DISPLAY_STAGES,
 } from '../types'
 
 import {
@@ -240,11 +239,11 @@ export const replaceMessageText = (
 
   Object.keys(document_ids).forEach(filename => {
     const document_id = document_ids[filename]
-    let searchPattern = ''
+    let searchPattern: RegExp | null = null;
     if(message.indexOf(`[DOC_ID:${document_id}]`) >= 0) {
-      searchPattern = `[DOC_ID:${document_id}]`
+      searchPattern = RegExp(`\\[DOC_ID:${document_id}\\]`, 'g')
     } else if(message.indexOf(document_id) >= 0) {
-      searchPattern = document_id
+      searchPattern = RegExp(`${document_id}`, 'g')
     }
     if(!searchPattern) return
     documentReferenceCounter++
