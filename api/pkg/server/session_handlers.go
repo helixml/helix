@@ -241,12 +241,15 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
 	} else {
 		if len(chatCompletionResponse.Choices) == 0 {
 			return errors.New("no data in the LLM response")
 		}
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 	}
 
 	err = s.Controller.WriteSession(session)
@@ -313,6 +316,8 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 
 	return s.Controller.WriteSession(session)
 }
