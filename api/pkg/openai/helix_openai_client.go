@@ -176,7 +176,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 
 // NewOpenAIStreamingAdapter returns a new OpenAI streaming adapter which allows
 // to write into the io.Writer and read from the stream directly
-func NewOpenAIStreamingAdapter(req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, io.Writer, error) {
+func NewOpenAIStreamingAdapter(req openai.ChatCompletionRequest) (*openai.ChatCompletionStream, *io.PipeWriter, error) {
 	pr, pw := io.Pipe()
 
 	ht := &helixTransport{

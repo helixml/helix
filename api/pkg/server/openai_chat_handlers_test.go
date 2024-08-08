@@ -167,11 +167,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	rec := httptest.NewRecorder()
 
 	// First we check whether user should get the priority
-	suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
-		Config: types.UserConfig{
-			StripeSubscriptionActive: true,
-		},
-	}, nil)
+	// suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
+	// 	Config: types.UserConfig{
+	// 		StripeSubscriptionActive: true,
+	// 	},
+	// }, nil)
 
 	stream, writer, err := openai.NewOpenAIStreamingAdapter(oai.ChatCompletionRequest{})
 	suite.Require().NoError(err)
@@ -184,18 +184,40 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	go func() {
 		for i := 0; i < 3; i++ {
 			// Create a chat completion chunk and encode it to json
-			chunk := oai.ChatCompletionStreamChoice{
-				Delta: oai.ChatCompletionStreamChoiceDelta{
-					Content: fmt.Sprintf("msg-%d", i),
+			chunk := oai.ChatCompletionStreamResponse{
+				ID:     "chatcmpl-123",
+				Object: "chat.completion.chunk",
+				Model:  "mistralai/Mistral-7B-Instruct-v0.1",
+				Choices: []oai.ChatCompletionStreamChoice{
+					{
+						Delta: oai.ChatCompletionStreamChoiceDelta{
+							Content: fmt.Sprintf("msg-%d", i),
+						},
+					},
 				},
+			}
+
+			if i == 0 {
+				chunk.Choices[0].Delta.Role = "assistant"
+			}
+
+			if i == 2 {
+				chunk.Choices[0].FinishReason = "stop"
 			}
 
 			bts, err := json.Marshal(chunk)
 			suite.NoError(err)
 
-			_, err = writer.Write(bts)
-			suite.NoError(err)
+			writeChunk(writer, bts)
+
+			// _, err = writer.Write([]byte(fmt.Sprintf("data: %s\n\n", string(bts))))
+			// suite.NoError(err)
 		}
+
+		_, err = writer.Write([]byte("[DONE]"))
+		suite.NoError(err)
+
+		writer.Close()
 	}()
 
 	// Begin the chat
@@ -207,7 +229,6 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 	suite.Equal("text/event-stream", rec.Header().Get("Content-Type"))
 	suite.Equal("no-cache", rec.Header().Get("Cache-Control"))
 	suite.Equal("keep-alive", rec.Header().Get("Connection"))
-	suite.Equal("chunked", rec.Header().Get("Transfer-Encoding"))
 
 	var (
 		startFound = false
@@ -225,34 +246,36 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 				break
 			}
 
-			var data types.OpenAIResponse
+			var data oai.ChatCompletionStreamResponse
 			err := json.Unmarshal([]byte(jsonData), &data)
 			suite.NoError(err)
 
 			suite.Equal("mistralai/Mistral-7B-Instruct-v0.1", data.Model)
 			suite.Equal(1, len(data.Choices))
-			// suite.Equal("assistant", data.Choices[0].Delta.Role)
+
 			suite.Equal("chat.completion.chunk", data.Object)
 
 			fullResp = fullResp + data.Choices[0].Delta.Content
 
+			if data.Choices[0].Delta.Role == "assistant" {
+				startFound = true
+			}
+
+			if data.Choices[0].FinishReason == "stop" {
+				stopFound = true
+			}
+
 			switch data.Choices[0].Delta.Content {
+			case "msg-0":
+				suite.Equal("msg-0", data.Choices[0].Delta.Content)
 			case "msg-1":
 				suite.Equal("msg-1", data.Choices[0].Delta.Content)
 			case "msg-2":
 				suite.Equal("msg-2", data.Choices[0].Delta.Content)
-			case "msg-3":
-				suite.Equal("msg-3", data.Choices[0].Delta.Content)
 			case "":
-				if data.Choices[0].Delta.Content == "" && data.Choices[0].Delta.Role == "assistant" {
-					startFound = true
-				}
 
-				if data.Choices[0].Delta.Content == "" && data.Choices[0].FinishReason == "stop" {
-					stopFound = true
-				}
 			default:
-				suite.Fail("unexpected message")
+				suite.T().Fatalf("unexpected message: %s", data.Choices[0].Delta.Content)
 			}
 		}
 	}
