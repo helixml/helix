@@ -392,6 +392,8 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = responseMessage
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
 
 	s.Controller.WriteSession(session)
 }
