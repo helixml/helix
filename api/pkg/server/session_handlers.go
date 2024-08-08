@@ -42,11 +42,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.AppID = appID
 	}
 
-	if ragSourceID := req.URL.Query().Get("assistant_id"); ragSourceID != "" {
+	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
 		startReq.RAGSourceID = ragSourceID
 	}
 
-	if assistantID := req.URL.Query().Get("rag_source_id"); assistantID != "" {
+	if assistantID := req.URL.Query().Get("assistant_id"); assistantID != "" {
 		startReq.AssistantID = assistantID
 	}
 
