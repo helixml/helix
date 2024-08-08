@@ -80,11 +80,12 @@ func ProcessModelName(
 		}
 
 		switch provider {
-		case "togetherai":
-			// return ModelName("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"), nil
-			return ModelName("meta-llama/Meta-Llama-3-8B-Instruct-Lite"), nil
+		case "helix":
+			// Check and validate
 		default:
-			// TODO
+			// Any other provider just return directly as we don't
+			// care about the model specifics (memory, etc)
+			return TransformModelName(modelName)
 		}
 
 		// switch based on user toggle

@@ -41,7 +41,7 @@ func LoadServerConfig() (ServerConfig, error) {
 }
 
 type Inference struct {
-	Provider Provider `envconfig:"INFERENCE_PROVIDER" default:"togetherai"`
+	Provider Provider `envconfig:"INFERENCE_PROVIDER" default:"helix"`
 }
 
 // Providers is used to configure the various AI providers that we use
