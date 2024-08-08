@@ -32,7 +32,7 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "echo back 'Hello World'"
 
@@ -75,7 +75,7 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "can I get info about the volvo truck?"
 

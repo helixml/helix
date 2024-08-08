@@ -14,6 +14,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -33,12 +34,15 @@ type ControllerOptions struct {
 	Filestore         filestore.FileStore
 	Janitor           *janitor.Janitor
 	Notifier          notification.Notifier
+	OpenAIClient      openai.Client
 }
 
 type Controller struct {
 	Ctx          context.Context
 	Options      ControllerOptions
 	ToolsPlanner tools.Planner
+
+	openAIClient openai.Client
 
 	// the backlog of sessions that need a GPU
 	sessionQueue []*types.Session
@@ -83,6 +87,7 @@ func NewController(
 	controller := &Controller{
 		Ctx:                 ctx,
 		Options:             options,
+		openAIClient:        options.OpenAIClient,
 		sessionQueue:        []*types.Session{},
 		sessionSummaryQueue: []*types.SessionSummary{},
 		models:              models,

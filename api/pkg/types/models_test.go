@@ -74,7 +74,7 @@ func TestProcessModelName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ProcessModelName(tt.args.modelName, tt.args.sessionMode, tt.args.sessionType, tt.args.hasFinetune, tt.args.ragEnabled)
+			got, err := ProcessModelName("", tt.args.modelName, tt.args.sessionMode, tt.args.sessionType, tt.args.hasFinetune, tt.args.ragEnabled)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ProcessModelName() error = %v, wantErr %v", err, tt.wantErr)
 				return

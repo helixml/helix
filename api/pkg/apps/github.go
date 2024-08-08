@@ -293,8 +293,10 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
 		}
 
-		newTools := []types.Tool{}
-		newScripts := []types.AssistantGPTScript{}
+		var (
+			newTools   []*types.Tool
+			newScripts []types.AssistantGPTScript
+		)
 
 		// scripts means you can configure the GPTScript contents inline with the helix.yaml
 		for _, script := range assistant.GPTScripts {
@@ -315,7 +317,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 						Content:     string(content),
 						Description: script.Description,
 					})
-					newTools = append(newTools, types.Tool{
+					newTools = append(newTools, &types.Tool{
 						ID:       system.GenerateToolID(),
 						Name:     file,
 						ToolType: types.ToolTypeGPTScript,
@@ -333,7 +335,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 					return nil, fmt.Errorf("gpt script %s has no content", script.Name)
 				}
 				newScripts = append(newScripts, script)
-				newTools = append(newTools, types.Tool{
+				newTools = append(newTools, &types.Tool{
 					ID:          system.GenerateToolID(),
 					Name:        script.Name,
 					Description: script.Description,
@@ -371,7 +373,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 				api.Query = map[string]string{}
 			}
 
-			newTools = append(newTools, types.Tool{
+			newTools = append(newTools, &types.Tool{
 				ID:          system.GenerateToolID(),
 				Created:     time.Now(),
 				Updated:     time.Now(),
@@ -393,7 +395,7 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 		}
 
 		for i := range newTools {
-			err := tools.ValidateTool(&newTools[i], githubApp.ToolsPlanner, false)
+			err := tools.ValidateTool(newTools[i], githubApp.ToolsPlanner, false)
 			if err != nil {
 				return nil, err
 			}

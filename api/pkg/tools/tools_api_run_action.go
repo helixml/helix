@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/avast/retry-go/v4"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,7 +23,7 @@ type RunActionResponse struct {
 	Error      string `json:"error"`
 }
 
-func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
 	switch tool.ToolType {
 	case types.ToolTypeGPTScript:
 		return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
@@ -39,7 +41,38 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 	}
 }
 
-func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*openai.ChatCompletionStream, error) {
+	switch tool.ToolType {
+	// case types.ToolTypeGPTScript:
+	// 	return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
+	case types.ToolTypeAPI:
+		return c.runApiActionStream(ctx, sessionID, interactionID, tool, history, currentMessage, action)
+	default:
+		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
+	}
+}
+
+func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
+	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, currentMessage, action)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return c.interpretResponse(ctx, sessionID, interactionID, tool, currentMessage, resp)
+}
+
+func (c *ChainStrategy) runApiActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*openai.ChatCompletionStream, error) {
+	resp, err := c.callAPI(ctx, sessionID, interactionID, tool, history, currentMessage, action)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	return c.interpretResponseStream(ctx, sessionID, interactionID, tool, currentMessage, resp)
+}
+
+func (c *ChainStrategy) callAPI(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*http.Response, error) {
 	// Validate whether action is valid
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
@@ -100,7 +133,5 @@ func (c *ChainStrategy) runApiAction(ctx context.Context, sessionID, interaction
 		Dur("time_taken", time.Since(started)).
 		Msg("API call done")
 
-	defer resp.Body.Close()
-
-	return c.interpretResponse(ctx, sessionID, interactionID, tool, currentMessage, resp)
+	return resp, nil
 }

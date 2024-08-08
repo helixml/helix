@@ -564,7 +564,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 				return nil, system.NewHTTPError404(fmt.Sprintf("we could not find the assistant with the id: %s", assistantID))
 			}
 			for _, tool := range assistant.Tools {
-				activeTools = append(activeTools, &tool)
+				activeTools = append(activeTools, tool)
 			}
 		}
 	} else {
@@ -603,6 +603,8 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		history = history[:len(history)-2]
 	}
 
+	messageHistory := types.HistoryFromInteractions(history)
+
 	// Actionable, converting interaction mode to "action"
 	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
 	if err != nil {
@@ -616,7 +618,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, history, userInteraction.Message, options...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, userInteraction.Message, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
 		return session, nil
@@ -676,13 +678,14 @@ func (c *Controller) BeginFineTune(session *types.Session) error {
 // generic "update this session handler"
 // this will emit a UserWebsocketEvent with a type of
 // WebsocketEventSessionUpdate
-func (c *Controller) WriteSession(session *types.Session) {
+func (c *Controller) WriteSession(session *types.Session) error {
 	log.Trace().
 		Msgf("🔵 update session: %s %+v", session.ID, session)
 
 	_, err := c.Options.Store.UpdateSession(context.Background(), *session)
 	if err != nil {
 		log.Printf("Error adding message: %s", err)
+		return err
 	}
 
 	event := &types.WebsocketEvent{
@@ -693,6 +696,8 @@ func (c *Controller) WriteSession(session *types.Session) {
 	}
 
 	_ = c.publishEvent(context.Background(), event)
+
+	return nil
 }
 
 func (c *Controller) WriteInteraction(session *types.Session, newInteraction *types.Interaction) *types.Session {

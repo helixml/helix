@@ -82,3 +82,7 @@ const (
 func getStreamSub(stream, sub string) string {
 	return stream + "." + sub
 }
+
+func GetRunnerResponsesQueue(ownerID, reqID string) string {
+	return "runner-responses." + ownerID + "." + reqID
+}

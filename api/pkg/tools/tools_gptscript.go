@@ -19,7 +19,7 @@ func getScriptFromTool(tool *types.Tool, prompt string) *types.GptScript {
 	return script
 }
 
-func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) RunGPTScriptAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
 	script := getScriptFromTool(tool, currentMessage)
 	result, err := c.gptScriptExecutor.ExecuteScript(ctx, script)
 	if err != nil {

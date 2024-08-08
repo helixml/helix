@@ -97,10 +97,21 @@ func (apiServer *HelixAPIServer) startRunnerWebSocketServer(
 			}
 
 			switch event.Type {
+			case types.WebsocketLLMInferenceResponse: // LLM inference (v2) response
+				if event.InferenceResponse == nil {
+					log.Error().
+						Any("event", event).
+						Msg("inference response from the runner is nil")
+					continue
+				}
+
+				err = apiServer.inferenceServer.ProcessRunnerResponse(r.Context(), event.InferenceResponse)
+				if err != nil {
+					log.Error().Msgf("Error processing runner response: %s", err.Error())
+				}
 			case
 				types.WebsocketEventSessionUpdate,      // Delta session update
-				types.WebsocketEventWorkerTaskResponse, // Complete response
-				types.WebsocketLLMInferenceResponse:    // LLM inference (v2) response
+				types.WebsocketEventWorkerTaskResponse: // Complete response
 				err = apiServer.pubsub.Publish(r.Context(), pubsub.GetSessionQueue(event.Owner, event.SessionID), messageBytes)
 				if err != nil {
 					log.Error().Msgf("Error publishing session update: %s", err.Error())

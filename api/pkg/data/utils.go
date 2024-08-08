@@ -303,6 +303,10 @@ func IsInteger(s string) bool {
 }
 
 func GetAssistant(app *types.App, assistantID string) *types.AssistantConfig {
+	if assistantID == "" {
+		assistantID = "0"
+	}
+
 	var assistant *types.AssistantConfig
 	for _, a := range app.Config.Helix.Assistants {
 		if a.ID == assistantID {

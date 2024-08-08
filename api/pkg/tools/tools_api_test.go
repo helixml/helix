@@ -158,7 +158,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
@@ -200,7 +200,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
@@ -338,7 +338,7 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What is the weather like in San Francisco?"
 

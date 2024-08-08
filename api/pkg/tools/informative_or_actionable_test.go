@@ -79,7 +79,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What is the weather like in San Francisco?"
 
@@ -165,7 +165,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What is the weather like in San Francisco?"
 
@@ -210,7 +210,7 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What's the reason why oceans have less fish??"
 
