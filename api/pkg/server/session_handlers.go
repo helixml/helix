@@ -250,6 +250,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
 		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+		session.Interactions[len(session.Interactions)-1].Finished = true
 	}
 
 	err = s.Controller.WriteSession(session)
@@ -318,6 +319,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	return s.Controller.WriteSession(session)
 }
@@ -399,6 +401,7 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	session.Interactions[len(session.Interactions)-1].Message = responseMessage
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
 	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	s.Controller.WriteSession(session)
 }
