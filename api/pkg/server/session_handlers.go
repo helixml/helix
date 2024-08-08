@@ -337,8 +337,14 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 			return
 		}
 
+		var messageContent string
+
 		// Accumulate the response
-		responseMessage += response.Choices[0].Delta.Content
+		if len(response.Choices) > 0 {
+			messageContent = response.Choices[0].Delta.Content
+		}
+
+		responseMessage += messageContent
 
 		bts, err := json.Marshal(&types.WebsocketEvent{
 			Type:      "worker_task_response",
@@ -351,7 +357,7 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 				Type:          types.WorkerTaskResponseTypeStream,
 				SessionID:     session.ID,
 				InteractionID: interactionID,
-				Message:       response.Choices[0].Delta.Content,
+				Message:       messageContent,
 				Done:          false,
 			},
 		})
