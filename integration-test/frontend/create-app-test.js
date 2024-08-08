@@ -6,7 +6,7 @@ import puppeteer from 'puppeteer'
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
 
-  await page.goto('http://localhost:8080');
+  await page.goto('http://app.tryhelix.ai');
  
 
   await page.waitForSelector('#login-button', { visible: true });
@@ -23,15 +23,15 @@ import puppeteer from 'puppeteer'
 
   await page.click('#kc-login');
 
-  await page.waitForSelector('#apps-button', { visible: true });
- 
+  await page.waitForNavigation()
+
+  await page.waitForSelector('#apps-button', { visible: true, timeout: 60000  });
   await page.screenshot({ path: 'screenshots/after-click-login.png', fullPage: true });
-
   await page.click('#apps-button');
-
   await page.screenshot({ path: 'screenshots/after-click-apps-button.png', fullPage: true });
 
-  await page.waitForSelector('#new-app-button', { visible: true });
+  
+  await page.waitForSelector('#new-app-button', { visible: true, timeout: 60000 });
   await page.click('#new-app-button');
 
 
@@ -50,7 +50,7 @@ import puppeteer from 'puppeteer'
 
   // await page.waitForSelector('#password', { visible: true });
 
-  // await page.type('#password', 'Xbdaghost-5707');
+  // await page.type('#password', process.env.PASSWORD);
 
   // await page.waitForSelector('#login > div.auth-form-body.mt-3 > form > div > input.btn.btn-primary.btn-block.js-sign-in-button', { visible: true, timeout: 10000 });
 

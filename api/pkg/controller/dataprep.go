@@ -337,16 +337,27 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 	}
 
 	documentGroupID := strings.Replace(session.ID, "-", "", -1)[:10]
+	newMeta := session.Metadata
+	newMeta.DocumentGroupID = documentGroupID
+	if newMeta.DocumentIDs == nil {
+		newMeta.DocumentIDs = map[string]string{}
+	}
 
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
 			return nil, err
 		}
-		_, err = splitter.AddDocument(file, fileContent, documentGroupID)
+		documentID, err := splitter.AddDocument(file, fileContent, documentGroupID)
 		if err != nil {
 			return nil, err
 		}
+		newMeta.DocumentIDs[file] = documentID
+	}
+
+	_, err = c.UpdateSessionMetadata(context.TODO(), session, &newMeta)
+	if err != nil {
+		return nil, err
 	}
 
 	return splitter.Chunks, nil
