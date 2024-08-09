@@ -19,7 +19,7 @@ function mock-runner() {
 }
 
 function compose() {
-  docker-compose -f docker-compose.dev.yaml "$@"
+  docker compose -f docker-compose.dev.yaml "$@"
 }
 
 function build() {
@@ -42,7 +42,7 @@ function start() {
   export MANUALRUN=1
   export LOG_LEVEL=debug
 
-  echo "Starting docker-compose"
+  echo "Starting docker compose"
 
   local COMPOSE_FLAGS=""
   local COMPOSE_PROFILES=""
@@ -56,7 +56,7 @@ function start() {
     COMPOSE_PROFILES="$COMPOSE_PROFILES --profile demos"
   fi
 
-  eval "docker-compose -f docker-compose.dev.yaml $COMPOSE_PROFILES up $COMPOSE_FLAGS -d"
+  eval "docker compose -f docker-compose.dev.yaml $COMPOSE_PROFILES up $COMPOSE_FLAGS -d"
 
   sleep 2
 
@@ -89,7 +89,7 @@ function start() {
   fi
 
   if [[ -n "$WITH_DEMOS" ]]; then
-    tmux send-keys -t 4 'docker-compose --profile demos -f docker-compose.dev.yaml exec demos bash' C-m
+    tmux send-keys -t 4 'docker compose --profile demos -f docker-compose.dev.yaml exec demos bash' C-m
     tmux send-keys -t 4 'go run .' C-m
   fi
 
