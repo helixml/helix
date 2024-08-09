@@ -17,7 +17,11 @@ func GetModel(modelName types.ModelName) (Model, error) {
 	}
 	model, ok := models[modelName]
 	if !ok {
-		return nil, fmt.Errorf("no model for model name %s", modelName)
+		modelNames := []string{}
+		for modelName := range models {
+			modelNames = append(modelNames, modelName.String())
+		}
+		return nil, fmt.Errorf("no model for model name %s (available models: %v)", modelName, modelNames)
 	}
 	return model, nil
 }
