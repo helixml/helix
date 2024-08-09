@@ -25,6 +25,7 @@ import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
+import useCreateInputs from '../hooks/useCreateInputs'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -67,6 +68,7 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
+  const inputs = useCreateInputs()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -114,11 +116,31 @@ const Session: FC = () => {
     if(!checkOwnership({
       inferencePrompt: prompt,
     })) return
-    
-    const formData = new FormData()
-    formData.set('input', prompt)
 
-    const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    let newSession: ISession | null = null
+
+    if (session.data.mode === 'inference' && session.data.type === 'text') {
+      const sessionChatRequest = inputs.getSessionChatRequest(session.data.type, session.data.model_name)
+      sessionChatRequest.session_id = session.data.id
+      sessionChatRequest.messages = [
+        {
+          role: 'user',
+          content: {
+            content_type: 'text',
+            parts: [
+              prompt,
+            ]
+          },          
+        }
+      ]
+      newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+    } else {
+      const formData = new FormData()
+      formData.set('input', prompt)
+
+      newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    }
+    
     if(!newSession) return
     session.reload()
 
