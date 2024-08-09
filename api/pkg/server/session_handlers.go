@@ -92,26 +92,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	var (
-		chatCompletionRequest = openai.ChatCompletionRequest{
-			Model: modelName.String(),
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: startReq.SystemPrompt,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: message,
-				},
-			},
-		}
-
-		options = &controller.ChatCompletionOptions{
-			AppID:       startReq.AppID,
-			AssistantID: startReq.AssistantID,
-			RAGSourceID: startReq.RAGSourceID,
-		}
-
 		session *types.Session
 	)
 
@@ -142,8 +122,8 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			Metadata: types.SessionMetadata{
 				Stream:       startReq.Stream,
 				SystemPrompt: startReq.SystemPrompt,
-				RAGSourceID:  options.RAGSourceID,
-				AssistantID:  options.AssistantID,
+				RAGSourceID:  startReq.RAGSourceID,
+				AssistantID:  startReq.AssistantID,
 				Origin: types.SessionOrigin{
 					Type: types.SessionOriginTypeUserCreated,
 				},
@@ -151,7 +131,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			},
 		}
 
-		if options.RAGSourceID != "" {
+		if startReq.RAGSourceID != "" {
 			session.Metadata.RagEnabled = true
 		}
 	}
@@ -191,6 +171,32 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
+
+	var (
+		chatCompletionRequest = openai.ChatCompletionRequest{
+			Model: modelName.String(),
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: startReq.SystemPrompt,
+				},
+			},
+		}
+
+		options = &controller.ChatCompletionOptions{
+			AppID:       startReq.AppID,
+			AssistantID: startReq.AssistantID,
+			RAGSourceID: startReq.RAGSourceID,
+		}
+	)
+
+	// Convert interactions (except the last one) to messages
+	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    string(interaction.Creator),
+			Content: interaction.Message,
+		})
+	}
 
 	// TODO: remove once frontend is removed
 	if startReq.Legacy {
@@ -232,8 +238,6 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 }
 
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
-	interactionID := session.Interactions[len(session.Interactions)-1].ID
-
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 	// Call the LLM
@@ -258,7 +262,7 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		return err
 	}
 
-	chatCompletionResponse.ID = interactionID
+	chatCompletionResponse.ID = session.ID
 
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
@@ -271,7 +275,6 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 }
 
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
-	interactionID := session.Interactions[len(session.Interactions)-1].ID
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
@@ -303,7 +306,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		fullResponse += response.Choices[0].Delta.Content
 
 		// Update the response with the interaction ID
-		response.ID = interactionID
+		response.ID = session.ID
 
 		// Write the response to the client
 		bts, err := json.Marshal(response)
