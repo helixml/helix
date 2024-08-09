@@ -35,7 +35,7 @@ const COLORS: Record<string, string> = {
 }
 
 export const hasDate = (dt?: string): boolean => {
-  if(!dt) return false
+  if (!dt) return false
   return dt != NO_DATE
 }
 
@@ -68,13 +68,13 @@ export const getSystemMessage = (message: string): IInteraction => {
 
 export const getUserInteraction = (session: ISession): IInteraction | undefined => {
   const userInteractions = session.interactions.filter(i => i.creator != SESSION_CREATOR_SYSTEM)
-  if(userInteractions.length <=0) return undefined
+  if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
 }
 
 export const getSystemInteraction = (session: ISession): IInteraction | undefined => {
   const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_SYSTEM)
-  if(userInteractions.length <=0) return undefined
+  if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
 }
 
@@ -82,36 +82,36 @@ export const getSystemFinetuneInteraction = (session: ISession): IInteraction | 
   const userInteractions = session.interactions.filter(i => {
     return i.creator == SESSION_CREATOR_SYSTEM && i.mode == SESSION_MODE_FINETUNE
   })
-  if(userInteractions.length <=0) return undefined
+  if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
 }
 
 export const hasFinishedFinetune = (session: ISession): boolean => {
-  if(session.config.original_mode != SESSION_MODE_FINETUNE) return false
+  if (session.config.original_mode != SESSION_MODE_FINETUNE) return false
   const systemInteraction = getSystemFinetuneInteraction(session)
-  if(!systemInteraction) return false
+  if (!systemInteraction) return false
   return systemInteraction.finished
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {
   // If starts with 'ollama', return inference color
-  if(getModelName(modelName).indexOf('ollama') >= 0) return COLORS['text_inference']
+  if (getModelName(modelName).indexOf('ollama') >= 0) return COLORS['text_inference']
 
   const key = `${getModelName(modelName)}_${mode}`
   return COLORS[key]
 }
 
 export const getModelName = (model_name: string): string => {
-  if(model_name.indexOf('stabilityai') >= 0) return 'sdxl'
-  if(model_name.indexOf('mistralai') >= 0) return 'mistral'
+  if (model_name.indexOf('stabilityai') >= 0) return 'sdxl'
+  if (model_name.indexOf('mistralai') >= 0) return 'mistral'
   // If has ':' in the name, it's Ollama model, need to split and keep the first part
-  if(model_name.indexOf(':') >= 0) return `ollama_${model_name.split(':')[0]}`
+  if (model_name.indexOf(':') >= 0) return `ollama_${model_name.split(':')[0]}`
   return ''
 }
 
 export const getHeadline = (modelName: string, mode: ISessionMode, loraDir = ''): string => {
   let loraString = ''
-  if(loraDir) {
+  if (loraDir) {
     const parts = loraDir.split('/')
     const id = parts[parts.length - 2]
     loraString = ` - ${id.split('-').pop()}`
@@ -120,7 +120,7 @@ export const getHeadline = (modelName: string, mode: ISessionMode, loraDir = '')
 }
 
 export const getSessionHeadline = (session: ISessionSummary): string => {
-  return `${ getHeadline(session.model_name, session.mode, session.lora_dir) } : ${ shortID(session.session_id) } : ${ getTiming(session) }`
+  return `${getHeadline(session.model_name, session.mode, session.lora_dir)} : ${shortID(session.session_id)} : ${getTiming(session)}`
 }
 
 export const getModelInstanceNoSessionHeadline = (modelInstance: IModelInstanceState): string => {
@@ -132,7 +132,7 @@ export const getSummaryCaption = (session: ISessionSummary): string => {
 }
 
 export const getModelInstanceIdleTime = (modelInstance: IModelInstanceState): string => {
-  if(!modelInstance.last_activity) return ''
+  if (!modelInstance.last_activity) return ''
   const idleFor = Date.now() - modelInstance.last_activity * 1000
   const idleForSeconds = Math.floor(idleFor / 1000)
   return `idle for ${idleForSeconds} secs, timeout is ${modelInstance.timeout} secs, stale = ${modelInstance.stale}`
@@ -143,11 +143,11 @@ export const shortID = (id: string): string => {
 }
 
 export const getTiming = (session: ISessionSummary): string => {
-  if(hasDate(session?.scheduled)) {
+  if (hasDate(session?.scheduled)) {
     const runningFor = Date.now() - new Date(session?.scheduled || '').getTime()
     const runningForSeconds = Math.floor(runningFor / 1000)
     return `${runningForSeconds} secs`
-  } else if(hasDate(session?.created)){
+  } else if (hasDate(session?.created)) {
     const waitingFor = Date.now() - new Date(session?.created || '').getTime()
     const waitingForSeconds = Math.floor(waitingFor / 1000)
     return `${waitingForSeconds} secs`
@@ -194,7 +194,7 @@ export const getTextDataPrepErrors = (interaction: IInteraction): IDataPrepChunk
   return Object.keys(interaction.data_prep_chunks || {}).reduce((acc: IDataPrepChunkWithFilename[], filename: string) => {
     const chunks = interaction.data_prep_chunks[filename]
     const errors = chunks.filter(chunk => chunk.error != '')
-    if(errors.length <= 0) return acc
+    if (errors.length <= 0) return acc
     return acc.concat(errors.map(error => ({ ...error, filename })))
   }, [])
 }
@@ -240,29 +240,29 @@ export const replaceMessageText = (
   Object.keys(document_ids).forEach(filename => {
     const document_id = document_ids[filename]
     let searchPattern: RegExp | null = null;
-    if(message.indexOf(`[DOC_ID:${document_id}]`) >= 0) {
-      searchPattern = RegExp(`\\[DOC_ID:${document_id}\\]`, 'g')
-    } else if(message.indexOf(document_id) >= 0) {
+    if (message.indexOf(`DOC_ID:`) >= 0) {
+      searchPattern = RegExp(`\\[.*DOC_ID:.*${document_id}.*\\]`, 'g')
+    } else if (message.indexOf(document_id) >= 0) {
       searchPattern = RegExp(`${document_id}`, 'g')
     }
-    if(!searchPattern) return
+    if (!searchPattern) return
     documentReferenceCounter++
     const baseFilename = filename.replace(/\.txt$/i, '')
     const sourceFilename = allNonTextFiles.find(f => f.indexOf(baseFilename) == 0)
-    if(!sourceFilename) return
+    if (!sourceFilename) return
     const link = `<a target="_blank" style="color: white;" href="${getFileURL(sourceFilename)}">[${documentReferenceCounter}]</a>`
     message = message.replace(searchPattern, link)
   })
 
   const document_group_id = session.config.document_group_id
   let groupSearchPattern = ''
-  if(message.indexOf(`[DOC_GROUP:${document_group_id}]`) >= 0) {
+  if (message.indexOf(`[DOC_GROUP:${document_group_id}]`) >= 0) {
     groupSearchPattern = `[DOC_GROUP:${document_group_id}]`
-  } else if(message.indexOf(document_group_id) >= 0) {
+  } else if (message.indexOf(document_group_id) >= 0) {
     groupSearchPattern = document_group_id
   }
 
-  if(groupSearchPattern) {
+  if (groupSearchPattern) {
     const link = `<a style="color: white;" href="javascript:_helixHighlightAllFiles()">[group]</a>`
     message = message.replace(groupSearchPattern, link)
   }
@@ -284,7 +284,7 @@ export const getNewSessionBreadcrumbs = ({
   app?: IApp,
 }): IPageBreadcrumb[] => {
 
-  if(mode == SESSION_MODE_FINETUNE) {
+  if (mode == SESSION_MODE_FINETUNE) {
     let txt = "Learn"
     if (type == SESSION_TYPE_IMAGE) {
       txt += " (image style and objects)"
