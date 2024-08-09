@@ -25,7 +25,6 @@ import Window from '../components/widgets/Window'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 
-import useCreateInputs from '../hooks/useCreateInputs'
 import useSnackbar from '../hooks/useSnackbar'
 import useApi from '../hooks/useApi'
 import useRouter from '../hooks/useRouter'
@@ -52,6 +51,7 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
+  ISessionChatRequest,
 } from '../types'
 
 import {
@@ -68,7 +68,6 @@ const Session: FC = () => {
   const loadingHelpers = useLoading()
   const theme = useTheme()
   const themeConfig = useThemeConfig()
-  const inputs = useCreateInputs()
 
   const isOwner = account.user?.id == session.data?.owner
   const sessionID = router.params.session_id
@@ -120,20 +119,36 @@ const Session: FC = () => {
     let newSession: ISession | null = null
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
-      const sessionChatRequest = inputs.getSessionChatRequest(session.data.type, session.data.model_name)
-      // TODO: maybe pass these into getSessionChatRequest directly?
-      sessionChatRequest.session_id = session.data.id
-      sessionChatRequest.messages = [
-        {
+      
+      const urlParams = new URLSearchParams(window.location.search)
+      const appID = urlParams.get('app_id') || ''
+      let assistantID = urlParams.get('assistant_id') || ''
+      const ragSourceID = urlParams.get('rag_source_id') || ''
+
+      // if we have an app but no assistant ID let's default to the first one
+      if(appID && !assistantID) {
+        assistantID = '0'
+      }
+
+      let sessionChatRequest: ISessionChatRequest = {
+        type: session.data.type,
+        session_id: session.data.id,
+        stream: true,
+        legacy: true,
+        app_id: appID,
+        assistant_id: assistantID,
+        rag_source_id: ragSourceID,        
+        messages: [{
           role: 'user',
           content: {
             content_type: 'text',
             parts: [
               prompt,
             ]
-          },          
-        }
-      ]
+          },
+        }]
+      }
+  
       newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
     } else {
       const formData = new FormData()
