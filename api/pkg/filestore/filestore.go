@@ -5,26 +5,6 @@ import (
 	"io"
 )
 
-//go:generate mockgen -source $GOFILE -destination filestore_mocks.go -package $GOPACKAGE
-
-type FileStore interface {
-	// list the items at a certain path
-	List(ctx context.Context, path string) ([]FileStoreItem, error)
-	Get(ctx context.Context, path string) (FileStoreItem, error)
-	SignedURL(ctx context.Context, path string) (string, error)
-	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
-
-	OpenFile(ctx context.Context, path string) (io.ReadCloser, error)
-	WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
-	// this will return a tar file stream
-	DownloadFolder(ctx context.Context, path string) (io.Reader, error)
-	// upload a tar stream to a path
-	UploadFolder(ctx context.Context, path string, r io.Reader) error
-	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
-	Delete(ctx context.Context, path string) error
-	CopyFile(ctx context.Context, from string, to string) error
-}
-
 type FileStoreItem struct {
 	// timestamp
 	Created int64 `json:"created"`
@@ -52,4 +32,24 @@ type FilestoreConfig struct {
 	// we use this to strip the full paths in the frontend so we can deal with only relative paths
 	UserPrefix string            `json:"user_prefix"`
 	Folders    []FilestoreFolder `json:"folders"`
+}
+
+//go:generate mockgen -source $GOFILE -destination filestore_mocks.go -package $GOPACKAGE
+
+type FileStore interface {
+	// list the items at a certain path
+	List(ctx context.Context, path string) ([]FileStoreItem, error)
+	Get(ctx context.Context, path string) (FileStoreItem, error)
+	SignedURL(ctx context.Context, path string) (string, error)
+	CreateFolder(ctx context.Context, path string) (FileStoreItem, error)
+
+	OpenFile(ctx context.Context, path string) (io.ReadCloser, error)
+	WriteFile(ctx context.Context, path string, r io.Reader) (FileStoreItem, error)
+	// this will return a tar file stream
+	DownloadFolder(ctx context.Context, path string) (io.Reader, error)
+	// upload a tar stream to a path
+	UploadFolder(ctx context.Context, path string, r io.Reader) error
+	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
+	Delete(ctx context.Context, path string) error
+	CopyFile(ctx context.Context, from string, to string) error
 }
