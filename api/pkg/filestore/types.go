@@ -34,6 +34,8 @@ type FilestoreConfig struct {
 	Folders    []FilestoreFolder `json:"folders"`
 }
 
+//go:generate mockgen -source $GOFILE -destination filestore_mocks.go -package $GOPACKAGE
+
 type FileStore interface {
 	// list the items at a certain path
 	List(ctx context.Context, path string) ([]FileStoreItem, error)
