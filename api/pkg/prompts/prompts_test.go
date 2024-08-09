@@ -8,6 +8,7 @@ import (
 )
 
 func TestRAGInferencePrompt(t *testing.T) {
+	// Test with rag results
 	ragResults := []*types.SessionRAGResult{
 		{
 			DocumentID: "doc1",
@@ -26,5 +27,16 @@ func TestRAGInferencePrompt(t *testing.T) {
 	// Check that the content is included the prompt
 	if !strings.Contains(prompt, "content1") {
 		t.Errorf("prompt does not contain content")
+	}
+
+	// Test with no rag results
+	prompt, err = RAGInferencePrompt("test", nil)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Make sure the query was not included in the prompt
+	if strings.Contains(prompt, "test") {
+		t.Errorf("prompt contains query")
 	}
 }
