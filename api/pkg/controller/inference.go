@@ -267,11 +267,3 @@ func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults [
 
 	return nil
 }
-
-// SaveChatCompletion used to persist the chat completion response to the database as a session.
-func (c *Controller) SaveChatCompletion(ctx context.Context,
-	user *types.User,
-	req openai.ChatCompletionRequest,
-	resp openai.ChatCompletionResponse) error {
-	return nil
-}
