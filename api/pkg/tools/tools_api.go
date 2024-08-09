@@ -98,7 +98,7 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.Interaction, currentMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
@@ -130,7 +130,7 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.logLLMCall(ctx, sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
+		c.logLLMCall(sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
 	}()
 
 	answer := resp.Choices[0].Message.Content
@@ -184,7 +184,7 @@ func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletion
 	}, nil
 }
 
-func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Interaction, currentMessage, action string) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
 	apiUserPromptTemplate := apiUserPrompt
 
@@ -207,7 +207,7 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Inte
 	err = tmpl.Execute(&sb, struct {
 		Schema       string
 		Message      string
-		Interactions []*types.Interaction
+		Interactions []*types.ToolHistoryMessage
 	}{
 		Schema:       jsonSpec,
 		Message:      currentMessage,
@@ -272,7 +272,7 @@ OpenAPI schema: {{.Schema}}
 
 Conversation so far:
 {{ range $index, $interaction := .Interactions }}
-{{ $interaction.Creator }}: ({{ $interaction.Message }})
+{{ $interaction.Role }}: ({{ $interaction.Content }})
 {{ end }}
 user: ({{ .Message }})
 

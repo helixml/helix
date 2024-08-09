@@ -17,6 +17,7 @@ const (
 
 type Client interface {
 	CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+	CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error)
 }
 
 func New(apiKey string, baseURL string) *RetryableClient {
@@ -58,4 +59,8 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	)
 
 	return
+}
+
+func (c *RetryableClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	return c.apiClient.CreateChatCompletionStream(ctx, request)
 }

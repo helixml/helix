@@ -17,7 +17,7 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 	instance, err := NewOllamaInferenceModelInstance(
 		r.Ctx,
 		&InferenceModelInstanceConfig{
-			ResponseHandler: func(res *types.RunnerTaskResponse) error {
+			ResponseHandler: func(res *types.RunnerLLMInferenceResponse) error {
 				// No-op
 				return nil
 			},
@@ -92,7 +92,7 @@ func (r *Runner) createInferenceModelInstance(ctx context.Context, request *type
 	modelInstance, err = NewOllamaInferenceModelInstance(
 		r.Ctx,
 		&InferenceModelInstanceConfig{
-			ResponseHandler: r.handleWorkerResponse,
+			ResponseHandler: r.handleInferenceResponse,
 			GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
 				queryParams := url.Values{}
 

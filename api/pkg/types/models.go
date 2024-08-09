@@ -65,6 +65,7 @@ func TransformModelName(modelName string) (ModelName, error) {
 
 // this will handle aliases and defaults
 func ProcessModelName(
+	provider string,
 	modelName string,
 	sessionMode SessionMode,
 	sessionType SessionType,
@@ -76,6 +77,15 @@ func ProcessModelName(
 		if sessionType == SessionTypeText && !ragEnabled && (sessionMode == SessionModeFinetune || hasFinetune) {
 			// fine tuning doesn't work with ollama yet
 			return Model_Axolotl_Mistral7b, nil
+		}
+
+		switch provider {
+		case "helix":
+			// Check and validate
+		default:
+			// Any other provider just return directly as we don't
+			// care about the model specifics (memory, etc)
+			return TransformModelName(modelName)
 		}
 
 		// switch based on user toggle

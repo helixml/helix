@@ -148,6 +148,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 	return nil
 }
 
+// TODO: remove
 func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.SessionFilter, runnerID string) (*types.Session, error) {
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
@@ -186,6 +187,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	return nil, nil
 }
 
+// TODO: remove
 func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
 	systemInteraction, err := data.GetSystemInteraction(session)
 	if err != nil {
