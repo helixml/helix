@@ -121,6 +121,7 @@ const Session: FC = () => {
 
     if (session.data.mode === 'inference' && session.data.type === 'text') {
       const sessionChatRequest = inputs.getSessionChatRequest(session.data.type, session.data.model_name)
+      // TODO: maybe pass these into getSessionChatRequest directly?
       sessionChatRequest.session_id = session.data.id
       sessionChatRequest.messages = [
         {
