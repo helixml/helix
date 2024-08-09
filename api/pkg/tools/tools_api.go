@@ -145,6 +145,10 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 }
 
 func unmarshalParams(data string) (map[string]string, error) {
+	// sometimes LLM just gives us a single ``` at the start; just strip that off
+	if strings.HasPrefix(data, "```\n") {
+		data = strings.Split(data, "```\n")[1]
+	}
 	if strings.Contains(data, "```json") {
 		data = strings.Split(data, "```json")[1]
 	}
@@ -272,13 +276,15 @@ OpenAPI schema: {{.Schema}}
 
 Conversation so far:
 {{ range $index, $interaction := .Interactions }}
-{{ $interaction.Creator }}: ({{ $interaction.Message }})
+<{{ $interaction.Creator }}_message>{{ $interaction.Message }}</{{ $interaction.Creator }}_message>
 {{ end }}
-user: ({{ .Message }})
-
 
 Based on the information provided, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
+
+ONLY use search parameters from the user messages above - shown above wrapped in <user_message> tags - do NOT use search parameters provided in the examples provided previously.
 `
+
+// TODO: figure out a test for the part in brackets above
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
 	loader := openapi3.NewLoader()

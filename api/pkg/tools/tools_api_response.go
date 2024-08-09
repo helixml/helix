@@ -37,7 +37,15 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("%s\nInput: %s", currentMessage, string(body)),
+			Content: currentMessage,
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: fmt.Sprintf("Here is the response from the apis:\n%s", string(body)),
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "Now present the response in a non-tech way. If the api response is empty, say that there's nothing of that type available:",
 		},
 	}
 
@@ -116,8 +124,10 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 	}, nil
 }
 
-const successResponsePrompt = `Always assist with care, respect, and truth. Respond with utmost utility yet securely. Avoid harmful, unethical, prejudiced, or negative content. Ensure replies promote fairness and positivity. Be concise.`
+const successResponsePrompt = `Present the key information in a concise manner.
+Include relevant details, references, and links if present. Format the summary in Markdown for clarity and readability where appropriate, but don't mention formatting in your response unless it's relevant to the user's query.
+Make sure to NEVER mention technical terms like "APIs, JSON, Request, etc..." and use first person pronoun (say it as if you performed the action)`
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
 When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
-You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/docs/tools (format as markdown)`
+You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/helix/develop/helix-tools/ (format as markdown)`
