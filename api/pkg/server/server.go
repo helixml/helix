@@ -17,6 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
+	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
@@ -59,6 +60,7 @@ type HelixAPIServer struct {
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
 	gptScriptExecutor gptscript.Executor
+	inferenceServer   openai.HelixServer // Helix OpenAI server
 	router            *mux.Router
 }
 
@@ -67,6 +69,7 @@ func NewServer(
 	store store.Store,
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
+	inferenceServer openai.HelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
@@ -95,6 +98,7 @@ func NewServer(
 		Controller:        controller,
 		Janitor:           janitor,
 		gptScriptExecutor: gptScriptExecutor,
+		inferenceServer:   inferenceServer,
 		authMiddleware: newAuthMiddleware(
 			authenticator,
 			store,
@@ -268,7 +272,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/sessions/learn", apiServer.startLearnSessionHandler).Methods("POST")
 
 	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.getSessions)).Methods("GET")
-	authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
+	// authRouter.HandleFunc("/sessions", system.DefaultWrapper(apiServer.createSession)).Methods("POST")
 
 	subRouter.HandleFunc("/sessions/{id}", system.Wrapper(apiServer.getSession)).Methods("GET")
 	subRouter.HandleFunc("/sessions/{id}/summary", system.Wrapper(apiServer.getSessionSummary)).Methods("GET")

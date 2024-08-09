@@ -51,6 +51,7 @@ import {
   INTERACTION_STATE_COMPLETE,
   INTERACTION_STATE_ERROR,
   IShareSessionInstructions,
+  ISessionChatRequest,
 } from '../types'
 
 import {
@@ -114,11 +115,48 @@ const Session: FC = () => {
     if(!checkOwnership({
       inferencePrompt: prompt,
     })) return
-    
-    const formData = new FormData()
-    formData.set('input', prompt)
 
-    const newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    let newSession: ISession | null = null
+
+    if (session.data.mode === 'inference' && session.data.type === 'text') {
+      
+      const urlParams = new URLSearchParams(window.location.search)
+      const appID = urlParams.get('app_id') || ''
+      let assistantID = urlParams.get('assistant_id') || ''
+      const ragSourceID = urlParams.get('rag_source_id') || ''
+
+      // if we have an app but no assistant ID let's default to the first one
+      if(appID && !assistantID) {
+        assistantID = '0'
+      }
+
+      let sessionChatRequest: ISessionChatRequest = {
+        type: session.data.type,
+        session_id: session.data.id,
+        stream: true,
+        legacy: true,
+        app_id: appID,
+        assistant_id: assistantID,
+        rag_source_id: ragSourceID,        
+        messages: [{
+          role: 'user',
+          content: {
+            content_type: 'text',
+            parts: [
+              prompt,
+            ]
+          },
+        }]
+      }
+  
+      newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+    } else {
+      const formData = new FormData()
+      formData.set('input', prompt)
+
+      newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
+    }
+    
     if(!newSession) return
     session.reload()
 

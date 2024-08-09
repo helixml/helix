@@ -206,6 +206,18 @@ type SessionChatRequest struct {
 	LoraID string `json:"lora_id"`
 }
 
+func (s *SessionChatRequest) Message() (string, bool) {
+	if len(s.Messages) == 0 {
+		return "", false
+	}
+	if len(s.Messages[0].Content.Parts) == 0 {
+		return "", false
+	}
+
+	message, ok := s.Messages[0].Content.Parts[0].(string)
+	return message, ok
+}
+
 // the user wants to create a Lora or RAG source
 // we turn this into a InternalSessionRequest
 type SessionLearnRequest struct {
@@ -440,6 +452,12 @@ type SessionFilter struct {
 	Older Duration `json:"older"`
 }
 
+type InferenceRequestFilter struct {
+	ModelName ModelName     `json:"model_name"`
+	Memory    uint64        `json:"memory"`
+	Older     time.Duration `json:"older"`
+}
+
 type APIKey struct {
 	Created   time.Time       `json:"created"`
 	Owner     string          `json:"owner"`
@@ -509,11 +527,12 @@ type User struct {
 
 // a single envelope that is broadcast to users
 type WebsocketEvent struct {
-	Type               WebsocketEventType  `json:"type"`
-	SessionID          string              `json:"session_id"`
-	Owner              string              `json:"owner"`
-	Session            *Session            `json:"session"`
-	WorkerTaskResponse *RunnerTaskResponse `json:"worker_task_response"`
+	Type               WebsocketEventType          `json:"type"`
+	SessionID          string                      `json:"session_id"`
+	Owner              string                      `json:"owner"`
+	Session            *Session                    `json:"session"`
+	WorkerTaskResponse *RunnerTaskResponse         `json:"worker_task_response"`
+	InferenceResponse  *RunnerLLMInferenceResponse `json:"inference_response"`
 }
 
 // the context of a long running python process
@@ -704,6 +723,57 @@ type Counter struct {
 	Count int64 `json:"count"`
 }
 
+type ToolHistoryMessage struct {
+	Role    string
+	Content string
+}
+
+func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
+	var history []*ToolHistoryMessage
+
+	// If it's just one message, return an empty history
+	if len(req.Messages) <= 1 {
+		return history
+	}
+
+	// Copy the messages from the request into history messages
+	// Remove the last message, as it's the one we're currently processing
+	for _, message := range req.Messages[:len(req.Messages)-1] {
+		history = append(history, &ToolHistoryMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: message.Content,
+		})
+	}
+
+	return history
+}
+
+func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage {
+	var history []*ToolHistoryMessage
+
+	for _, interaction := range interactions {
+		switch interaction.Creator {
+		case CreatorTypeUser:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleUser,
+				Content: interaction.Message,
+			})
+		case CreatorTypeSystem:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		case CreatorTypeTool:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleTool,
+				Content: interaction.Message,
+			})
+		}
+	}
+
+	return history
+}
+
 type ToolType string
 
 const (
@@ -850,7 +920,7 @@ type AssistantConfig struct {
 	// but we don't include it in the yaml which feeds this struct because
 	// we populate the tools array from the APIs and GPTScripts arrays
 	// so - Tools is readonly - hence only JSON for the frontend to see
-	Tools []Tool `json:"tools"`
+	Tools []*Tool `json:"tools"`
 }
 
 type AppHelixConfig struct {
@@ -1182,7 +1252,15 @@ type RunnerEventResponseEnvelope struct {
 }
 
 type RunnerLLMInferenceRequest struct {
-	Owner         string
+	// RequestID is generated when a new request
+	// is received on the internal Helix OpenAI client
+	// to generate a chat completions call
+	RequestID string
+
+	CreatedAt time.Time
+
+	Priority      bool
+	OwnerID       string
 	SessionID     string
 	InteractionID string
 
@@ -1190,11 +1268,23 @@ type RunnerLLMInferenceRequest struct {
 }
 
 type RunnerLLMInferenceResponse struct {
-	UserID        string
+	// RequestID is used to match the response
+	// to the request
+	RequestID string
+
+	OwnerID       string
 	SessionID     string
 	InteractionID string
 
-	Request *openai.ChatCompletionRequest
+	Response       *openai.ChatCompletionResponse
+	StreamResponse *openai.ChatCompletionStreamResponse
+
+	// Error is set if there was an error
+	Error string
+
+	DurationMs int64
+
+	Done bool
 }
 
 // LLMCallStep used to categorize LLM call steps

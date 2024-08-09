@@ -1,16 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
+	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,6 +37,19 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
+	// Allow overriding from URL queries
+	if appID := req.URL.Query().Get("app_id"); appID != "" {
+		startReq.AppID = appID
+	}
+
+	if ragSourceID := req.URL.Query().Get("rag_source_id"); ragSourceID != "" {
+		startReq.RAGSourceID = ragSourceID
+	}
+
+	if assistantID := req.URL.Query().Get("assistant_id"); assistantID != "" {
+		startReq.AssistantID = assistantID
+	}
+
 	if len(startReq.Messages) == 0 {
 		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
 		return
@@ -46,9 +64,15 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	ctx := req.Context()
 	user := getRequestUser(req)
 
-	status, err := s.Controller.GetStatus(req.Context(), user)
+	// For finetunes, legacy route
+	if startReq.LoraDir != "" {
+		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
+		return
+	}
+
+	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), startReq.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -57,433 +81,330 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.Type = types.SessionTypeText
 	}
 
-	var cfg *startSessionConfig
+	if startReq.SystemPrompt == "" {
+		startReq.SystemPrompt = "You are a helpful assistant."
+	}
 
-	if startReq.SessionID == "" {
-		if startReq.LoraDir != "" {
-			// Basic validation on the lora dir path, it should be something like
-			// dev/users/9f2a1f87-b3b8-4e58-9176-32b4861c70e2/sessions/974a8bdc-c1d1-42dc-9a49-7bfa6db112d1/lora/e1c11fba-8d49-4a41-8ae7-60532ab67410
-			// this works for both session based file paths and data entity based file paths
-			ownerContext := types.OwnerContext{
-				Owner:     user.ID,
-				OwnerType: user.Type,
-			}
-			userPath, err := s.Controller.GetFilestoreUserPath(ownerContext, "")
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusBadRequest)
-				return
-			}
+	message, ok := startReq.Message()
+	if !ok {
+		http.Error(rw, "invalid message", http.StatusBadRequest)
+		return
+	}
 
-			if !strings.HasPrefix(startReq.LoraDir, userPath) {
-				http.Error(rw,
-					fmt.Sprintf(
-						"lora dir path must be within the user's directory (starts with '%s', full path example '%s/sessions/<session_id>/lora/<lora_id>')", userPath, userPath),
-					http.StatusBadRequest)
-				return
-			}
-		}
+	var (
+		session *types.Session
+	)
 
-		useModel := startReq.Model
-
-		interactions, err := messagesToInteractions(startReq.Messages)
+	if startReq.SessionID != "" {
+		session, err = s.Store.GetSession(ctx, startReq.SessionID)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
+			http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", startReq.SessionID, err), http.StatusInternalServerError)
 			return
 		}
 
-		// this will be assigned if the token being used is an app token
-		appID := user.AppID
-
-		if startReq.AppID != "" {
-			appID = startReq.AppID
+		if session.Owner != user.ID {
+			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+	} else {
+		// Create session
+		session = &types.Session{
+			ID:        system.GenerateSessionID(),
+			Name:      system.GenerateAmusingName(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Mode:      types.SessionModeInference,
+			Type:      types.SessionTypeText,
+			ModelName: types.ModelName(startReq.Model),
+			ParentApp: startReq.AppID,
+			Owner:     user.ID,
+			OwnerType: user.Type,
+			Metadata: types.SessionMetadata{
+				Stream:       startReq.Stream,
+				SystemPrompt: startReq.SystemPrompt,
+				RAGSourceID:  startReq.RAGSourceID,
+				AssistantID:  startReq.AssistantID,
+				Origin: types.SessionOrigin{
+					Type: types.SessionOriginTypeUserCreated,
+				},
+				HelixVersion: data.GetHelixVersion(),
+			},
 		}
 
-		// or we could be using a normal token and passing the app_id in the query string
-		if req.URL.Query().Get("app_id") != "" {
-			appID = req.URL.Query().Get("app_id")
+		if startReq.RAGSourceID != "" {
+			session.Metadata.RagEnabled = true
+		}
+	}
+
+	session.Interactions = append(session.Interactions,
+		&types.Interaction{
+			ID:        system.GenerateUUID(),
+			Created:   time.Now(),
+			Updated:   time.Now(),
+			Scheduled: time.Now(),
+			Completed: time.Now(),
+			Mode:      types.SessionModeInference,
+			Creator:   types.CreatorTypeUser,
+			State:     types.InteractionStateComplete,
+			Finished:  true,
+			Message:   message,
+		},
+		&types.Interaction{
+			ID:       system.GenerateUUID(),
+			Created:  time.Now(),
+			Updated:  time.Now(),
+			Creator:  types.CreatorTypeSystem,
+			Mode:     types.SessionModeInference,
+			Message:  "",
+			State:    types.InteractionStateWaiting,
+			Finished: false,
+			Metadata: map[string]string{},
+		},
+	)
+
+	// Write the initial session that has the user prompt and also the placeholder interaction
+	// for the system response which will be updated later once the response is received
+	err = s.Controller.WriteSession(session)
+	if err != nil {
+		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
+
+	var (
+		chatCompletionRequest = openai.ChatCompletionRequest{
+			Model: modelName.String(),
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: startReq.SystemPrompt,
+				},
+			},
 		}
 
-		assistantID := "0"
-
-		if startReq.AssistantID != "" {
-			assistantID = startReq.AssistantID
+		options = &controller.ChatCompletionOptions{
+			AppID:       startReq.AppID,
+			AssistantID: startReq.AssistantID,
+			RAGSourceID: startReq.RAGSourceID,
 		}
+	)
 
-		if req.URL.Query().Get("assistant_id") != "" {
-			assistantID = req.URL.Query().Get("assistant_id")
-		}
+	// Convert interactions (except the last one) to messages
+	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    string(interaction.Creator),
+			Content: interaction.Message,
+		})
+	}
 
-		sessionID := system.GenerateSessionID()
-		newSession := types.InternalSessionRequest{
-			ID:               sessionID,
-			Mode:             types.SessionModeInference,
-			Type:             startReq.Type,
-			ParentApp:        appID,
-			AssistantID:      assistantID,
-			SystemPrompt:     startReq.SystemPrompt,
-			Stream:           startReq.Stream,
-			ModelName:        types.ModelName(startReq.Model),
-			Owner:            user.ID,
-			OwnerType:        user.Type,
-			LoraDir:          startReq.LoraDir,
-			UserInteractions: interactions,
-			Priority:         status.Config.StripeSubscriptionActive,
-			ActiveTools:      startReq.Tools,
-			RAGSourceID:      startReq.RAGSourceID,
-		}
-
-		// if we have an app then let's populate the InternalSessionRequest with values from it
-		if newSession.ParentApp != "" {
-			app, err := s.Store.GetApp(ctx, appID)
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// TODO: support > 1 assistant
-			if len(app.Config.Helix.Assistants) <= 0 {
-				http.Error(rw, "there are no assistants found in that app", http.StatusBadRequest)
-				return
-			}
-
-			assistant := data.GetAssistant(app, assistantID)
-			if assistant == nil {
-				http.Error(rw, fmt.Sprintf("could not find assistant with id %s", assistantID), http.StatusNotFound)
-				return
-			}
-
-			if assistant.SystemPrompt != "" {
-				newSession.SystemPrompt = assistant.SystemPrompt
-			}
-
-			if assistant.Model != "" {
-				useModel = assistant.Model
-			}
-
-			if assistant.RAGSourceID != "" {
-				newSession.RAGSourceID = assistant.RAGSourceID
-			}
-
-			if assistant.LoraID != "" {
-				newSession.LoraID = assistant.LoraID
-			}
-
-			if assistant.Type != "" {
-				newSession.Type = assistant.Type
-			}
-
-			// tools will be assigned by the app inside the controller
-			// TODO: refactor so all "get settings from the app" code is in the same place
-		}
-
-		// now we add any query params we have gotten
-		if req.URL.Query().Get("model") != "" {
-			useModel = req.URL.Query().Get("model")
-		}
-
-		if req.URL.Query().Get("system_prompt") != "" {
-			newSession.SystemPrompt = req.URL.Query().Get("system_prompt")
-		}
-
-		if req.URL.Query().Get("rag_source_id") != "" {
-			newSession.RAGSourceID = req.URL.Query().Get("rag_source_id")
-		}
-
-		if req.URL.Query().Get("lora_id") != "" {
-			newSession.LoraID = req.URL.Query().Get("lora_id")
-		}
-
-		hasFinetune := startReq.LoraDir != ""
-		ragEnabled := newSession.RAGSourceID != ""
-
-		processedModel, err := types.ProcessModelName(useModel, types.SessionModeInference, startReq.Type, hasFinetune, ragEnabled)
+	// TODO: remove once frontend is removed
+	if startReq.Legacy {
+		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		newSession.ModelName = processedModel
 
-		// we need to load the rag source and apply the rag settings to the session
-		if newSession.RAGSourceID != "" {
-			ragSource, err := s.Store.GetDataEntity(ctx, newSession.RAGSourceID)
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		go func() {
+			s.legacyStreamUpdates(user, session, stream)
+		}()
 
-			newSession.RAGSettings = ragSource.Config.RAGSettings
-		}
-
-		// we need to load the lora source and apply the lora settings to the session
-		if newSession.LoraID != "" {
-			loraSource, err := s.Store.GetDataEntity(ctx, newSession.LoraID)
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			newSession.LoraDir = loraSource.Config.FilestorePath
-		}
-
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			sessionData, err := s.Controller.StartSession(ctx, user, newSession)
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(sessionData)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
-		}
-
-		cfg = &startSessionConfig{
-			sessionID: sessionID,
-			modelName: string(newSession.ModelName),
-			start: func() error {
-				_, err := s.Controller.StartSession(ctx, user, newSession)
-				if err != nil {
-					return fmt.Errorf("failed to create session: %s", err)
-				}
-				return nil
-			},
-		}
-	} else {
-		existingSession, err := s.Store.GetSession(ctx, startReq.SessionID)
+		sessionDataJSON, err := json.Marshal(session)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
+			http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Existing session
-		interactions, err := messagesToInteractions(startReq.Messages)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		if len(interactions) != 1 {
-			http.Error(rw, "only 1 message is allowed for now", http.StatusBadRequest)
-			return
-		}
-
-		// Only user interactions are allowed for existing sessions
-		if interactions[0].Creator != types.CreatorTypeUser {
-			http.Error(rw, "only user interactions are allowed for existing sessions", http.StatusBadRequest)
-			return
-		}
-
-		// we are still in the old frontend mode where it's listening to the websocket
-		// TODO: get the frontend to stream using the streaming api below
-		if startReq.Legacy {
-			updatedSession, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-				SessionID:       startReq.SessionID,
-				UserInteraction: interactions[0],
-				SessionMode:     types.SessionModeInference,
-			})
-			if err != nil {
-				http.Error(rw, fmt.Sprintf("failed to start session: %s", err.Error()), http.StatusBadRequest)
-				log.Error().Err(err).Msg("failed to start session")
-				return
-			}
-
-			sessionDataJSON, err := json.Marshal(updatedSession)
-			if err != nil {
-				http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			rw.Header().Set("Content-Type", "application/json")
-			rw.WriteHeader(http.StatusOK)
-			rw.Write(sessionDataJSON)
-			return
-		}
-
-		cfg = &startSessionConfig{
-			sessionID: startReq.SessionID,
-			modelName: string(existingSession.ModelName),
-			start: func() error {
-
-				_, err := s.Controller.UpdateSession(ctx, user, types.UpdateSessionRequest{
-					SessionID:       startReq.SessionID,
-					UserInteraction: interactions[0],
-					SessionMode:     types.SessionModeInference,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to update session: %s", err)
-				}
-
-				return nil
-			},
-		}
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		rw.Write(sessionDataJSON)
+		return
 	}
+	// End of TODO
 
-	if startReq.Stream {
-		s.handleStreamingResponse(rw, req, user, cfg)
+	if !startReq.Stream {
+		err := s.handleBlockingSession(ctx, user, session, chatCompletionRequest, options, rw)
+		if err != nil {
+			log.Err(err).Msg("error handling blocking session")
+		}
 		return
 	}
 
-	s.handleBlockingResponse(rw, req, user, cfg)
+	err = s.handleStreamingSession(ctx, user, session, chatCompletionRequest, options, rw)
+	if err != nil {
+		log.Err(err).Msg("error handling blocking session")
+	}
+	return
 }
 
-// startLearnSessionHandler godoc
-// @Summary Start new fine tuning and/or rag source generation session
-// @Description Start new fine tuning and/or RAG source generation session
-// @Tags    learn
-
-// @Success 200 {object} types.Session
-// @Param request    body types.SessionLearnRequest true "Request body with settings for the learn session.")
-// @Router /api/v1/sessions/learn [post]
-// @Security BearerAuth
-func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *http.Request) {
-
-	var startReq types.SessionLearnRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
+func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	// Ensure request is not streaming
+	chatCompletionRequest.Stream = false
+	// Call the LLM
+	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
-		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
-		return
+		// Update the session with the response
+		session.Interactions[len(session.Interactions)-1].Error = err.Error()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
+	} else {
+		if len(chatCompletionResponse.Choices) == 0 {
+			return errors.New("no data in the LLM response")
+		}
+		// Update the session with the response
+		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
+		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+		session.Interactions[len(session.Interactions)-1].Finished = true
 	}
 
-	if startReq.DataEntityID == "" {
-		http.Error(rw, "data entity ID not be empty", http.StatusBadRequest)
-		return
-	}
-
-	user := getRequestUser(req)
-	ctx := req.Context()
-
-	ownerContext := getOwnerContext(req)
-
-	status, err := s.Controller.GetStatus(ctx, user)
+	err = s.Controller.WriteSession(session)
 	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
+		return err
 	}
 
-	// Default to text
-	if startReq.Type == "" {
-		startReq.Type = types.SessionTypeText
-	}
+	chatCompletionResponse.ID = session.ID
 
-	dataEntity, err := s.Store.GetDataEntity(ctx, startReq.DataEntityID)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if dataEntity.Owner != user.ID {
-		http.Error(rw, "you must own the data entity", http.StatusBadRequest)
-		return
-	}
-
-	// TODO: data entity pipelines where we don't even need a session
-	userInteraction, err := s.getUserInteractionFromDataEntity(dataEntity, ownerContext)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	model, err := types.ProcessModelName("", types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sessionID := system.GenerateSessionID()
-	createRequest := types.InternalSessionRequest{
-		ID:                  sessionID,
-		Mode:                types.SessionModeFinetune,
-		ModelName:           model,
-		Type:                startReq.Type,
-		Stream:              true,
-		Owner:               user.ID,
-		OwnerType:           user.Type,
-		UserInteractions:    []*types.Interaction{userInteraction},
-		Priority:            status.Config.StripeSubscriptionActive,
-		UploadedDataID:      dataEntity.ID,
-		RAGEnabled:          startReq.RagEnabled,
-		TextFinetuneEnabled: startReq.TextFinetuneEnabled,
-		RAGSettings:         startReq.RagSettings,
-	}
-
-	sessionData, err := s.Controller.StartSession(ctx, user, createRequest)
-	if err != nil {
-		http.Error(rw, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sessionDataJSON, err := json.Marshal(sessionData)
-	if err != nil {
-		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(http.StatusOK)
-	rw.Write(sessionDataJSON)
-}
-
-func messagesToInteractions(messages []*types.Message) ([]*types.Interaction, error) {
-	var interactions []*types.Interaction
-
-	for _, m := range messages {
-		// Validating roles
-		switch m.Role {
-		case types.CreatorTypeUser, types.CreatorTypeAssistant, types.CreatorTypeSystem:
-			// OK
-		default:
-			return nil, fmt.Errorf("invalid role '%s', available roles: 'user', 'system', 'assistant'", m.Role)
-
-		}
-
-		if len(m.Content.Parts) != 1 {
-			return nil, fmt.Errorf("invalid message content, should only contain 1 entry and it should be a string")
-
-		}
-
-		switch m.Content.Parts[0].(type) {
-		case string:
-			// OK
-		default:
-			return nil, fmt.Errorf("invalid message content %v", m.Content.Parts[0])
-
-		}
-
-		var creator types.CreatorType
-		switch m.Role {
-		case "user":
-			creator = types.CreatorTypeUser
-		case "system":
-			creator = types.CreatorTypeSystem
-		case "assistant":
-			creator = types.CreatorTypeAssistant
-		}
-
-		interaction := &types.Interaction{
-			ID:             system.GenerateUUID(),
-			Created:        time.Now(),
-			Updated:        time.Now(),
-			Scheduled:      time.Now(),
-			Completed:      time.Now(),
-			Creator:        creator,
-			Mode:           types.SessionModeInference,
-			Message:        m.Content.Parts[0].(string),
-			Files:          []string{},
-			State:          types.InteractionStateComplete,
-			Finished:       true,
-			Metadata:       map[string]string{},
-			DataPrepChunks: map[string][]types.DataPrepChunk{},
-		}
-
-		interactions = append(interactions, interaction)
+	err = json.NewEncoder(rw).Encode(chatCompletionResponse)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
 	}
 
-	return interactions, nil
+	return nil
+}
+
+func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
+	// Ensure request is not streaming
+	chatCompletionRequest.Stream = true
+	// Call the LLM
+	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return nil
+	}
+	defer stream.Close()
+
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+
+	var fullResponse string
+
+	// Write the stream into the response
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+
+		// Accumulate the response
+		fullResponse += response.Choices[0].Delta.Content
+
+		// Update the response with the interaction ID
+		response.ID = session.ID
+
+		// Write the response to the client
+		bts, err := json.Marshal(response)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+
+		writeChunk(rw, bts)
+	}
+
+	// Update last interaction
+	session.Interactions[len(session.Interactions)-1].Message = fullResponse
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
+
+	return s.Controller.WriteSession(session)
+}
+
+// legacyStreamUpdates writes the event to pubsub so user's browser can pick them
+// up and update the session in the UI
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	interactionID := session.Interactions[len(session.Interactions)-1].ID
+
+	var responseMessage string
+
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			log.Err(err).Msg("error receiving stream")
+			return
+		}
+
+		var messageContent string
+
+		// Accumulate the response
+		if len(response.Choices) > 0 {
+			messageContent = response.Choices[0].Delta.Content
+		}
+
+		responseMessage += messageContent
+
+		bts, err := json.Marshal(&types.WebsocketEvent{
+			Type:      "worker_task_response",
+			SessionID: session.ID,
+			Session: &types.Session{
+				ID: session.ID,
+			},
+			WorkerTaskResponse: &types.RunnerTaskResponse{
+				Owner:         user.ID,
+				Type:          types.WorkerTaskResponseTypeStream,
+				SessionID:     session.ID,
+				InteractionID: interactionID,
+				Message:       messageContent,
+				Done:          false,
+			},
+		})
+
+		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to publish message")
+		}
+	}
+
+	// Send the final message that it's done
+	bts, err := json.Marshal(&types.WebsocketEvent{
+		Type:      "worker_task_response",
+		SessionID: session.ID,
+		Session: &types.Session{
+			ID: session.ID,
+		},
+		WorkerTaskResponse: &types.RunnerTaskResponse{
+			Owner:         user.ID,
+			SessionID:     session.ID,
+			InteractionID: interactionID,
+			Type:          types.WorkerTaskResponseTypeStream,
+			Message:       "",
+			Done:          true,
+		},
+	})
+
+	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to publish message")
+	}
+
+	// Update last interaction
+	session.Interactions[len(session.Interactions)-1].Message = responseMessage
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
+
+	s.Controller.WriteSession(session)
 }

@@ -32,6 +32,10 @@ func NewInternalHelixClient(cfg *config.ServerConfig, pubsub pubsub.PubSub, cont
 	}
 }
 
+func (c *InternalHelixClient) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (c *InternalHelixClient) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (resp openai.ChatCompletionResponse, err error) {
 	sessionID := system.GenerateUUID()
 

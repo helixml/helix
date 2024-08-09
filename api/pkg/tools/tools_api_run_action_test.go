@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
+	openai "github.com/lukemarsden/go-openai2"
 
 	"github.com/davecgh/go-spew/spew"
 )
@@ -66,7 +67,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "Can you please give me the details for pet 99944?"
 
@@ -178,7 +179,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 		},
 	}
 
-	history := []*types.Interaction{}
+	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What's the weather like in London?"
 
@@ -243,14 +244,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 		},
 	}
 
-	history := []*types.Interaction{
+	history := []*types.ToolHistoryMessage{
 		{
-			Creator: types.CreatorTypeUser,
-			Message: "what is the capital of united kingdom?",
+			Role:    openai.ChatMessageRoleUser,
+			Content: "what is the capital of united kingdom?",
 		},
 		{
-			Creator: types.CreatorTypeAssistant,
-			Message: "The capital of the United Kingdom is London.",
+			Role:    openai.ChatMessageRoleAssistant,
+			Content: "The capital of the United Kingdom is London.",
 		},
 	}
 
