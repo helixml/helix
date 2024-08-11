@@ -63,3 +63,59 @@ func (c *Client) CreateApp(app *types.App) (*types.App, error) {
 
 	return &createdApp, nil
 }
+
+func (c *Client) UpdateApp(app *types.App) (*types.App, error) {
+	bts, err := json.Marshal(app)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, c.url+"/apps/"+app.ID, bytes.NewBuffer(bts))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to update app, status code: %d", resp.StatusCode)
+	}
+
+	bts, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var updatedApp types.App
+	err = json.Unmarshal(bts, &updatedApp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updatedApp, nil
+}
+
+func (c *Client) DeleteApp(appID string) error {
+	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to delete app, status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
