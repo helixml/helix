@@ -32,6 +32,7 @@ func NewRootCmd() *cobra.Command {
 
 	// CLI
 	RootCmd.AddCommand(app.New())
+	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
 
 	return RootCmd
 }
