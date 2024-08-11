@@ -60,13 +60,13 @@ func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to create app, status code: %d", resp.StatusCode)
-	}
-
 	bts, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to create app (%s), status code: %d", string(bts), resp.StatusCode)
 	}
 
 	var createdApp types.App
