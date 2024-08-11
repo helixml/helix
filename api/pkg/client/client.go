@@ -2,6 +2,7 @@ package client
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -21,6 +22,11 @@ type HelixClient struct {
 }
 
 func NewClient(url, apiKey string) *HelixClient {
+	if !strings.HasSuffix(url, "/api/v1") {
+		// append /api/v1 to the url
+		url = url + "/api/v1"
+	}
+
 	return &HelixClient{
 		httpClient: http.DefaultClient,
 		apiKey:     apiKey,
