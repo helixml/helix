@@ -117,7 +117,13 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	// if this is a github app - then initialise it
-	if app.AppSource == types.AppSourceGithub {
+	switch app.AppSource {
+	case types.AppSourceHelix:
+		created, err = s.Store.CreateApp(r.Context(), &app)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+	case types.AppSourceGithub:
 		if app.AppSource == types.AppSourceGithub {
 			if app.Config.Github.Repo == "" {
 				return nil, system.NewHTTPError400("github repo is required")
