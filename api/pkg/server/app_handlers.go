@@ -20,7 +20,7 @@ import (
 // @Description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
 // @Tags    apps
 
-// @Success 200 {object} types.App
+// @Success 200 {array} types.App
 // @Router /api/v1/apps [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
