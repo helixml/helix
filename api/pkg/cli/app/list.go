@@ -28,7 +28,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Source", "CreatedAt", "UpdatedAt"}
+		header := []string{"ID", "Name", "Source", "Created At", "Updated At"}
 
 		table.SetHeader(header)
 
