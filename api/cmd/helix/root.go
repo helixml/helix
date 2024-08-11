@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/cli/app"
 )
 
 var Fatal = FatalErrorHandler
@@ -27,6 +29,10 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(newQapairCommand())
 	RootCmd.AddCommand(newEvalsCommand())
 	RootCmd.AddCommand(newVersionCommand())
+
+	// CLI
+	RootCmd.AddCommand(app.New())
+
 	return RootCmd
 }
 
