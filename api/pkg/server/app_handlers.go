@@ -111,24 +111,28 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
-	created, err := s.Store.CreateApp(ctx, &app)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
+	var created *types.App
 
 	// if this is a github app - then initialise it
 	switch app.AppSource {
 	case types.AppSourceHelix:
-		created, err = s.Store.CreateApp(r.Context(), &app)
+		created, err = s.Store.CreateApp(ctx, &app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
+
+		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
 	case types.AppSourceGithub:
-		if app.AppSource == types.AppSourceGithub {
-			if app.Config.Github.Repo == "" {
-				return nil, system.NewHTTPError400("github repo is required")
-			}
+		if app.Config.Github.Repo == "" {
+			return nil, system.NewHTTPError400("github repo is required")
 		}
+		created, err = s.Store.CreateApp(ctx, &app)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -156,6 +160,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
+	default:
+		return nil, system.NewHTTPError400(
+			"unknown app source, available sources: %s, %s",
+			types.AppSourceHelix,
+			types.AppSourceGithub)
 	}
 
 	_, err = s.Controller.CreateAPIKey(ctx, user, &types.APIKey{
