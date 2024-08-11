@@ -13,7 +13,7 @@ import (
 type AppFilter struct {
 }
 
-func (c *Client) ListApps(f *AppFilter) ([]*types.App, error) {
+func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
 	resp, err := c.httpClient.Get(c.url + "/apps")
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func (c *Client) ListApps(f *AppFilter) ([]*types.App, error) {
 	return apps, nil
 }
 
-func (c *Client) CreateApp(app *types.App) (*types.App, error) {
+func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (c *Client) CreateApp(app *types.App) (*types.App, error) {
 	return &createdApp, nil
 }
 
-func (c *Client) UpdateApp(app *types.App) (*types.App, error) {
+func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (c *Client) UpdateApp(app *types.App) (*types.App, error) {
 	return &updatedApp, nil
 }
 
-func (c *Client) DeleteApp(appID string) error {
+func (c *HelixClient) DeleteApp(appID string) error {
 	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID, nil)
 	if err != nil {
 		return err
