@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -27,7 +28,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name"}
+		header := []string{"ID", "Name", "Source", "CreatedAt", "UpdatedAt"}
 
 		table.SetHeader(header)
 
@@ -47,6 +48,9 @@ var listCmd = &cobra.Command{
 			row := []string{
 				app.ID,
 				app.Config.Helix.Name,
+				string(app.AppSource),
+				app.Created.Format(time.DateTime),
+				app.Updated.Format(time.DateTime),
 			}
 
 			table.Append(row)
