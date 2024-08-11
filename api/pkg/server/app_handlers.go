@@ -116,6 +116,18 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	// if this is a github app - then initialise it
 	switch app.AppSource {
 	case types.AppSourceHelix:
+		// Validate and default tools
+		for idx := range app.Config.Helix.Assistants {
+			assistant := &app.Config.Helix.Assistants[idx]
+			for idx := range assistant.Tools {
+				tool := assistant.Tools[idx]
+				err = s.validateTool(tool)
+				if err != nil {
+					return nil, system.NewHTTPError400(err.Error())
+				}
+			}
+		}
+
 		created, err = s.Store.CreateApp(ctx, &app)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -263,6 +275,18 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	update.Updated = time.Now()
+
+	// Validate and default tools
+	for idx := range update.Config.Helix.Assistants {
+		assistant := &update.Config.Helix.Assistants[idx]
+		for idx := range assistant.Tools {
+			tool := assistant.Tools[idx]
+			err = s.validateTool(tool)
+			if err != nil {
+				return nil, system.NewHTTPError400(err.Error())
+			}
+		}
+	}
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), &update)
