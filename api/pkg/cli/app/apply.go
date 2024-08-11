@@ -3,8 +3,22 @@ package app
 import (
 	"fmt"
 
+	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/spf13/cobra"
 )
+
+func init() {
+	rootCmd.AddCommand(NewApplyCmd())
+
+	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
+}
+
+func NewApplyCmd() *cobra.Command {
+	return applyCmd
+}
 
 type applyOptions struct {
 	filename string
@@ -25,17 +39,37 @@ var applyCmd = &cobra.Command{
 			return fmt.Errorf("filename is required")
 		}
 
-		fmt.Println("apply called with filename: ", filename)
-		return nil
+		localApp, err := apps.NewLocalApp(filename)
+		if err != nil {
+			return err
+		}
+
+		appConfig := localApp.GetAppConfig()
+
+		apiClient, err := client.NewClientFromEnv()
+		if err != nil {
+			return err
+		}
+
+		existingApps, err := apiClient.ListApps(&client.AppFilter{})
+		if err != nil {
+			return err
+		}
+
+		for _, existingApp := range existingApps {
+			if existingApp.Config.Helix.Name == appConfig.Name {
+				return updateApp(apiClient, existingApp, appConfig)
+			}
+		}
+
+		return createApp(apiClient, appConfig)
 	},
 }
 
-func NewApplyCmd() *cobra.Command {
-	return applyCmd
+func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig) error {
+	return nil
 }
 
-func init() {
-	rootCmd.AddCommand(NewApplyCmd())
-
-	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
+func createApp(apiClient client.Client, appConfig *types.AppHelixConfig) error {
+	return nil
 }
