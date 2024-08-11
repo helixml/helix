@@ -42,15 +42,15 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 		return nil, fmt.Errorf("error processing config file %s: %w", filename, err)
 	}
 
-	var apiTools []types.Tool
+	var apiTools []*types.Tool
 
-	for _, assistant := range app.Assistants {
+	for idx, assistant := range app.Assistants {
 		for _, api := range assistant.APIs {
 			schema, err := processApiSchema(filename, api.Schema)
 			if err != nil {
 				return nil, fmt.Errorf("error processing assistant %s api schema: %w", assistant.ID, err)
 			}
-			apiTools = append(apiTools, types.Tool{
+			apiTools = append(apiTools, &types.Tool{
 				Name:        api.Name,
 				Description: api.Description,
 				ToolType:    types.ToolTypeAPI,
@@ -67,6 +67,8 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 				},
 			})
 		}
+
+		app.Assistants[idx].Tools = apiTools
 	}
 
 	return &LocalApp{
