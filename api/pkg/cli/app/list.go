@@ -3,7 +3,10 @@ package app
 import (
 	"fmt"
 
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+
+	"github.com/helixml/helix/api/pkg/client"
 )
 
 // listCmd represents the list command
@@ -16,8 +19,47 @@ and usage of using your command. For example:
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("list called")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		apiClient, err := client.NewClientFromEnv()
+		if err != nil {
+			return err
+		}
+
+		apps, err := apiClient.ListApps(&client.AppFilter{})
+		if err != nil {
+			return fmt.Errorf("failed to list apps: %w", err)
+		}
+
+		table := tablewriter.NewWriter(cmd.OutOrStdout())
+
+		header := []string{"ID", "Name"}
+
+		table.SetHeader(header)
+
+		table.SetAutoWrapText(false)
+		table.SetAutoFormatHeaders(true)
+		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+		table.SetAlignment(tablewriter.ALIGN_LEFT)
+		table.SetCenterSeparator("")
+		table.SetColumnSeparator("")
+		table.SetRowSeparator("")
+		table.SetHeaderLine(false)
+		table.SetBorder(false)
+		table.SetTablePadding(" ")
+		table.SetNoWhiteSpace(false)
+
+		for _, app := range apps {
+			row := []string{
+				app.ID,
+				app.Config.Helix.Name,
+			}
+
+			table.Append(row)
+		}
+
+		table.Render()
+
+		return nil
 	},
 }
 
