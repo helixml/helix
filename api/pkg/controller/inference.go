@@ -31,7 +31,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	// if yes, execute the tools and return the response
 	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load tools: %w", err)
+		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
 
 	if ok {
