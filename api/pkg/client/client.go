@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -21,7 +22,19 @@ type HelixClient struct {
 	url        string
 }
 
-func NewClient(url, apiKey string) *HelixClient {
+const (
+	DefaultURL = "https://app.tryhelix.ai"
+)
+
+func NewClient(url, apiKey string) (*HelixClient, error) {
+	if url == "" {
+		url = DefaultURL
+	}
+
+	if apiKey == "" {
+		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account")
+	}
+
 	if !strings.HasSuffix(url, "/api/v1") {
 		// append /api/v1 to the url
 		url = url + "/api/v1"
@@ -31,5 +44,5 @@ func NewClient(url, apiKey string) *HelixClient {
 		httpClient: http.DefaultClient,
 		apiKey:     apiKey,
 		url:        url,
-	}
+	}, nil
 }
