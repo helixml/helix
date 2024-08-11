@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -25,6 +26,15 @@ type HelixClient struct {
 const (
 	DefaultURL = "https://app.tryhelix.ai"
 )
+
+func NewClientFromEnv() (*HelixClient, error) {
+	cfg, err := config.LoadCliConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return NewClient(cfg.URL, cfg.APIKey)
+}
 
 func NewClient(url, apiKey string) (*HelixClient, error) {
 	if url == "" {
