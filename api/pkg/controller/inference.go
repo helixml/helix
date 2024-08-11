@@ -162,10 +162,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*types.Tool, *tools.IsActionableResponse, bool, error) {
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
+		log.Info().Msg("no assistant found")
 		return nil, nil, false, err
 	}
 
 	if len(assistant.Tools) == 0 {
+		log.Info().Msg("assistant has no tools")
 		return nil, nil, false, nil
 	}
 
