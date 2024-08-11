@@ -14,7 +14,14 @@ type AppFilter struct {
 }
 
 func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
-	resp, err := c.httpClient.Get(c.url + "/apps")
+	req, err := http.NewRequest(http.MethodGet, c.url+"/apps", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +47,14 @@ func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 		return nil, err
 	}
 
-	resp, err := c.httpClient.Post(c.url+"/apps", "application/json", bytes.NewBuffer(bts))
+	req, err := http.NewRequest(http.MethodPost, c.url+"/apps", bytes.NewBuffer(bts))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +89,7 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -106,6 +121,7 @@ func (c *HelixClient) DeleteApp(appID string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
