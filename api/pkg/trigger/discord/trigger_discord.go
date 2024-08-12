@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	// TODO: take from
-	discordModel = string(types.Model_Ollama_Llama3_8b)
+	// TODO: take from assistant
+	discordModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
 	// Users will be redirected to this URL to install the bot
 	installationDocsURL = "https://docs.helix.ml/helix/"
 )
