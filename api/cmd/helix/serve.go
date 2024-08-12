@@ -284,7 +284,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.StartLooping()
 
-	trigger := trigger.NewTriggerManager(cfg, store, openai.NewInternalHelixClient(cfg, ps, appController))
+	trigger := trigger.NewTriggerManager(cfg, store, appController)
 	// Start integrations
 	go trigger.Start(ctx)
 
