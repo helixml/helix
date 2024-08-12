@@ -1,0 +1,16 @@
+name: discord-bot
+description: |
+  A simple app that demonstrates how to setup Helix as a Discord bot. 
+  Our bot can be installed following this link https://discord.com/oauth2/authorize?client_id=1251942355980779531
+assistants:
+- name: Helix
+  description: Responds to messages in a Discord channel
+  apis:
+  - name: Demo Hiring Pipeline API
+    description: List all job vacancies, optionally filter by job title and/or candidate name
+    url: https://demos.tryhelix.ai
+    schema: ./openapi/jobvacancies.yaml
+
+triggers:
+- discord:
+    server_name: "HelixML"

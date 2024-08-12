@@ -167,7 +167,11 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 	}
 
 	if len(assistant.Tools) == 0 {
-		log.Info().Msg("assistant has no tools")
+		log.Info().
+			Str("assistant_id", assistant.ID).
+			Str("assistant_name", assistant.Name).
+			Str("assistant_model", assistant.Model).
+			Msg("assistant has no tools")
 		return nil, nil, false, nil
 	}
 
