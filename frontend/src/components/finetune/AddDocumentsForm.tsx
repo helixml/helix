@@ -123,6 +123,7 @@ export const AddDocumentsForm: FC<{
           style: { borderRadius: 0 },
           endAdornment: manualURL && (
             <IconButton
+              id='add-icon-button'
               onClick={onAddURL}
               sx={{
                 marginLeft: 'auto',
@@ -149,7 +150,7 @@ export const AddDocumentsForm: FC<{
         Text
       </Typography>
       <TextField
-      id='text-input'
+        id='text-input'
         fullWidth
         label="Paste some text here"
         value={ manualTextFile }
