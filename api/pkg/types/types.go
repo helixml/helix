@@ -930,6 +930,7 @@ type AppHelixConfig struct {
 	Image       string            `json:"image" yaml:"image"`
 	ExternalURL string            `json:"external_url" yaml:"external_url"`
 	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
+	Triggers    []Trigger         `json:"triggers" yaml:"triggers"`
 }
 
 type AppGithubConfigUpdate struct {
@@ -976,6 +977,7 @@ func (AppConfig) GormDataType() string {
 }
 
 type DiscordTrigger struct {
+	ChannelID string `json:"channel_id" yaml:"channel_id"`
 }
 
 type CronTrigger struct {
@@ -1046,7 +1048,6 @@ type App struct {
 	Global    bool      `json:"global"`
 	Shared    bool      `json:"shared"`
 	Config    AppConfig `json:"config" gorm:"jsonb"`
-	Triggers  Triggers  `json:"triggers" gorm:"jsonb"`
 }
 
 type KeyPair struct {
