@@ -6,8 +6,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
-	helixopenai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -19,12 +20,14 @@ import (
 const (
 	// TODO: take from
 	discordModel = string(types.Model_Ollama_Llama3_8b)
+	// Users will be redirected to this URL to install the bot
+	installationDocsURL = "https://docs.helix.ml/helix/"
 )
 
 type Discord struct {
-	cfg    *config.ServerConfig
-	store  store.Store
-	client helixopenai.Client
+	cfg        *config.ServerConfig
+	store      store.Store
+	controller *controller.Controller
 
 	botID string
 
@@ -32,12 +35,12 @@ type Discord struct {
 	threads   map[string]bool
 }
 
-func New(cfg *config.ServerConfig, store store.Store, client helixopenai.Client) *Discord {
+func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Discord {
 	return &Discord{
-		cfg:     cfg,
-		store:   store,
-		client:  client,
-		threads: make(map[string]bool), // TODO: store this in the database
+		cfg:        cfg,
+		store:      store,
+		controller: controller,
+		threads:    make(map[string]bool), // TODO: store this in the database
 	}
 }
 
@@ -73,10 +76,20 @@ func (d *Discord) Start(ctx context.Context) error {
 }
 
 func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCreate) bool {
+	fmt.Println("XX bot id", m.Content, s.State.User.ID)
+	fmt.Println("bot ID", d.botID)
+
+	if len(m.Mentions) > 0 {
+		spew.Dump(m.Mentions[0].Bot)
+		spew.Dump(m.Mentions[0].ID)
+	}
+
 	if strings.Contains(m.Content, "<@"+s.State.User.ID+">") {
-		fmt.Println("XX bot id")
+		fmt.Println("directed at bot")
 		return true
 	}
+
+	fmt.Println("not directed at bot")
 
 	d.threadsMu.Lock()
 	defer d.threadsMu.Unlock()
@@ -98,7 +111,6 @@ func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCrea
 // 3. Start the session with the bot
 func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	logger := log.With().Str("trigger", "discord").Logger()
-
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
@@ -108,10 +120,11 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		Str("bot_id", d.botID).
 		Str("state_user_id", s.State.User.ID).
 		Str("message_author_id", m.Author.ID).
+		Str("guild_id", m.GuildID).
 		Msg("received message")
 
 	if !d.isDirectedAtBot(s, m) {
-		logger.Debug().Msg("message not directed at bot")
+		logger.Info().Msg("message not directed at bot")
 		return
 	}
 
@@ -135,7 +148,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			return
 		}
 
-		resp, err := d.starChat(context.Background(), s, []*discordgo.Message{}, m)
+		resp, err := d.startChat(context.Background(), s, []*discordgo.Message{}, m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
 			return
@@ -166,7 +179,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		history = history[:len(history)-1]
 	}
 
-	resp, err := d.starChat(context.Background(), s, history, m)
+	resp, err := d.startChat(context.Background(), s, history, m)
 	if err != nil {
 		log.Err(err).Msg("failed to get response from inference API")
 		return
@@ -179,7 +192,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 }
 
-func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
+func (d *Discord) startChat(ctx context.Context, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
 
@@ -214,13 +227,15 @@ func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []
 
 	messages = append(messages, userMessage)
 
-	resp, err := d.client.CreateChatCompletion(
+	resp, err := d.controller.ChatCompletion(
 		ctx,
+		&types.User{},
 		openai.ChatCompletionRequest{
 			Stream:   false,
 			Model:    discordModel,
 			Messages: messages,
 		},
+		&controller.ChatCompletionOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
@@ -247,9 +262,11 @@ func (d *Discord) getThreadName(ctx context.Context, m *discordgo.MessageCreate)
 		Stream: false,
 	}
 
-	resp, err := d.client.CreateChatCompletion(
+	resp, err := d.controller.ChatCompletion(
 		ctx,
+		&types.User{},
 		req,
+		&controller.ChatCompletionOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
