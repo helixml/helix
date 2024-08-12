@@ -145,10 +145,6 @@ func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCrea
 	return false
 }
 
-// TODO:
-// 1. Look for bot name in the message
-// 2. Check the trigger database whether bot is configured, ignore non configured bots
-// 3. Start the session with the bot
 func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	logger := log.With().Str("trigger", "discord").Logger()
 	if m.Author.ID == s.State.User.ID {
@@ -168,11 +164,6 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		}
 		return
 	}
-
-	// guildName := "Unknown Server"
-	// if guild != nil {
-	// 	guildName = guild.Name
-	// }
 
 	d.appsMu.Lock()
 	app, ok := d.apps[guild.Name]
@@ -274,9 +265,6 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 }
 
 func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
-	// TODO: get app configuration from the database
-	// to populate rag/tools
-
 	system := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
