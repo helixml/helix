@@ -977,7 +977,7 @@ func (AppConfig) GormDataType() string {
 }
 
 type DiscordTrigger struct {
-	ChannelID string `json:"channel_id" yaml:"channel_id"`
+	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
 type CronTrigger struct {
