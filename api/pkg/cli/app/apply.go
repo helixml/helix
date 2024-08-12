@@ -15,6 +15,8 @@ func init() {
 	rootCmd.AddCommand(NewApplyCmd())
 
 	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
+	applyCmd.Flags().Bool("shared", false, "Shared application")
+	applyCmd.Flags().Bool("global", false, "Global application")
 }
 
 func NewApplyCmd() *cobra.Command {
@@ -40,6 +42,16 @@ var applyCmd = &cobra.Command{
 			return fmt.Errorf("filename is required")
 		}
 
+		shared, err := cmd.Flags().GetBool("shared")
+		if err != nil {
+			return err
+		}
+
+		global, err := cmd.Flags().GetBool("global")
+		if err != nil {
+			return err
+		}
+
 		localApp, err := apps.NewLocalApp(filename)
 		if err != nil {
 			return err
@@ -60,16 +72,18 @@ var applyCmd = &cobra.Command{
 		for _, existingApp := range existingApps {
 			if existingApp.Config.Helix.Name == appConfig.Name {
 				log.Info().Msgf("Existing app (%s) found, updating...", appConfig.Name)
-				return updateApp(apiClient, existingApp, appConfig)
+				return updateApp(apiClient, existingApp, appConfig, shared, global)
 			}
 		}
 
-		return createApp(apiClient, appConfig)
+		return createApp(apiClient, appConfig, shared, global)
 	},
 }
 
-func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig) error {
+func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHelixConfig, shared, global bool) error {
 	app.Config.Helix = *appConfig
+	app.Shared = shared
+	app.Global = global
 
 	app, err := apiClient.UpdateApp(app)
 	if err != nil {
@@ -81,11 +95,11 @@ func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHeli
 	return nil
 }
 
-func createApp(apiClient client.Client, appConfig *types.AppHelixConfig) error {
+func createApp(apiClient client.Client, appConfig *types.AppHelixConfig, shared, global bool) error {
 	app := &types.App{
 		AppSource: types.AppSourceHelix,
-		Global:    false, // TODO: make configurable
-		Shared:    false, // TODO: make configurable
+		Global:    global,
+		Shared:    shared,
 		Config: types.AppConfig{
 			AllowedDomains: []string{}, // TODO: make configurable
 			Helix:          *appConfig,

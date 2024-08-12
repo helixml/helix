@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
-	helixopenai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -17,27 +18,34 @@ import (
 )
 
 const (
-	// TODO: take from
-	discordModel = string(types.Model_Ollama_Llama3_8b)
+	// TODO: take from assistant
+	discordModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+	// Users will be redirected to this URL to install the bot
+	installationDocsURL = "https://docs.helix.ml/helix/"
+	// history limit
+	historyLimit = 30
 )
 
 type Discord struct {
-	cfg    *config.ServerConfig
-	store  store.Store
-	client helixopenai.Client
+	cfg        *config.ServerConfig
+	store      store.Store
+	controller *controller.Controller
 
 	botID string
 
 	threadsMu sync.Mutex
 	threads   map[string]bool
+
+	appsMu sync.Mutex
+	apps   map[string]*types.App // Guild name -> App
 }
 
-func New(cfg *config.ServerConfig, store store.Store, client helixopenai.Client) *Discord {
+func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Discord {
 	return &Discord{
-		cfg:     cfg,
-		store:   store,
-		client:  client,
-		threads: make(map[string]bool), // TODO: store this in the database
+		cfg:        cfg,
+		store:      store,
+		controller: controller,
+		threads:    make(map[string]bool), // TODO: store this in the database
 	}
 }
 
@@ -61,6 +69,10 @@ func (d *Discord) Start(ctx context.Context) error {
 
 	s.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
 
+	// Start the app sync loop, this will load the apps and keep them in sync
+	// and make sure we know which apps are configured for which guilds (discord servers)
+	go d.syncApps(ctx)
+
 	err = s.Open()
 	if err != nil {
 		return fmt.Errorf("failed to open discord session: %w", err)
@@ -72,11 +84,52 @@ func (d *Discord) Start(ctx context.Context) error {
 	return nil
 }
 
+func (d *Discord) syncApps(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			d.syncAppsOnce(ctx)
+		}
+	}
+}
+
+func (d *Discord) syncAppsOnce(ctx context.Context) error {
+	// Load all apps, check for discord configuration
+	apps, err := d.store.ListApps(ctx, &store.ListAppsQuery{})
+	if err != nil {
+		return fmt.Errorf("failed to list apps: %w", err)
+	}
+
+	discordApps := make(map[string]*types.App)
+
+	for _, app := range apps {
+		for _, trigger := range app.Config.Helix.Triggers {
+			if trigger.Discord != nil {
+				discordApps[trigger.Discord.ServerName] = app
+			}
+		}
+	}
+
+	d.appsMu.Lock()
+	d.apps = discordApps
+	d.appsMu.Unlock()
+
+	return nil
+}
+
 func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	if strings.Contains(m.Content, "<@"+s.State.User.ID+">") {
-		fmt.Println("XX bot id")
 		return true
 	}
+
+	// TODO: remove
+	log.Info().Str("content", m.Content).
+		Msg("message is directed at bot")
 
 	d.threadsMu.Lock()
 	defer d.threadsMu.Unlock()
@@ -92,32 +145,61 @@ func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCrea
 	return false
 }
 
-// TODO:
-// 1. Look for bot name in the message
-// 2. Check the trigger database whether bot is configured, ignore non configured bots
-// 3. Start the session with the bot
 func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	logger := log.With().Str("trigger", "discord").Logger()
-
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 
+	guild, err := s.Guild(m.GuildID)
+	if err != nil || guild == nil {
+		log.
+			Err(err).
+			Str("guild_id", m.GuildID).
+			Msg("failed to get guild")
+
+		_, err = s.ChannelMessageSendReply(m.ChannelID, "Failed to get guild, maybe I am lacking permissions?", m.Reference())
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+		return
+	}
+
+	d.appsMu.Lock()
+	app, ok := d.apps[guild.Name]
+	if !ok {
+		d.appsMu.Unlock()
+		log.Warn().Str("guild_name", guild.Name).Msg("no app configured for guild")
+
+		_, err = s.ChannelMessageSendReply(
+			m.ChannelID,
+			fmt.Sprintf("I am not yet configured to respond in this Discord channel. Please visit %s to install me.", installationDocsURL),
+			m.Reference(),
+		)
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+		return
+	}
+	d.appsMu.Unlock()
+
 	logger.Info().
 		Str("content", m.Content).
+		Str("app_id", app.ID).
 		Str("bot_id", d.botID).
 		Str("state_user_id", s.State.User.ID).
 		Str("message_author_id", m.Author.ID).
+		Str("guild_id", m.GuildID).
+		Str("guild_name", guild.Name).
 		Msg("received message")
 
 	if !d.isDirectedAtBot(s, m) {
-		logger.Debug().Msg("message not directed at bot")
+		logger.Info().Msg("message not directed at bot")
 		return
 	}
 
 	if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
 		// Creating a new thread
-
 		threadName, err := d.getThreadName(context.Background(), m)
 		if err != nil {
 			log.Err(err).Msg("failed to get thread name")
@@ -135,9 +217,10 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			return
 		}
 
-		resp, err := d.starChat(context.Background(), s, []*discordgo.Message{}, m)
+		resp, err := d.startChat(context.Background(), app, s, []*discordgo.Message{}, m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
+			_, _ = s.ChannelMessageSend(thread.ID, fmt.Sprintf("Failed to get response: %s", err))
 			return
 		}
 
@@ -154,7 +237,9 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	history, err := s.ChannelMessages(m.ChannelID, 10, m.ID, "", "")
+	// Existing thread
+
+	history, err := s.ChannelMessages(m.ChannelID, historyLimit, m.ID, "", "")
 	if err != nil {
 		// TODO: maybe reply directly?
 		log.Err(err).Msg("failed to get messages from thread")
@@ -166,7 +251,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		history = history[:len(history)-1]
 	}
 
-	resp, err := d.starChat(context.Background(), s, history, m)
+	resp, err := d.startChat(context.Background(), app, s, history, m)
 	if err != nil {
 		log.Err(err).Msg("failed to get response from inference API")
 		return
@@ -179,10 +264,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 }
 
-func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
-	// TODO: get app configuration from the database
-	// to populate rag/tools
-
+func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
 	system := openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
 		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
@@ -214,12 +296,16 @@ func (d *Discord) starChat(ctx context.Context, s *discordgo.Session, history []
 
 	messages = append(messages, userMessage)
 
-	resp, err := d.client.CreateChatCompletion(
+	resp, err := d.controller.ChatCompletion(
 		ctx,
+		&types.User{},
 		openai.ChatCompletionRequest{
 			Stream:   false,
 			Model:    discordModel,
 			Messages: messages,
+		},
+		&controller.ChatCompletionOptions{
+			AppID: app.ID,
 		},
 	)
 	if err != nil {
@@ -247,9 +333,11 @@ func (d *Discord) getThreadName(ctx context.Context, m *discordgo.MessageCreate)
 		Stream: false,
 	}
 
-	resp, err := d.client.CreateChatCompletion(
+	resp, err := d.controller.ChatCompletion(
 		ctx,
+		&types.User{},
 		req,
+		&controller.ChatCompletionOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
