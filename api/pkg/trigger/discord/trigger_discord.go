@@ -209,7 +209,6 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 	if ch, err := s.State.Channel(m.ChannelID); err != nil || !ch.IsThread() {
 		// Creating a new thread
-
 		threadName, err := d.getThreadName(context.Background(), m)
 		if err != nil {
 			log.Err(err).Msg("failed to get thread name")
@@ -227,7 +226,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 			return
 		}
 
-		resp, err := d.startChat(context.Background(), s, []*discordgo.Message{}, m)
+		resp, err := d.startChat(context.Background(), app, s, []*discordgo.Message{}, m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
 			return
@@ -246,6 +245,8 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
+	// Existing thread
+
 	history, err := s.ChannelMessages(m.ChannelID, historyLimit, m.ID, "", "")
 	if err != nil {
 		// TODO: maybe reply directly?
@@ -258,7 +259,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		history = history[:len(history)-1]
 	}
 
-	resp, err := d.startChat(context.Background(), s, history, m)
+	resp, err := d.startChat(context.Background(), app, s, history, m)
 	if err != nil {
 		log.Err(err).Msg("failed to get response from inference API")
 		return
@@ -271,7 +272,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 }
 
-func (d *Discord) startChat(ctx context.Context, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
+func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Session, history []*discordgo.Message, m *discordgo.MessageCreate) (string, error) {
 	// TODO: get app configuration from the database
 	// to populate rag/tools
 
@@ -314,7 +315,9 @@ func (d *Discord) startChat(ctx context.Context, s *discordgo.Session, history [
 			Model:    discordModel,
 			Messages: messages,
 		},
-		&controller.ChatCompletionOptions{},
+		&controller.ChatCompletionOptions{
+			AppID: app.ID,
+		},
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get response from inference API: %w", err)
