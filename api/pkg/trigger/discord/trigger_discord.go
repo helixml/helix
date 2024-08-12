@@ -229,6 +229,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		resp, err := d.startChat(context.Background(), app, s, []*discordgo.Message{}, m)
 		if err != nil {
 			log.Err(err).Msg("failed to get response from inference API")
+			_, _ = s.ChannelMessageSend(thread.ID, fmt.Sprintf("Failed to get response: %s", err))
 			return
 		}
 
