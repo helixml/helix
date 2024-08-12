@@ -122,6 +122,7 @@ const FINETUNE_TEXT_FEATURE: IFeature = {
     color: 'secondary',
     variant: 'outlined',
     handler: (navigate) => navigate('new', {mode:"finetune", type:"text", finetune:"true"}),
+    id: 'text-finetune-button',
   }, {
     title: 'Docs',
     color: 'primary',
@@ -143,7 +144,8 @@ const FINETUNE_IMAGES_FEATURE: IFeature = {
     title: 'Finetune',
     color: 'secondary',
     variant: 'outlined',
-    handler: (navigate) => {navigate('new', {mode:"finetune", type:"image"})},
+    handler: (navigate) => {navigate('new', {mode:"finetune", type:"image", finetune:"true"})},
+    id: 'image-finetune-button'
   }, {
     title: 'Docs',
     color: 'primary',
@@ -340,7 +342,7 @@ const HomeFeatureCard: FC<{
             feature.actions.map((action, index) => (
               <Cell key={ index }>
                 <Button
-                id={ action.id }
+                  id={ action.id }
                   size="small"
                   variant={ action.variant }
                   color={ action.color }
