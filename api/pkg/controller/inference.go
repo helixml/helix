@@ -31,7 +31,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	// if yes, execute the tools and return the response
 	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load tools: %w", err)
+		return nil, fmt.Errorf("tool execution failed: %w", err)
 	}
 
 	if ok {
@@ -162,10 +162,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*types.Tool, *tools.IsActionableResponse, bool, error) {
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
+		log.Info().Msg("no assistant found")
 		return nil, nil, false, err
 	}
 
 	if len(assistant.Tools) == 0 {
+		log.Info().Msg("assistant has no tools")
 		return nil, nil, false, nil
 	}
 

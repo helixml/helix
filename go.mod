@@ -34,7 +34,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/rs/zerolog v1.31.0
 	github.com/sourcegraph/conc v0.3.0
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.8.1
 	github.com/stripe/stripe-go/v76 v76.8.0
 	github.com/swaggo/swag v1.16.3
 	github.com/theckman/yacspin v0.13.12
