@@ -1,0 +1,3 @@
+description: Returns back the input of the script
+args: input: Any string
+echo "Welcome ${input}!"

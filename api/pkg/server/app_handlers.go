@@ -20,7 +20,7 @@ import (
 // @Description List apps for the user. Apps are pre-configured to spawn sessions with specific tools and config.
 // @Tags    apps
 
-// @Success 200 {object} types.App
+// @Success 200 {array} types.App
 // @Router /api/v1/apps [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*types.App, *system.HTTPError) {
@@ -111,18 +111,40 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		}
 	}
 
-	created, err := s.Store.CreateApp(ctx, &app)
-	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
-	}
+	var created *types.App
 
 	// if this is a github app - then initialise it
-	if app.AppSource == types.AppSourceGithub {
-		if app.AppSource == types.AppSourceGithub {
-			if app.Config.Github.Repo == "" {
-				return nil, system.NewHTTPError400("github repo is required")
+	switch app.AppSource {
+	case types.AppSourceHelix:
+		// Validate and default tools
+		for idx := range app.Config.Helix.Assistants {
+			assistant := &app.Config.Helix.Assistants[idx]
+			for idx := range assistant.Tools {
+				tool := assistant.Tools[idx]
+				err = s.validateTool(tool)
+				if err != nil {
+					return nil, system.NewHTTPError400(err.Error())
+				}
 			}
 		}
+
+		created, err = s.Store.CreateApp(ctx, &app)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+	case types.AppSourceGithub:
+		if app.Config.Github.Repo == "" {
+			return nil, system.NewHTTPError400("github repo is required")
+		}
+		created, err = s.Store.CreateApp(ctx, &app)
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		log.Info().Msgf("Created Helix (local source) app %s", created.ID)
+
 		client, err := s.getGithubClientFromRequest(r)
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
@@ -150,6 +172,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if err != nil {
 			return nil, system.NewHTTPError500(err.Error())
 		}
+	default:
+		return nil, system.NewHTTPError400(
+			"unknown app source, available sources: %s, %s",
+			types.AppSourceHelix,
+			types.AppSourceGithub)
 	}
 
 	_, err = s.Controller.CreateAPIKey(ctx, user, &types.APIKey{
@@ -248,6 +275,18 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	update.Updated = time.Now()
+
+	// Validate and default tools
+	for idx := range update.Config.Helix.Assistants {
+		assistant := &update.Config.Helix.Assistants[idx]
+		for idx := range assistant.Tools {
+			tool := assistant.Tools[idx]
+			err = s.validateTool(tool)
+			if err != nil {
+				return nil, system.NewHTTPError400(err.Error())
+			}
+		}
+	}
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), &update)

@@ -16,7 +16,7 @@ import (
 // @Description List tools for the user. Tools are use by the LLMs to interact with external systems.
 // @Tags    tools
 
-// @Success 200 {object} types.Tool
+// @Success 200 {array} types.Tool
 // @Router /api/v1/tools [get]
 // @Security BearerAuth
 func (s *HelixAPIServer) listTools(rw http.ResponseWriter, r *http.Request) ([]*types.Tool, *system.HTTPError) {

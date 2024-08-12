@@ -119,6 +119,9 @@ const Account: FC = () => {
 export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
 export AZURE_OPENAI_API_KEY=${apiKey}
 `
+  const cliLogin = `export HELIX_URL=${window.location.protocol}//${window.location.host}
+export HELIX_API_KEY=${apiKey}
+`
 
   return (
     <Page
@@ -180,6 +183,35 @@ export AZURE_OPENAI_API_KEY=${apiKey}
                           <IconButton edge="end" aria-label="delete" onClick={() => handleDeleteApiKey(apiKey.key)}>
                             <DeleteIcon />
                           </IconButton>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+
+                <Paper sx={{ mt: 2 }}>
+                  <Typography sx={{ p: 2}} variant="h6">CLI login</Typography>
+                  <List>
+                    {account.apiKeys.map((apiKey) => (
+                      <ListItem key={apiKey.key}>
+                        <Typography component="pre" 
+                            sx={{
+                            wordBreak: 'break-all',
+                            wordWrap: 'break-all',
+                            whiteSpace: 'pre-wrap',
+                            fontSize: '0.8rem',                      
+                            ml: 2,
+                            fontFamily: "monospace",
+                            }}
+                        >
+                          {cliLogin}                  
+                        </Typography>
+                        <ListItemSecondaryAction>
+                          <CopyToClipboard text={cliLogin} onCopy={() => snackbar.success('Copied to clipboard')}>
+                            <IconButton edge="end" aria-label="copy" sx={{ mr: 2 }}>
+                              <CopyIcon />
+                            </IconButton>
+                          </CopyToClipboard>                          
                         </ListItemSecondaryAction>
                       </ListItem>
                     ))}

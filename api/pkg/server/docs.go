@@ -34,7 +34,10 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/types.App"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/types.App"
+                            }
                         }
                     }
                 }
@@ -276,7 +279,10 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_helixml_helix_api_pkg_types.Tool"
+                            }
                         }
                     }
                 }
