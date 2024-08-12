@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
@@ -76,20 +75,13 @@ func (d *Discord) Start(ctx context.Context) error {
 }
 
 func (d *Discord) isDirectedAtBot(s *discordgo.Session, m *discordgo.MessageCreate) bool {
-	fmt.Println("XX bot id", m.Content, s.State.User.ID)
-	fmt.Println("bot ID", d.botID)
-
-	if len(m.Mentions) > 0 {
-		spew.Dump(m.Mentions[0].Bot)
-		spew.Dump(m.Mentions[0].ID)
-	}
-
 	if strings.Contains(m.Content, "<@"+s.State.User.ID+">") {
-		fmt.Println("directed at bot")
 		return true
 	}
 
-	fmt.Println("not directed at bot")
+	// TODO: remove
+	log.Info().Str("content", m.Content).
+		Msg("message is directed at bot")
 
 	d.threadsMu.Lock()
 	defer d.threadsMu.Unlock()
@@ -115,12 +107,23 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
+	guild, err := s.Guild(m.GuildID)
+	if err != nil {
+		log.Err(err).Msg("failed to get guild")
+	}
+
+	guildName := "Unknown Server"
+	if guild != nil {
+		guildName = guild.Name
+	}
+
 	logger.Info().
 		Str("content", m.Content).
 		Str("bot_id", d.botID).
 		Str("state_user_id", s.State.User.ID).
 		Str("message_author_id", m.Author.ID).
 		Str("guild_id", m.GuildID).
+		Str("guild_name", guildName).
 		Msg("received message")
 
 	if !d.isDirectedAtBot(s, m) {
