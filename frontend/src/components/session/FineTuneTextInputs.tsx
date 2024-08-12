@@ -509,6 +509,7 @@ export const FineTuneTextInputs: FC<{
               
               <Button
                 id="continue-button" 
+                data-testid="continue-button"
                 sx={{
                   bgcolor: '#ffff00',
                   color: 'black',
