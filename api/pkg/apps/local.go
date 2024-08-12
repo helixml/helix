@@ -42,7 +42,10 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 		return nil, fmt.Errorf("error processing config file %s: %w", filename, err)
 	}
 
-	var apiTools []*types.Tool
+	var (
+		apiTools   []*types.Tool
+		gptScripts []*types.Tool
+	)
 
 	for idx, assistant := range app.Assistants {
 		for _, api := range assistant.APIs {
@@ -69,6 +72,51 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 		}
 
 		app.Assistants[idx].Tools = apiTools
+
+		for _, script := range assistant.GPTScripts {
+			switch {
+			case script.Content != "":
+				// Load directly
+				gptScripts = append(gptScripts, &types.Tool{
+					Name:     script.Name,
+					ToolType: types.ToolTypeGPTScript,
+					Config: types.ToolConfig{
+						GPTScript: &types.ToolGPTScriptConfig{
+							Script: script.Content,
+						},
+					},
+				})
+			case script.File != "":
+				// Load from file(s), this can contain a glob pattern
+				// such as gptscripts/*.gpt which will load all .gpt files in the directory
+
+				// Use the config path to find the script file
+				scriptFile := filepath.Join(filepath.Dir(filename), script.File)
+				// Use the glob pattern to find all files
+				files, err := filepath.Glob(scriptFile)
+				if err != nil {
+					return nil, fmt.Errorf("error globbing file %s: %w", script.File, err)
+				}
+
+				for _, file := range files {
+					content, err := os.ReadFile(file)
+					if err != nil {
+						return nil, fmt.Errorf("error reading file %s: %w", file, err)
+					}
+
+					gptScripts = append(gptScripts, &types.Tool{
+						Name:     script.Name,
+						ToolType: types.ToolTypeGPTScript,
+						Config: types.ToolConfig{
+							GPTScript: &types.ToolGPTScriptConfig{
+								Script: string(content),
+							},
+						},
+					})
+				}
+			}
+
+		}
 	}
 
 	return &LocalApp{
