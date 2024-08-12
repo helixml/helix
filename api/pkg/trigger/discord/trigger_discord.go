@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -32,6 +33,9 @@ type Discord struct {
 
 	threadsMu sync.Mutex
 	threads   map[string]bool
+
+	appsMu sync.Mutex
+	apps   map[string]*types.App // Guild name -> App
 }
 
 func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) *Discord {
@@ -63,6 +67,10 @@ func (d *Discord) Start(ctx context.Context) error {
 
 	s.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
 
+	// Start the app sync loop, this will load the apps and keep them in sync
+	// and make sure we know which apps are configured for which guilds (discord servers)
+	go d.syncApps(ctx)
+
 	err = s.Open()
 	if err != nil {
 		return fmt.Errorf("failed to open discord session: %w", err)
@@ -70,6 +78,44 @@ func (d *Discord) Start(ctx context.Context) error {
 	defer s.Close()
 
 	<-ctx.Done()
+
+	return nil
+}
+
+func (d *Discord) syncApps(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			d.syncAppsOnce(ctx)
+		}
+	}
+}
+
+func (d *Discord) syncAppsOnce(ctx context.Context) error {
+	// Load all apps, check for discord configuration
+	apps, err := d.store.ListApps(ctx, &store.ListAppsQuery{})
+	if err != nil {
+		return fmt.Errorf("failed to list apps: %w", err)
+	}
+
+	discordApps := make(map[string]*types.App)
+
+	for _, app := range apps {
+		for _, trigger := range app.Config.Helix.Triggers {
+			if trigger.Discord != nil {
+				discordApps[trigger.Discord.ServerName] = app
+			}
+		}
+	}
+
+	d.appsMu.Lock()
+	d.apps = discordApps
+	d.appsMu.Unlock()
 
 	return nil
 }
