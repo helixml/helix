@@ -145,7 +145,7 @@ function pgvector_pipe() {
 }
 
 function install() {
-  go install ./api/cmd/helix
+  go install ./api/..
 }
 
 function update_openapi() {
