@@ -22,6 +22,8 @@ const (
 	discordModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
 	// Users will be redirected to this URL to install the bot
 	installationDocsURL = "https://docs.helix.ml/helix/"
+	// history limit
+	historyLimit = 30
 )
 
 type Discord struct {
@@ -154,7 +156,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 	}
 
 	guild, err := s.Guild(m.GuildID)
-	if err != nil {
+	if err != nil || guild == nil {
 		log.
 			Err(err).
 			Str("guild_id", m.GuildID).
@@ -167,18 +169,37 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	guildName := "Unknown Server"
-	if guild != nil {
-		guildName = guild.Name
+	// guildName := "Unknown Server"
+	// if guild != nil {
+	// 	guildName = guild.Name
+	// }
+
+	d.appsMu.Lock()
+	app, ok := d.apps[guild.Name]
+	if !ok {
+		d.appsMu.Unlock()
+		log.Warn().Str("guild_name", guild.Name).Msg("no app configured for guild")
+
+		_, err = s.ChannelMessageSendReply(
+			m.ChannelID,
+			fmt.Sprintf("I am not yet configured to respond in this Discord channel. Please visit %s to install me.", installationDocsURL),
+			m.Reference(),
+		)
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+		return
 	}
+	d.appsMu.Unlock()
 
 	logger.Info().
 		Str("content", m.Content).
+		Str("app_id", app.ID).
 		Str("bot_id", d.botID).
 		Str("state_user_id", s.State.User.ID).
 		Str("message_author_id", m.Author.ID).
 		Str("guild_id", m.GuildID).
-		Str("guild_name", guildName).
+		Str("guild_name", guild.Name).
 		Msg("received message")
 
 	if !d.isDirectedAtBot(s, m) {
@@ -225,7 +246,7 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	history, err := s.ChannelMessages(m.ChannelID, 10, m.ID, "", "")
+	history, err := s.ChannelMessages(m.ChannelID, historyLimit, m.ID, "", "")
 	if err != nil {
 		// TODO: maybe reply directly?
 		log.Err(err).Msg("failed to get messages from thread")
