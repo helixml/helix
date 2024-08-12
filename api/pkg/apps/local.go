@@ -78,7 +78,7 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 			case script.Content != "":
 				// Load directly
 				gptScripts = append(gptScripts, &types.Tool{
-					Name:     script.Name,
+					Name:     getNameGptScriptName(script.Name, script.File),
 					ToolType: types.ToolTypeGPTScript,
 					Config: types.ToolConfig{
 						GPTScript: &types.ToolGPTScriptConfig{
@@ -105,7 +105,7 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 					}
 
 					gptScripts = append(gptScripts, &types.Tool{
-						Name:     script.Name,
+						Name:     getNameGptScriptName(script.Name, file),
 						ToolType: types.ToolTypeGPTScript,
 						Config: types.ToolConfig{
 							GPTScript: &types.ToolGPTScriptConfig{
@@ -115,7 +115,6 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 					})
 				}
 			}
-
 		}
 	}
 
@@ -172,4 +171,11 @@ func processApiSchema(configPath, schemaPath string) (string, error) {
 	}
 
 	return schemaPath, nil
+}
+
+func getNameGptScriptName(name, filename string) string {
+	if name != "" {
+		return name
+	}
+	return filepath.Base(filename)
 }
