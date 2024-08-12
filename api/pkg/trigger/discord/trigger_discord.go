@@ -155,7 +155,16 @@ func (d *Discord) messageHandler(s *discordgo.Session, m *discordgo.MessageCreat
 
 	guild, err := s.Guild(m.GuildID)
 	if err != nil {
-		log.Err(err).Msg("failed to get guild")
+		log.
+			Err(err).
+			Str("guild_id", m.GuildID).
+			Msg("failed to get guild")
+
+		_, err = s.ChannelMessageSendReply(m.ChannelID, "Failed to get guild, maybe I am lacking permissions?", m.Reference())
+		if err != nil {
+			log.Err(err).Msg("failed to send message")
+		}
+		return
 	}
 
 	guildName := "Unknown Server"
