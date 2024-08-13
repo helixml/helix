@@ -1,6 +1,7 @@
 package slack
 
 import (
+	"context"
 	"fmt"
 	stdlog "log"
 	"os"
@@ -8,7 +9,9 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -60,7 +63,7 @@ func (s *Slack) middlewareAppMentionEvent(evt *socketmode.Event, client *socketm
 
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
-		fmt.Printf("Ignored %+v\n", evt)
+		log.Info().Msgf("Ignored: %+v", evt)
 		return
 	}
 
@@ -68,15 +71,79 @@ func (s *Slack) middlewareAppMentionEvent(evt *socketmode.Event, client *socketm
 
 	ev, ok := eventsAPIEvent.InnerEvent.Data.(*slackevents.AppMentionEvent)
 	if !ok {
-		fmt.Printf("Ignored %+v\n", ev)
+		log.Info().Msgf("Ignored event: %+v", ev)
 		return
 	}
 
-	fmt.Printf("We have been mentionned in %v\n", ev.Channel)
-	_, _, err := client.Client.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
+	log.Info().Str("channel", ev.Channel).Msg("We have been mentioned")
+
+	resp, err := s.startChat(context.Background(), &types.App{}, ev)
 	if err != nil {
-		fmt.Printf("failed posting message: %v", err)
+		log.Error().Err(err).Msg("failed to start chat")
+		_, _, _ = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(err.Error(), false))
+		return
 	}
+
+	_, _, err = client.Client.PostMessage(ev.Channel, slack.MsgOptionText(resp, false))
+	if err != nil {
+		log.Error().Err(err).Msg("failed to post message")
+	}
+}
+
+func (s *Slack) startChat(ctx context.Context, app *types.App, event *slackevents.AppMentionEvent) (string, error) {
+	system := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: `You are an AI assistant Discord bot. Be concise with the replies, keep them short but informative.`,
+	}
+
+	messages := []openai.ChatCompletionMessage{
+		system,
+	}
+
+	// TODO: Add history from a thread
+	// for _, msg := range history {
+	// 	switch {
+	// 	case msg.Author.ID == s.State.User.ID:
+	// 		messages = append(messages, openai.ChatCompletionMessage{
+	// 			Role:    openai.ChatMessageRoleAssistant,
+	// 			Content: msg.Content,
+	// 		})
+	// 	default:
+	// 		messages = append(messages, openai.ChatCompletionMessage{
+	// 			Role:    openai.ChatMessageRoleUser,
+	// 			Content: msg.Content,
+	// 		})
+	// 	}
+	// }
+
+	userMessage := openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: event.Text,
+	}
+
+	messages = append(messages, userMessage)
+
+	resp, err := s.controller.ChatCompletion(
+		ctx,
+		&types.User{},
+		openai.ChatCompletionRequest{
+			Stream:   false,
+			Model:    "",
+			Messages: messages,
+		},
+		&controller.ChatCompletionOptions{
+			AppID: app.ID,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get response from inference API: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in response")
+	}
+
+	return resp.Choices[0].Message.Content, nil
 }
 
 func middlewareConnecting(evt *socketmode.Event, client *socketmode.Client) {
