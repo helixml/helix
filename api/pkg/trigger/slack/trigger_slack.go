@@ -33,6 +33,8 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 }
 
 func (s *Slack) Start(ctx context.Context) error {
+	log.Info().Msg("starting Slack trigger")
+	defer log.Info().Msg("stopping Slack trigger")
 
 	options := []slack.Option{
 		slack.OptionDebug(true),
@@ -62,10 +64,41 @@ func (s *Slack) Start(ctx context.Context) error {
 
 	// Handle a specific event from EventsAPI
 	socketmodeHandler.HandleEvents(slackevents.AppMention, s.middlewareAppMentionEvent)
+	socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
 
 	<-ctx.Done()
 
 	return nil
+}
+
+func (s *Slack) middlewareEventsAPI(evt *socketmode.Event, client *socketmode.Client) {
+	fmt.Println("middlewareEventsAPI")
+	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
+	if !ok {
+		fmt.Printf("Ignored %+v\n", evt)
+		return
+	}
+
+	fmt.Printf("Event received: %+v\n", eventsAPIEvent)
+
+	client.Ack(*evt.Request)
+
+	switch eventsAPIEvent.Type {
+	case slackevents.CallbackEvent:
+		innerEvent := eventsAPIEvent.InnerEvent
+		switch ev := innerEvent.Data.(type) {
+		case *slackevents.AppMentionEvent:
+			fmt.Printf("We have been mentionned in %v", ev.Channel)
+			_, _, err := client.Client.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
+			if err != nil {
+				fmt.Printf("failed posting message: %v", err)
+			}
+		case *slackevents.MemberJoinedChannelEvent:
+			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
+		}
+	default:
+		client.Debugf("unsupported Events API event received")
+	}
 }
 
 func (s *Slack) middlewareAppMentionEvent(evt *socketmode.Event, client *socketmode.Client) {
