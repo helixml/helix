@@ -54,9 +54,8 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 		// Set the Authorization header
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		// Send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		// Send the request using http.DefaultClient
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to send request to provider's models endpoint")
 			http.Error(rw, "Internal server error", http.StatusInternalServerError)
@@ -81,62 +80,112 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 			log.Error().Err(err).Msg("Failed to write response")
 		}
 		return
+	}
 
-	} else {
+	// Create a response with a list of available models
+	models := []model.OpenAIModel{
+		// helix branded models, Hide: false (the default) so they show up in the UI
+		{
+			ID:          "helix-3.5",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix 3.5",
+			Description: "Llama3 8B, fast and good for everyday tasks",
+		},
+		{
+			ID:          "helix-4",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix 4",
+			Description: "Llama3 70B, smarter but a bit slower",
+		},
+		{
+			ID:          "helix-mixtral",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix Mixtral",
+			Description: "Mistral 8x7B MoE, we rely on this for some use cases",
+		},
+		{
+			ID:          "helix-json",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix JSON",
+			Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
+		},
+		{
+			ID:          "helix-small",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix Small",
+			Description: "Phi-3 Mini 3.8B, fast and memory efficient",
+		},
+		// ollama spellings
+		// TODO: make these dynamic by having the runners report which models
+		// they were configured with, and union them
+		{
+			ID:      "llama3:instruct",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "mixtral:instruct",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "codellama:70b-instruct-q2_K",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "phi3:instruct",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "llama3:8b-instruct-fp16",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "llama3:8b-instruct-q6_K",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+		{
+			ID:      "llama3:8b-instruct-q8_0",
+			Object:  "model",
+			OwnedBy: "helix",
+			Hide:    true,
+		},
+	}
 
-		// Create a response with a list of available models
-		models := []model.OpenAIModel{
-			{
-				ID:          "helix-3.5",
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        "Helix 3.5",
-				Description: "Llama3 8B, fast and good for everyday tasks",
-			},
-			{
-				ID:          "helix-4",
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        "Helix 4",
-				Description: "Llama3 70B, smarter but a bit slower",
-			},
-			{
-				ID:          "helix-mixtral",
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        "Helix Mixtral",
-				Description: "Mistral 8x7B MoE, we rely on this for some use cases",
-			},
-			{
-				ID:          "helix-json",
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        "Helix JSON",
-				Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
-			},
-			{
-				ID:          "helix-small",
-				Object:      "model",
-				OwnedBy:     "helix",
-				Name:        "Helix Small",
-				Description: "Phi-3 Mini 3.8B, fast and memory efficient",
-			},
-		}
+	response := model.OpenAIModelsList{
+		Models: models,
+	}
 
-		response := model.OpenAIModelsList{
-			Models: models,
-		}
+	// Set the content type header
+	rw.Header().Set("Content-Type", "application/json")
 
-		// Set the content type header
-		rw.Header().Set("Content-Type", "application/json")
-
-		// Encode and write the response
-		err := json.NewEncoder(rw).Encode(response)
-		if err != nil {
-			log.Err(err).Msg("error writing response")
-			http.Error(rw, "Internal server error", http.StatusInternalServerError)
-			return
-		}
+	// Encode and write the response
+	err := json.NewEncoder(rw).Encode(response)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 }
 
