@@ -980,12 +980,19 @@ type DiscordTrigger struct {
 	ServerName string `json:"server_name" yaml:"server_name"`
 }
 
+type SlackTrigger struct {
+	AppToken string   `json:"app_token" yaml:"app_token"`
+	BotToken string   `json:"bot_token" yaml:"bot_token"`
+	Channels []string `json:"channels" yaml:"channels"`
+}
+
 type CronTrigger struct {
 	Schedule string `json:"schedule,omitempty"`
 	Input    string `json:"input,omitempty"`
 }
 
 type Trigger struct {
+	Slack   *SlackTrigger   `json:"slack,omitempty"`
 	Discord *DiscordTrigger `json:"discord,omitempty"`
 	Cron    *CronTrigger    `json:"cron,omitempty"`
 }
