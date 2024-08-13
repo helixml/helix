@@ -13,6 +13,11 @@ import Alert from '@mui/material/Alert'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
+import Accordion from '@mui/material/Accordion'
+import AccordionSummary from '@mui/material/AccordionSummary'
+import AccordionDetails from '@mui/material/AccordionDetails'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import AddIcon from '@mui/icons-material/Add'
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -26,6 +31,7 @@ import StringArrayEditor from '../components/widgets/StringArrayEditor'
 import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
 import ToolDetail from '../components/tools/ToolDetail'
+import ToolEditor from '../components/ToolEditor'
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -48,6 +54,8 @@ import {
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
+  ITool,
+  IAppSource,
 } from '../types'
 
 const App: FC = () => {
@@ -78,13 +86,45 @@ const App: FC = () => {
   const [ gptScriptInput, setGptScriptInput ] = useState('')
   const [ gptScriptError, setGptScriptError ] = useState('')
   const [ gptScriptOutput, setGptScriptOutput ] = useState('')
+  const [ advancedSettingsOpen, setAdvancedSettingsOpen ] = useState(false)
+  const [ editingTool, setEditingTool ] = useState<ITool | null>(null)
 
   const app = useMemo(() => {
-    return apps.data.find((app) => app.id === params.app_id)
-  }, [
-    apps.data,
-    params,
-  ])
+    if (params.app_id === "new") {
+      const now = new Date();
+      return {
+        id: "new",
+        config: {
+          helix: {
+            name: "",
+            description: "",
+            assistants: [{
+              name: "",
+              description: "",
+              avatar: "",
+              image: "",
+              model: "",
+              type: SESSION_TYPE_TEXT,
+              system_prompt: "",
+              apis: [],
+              gptscripts: [],
+              tools: [],
+            }],
+          },
+          secrets: {},
+          allowed_domains: [],
+        },
+        shared: false,
+        global: false,
+        created: now,
+        updated: now,
+        owner: account.user?.id || "",
+        owner_type: "user",
+        app_source: "helix" as IAppSource,
+      } as IApp;
+    }
+    return apps.data.find((app) => app.id === params.app_id);
+  }, [apps.data, params.app_id, account.user]);
 
   const readOnly = useMemo(() => {
     if(!app) return true
@@ -244,6 +284,7 @@ const App: FC = () => {
 
   useEffect(() => {
     if(!account.user) return
+    if (params.app_id === "new") return; // Don't load data for new app
     if(!params.app_id) return
     apps.loadData()
     account.loadApiKeys({
@@ -276,13 +317,84 @@ const App: FC = () => {
     }
   })
 
+  const onAddApiTool = () => {
+    // TODO: Implement adding API tool
+    console.log("Add API tool");
+  };
+
+  const onAddGptScript = () => {
+    // TODO: Implement adding GPT script
+    console.log("Add GPT script");
+  };
+
+  const onEditApiTool = (tool: ITool) => {
+    setEditingTool(tool);
+  };
+
+  const onEditGptScript = (script: IAssistantGPTScript) => {
+    // Convert the GPT Script to a tool-like structure for the ToolEditor
+    const toolLikeScript: ITool = {
+      id: script.file,
+      name: script.name,
+      description: script.description,
+      tool_type: 'gptscript',
+      global: false, // Assuming GPT Scripts are not global by default
+      config: {
+        gptscript: {
+          script: script.content,
+        }
+      },
+      created: '', // These fields are not relevant for editing
+      updated: '',
+      owner: '',
+      owner_type: 'user',
+    };
+    setEditingTool(toolLikeScript);
+  };
+
+  const onSaveTool = async (updatedTool: ITool) => {
+    if (!app) return;
+    let updatedApp: IApp = { ...app };
+    
+    if (updatedTool.tool_type === 'api') {
+      updatedApp.config.helix.assistants[0].tools = app.config.helix.assistants[0].tools.map(t => 
+        t.id === updatedTool.id ? updatedTool : t
+      );
+    } else if (updatedTool.tool_type === 'gptscript') {
+      updatedApp.config.helix.assistants[0].gptscripts = app.config.helix.assistants[0].gptscripts.map(s => 
+        s.file === updatedTool.id ? {
+          name: updatedTool.name,
+          description: updatedTool.description,
+          file: updatedTool.id,
+          content: updatedTool.config.gptscript?.script || '',
+        } : s
+      );
+    }
+
+    const result = await apps.updateApp(app.id, {
+      name: updatedApp.config.helix.name || '',
+      description: updatedApp.config.helix.description || '',
+      secrets: updatedApp.config.secrets,
+      allowed_domains: updatedApp.config.allowed_domains,
+      global: updatedApp.global,
+      shared: updatedApp.shared,
+    });
+
+    if (result) {
+      snackbar.success('Tool updated successfully');
+      apps.loadApp(app.id);
+    }
+
+    setEditingTool(null);
+  };
+
   if(!account.user) return null
   if(!app) return null
-  if(!hasLoaded) return null
+  if(!hasLoaded && params.app_id !== "new") return null
 
   return (
     <Page
-      breadcrumbTitle="Edit App"
+      breadcrumbTitle={params.app_id === "new" ? "Create App" : "Edit App"}
       topbarContent={(
         <Box
           sx={{
@@ -398,7 +510,7 @@ const App: FC = () => {
                 sx={{
                   mb: 3,
                 }}
-                value={ app.config.github?.repo }
+                value={ app?.config.github?.repo }
                 disabled
                 fullWidth
                 label="Repo"
@@ -408,7 +520,7 @@ const App: FC = () => {
                 sx={{
                   mb: 3,
                 }}
-                value={ app.config.github?.hash }
+                value={ app?.config.github?.hash }
                 disabled
                 fullWidth
                 label="Hash"
@@ -418,41 +530,161 @@ const App: FC = () => {
                 sx={{
                   mb: 3,
                 }}
-                value={ app.updated }
+                value={ app?.updated }
                 disabled
                 fullWidth
                 label="Updated"
                 helperText="The last time this app was updated"
               />
               <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="h6" sx={{mb: 1}}>
-                App Configuration
-              </Typography>
-              <TextField
-                error={ showErrors && !schema }
-                value={ schema }
-                onChange={(e) => setSchema(e.target.value)}
-                disabled={true}
-                fullWidth
-                multiline
-                rows={10}
-                label="App Configuration"
-                helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-              />
-              <Box
-                sx={{
-                  textAlign: 'right',
-                  mb: 1,
-                }}
+
+              {/* Advanced Settings Accordion */}
+              <Accordion
+                expanded={advancedSettingsOpen}
+                onChange={() => setAdvancedSettingsOpen(!advancedSettingsOpen)}
               >
-                <JsonWindowLink
-                  sx={{textDecoration: 'underline'}}
-                  data={schema}
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography>Advanced Settings</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  {/* YAML Editor */}
+                  <Typography variant="h6" sx={{mb: 1}}>
+                    App Configuration
+                  </Typography>
+                  <TextField
+                    error={ showErrors && !schema }
+                    value={ schema }
+                    onChange={(e) => setSchema(e.target.value)}
+                    disabled={true}
+                    fullWidth
+                    multiline
+                    rows={10}
+                    label="App Configuration"
+                    helperText={ showErrors && !schema ? "Please enter a schema" : "" }
+                  />
+                  <Box
+                    sx={{
+                      textAlign: 'right',
+                      mb: 1,
+                    }}
+                  >
+                    <JsonWindowLink
+                      sx={{textDecoration: 'underline'}}
+                      data={schema}
+                    >
+                      expand
+                    </JsonWindowLink>
+                  </Box>
+
+                  {/* Environment Variables */}
+                  <Typography variant="subtitle1">
+                    Environment Variables
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    These will be available to your GPT Scripts as environment variables
+                  </Typography>
+                  <StringMapEditor
+                    entityTitle="variable"
+                    disabled={ readOnly }
+                    data={ secrets }
+                    onChange={ setSecrets }
+                  />
+
+                  {/* Allowed Domains */}
+                  <Typography variant="subtitle1">
+                    Allowed Domains
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+                  </Typography>
+                  <StringArrayEditor
+                    entityTitle="domain"
+                    disabled={ readOnly }
+                    data={ allowedDomains }
+                    onChange={ setAllowedDomains }
+                  />
+                </AccordionDetails>
+              </Accordion>
+
+              {/* API Tools Section */}
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  API Tools
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={onAddApiTool}
+                  sx={{ mb: 2 }}
                 >
-                  expand
-                </JsonWindowLink>
+                  Add API Tool
+                </Button>
+                <Box sx={{ mb: 2 }}>
+                  {(app?.config.helix?.assistants[0]?.tools || [])
+                    .filter((t) => t.tool_type == 'api')
+                    .map((apiTool, index) => (
+                      <Box
+                        key={index}
+                        sx={{
+                          p: 2,
+                          border: '1px solid #303047',
+                          mb: 2,
+                        }}
+                      >
+                        <ToolDetail key={index} tool={apiTool} />
+                        <Button
+                          variant="outlined"
+                          onClick={() => onEditApiTool(apiTool)}
+                          sx={{ mt: 1 }}
+                        >
+                          Edit
+                        </Button>
+                      </Box>
+                    ))}
+                </Box>
               </Box>
-              
+
+              {/* GPT Scripts Section */}
+              <Box sx={{ mt: 4 }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  GPT Scripts
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={onAddGptScript}
+                  sx={{ mb: 2 }}
+                >
+                  Add GPT Script
+                </Button>
+                <Box
+                  sx={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {(app?.config.helix?.assistants[0]?.gptscripts || []).map((script, index) => (
+                    <Box
+                      key={index}
+                      sx={{
+                        p: 2,
+                        border: '1px solid #303047',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography variant="subtitle1">{script.name}</Typography>
+                      <Typography variant="body2">{script.description}</Typography>
+                      <Button
+                        variant="outlined"
+                        onClick={() => onEditGptScript(script)}
+                        sx={{ mt: 1 }}
+                      >
+                        Edit
+                      </Button>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
               <Typography variant="h6" sx={{mb: 1}}>
@@ -462,7 +694,7 @@ const App: FC = () => {
                 sx={{mb: 2}}
               >
                 {
-                  (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
+                  (app?.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
                     return (
                       <Box
                         key={ index }
@@ -489,36 +721,10 @@ const App: FC = () => {
                 }}
               >
                 <AppGptscriptsGrid
-                  data={ app.config.helix?.assistants[0]?.gptscripts || [] }
+                  data={ app?.config.helix?.assistants[0]?.gptscripts || [] }
                   onRunScript={ onRunScript }
                 />
               </Box>
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1">
-                Environment Variables
-              </Typography>
-              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                These will be available to your GPT Scripts as environment variables
-              </Typography>
-              <StringMapEditor
-                entityTitle="variable"
-                disabled={ readOnly }
-                data={ secrets }
-                onChange={ setSecrets }
-              />
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1">
-                Allowed Domains
-              </Typography>
-              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
-              </Typography>
-              <StringArrayEditor
-                entityTitle="domain"
-                disabled={ readOnly }
-                data={ allowedDomains }
-                onChange={ setAllowedDomains }
-              />
               <Divider sx={{mt:4,mb:4}} />
               <Row>
                 <Cell grow>
@@ -673,6 +879,23 @@ const App: FC = () => {
           />
         )
       }
+      {editingTool && (
+        <Window
+          title={`Edit ${editingTool.tool_type === 'api' ? 'API Tool' : 'GPT Script'}`}
+          fullHeight
+          size="lg"
+          open
+          withCancel
+          cancelTitle="Close"
+          onCancel={() => setEditingTool(null)}
+        >
+          <ToolEditor
+            initialData={editingTool}
+            onSave={onSaveTool}
+            onCancel={() => setEditingTool(null)}
+          />
+        </Window>
+      )}
     </Page>
   )
 }

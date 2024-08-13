@@ -15,6 +15,8 @@ import useRouter from '../hooks/useRouter'
 
 import {
   IApp,
+  IAppConfig,
+  APP_SOURCE_HELIX,
 } from '../types'
 
 const Apps: FC = () => {
@@ -29,6 +31,31 @@ const Apps: FC = () => {
   } = useRouter()
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
+
+  const onCreateNewApp = useCallback(async () => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return false
+    }
+
+    const newAppConfig: IAppConfig = {
+      helix: {
+        name: "New App",
+        description: "",
+        assistants: [],
+      },
+      secrets: {},
+      allowed_domains: [],
+    }
+
+    const newApp = await apps.createApp(APP_SOURCE_HELIX, newAppConfig)
+    if (newApp) {
+      snackbar.success('New app created')
+      navigate('app', {
+        app_id: newApp.id,
+      })
+    }
+  }, [account.user, apps.createApp, navigate, snackbar])
 
   const onConnectRepo = useCallback(async (repo: string) => {
     const newApp = await apps.createGithubApp(repo)
@@ -97,19 +124,29 @@ const Apps: FC = () => {
       topbarContent={(
         <div>
           <Button
-              id="new-app-button"
-              variant="contained"
-              color="secondary"
-              endIcon={<AddIcon />}
-              onClick={ () => {
-                if(!account.user) {
-                  account.setShowLoginWindow(true)
-                  return false
-                }
-                setParams({add_app: 'true'})
-              }}
-            >
-              New App
+            id="new-app-button"
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={onCreateNewApp}
+            sx={{ mr: 2 }}
+          >
+            New App
+          </Button>
+          <Button
+            id="connect-repo-button"
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={ () => {
+              if(!account.user) {
+                account.setShowLoginWindow(true)
+                return false
+              }
+              setParams({add_app: 'true'})
+            }}
+          >
+            Connect Repo
           </Button>
         </div>
       )}
