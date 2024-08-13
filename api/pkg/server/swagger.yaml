@@ -93,10 +93,6 @@ definitions:
         description: e.g. user, system, org
       shared:
         type: boolean
-      triggers:
-        items:
-          $ref: '#/definitions/types.Trigger'
-        type: array
       updated:
         type: string
     type: object
@@ -153,6 +149,10 @@ definitions:
         type: string
       name:
         type: string
+      triggers:
+        items:
+          $ref: '#/definitions/types.Trigger'
+        type: array
     type: object
   types.AppSource:
     enum:
@@ -297,6 +297,9 @@ definitions:
         type: integer
     type: object
   types.DiscordTrigger:
+    properties:
+      server_name:
+        type: string
     type: object
   types.GptScriptRequest:
     properties:

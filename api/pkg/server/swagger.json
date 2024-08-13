@@ -506,12 +506,6 @@
                 "shared": {
                     "type": "boolean"
                 },
-                "triggers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Trigger"
-                    }
-                },
                 "updated": {
                     "type": "string"
                 }
@@ -597,6 +591,12 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "triggers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Trigger"
+                    }
                 }
             }
         },
@@ -800,7 +800,12 @@
             }
         },
         "types.DiscordTrigger": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "server_name": {
+                    "type": "string"
+                }
+            }
         },
         "types.GptScriptRequest": {
             "type": "object",

@@ -510,12 +510,6 @@ const docTemplate = `{
                 "shared": {
                     "type": "boolean"
                 },
-                "triggers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/types.Trigger"
-                    }
-                },
                 "updated": {
                     "type": "string"
                 }
@@ -601,6 +595,12 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "triggers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/types.Trigger"
+                    }
                 }
             }
         },
@@ -804,7 +804,12 @@ const docTemplate = `{
             }
         },
         "types.DiscordTrigger": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "server_name": {
+                    "type": "string"
+                }
+            }
         },
         "types.GptScriptRequest": {
             "type": "object",
