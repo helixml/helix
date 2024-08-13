@@ -18,8 +18,69 @@ const (
 	MEGABYTE
 )
 
+// https://platform.openai.com/docs/api-reference/models
+// GET https://app.tryhelix.ai/v1/models
+func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
+
+	// TODO: if configured to proxy through to LLM provider, return their models
+
+	// Create a response with a list of available models
+	models := []openai.Model{
+		{
+			ID:          "helix-3.5",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix 3.5",
+			Description: "Llama3-8B, fast and good for everyday tasks",
+		},
+		{
+			ID:          "helix-4",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix 4",
+			Description: "Llama3 70B, smarter but a bit slower",
+		},
+		{
+			ID:          "helix-mixtral",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix Mixtral",
+			Description: "Mistral 8x7B MoE, we rely on this for some use cases",
+		},
+		{
+			ID:          "helix-json",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix JSON",
+			Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
+		},
+		{
+			ID:          "helix-small",
+			Object:      "model",
+			OwnedBy:     "helix",
+			Name:        "Helix Small",
+			Description: "Phi-3 Mini 3.8B, fast and memory efficient",
+		},
+	}
+
+	response := openai.ModelsList{
+		Models: models,
+	}
+
+	// Set the content type header
+	rw.Header().Set("Content-Type", "application/json")
+
+	// Encode and write the response
+	err := json.NewEncoder(rw).Encode(response)
+	if err != nil {
+		log.Err(err).Msg("error writing response")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
 // https://platform.openai.com/docs/api-reference/chat/create
-// POST https://app.tryhelix.ai//v1/chat/completions
+// POST https://app.tryhelix.ai/v1/chat/completions
 func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
 	addCorsHeaders(rw)
 	if r.Method == "OPTIONS" {
