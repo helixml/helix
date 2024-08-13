@@ -18,6 +18,10 @@ import (
 	"github.com/slack-go/slack/socketmode"
 )
 
+const (
+	defaultModel = string("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+)
+
 type Slack struct {
 	cfg        *config.ServerConfig
 	store      store.Store
@@ -64,7 +68,14 @@ func (s *Slack) Start(ctx context.Context) error {
 
 	// Handle a specific event from EventsAPI
 	socketmodeHandler.HandleEvents(slackevents.AppMention, s.middlewareAppMentionEvent)
-	socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
+
+	// TODO: this is to listen to everything
+	// socketmodeHandler.Handle(socketmode.EventTypeEventsAPI, s.middlewareEventsAPI)
+
+	err := socketmodeHandler.RunEventLoop()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to run event loop")
+	}
 
 	<-ctx.Done()
 
@@ -170,7 +181,7 @@ func (s *Slack) startChat(ctx context.Context, app *types.App, event *slackevent
 		&types.User{},
 		openai.ChatCompletionRequest{
 			Stream:   false,
-			Model:    "",
+			Model:    defaultModel,
 			Messages: messages,
 		},
 		&controller.ChatCompletionOptions{
