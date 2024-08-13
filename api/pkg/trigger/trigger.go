@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/trigger/cron"
 	"github.com/helixml/helix/api/pkg/trigger/discord"
+	"github.com/helixml/helix/api/pkg/trigger/slack"
 
 	"github.com/rs/zerolog/log"
 )
@@ -41,6 +42,14 @@ func (t *TriggerManager) Start(ctx context.Context) {
 		}()
 	}
 
+	if t.cfg.Triggers.Slack.Enabled && t.cfg.Triggers.Slack.BotToken != "" {
+		t.wg.Add(1)
+		go func() {
+			defer t.wg.Done()
+			t.runSlack(ctx)
+		}()
+	}
+
 	t.wg.Add(1)
 	go func() {
 		defer t.wg.Done()
@@ -48,6 +57,17 @@ func (t *TriggerManager) Start(ctx context.Context) {
 	}()
 
 	t.wg.Wait()
+}
+
+func (t *TriggerManager) runSlack(ctx context.Context) {
+	slackTrigger := slack.New(t.cfg, t.store, t.controller)
+
+	for {
+		err := slackTrigger.Start(ctx)
+		if err != nil {
+			log.Err(err).Msg("failed to start slack trigger, retrying in 10 seconds")
+		}
+	}
 }
 
 func (t *TriggerManager) runDiscord(ctx context.Context) {

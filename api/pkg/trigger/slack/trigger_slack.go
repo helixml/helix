@@ -32,13 +32,20 @@ func New(cfg *config.ServerConfig, store store.Store, controller *controller.Con
 	}
 }
 
-func (s *Slack) Start() error {
+func (s *Slack) Start(ctx context.Context) error {
+
+	options := []slack.Option{
+		slack.OptionDebug(true),
+		slack.OptionLog(stdlog.New(os.Stdout, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
+	}
+
+	if s.cfg.Triggers.Slack.AppToken != "" {
+		options = append(options, slack.OptionAppLevelToken(s.cfg.Triggers.Slack.AppToken))
+	}
 
 	api := slack.New(
 		s.cfg.Triggers.Slack.BotToken,
-		slack.OptionDebug(true),
-		slack.OptionLog(stdlog.New(os.Stdout, "api: ", stdlog.Lshortfile|stdlog.LstdFlags)),
-		slack.OptionAppLevelToken(s.cfg.Triggers.Slack.AppToken),
+		options...,
 	)
 
 	client := socketmode.New(
@@ -55,6 +62,8 @@ func (s *Slack) Start() error {
 
 	// Handle a specific event from EventsAPI
 	socketmodeHandler.HandleEvents(slackevents.AppMention, s.middlewareAppMentionEvent)
+
+	<-ctx.Done()
 
 	return nil
 }
