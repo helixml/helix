@@ -292,7 +292,14 @@ type GPTScript struct {
 
 type Triggers struct {
 	Discord Discord
+	Slack   Slack
 	Cron    Cron
+}
+
+type Slack struct {
+	Enabled  bool   `envconfig:"SLACK_ENABLED" default:"false"`
+	AppToken string `envconfig:"SLACK_APP_TOKEN"`
+	BotToken string `envconfig:"SLACK_BOT_TOKEN"`
 }
 
 type Discord struct {
