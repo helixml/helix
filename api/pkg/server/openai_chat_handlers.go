@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/controller"
+	oai "github.com/helixml/helix/api/pkg/openai"
 
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
@@ -46,6 +47,8 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		return
 	}
 
+	ctx := oai.SetContextValues(r.Context(), user.ID, "n/a", "n/a")
+
 	options := &controller.ChatCompletionOptions{
 		AppID:       r.URL.Query().Get("app_id"),
 		AssistantID: r.URL.Query().Get("assistant_id"),
@@ -54,7 +57,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
-		resp, err := apiServer.Controller.ChatCompletion(r.Context(), user, chatCompletionRequest, options)
+		resp, err := apiServer.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -69,7 +72,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 	}
 
 	// Streaming request, receive and write the stream in chunks
-	stream, err := apiServer.Controller.ChatCompletionStream(r.Context(), user, chatCompletionRequest, options)
+	stream, err := apiServer.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
