@@ -8,6 +8,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/controller"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/types"
 
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
@@ -21,7 +22,7 @@ const (
 
 // https://platform.openai.com/docs/api-reference/chat/create
 // POST https://app.tryhelix.ai//v1/chat/completions
-func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
+func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
 	addCorsHeaders(rw)
 	if r.Method == "OPTIONS" {
 		return
@@ -47,6 +48,14 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		return
 	}
 
+	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), chatCompletionRequest.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+	if err != nil {
+		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	chatCompletionRequest.Model = modelName.String()
+
 	ctx := oai.SetContextValues(r.Context(), user.ID, "n/a", "n/a")
 
 	options := &controller.ChatCompletionOptions{
@@ -57,7 +66,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
-		resp, err := apiServer.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+		resp, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -85,7 +94,7 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 	}
 
 	// Streaming request, receive and write the stream in chunks
-	stream, err := apiServer.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
