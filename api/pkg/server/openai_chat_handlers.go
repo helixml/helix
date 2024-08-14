@@ -64,6 +64,19 @@ func (apiServer *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r 
 		}
 
 		rw.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Query().Get("pretty") == "true" {
+			// Pretty print the response with indentation
+			bts, err := json.MarshalIndent(resp, "", "  ")
+			if err != nil {
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			_, _ = rw.Write(bts)
+			return
+		}
+
 		err = json.NewEncoder(rw).Encode(resp)
 		if err != nil {
 			log.Err(err).Msg("error writing response")
