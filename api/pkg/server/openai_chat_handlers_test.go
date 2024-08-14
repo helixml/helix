@@ -66,6 +66,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
+	cfg.Inference.Provider = config.ProviderTogetherAI
 
 	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
 		Config:       cfg,
@@ -78,6 +79,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	suite.NoError(err)
 
 	suite.server = &HelixAPIServer{
+		Cfg:        cfg,
 		pubsub:     suite.pubsub,
 		Controller: c,
 	}
