@@ -114,6 +114,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 			suite.Equal("system", req.Messages[0].Role)
 			suite.Equal("user", req.Messages[1].Role)
 
+			owner, sessionID, interactionID := openai.GetContextValues(ctx)
+			suite.Equal("user_id", owner)
+			suite.Equal("n/a", sessionID)
+			suite.Equal("n/a", interactionID)
+
 			return oai.ChatCompletionResponse{
 				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
 				Choices: []oai.ChatCompletionChoice{
@@ -166,18 +171,16 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 
 	rec := httptest.NewRecorder()
 
-	// First we check whether user should get the priority
-	// suite.store.EXPECT().GetUserMeta(gomock.Any(), "user_id").Return(&types.UserMeta{
-	// 	Config: types.UserConfig{
-	// 		StripeSubscriptionActive: true,
-	// 	},
-	// }, nil)
-
 	stream, writer, err := openai.NewOpenAIStreamingAdapter(oai.ChatCompletionRequest{})
 	suite.Require().NoError(err)
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
+			owner, sessionID, interactionID := openai.GetContextValues(ctx)
+			suite.Equal("user_id", owner)
+			suite.Equal("n/a", sessionID)
+			suite.Equal("n/a", interactionID)
+
 			return stream, nil
 		})
 
