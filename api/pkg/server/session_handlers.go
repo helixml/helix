@@ -65,7 +65,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	user := getRequestUser(req)
 
 	// For finetunes, legacy route
-	if startReq.LoraDir != "" {
+	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
 		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
 		return
 	}
