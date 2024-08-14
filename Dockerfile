@@ -23,11 +23,14 @@ CMD ["serve"]
 #### API Build ###
 #-----------------------
 FROM api-base AS api-build-env
+# Following git lines required for buildvcs to work
+RUN apk add --no-cache git 
+COPY .git /app/.git  
 COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
 ARG APP_VERSION="v0.0.0+unknown" 
-RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=$APP_VERSION" -o /helix
+RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###
 #--------------------
