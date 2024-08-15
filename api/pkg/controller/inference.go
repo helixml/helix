@@ -45,7 +45,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		}
 	}
 
-	if assistant.SystemPrompt != "" && len(req.Messages) == 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
+	if assistant.SystemPrompt != "" && len(req.Messages) >= 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
 		req.Messages[0].Content = assistant.SystemPrompt
 	}
 
@@ -100,7 +100,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		}
 	}
 
-	if assistant.SystemPrompt != "" && len(req.Messages) == 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
+	if assistant.SystemPrompt != "" && len(req.Messages) >= 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
 		req.Messages[0].Content = assistant.SystemPrompt
 	}
 
