@@ -246,16 +246,23 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-	} else {
-		if len(chatCompletionResponse.Choices) == 0 {
-			return errors.New("no data in the LLM response")
+		writeErr := s.Controller.WriteSession(session)
+		if writeErr != nil {
+			return fmt.Errorf("error writing session: %w", writeErr)
 		}
-		// Update the session with the response
-		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-		session.Interactions[len(session.Interactions)-1].Finished = true
+
+		http.Error(rw, fmt.Sprintf("error running LLM: %s", err.Error()), http.StatusInternalServerError)
+		return nil
 	}
+
+	if len(chatCompletionResponse.Choices) == 0 {
+		return errors.New("no data in the LLM response")
+	}
+	// Update the session with the response
+	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	err = s.Controller.WriteSession(session)
 	if err != nil {
