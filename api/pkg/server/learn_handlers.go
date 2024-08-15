@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 // startLearnSessionHandler godoc
@@ -66,7 +67,22 @@ func (s *HelixAPIServer) startLearnSessionHandler(rw http.ResponseWriter, req *h
 		return
 	}
 
-	model, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), "", types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
+	allModels, err := s.determineModels()
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to determine models")
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// make it possible to override the default model via request
+	var defaultModel string
+	if startReq.DefaultRAGModel != "" {
+		defaultModel = startReq.DefaultRAGModel
+	} else {
+		defaultModel = allModels[0].ID
+	}
+
+	model, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), defaultModel, types.SessionModeFinetune, startReq.Type, true, startReq.RagEnabled)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return

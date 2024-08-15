@@ -3,8 +3,10 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
@@ -22,14 +24,10 @@ const (
 	MEGABYTE
 )
 
-// https://platform.openai.com/docs/api-reference/models
-// GET https://app.tryhelix.ai/v1/models
-func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
-
+// Updated function to determine models
+func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) {
 	// If configured to proxy through to LLM provider, return their models
-	// Check if we're configured to proxy through to an LLM provider
 	if apiServer.Cfg.Inference.Provider != config.ProviderHelix {
-		// Determine the base URL based on the provider
 		var baseURL string
 		var apiKey string
 		switch apiServer.Cfg.Inference.Provider {
@@ -40,53 +38,76 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
 			apiKey = apiServer.Cfg.Providers.TogetherAI.APIKey
 		default:
-			log.Error().Msgf("Unsupported inference provider: %s", apiServer.Cfg.Inference.Provider)
-			http.Error(rw, "Internal server error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("unsupported inference provider: %s", apiServer.Cfg.Inference.Provider)
 		}
 
-		// Create a new request to the provider's models endpoint
 		req, err := http.NewRequest("GET", baseURL+"/models", nil)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to create request to provider's models endpoint")
-			http.Error(rw, "Internal server error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
 		}
 
-		// Set the Authorization header
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 
-		// Send the request using http.DefaultClient
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to send request to provider's models endpoint")
-			http.Error(rw, "Internal server error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("failed to send request to provider's models endpoint: %w", err)
 		}
 		defer resp.Body.Close()
 
-		// Read the response body
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to read response from provider's models endpoint")
-			http.Error(rw, "Internal server error", http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)
 		}
 
-		// Set the content type header
-		rw.Header().Set("Content-Type", "application/json")
+		// Log the response body for debugging purposes
+		log.Debug().Str("provider", string(apiServer.Cfg.Inference.Provider)).Msg("Response from provider's models endpoint")
+		log.Debug().RawJSON("response_body", body).Msg("Models response")
 
-		// Write the response body directly to the ResponseWriter
-		_, err = rw.Write(body)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to write response")
+		var models []model.OpenAIModel
+		var rawResponse struct {
+			Data []model.OpenAIModel `json:"data"`
 		}
-		return
+		err = json.Unmarshal(body, &rawResponse)
+		if err == nil && len(rawResponse.Data) > 0 {
+			models = rawResponse.Data
+		} else {
+			// If unmarshaling into the struct with "data" field fails, try unmarshaling directly into the slice
+			// This is how together.ai returns their models
+			err = json.Unmarshal(body, &models)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint: %w", err)
+			}
+		}
+
+		// Hack to workaround that OpenAI returns models like dall-e-3, which we
+		// can't send chat completion requests to. Use a rough heuristic to
+		// filter out models we can't use.
+
+		// Check if any model starts with "gpt-"
+		hasGPTModel := false
+		for _, m := range models {
+			if strings.HasPrefix(m.ID, "gpt-") {
+				hasGPTModel = true
+				break
+			}
+		}
+
+		// If there's a GPT model, filter out non-GPT models
+		if hasGPTModel {
+			filteredModels := make([]model.OpenAIModel, 0)
+			for _, m := range models {
+				if strings.HasPrefix(m.ID, "gpt-") {
+					filteredModels = append(filteredModels, m)
+				}
+			}
+			models = filteredModels
+		}
+
+		return models, nil
 	}
 
-	// Create a response with a list of available models
-	models := []model.OpenAIModel{
-		// helix branded models, Hide: false (the default) so they show up in the UI
+	// Return the list of Helix models
+	return []model.OpenAIModel{
 		{
 			ID:          "helix-3.5",
 			Object:      "model",
@@ -173,17 +194,25 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 			OwnedBy: "helix",
 			Hide:    true,
 		},
+	}, nil
+}
+
+// Updated listModels function
+func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
+	models, err := apiServer.determineModels()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to determine models")
+		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 
 	response := model.OpenAIModelsList{
 		Models: models,
 	}
 
-	// Set the content type header
 	rw.Header().Set("Content-Type", "application/json")
 
-	// Encode and write the response
-	err := json.NewEncoder(rw).Encode(response)
+	err = json.NewEncoder(rw).Encode(response)
 	if err != nil {
 		log.Err(err).Msg("error writing response")
 		http.Error(rw, "Internal server error", http.StatusInternalServerError)
