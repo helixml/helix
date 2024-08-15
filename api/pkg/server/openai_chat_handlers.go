@@ -132,13 +132,13 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 			Hide:    true,
 		},
 		{
-			ID:      "mixtral:instruct",
+			ID:      "llama3:70b",
 			Object:  "model",
 			OwnedBy: "helix",
 			Hide:    true,
 		},
 		{
-			ID:      "codellama:70b-instruct-q2_K",
+			ID:      "mixtral:instruct",
 			Object:  "model",
 			OwnedBy: "helix",
 			Hide:    true,
