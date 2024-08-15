@@ -212,6 +212,7 @@ export interface ISessionConfig {
   eval_automatic_score: string,
   eval_automatic_reason: string,
   eval_original_user_prompts: string[],
+  rag_source_data_entity_id: string,
 }
 
 export interface ISession {
