@@ -53,12 +53,6 @@ func (m ModelName) InferenceRuntime() InferenceRuntime {
 }
 
 func TransformModelName(modelName string) (ModelName, error) {
-	if strings.HasPrefix(modelName, "gpt-3") {
-		modelName = Model_Ollama_Llama3_8b.String()
-	}
-	if strings.HasPrefix(modelName, "gpt-4") {
-		modelName = Model_Ollama_Llama3_70b.String()
-	}
 	// All other model names are valid for now.
 	return ModelName(modelName), nil
 }
