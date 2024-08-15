@@ -73,9 +73,8 @@ const ModelPicker: FC<{
     setModelMenuAnchorEl(undefined)
   }
 
-  const modelData = models.find(m => m.id === model)
-  if(!modelData) return null
-
+  const modelData = models.find(m => m.id === model) || models[0];
+  
   return (
     <>
       <Typography
@@ -96,7 +95,7 @@ const ModelPicker: FC<{
           },
         }}
       >
-        {modelData.name} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
+        {modelData?.name || 'Default Model'} <KeyboardArrowDownIcon sx={{position:"relative", top:"5px"}}/>&nbsp;
       </Typography>
       <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
         <Menu
