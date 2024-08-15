@@ -34,22 +34,34 @@ const ModelPicker: FC<{
       const responseData = await response.json()
       
       let modelData: IHelixModel[] = [];
-
       if (responseData && Array.isArray(responseData.data)) {
         modelData = responseData.data.map((m: any) => ({
           id: m.id,
-          name: m.name || m.id, // Use id as name if name is not provided
+          name: m.name || m.id,
           description: m.description || '',
           hide: m.hide || false
         }));
+
+        // Filter out hidden models
+        modelData = modelData.filter(m => !m.hide);
+
+        // If any model starts with 'gpt-', filter to keep only those models
+        if (modelData.some(m => m.id.startsWith('gpt-'))) {
+          modelData = modelData.filter(m => m.id.startsWith('gpt-'));
+        }
+
+        // Set the first model as default if current model is not in the list
+        if (modelData.length > 0 && (!model || !modelData.some(m => m.id === model))) {
+          onSetModel(modelData[0].id);
+        }
       } else {
         console.error('Unexpected API response structure:', responseData)
       }
 
-      setModels(modelData.filter(m => !m.hide))
+      setModels(modelData)
     } catch (error) {
       console.error('Error fetching models:', error)
-      setModels([]) // Set empty array on error
+      setModels([])
     }
   }
 

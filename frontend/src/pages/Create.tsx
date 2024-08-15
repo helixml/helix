@@ -51,7 +51,6 @@ import {
 } from '../types'
 
 import {
-  HELIX_DEFAULT_TEXT_MODEL,
   COLORS,
 } from '../config'
 
@@ -87,7 +86,7 @@ const Create: FC = () => {
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const appID = router.params.app_id || '' 
-  const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+  const model = router.params.model || ''
 
   const activeAssistantID = router.params.assistant_id || '0'
   const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
