@@ -140,7 +140,8 @@ const Session: FC = () => {
         legacy: true,
         app_id: appID,
         assistant_id: assistantID,
-        rag_source_id: ragSourceID,        
+        rag_source_id: ragSourceID,
+        model: session.data.model_name,
         messages: [{
           role: 'user',
           content: {
@@ -158,6 +159,7 @@ const Session: FC = () => {
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
+      formData.set('model_name', session.data.model_name)
 
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
