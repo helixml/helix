@@ -32,11 +32,13 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	if !hasUser(user) {
 		http.Error(rw, "unauthorized", http.StatusUnauthorized)
+		log.Error().Msg("unauthorized")
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*MEGABYTE))
 	if err != nil {
+		log.Error().Err(err).Msg("error reading body")
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -44,12 +46,14 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	var chatCompletionRequest openai.ChatCompletionRequest
 	err = json.Unmarshal(body, &chatCompletionRequest)
 	if err != nil {
+		log.Error().Err(err).Msg("error unmarshalling body")
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	modelName, err := types.ProcessModelName(string(s.Cfg.Inference.Provider), chatCompletionRequest.Model, types.SessionModeInference, types.SessionTypeText, false, false)
 	if err != nil {
+		log.Error().Err(err).Msg("error processing model name")
 		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -68,6 +72,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	if !chatCompletionRequest.Stream {
 		resp, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
+			log.Error().Err(err).Msg("error creating chat completion")
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -78,6 +83,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 			// Pretty print the response with indentation
 			bts, err := json.MarshalIndent(resp, "", "  ")
 			if err != nil {
+				log.Error().Err(err).Msg("error marshalling response")
 				http.Error(rw, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -88,7 +94,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 		err = json.NewEncoder(rw).Encode(resp)
 		if err != nil {
-			log.Err(err).Msg("error writing response")
+			log.Error().Err(err).Msg("error writing response")
 		}
 		return
 	}
