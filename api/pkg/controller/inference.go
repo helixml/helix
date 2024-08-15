@@ -49,6 +49,10 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		req.Messages[0].Content = assistant.SystemPrompt
 	}
 
+	if assistant.Model != "" {
+		req.Model = assistant.Model
+	}
+
 	// Check for an extra RAG context
 	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
 	if err != nil {
@@ -98,6 +102,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 
 	if assistant.SystemPrompt != "" && len(req.Messages) == 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
 		req.Messages[0].Content = assistant.SystemPrompt
+	}
+
+	if assistant.Model != "" {
+		req.Model = assistant.Model
 	}
 
 	// Check for an extra RAG context
