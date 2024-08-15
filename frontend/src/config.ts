@@ -7,8 +7,6 @@ import {
   ISessionType,
 } from './types'
 
-export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'
-
 export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   activeToolIDs: [],
   finetuneEnabled: false,
