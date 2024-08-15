@@ -101,8 +101,7 @@ func ProcessModelName(
 
 			} else {
 				// allow user-provided model name (e.g. assume API users
-				// know what they're doing). Also, add OpenAI model name
-				// compatibility here.
+				// know what they're doing).
 				return TransformModelName(modelName)
 			}
 		}

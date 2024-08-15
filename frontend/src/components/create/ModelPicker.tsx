@@ -45,11 +45,6 @@ const ModelPicker: FC<{
         // Filter out hidden models
         modelData = modelData.filter(m => !m.hide);
 
-        // If any model starts with 'gpt-', filter to keep only those models
-        if (modelData.some(m => m.id.startsWith('gpt-'))) {
-          modelData = modelData.filter(m => m.id.startsWith('gpt-'));
-        }
-
         // Set the first model as default if current model is not in the list
         if (modelData.length > 0 && (!model || !modelData.some(m => m.id === model))) {
           onSetModel(modelData[0].id);
