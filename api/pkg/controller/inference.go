@@ -26,16 +26,27 @@ type ChatCompletionOptions struct {
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
-
-	// Check whether the app is configured for the call,
-	// if yes, execute the tools and return the response
-	toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
+	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
-		return nil, fmt.Errorf("tool execution failed: %w", err)
+		log.Info().Msg("no assistant found")
+		return nil, err
 	}
 
-	if ok {
-		return toolResp, nil
+	if len(assistant.Tools) > 0 {
+		// Check whether the app is configured for the call,
+		// if yes, execute the tools and return the response
+		toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
+		if err != nil {
+			return nil, fmt.Errorf("tool execution failed: %w", err)
+		}
+
+		if ok {
+			return toolResp, nil
+		}
+	}
+
+	if assistant.SystemPrompt != "" && len(req.Messages) == 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
+		req.Messages[0].Content = assistant.SystemPrompt
 	}
 
 	// Check for an extra RAG context
@@ -65,13 +76,28 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
 	req.Stream = true
-	toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
+
+	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load tools: %w", err)
+		log.Info().Msg("no assistant found")
+		return nil, err
 	}
 
-	if ok {
-		return toolRespStream, nil
+	if len(assistant.Tools) > 0 {
+		// Check whether the app is configured for the call,
+		// if yes, execute the tools and return the response
+		toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load tools: %w", err)
+		}
+
+		if ok {
+			return toolRespStream, nil
+		}
+	}
+
+	if assistant.SystemPrompt != "" && len(req.Messages) == 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
+		req.Messages[0].Content = assistant.SystemPrompt
 	}
 
 	// Check for an extra RAG context
