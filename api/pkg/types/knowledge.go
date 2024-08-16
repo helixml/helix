@@ -36,6 +36,12 @@ type Knowledge struct {
 	RefreshSchedule string `json:"refresh_schedule"`
 }
 
+type LookupKnowledge struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Owner string `json:"owner"`
+}
+
 type KnowledgeSourceType string
 
 const (

@@ -46,6 +46,29 @@ func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Kno
 	return &knowledge, nil
 }
 
+func (s *PostgresStore) GetKnowledgeByNameAndOwner(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
+	if q.Name == "" && q.ID == "" {
+		return nil, fmt.Errorf("name not specified")
+	}
+	if q.Owner == "" {
+		return nil, fmt.Errorf("owner ID not specified")
+	}
+
+	var knowledge types.Knowledge
+	err := s.gdb.WithContext(ctx).Where(&types.Knowledge{
+		ID:    q.ID,
+		Name:  q.Name,
+		Owner: q.Owner,
+	}).First(&knowledge).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &knowledge, nil
+}
+
 func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error) {
 	if knowledge.ID == "" {
 		return nil, fmt.Errorf("id not specified")
