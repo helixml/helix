@@ -100,6 +100,28 @@ type RAGSettings struct {
 	QueryURL string `json:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 }
 
+func (m RAGSettings) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *RAGSettings) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result RAGSettings
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (RAGSettings) GormDataType() string {
+	return "json"
+}
+
 // the data we send off to llamaindex to be indexed in the db
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
