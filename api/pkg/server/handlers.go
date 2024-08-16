@@ -120,7 +120,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRAGSettings, error) {
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.RAGSettings, error) {
 	var err error
 	ragDistanceFunction := req.FormValue("rag_distance_function")
 	if ragDistanceFunction == "" {
@@ -163,7 +163,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 		}
 	}
 
-	settings := &types.SessionRAGSettings{
+	settings := &types.RAGSettings{
 		DistanceFunction: ragDistanceFunction,
 		Threshold:        ragThreshold,
 		ResultsCount:     ragResultsCount,

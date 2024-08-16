@@ -45,7 +45,7 @@ func (suite *DataPrepTestSuite) TestGetRagChunksToProcess() {
 			},
 		},
 		Metadata: types.SessionMetadata{
-			RagSettings: types.SessionRAGSettings{
+			RagSettings: types.RAGSettings{
 				ChunkSize:     2,
 				ChunkOverflow: 1,
 			},
