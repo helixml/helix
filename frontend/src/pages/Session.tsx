@@ -123,8 +123,11 @@ const Session: FC = () => {
       const urlParams = new URLSearchParams(window.location.search)
       const appID = urlParams.get('app_id') || ''
       let assistantID = urlParams.get('assistant_id') || ''
-      const ragSourceID = urlParams.get('rag_source_id') || ''
+      let ragSourceID = urlParams.get('rag_source_id') || ''
 
+      if (ragSourceID === '') {
+        ragSourceID = session.data.config.rag_source_data_entity_id
+      }
       // if we have an app but no assistant ID let's default to the first one
       if(appID && !assistantID) {
         assistantID = '0'
@@ -137,7 +140,8 @@ const Session: FC = () => {
         legacy: true,
         app_id: appID,
         assistant_id: assistantID,
-        rag_source_id: ragSourceID,        
+        rag_source_id: ragSourceID,
+        model: session.data.model_name,
         messages: [{
           role: 'user',
           content: {
@@ -148,11 +152,14 @@ const Session: FC = () => {
           },
         }]
       }
+
+      console.log(session)
   
       newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
+      formData.set('model_name', session.data.model_name)
 
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }

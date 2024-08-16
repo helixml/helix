@@ -232,6 +232,8 @@ type SessionLearnRequest struct {
 	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
 	// The settings we use for the RAG source
 	RagSettings SessionRAGSettings `json:"rag_settings"`
+	// When doing RAG, allow the resulting inference session model to be specified
+	DefaultRAGModel string `json:"default_rag_model"`
 }
 
 type Message struct {
