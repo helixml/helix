@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
@@ -82,6 +83,9 @@ type OllamaInferenceModelInstance struct {
 
 	workCh chan *types.RunnerLLMInferenceRequest
 
+	inUse    atomic.Bool // If we are currently processing a request
+	fetching atomic.Bool // If we are fetching the next request
+
 	// client is the model client
 	client *openai.Client
 
@@ -150,6 +154,12 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 
 				err := i.processInteraction(req)
 				if err != nil {
+					// If context is cancelled, no error
+					if i.ctx.Err() != nil {
+						log.Error().Msg("context cancelled, exiting")
+						return
+					}
+
 					log.Error().
 						Str("session_id", req.SessionID).
 						Err(err).
@@ -169,7 +179,7 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 				i.currentRequest = nil
 			default:
 				// Get next chat request
-				req, err := i.getNextRequest()
+				req, err := i.fetchNextRequest()
 				if err != nil {
 					log.Error().Err(err).Msg("error getting next request")
 					time.Sleep(300 * time.Millisecond)
@@ -190,6 +200,13 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (i *OllamaInferenceModelInstance) fetchNextRequest() (*types.RunnerLLMInferenceRequest, error) {
+	i.fetching.Store(true)
+	defer i.fetching.Store(false)
+
+	return i.getNextRequest()
 }
 
 func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
@@ -343,6 +360,8 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no Ollama process to stop")
 	}
+	i.cancel()
+
 	log.Info().Msgf("🟢 stop Ollama model instance tree")
 	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
@@ -350,7 +369,6 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	}
 	log.Info().Msgf("🟢 stopped Ollama instance")
 	close(i.workCh)
-	i.cancel()
 
 	return nil
 }
@@ -367,6 +385,17 @@ func (i *OllamaInferenceModelInstance) Filter() types.SessionFilter {
 }
 
 func (i *OllamaInferenceModelInstance) Stale() bool {
+	// If in use, we don't want to mark it as stale
+	if i.inUse.Load() {
+		return false
+	}
+
+	// If we are fetching the next request, we don't want to mark it as stale
+	// as we might be getting the request
+	if i.fetching.Load() {
+		return false
+	}
+
 	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL
 }
 
@@ -426,6 +455,9 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 }
 
 func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.RunnerLLMInferenceRequest) error {
+	i.inUse.Store(true)
+	defer i.inUse.Store(false)
+
 	switch {
 	case inferenceReq.Request.Stream:
 		stream, err := i.client.CreateChatCompletionStream(context.Background(), *inferenceReq.Request)

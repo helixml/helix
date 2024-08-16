@@ -121,6 +121,8 @@ type Runner struct {
 
 	warmupSessions     []types.Session
 	warmupSessionMutex sync.Mutex
+
+	nextRequestMutex sync.Mutex
 }
 
 func NewRunner(
@@ -490,6 +492,14 @@ func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.R
 		return nil, nil
 	}
 
+	log.Trace().
+		Str("runner_id", r.Options.ID).
+		Str("free_memory_gb", fmt.Sprintf("%.2f", GiB(freeMemory))).
+		Str("lowest_memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(r.lowestMemoryRequirement)))).
+		Int("active_model_instances", r.activeModelInstances.Size()).
+		Int("max_model_instances", r.Options.MaxModelInstances).
+		Msgf("🟠 runner getNextGlobalLLMInferenceRequest")
+
 	queryParams := url.Values{}
 
 	// this means "only give me sessions that will fit in this much RAM"
@@ -646,6 +656,8 @@ func (r *Runner) createModelInstance(ctx context.Context, initialSession *types.
 }
 
 func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*types.Session, error) {
+	r.nextRequestMutex.Lock()
+	defer r.nextRequestMutex.Unlock()
 
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/nextsession", r.Options.ID))))
 	if err != nil {
@@ -692,6 +704,9 @@ func (r *Runner) getNextApiSession(_ context.Context, queryParams url.Values) (*
 
 // getNextLLMInferenceRequest returns the next LLM inference request from the controlplane
 func (r *Runner) getNextLLMInferenceRequest(ctx context.Context, queryParams url.Values) (*types.RunnerLLMInferenceRequest, error) {
+	r.nextRequestMutex.Lock()
+	defer r.nextRequestMutex.Unlock()
+
 	parsedURL, err := url.Parse(system.URL(r.httpClientOptions, system.GetApiPath(fmt.Sprintf("/runner/%s/llm-inference-request", r.Options.ID))))
 	if err != nil {
 		return nil, err
