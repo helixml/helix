@@ -123,7 +123,7 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 			continue
 		}
 
-		log.Info().
+		log.Trace().
 			Str("filter_model", filterModel.String()).
 			Str("request_id", req.RequestID).
 			Str("memory_filter_gb", fmt.Sprintf("%.2f", GiB(int64(filter.Memory)))).
