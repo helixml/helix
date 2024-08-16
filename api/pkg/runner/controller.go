@@ -492,7 +492,7 @@ func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.R
 		return nil, nil
 	}
 
-	log.Info().
+	log.Trace().
 		Str("runner_id", r.Options.ID).
 		Str("free_memory_gb", fmt.Sprintf("%.2f", GiB(freeMemory))).
 		Str("lowest_memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(r.lowestMemoryRequirement)))).
