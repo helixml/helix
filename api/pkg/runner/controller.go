@@ -494,8 +494,8 @@ func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.R
 
 	log.Info().
 		Str("runner_id", r.Options.ID).
-		Str("free_memory", fmt.Sprintf("%d", freeMemory)).
-		Str("lowest_memory_requirement", fmt.Sprintf("%d", r.lowestMemoryRequirement)).
+		Str("free_memory_gb", fmt.Sprintf("%.2f", GiB(freeMemory))).
+		Str("lowest_memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(r.lowestMemoryRequirement)))).
 		Int("active_model_instances", r.activeModelInstances.Size()).
 		Int("max_model_instances", r.Options.MaxModelInstances).
 		Msgf("🟠 runner getNextGlobalLLMInferenceRequest")
