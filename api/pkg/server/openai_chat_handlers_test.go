@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -37,6 +38,7 @@ type OpenAIChatSuite struct {
 	store        *store.MockStore
 	pubsub       pubsub.PubSub
 	openAiClient *openai.MockClient
+	rag          *rag.MockRAG
 
 	authCtx context.Context
 	userID  string
@@ -56,6 +58,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	filestoreMock := filestore.NewMockFileStore(ctrl)
 	extractorMock := extract.NewMockExtractor(ctrl)
+	suite.rag = rag.NewMockRAG(ctrl)
 
 	suite.userID = "user_id"
 	suite.authCtx = setRequestUser(context.Background(), types.User{
@@ -75,6 +78,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		OpenAIClient: suite.openAiClient,
 		Filestore:    filestoreMock,
 		Extractor:    extractorMock,
+		RAG:          suite.rag,
 	})
 	suite.NoError(err)
 
@@ -343,6 +347,124 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 			suite.Equal("user_id", owner)
 			suite.Equal("n/a", sessionID)
 			suite.Equal("n/a", interactionID)
+
+			return oai.ChatCompletionResponse{
+				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Role:    "assistant",
+							Content: "**model-result**",
+						},
+						FinishReason: "stop",
+					},
+				},
+			}, nil
+		})
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp oai.ChatCompletionResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	suite.NoError(err)
+
+	suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", resp.Model)
+	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
+	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
+	suite.Equal("assistant", resp.Choices[0].Message.Role)
+	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
+}
+
+func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
+
+	const (
+		ragSourceID = "rag-source-id"
+	)
+
+	app := &types.App{
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+						RAGSourceID:  ragSourceID,
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	suite.store.EXPECT().GetDataEntity(gomock.Any(), ragSourceID).Return(&types.DataEntity{
+		Owner: suite.userID,
+		ID:    ragSourceID,
+		Config: types.DataEntityConfig{
+			RAGSettings: types.SessionRAGSettings{
+				Threshold:        40,
+				DistanceFunction: "cosine",
+				ResultsCount:     2,
+			},
+		},
+	}, nil).Times(1)
+
+	suite.rag.EXPECT().Query(gomock.Any(), &types.SessionRAGQuery{
+		Prompt:            "tell me about oceans!",
+		DataEntityID:      ragSourceID,
+		DistanceThreshold: 40,
+		DistanceFunction:  "cosine",
+		MaxResults:        2,
+	}).Return([]*types.SessionRAGResult{
+		{
+			Content: "This is a test RAG source 1",
+		},
+		{
+			Content: "This is a test RAG source 2",
+		},
+	}, nil)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
+		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", req.Model)
+
+			suite.Require().Equal(2, len(req.Messages))
+
+			suite.Equal("system", req.Messages[0].Role)
+			suite.Equal("you are very custom assistant", req.Messages[0].Content)
+
+			suite.Equal("user", req.Messages[1].Role)
+
+			owner, sessionID, interactionID := openai.GetContextValues(ctx)
+			suite.Equal("user_id", owner)
+			suite.Equal("n/a", sessionID)
+			suite.Equal("n/a", interactionID)
+
+			suite.Contains(req.Messages[1].Content, "This is a test RAG source 1")
+			suite.Contains(req.Messages[1].Content, "This is a test RAG source 2")
 
 			return oai.ChatCompletionResponse{
 				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
