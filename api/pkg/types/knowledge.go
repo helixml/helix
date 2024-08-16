@@ -1,6 +1,11 @@
 package types
 
-import "time"
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
+	"time"
+)
 
 type Knowledge struct {
 	ID        string         `json:"id" gorm:"primaryKey"`
@@ -11,7 +16,7 @@ type Knowledge struct {
 	Owner     string         `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType      `json:"owner_type"`         // e.g. user, system, org
 
-	RAGSettings RAGSettings `json:"rag_settings"`
+	RAGSettings RAGSettings `json:"rag_settings" gorm:"jsonb"`
 
 	// Source defines where the raw data is fetched from. It can be
 	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
@@ -46,6 +51,28 @@ type KnowledgeSource struct {
 	S3         *KnowledgeSourceS3         `json:"s3"`
 	GCS        *KnowledgeSourceGCS        `json:"gcs"`
 	URL        *KnowledgeSourceURL        `json:"url"`
+}
+
+func (m KnowledgeSource) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *KnowledgeSource) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result KnowledgeSource
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (KnowledgeSource) GormDataType() string {
+	return "json"
 }
 
 type KnowledgeSourceURL struct {
