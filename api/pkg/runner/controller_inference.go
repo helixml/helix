@@ -72,8 +72,11 @@ func (r *Runner) pollInferenceRequests(ctx context.Context) error {
 		return err
 	}
 
-	log.Debug().
+	log.Info().
+		Str("request_id", request.RequestID).
+		Str("model_name", modelName.String()).
 		Msgf("🔵 runner start model instance")
+
 	err = r.createInferenceModelInstance(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to create inference model instance: %w", err)

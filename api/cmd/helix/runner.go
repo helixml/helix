@@ -296,7 +296,7 @@ func runnerCLI(cmd *cobra.Command, options *RunnerOptions) error {
 		}
 
 		// Ollama runtime warmup
-		if options.Runner.Config.Runtimes.Ollama.Enabled {
+		if options.Runner.Config.Runtimes.Ollama.Enabled && !options.Runner.Config.Runtimes.V2Engine {
 			for _, modelName := range options.Runner.Config.Runtimes.Ollama.WarmupModels {
 				switch modelName {
 				case types.Model_Ollama_Llama3_8b.String():
