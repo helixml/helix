@@ -404,7 +404,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 		Owner: suite.userID,
 		ID:    ragSourceID,
 		Config: types.DataEntityConfig{
-			RAGSettings: types.SessionRAGSettings{
+			RAGSettings: types.RAGSettings{
 				Threshold:        40,
 				DistanceFunction: "cosine",
 				ResultsCount:     2,
