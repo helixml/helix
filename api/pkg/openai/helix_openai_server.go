@@ -115,13 +115,6 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 			memoryRequirement = model.GetMemoryRequirements(types.SessionModeInference)
 		}
 
-		log.Info().
-			Str("filter_model", filterModel.String()).
-			Str("request_id", req.RequestID).
-			Uint64("memory_filter", filter.Memory).
-			Uint64("memory_requirement", memoryRequirement).
-			Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest")
-
 		if filter.Memory != 0 && memoryRequirement > filter.Memory {
 			continue
 		}
@@ -130,11 +123,22 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 			continue
 		}
 
+		log.Info().
+			Str("filter_model", filterModel.String()).
+			Str("request_id", req.RequestID).
+			Str("memory_filter_gb", fmt.Sprintf("%.2f", GiB(int64(filter.Memory)))).
+			Str("memory_requirement_gb", fmt.Sprintf("%.2f", GiB(int64(memoryRequirement)))).
+			Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest")
+
 		filteredReqs = append(filteredReqs, req)
 	}
 
 	return filteredReqs, nil
 
+}
+
+func GiB(bytes int64) float32 {
+	return float32(bytes) / 1024 / 1024 / 1024
 }
 
 // ProcessRunnerResponse is called on both partial streaming and full responses coming from the runner
