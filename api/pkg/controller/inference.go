@@ -45,9 +45,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		}
 	}
 
-	if assistant.SystemPrompt != "" && len(req.Messages) >= 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
-		req.Messages[0].Content = assistant.SystemPrompt
-	}
+	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
 	if assistant.Model != "" {
 		req.Model = assistant.Model
@@ -104,9 +102,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		}
 	}
 
-	if assistant.SystemPrompt != "" && len(req.Messages) >= 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
-		req.Messages[0].Content = assistant.SystemPrompt
-	}
+	req = setSystemPrompt(&req, assistant.SystemPrompt)
 
 	if assistant.Model != "" {
 		req.Model = assistant.Model
@@ -314,4 +310,36 @@ func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults [
 	req.Messages[len(req.Messages)-1].Content = extended
 
 	return nil
+}
+
+// setSystemPrompt if the assistant has a system prompt, set it in the request. If there is already
+// provided system prompt, overwrite it and if there is no system prompt, set it as the first message
+func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) openai.ChatCompletionRequest {
+	if systemPrompt == "" {
+		// Nothing to do
+		return *req
+	}
+
+	if len(req.Messages) == 0 {
+		req.Messages = append(req.Messages, openai.ChatCompletionMessage{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	}
+
+	if len(req.Messages) >= 1 && req.Messages[0].Role == openai.ChatMessageRoleSystem {
+		req.Messages[0].Content = systemPrompt
+	}
+
+	// If first message is not a system message, add it as the first message
+	if len(req.Messages) >= 1 && req.Messages[0].Role != openai.ChatMessageRoleSystem {
+		req.Messages = append([]openai.ChatCompletionMessage{
+			{
+				Role:    "system",
+				Content: systemPrompt,
+			},
+		}, req.Messages...)
+	}
+
+	return *req
 }
