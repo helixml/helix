@@ -492,6 +492,14 @@ func (r *Runner) getNextGlobalLLMInferenceRequest(ctx context.Context) (*types.R
 		return nil, nil
 	}
 
+	log.Info().
+		Str("runner_id", r.Options.ID).
+		Str("free_memory", fmt.Sprintf("%d", freeMemory)).
+		Str("lowest_memory_requirement", fmt.Sprintf("%d", r.lowestMemoryRequirement)).
+		Int("active_model_instances", r.activeModelInstances.Size()).
+		Int("max_model_instances", r.Options.MaxModelInstances).
+		Msgf("🟠 runner getNextGlobalLLMInferenceRequest")
+
 	queryParams := url.Values{}
 
 	// this means "only give me sessions that will fit in this much RAM"
