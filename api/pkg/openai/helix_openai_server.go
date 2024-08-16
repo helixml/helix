@@ -99,22 +99,24 @@ func pickRequest(reqs []*types.RunnerLLMInferenceRequest) (*types.RunnerLLMInfer
 func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter types.InferenceRequestFilter) ([]*types.RunnerLLMInferenceRequest, error) {
 	var filteredReqs []*types.RunnerLLMInferenceRequest
 
-	modelName := types.ModelName(filter.ModelName)
-
-	var memoryRequirement uint64
-
-	model, err := model.GetModel(modelName)
-	if err == nil {
-		memoryRequirement = model.GetMemoryRequirements(types.SessionModeInference)
-	}
+	filterModel := types.ModelName(filter.ModelName)
 
 	for _, req := range reqs {
-		if filter.ModelName != "" && types.ModelName(req.Request.Model) != filter.ModelName {
+		requestModel := types.ModelName(req.Request.Model)
+
+		if filter.ModelName != "" && requestModel != filter.ModelName {
 			continue
 		}
 
+		var memoryRequirement uint64
+
+		model, err := model.GetModel(requestModel)
+		if err == nil {
+			memoryRequirement = model.GetMemoryRequirements(types.SessionModeInference)
+		}
+
 		log.Info().
-			Str("model_name", modelName.String()).
+			Str("filter_model", filterModel.String()).
 			Str("request_id", req.RequestID).
 			Uint64("memory_filter", filter.Memory).
 			Uint64("memory_requirement", memoryRequirement).
