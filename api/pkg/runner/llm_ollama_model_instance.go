@@ -83,7 +83,8 @@ type OllamaInferenceModelInstance struct {
 
 	workCh chan *types.RunnerLLMInferenceRequest
 
-	inUse atomic.Bool
+	inUse    atomic.Bool // If we are currently processing a request
+	fetching atomic.Bool // If we are fetching the next request
 
 	// client is the model client
 	client *openai.Client
@@ -178,7 +179,7 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 				i.currentRequest = nil
 			default:
 				// Get next chat request
-				req, err := i.getNextRequest()
+				req, err := i.fetchNextRequest()
 				if err != nil {
 					log.Error().Err(err).Msg("error getting next request")
 					time.Sleep(300 * time.Millisecond)
@@ -199,6 +200,13 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (i *OllamaInferenceModelInstance) fetchNextRequest() (*types.RunnerLLMInferenceRequest, error) {
+	i.fetching.Store(true)
+	defer i.fetching.Store(false)
+
+	return i.getNextRequest()
 }
 
 func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
@@ -379,6 +387,12 @@ func (i *OllamaInferenceModelInstance) Filter() types.SessionFilter {
 func (i *OllamaInferenceModelInstance) Stale() bool {
 	// If in use, we don't want to mark it as stale
 	if i.inUse.Load() {
+		return false
+	}
+
+	// If we are fetching the next request, we don't want to mark it as stale
+	// as we might be getting the request
+	if i.fetching.Load() {
 		return false
 	}
 
