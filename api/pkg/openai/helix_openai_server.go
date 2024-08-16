@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 const schedulingDecisionHistorySize = 10
@@ -111,6 +112,13 @@ func filterLLMInferenceRequest(reqs []*types.RunnerLLMInferenceRequest, filter t
 		if filter.ModelName != "" && types.ModelName(req.Request.Model) != filter.ModelName {
 			continue
 		}
+
+		log.Info().
+			Str("model_name", modelName.String()).
+			Str("request_id", req.RequestID).
+			Uint64("memory_filter", filter.Memory).
+			Uint64("memory_requirement", memoryRequirement).
+			Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest")
 
 		if filter.Memory != 0 && memoryRequirement > filter.Memory {
 			continue
