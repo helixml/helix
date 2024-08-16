@@ -46,16 +46,10 @@ func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Kno
 	return &knowledge, nil
 }
 
-func (s *PostgresStore) GetKnowledgeByNameAndOwner(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
-	if q.Name == "" && q.ID == "" {
-		return nil, fmt.Errorf("name not specified")
-	}
-	if q.Owner == "" {
-		return nil, fmt.Errorf("owner ID not specified")
-	}
-
+func (s *PostgresStore) LookupKnowledge(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
 	var knowledge types.Knowledge
 	err := s.gdb.WithContext(ctx).Where(&types.Knowledge{
+		AppID: q.AppID,
 		ID:    q.ID,
 		Name:  q.Name,
 		Owner: q.Owner,

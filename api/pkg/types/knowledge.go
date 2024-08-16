@@ -11,7 +11,7 @@ type Knowledge struct {
 	ID        string         `json:"id" gorm:"primaryKey"`
 	Created   time.Time      `json:"created"`
 	Updated   time.Time      `json:"updated"`
-	Name      string         `json:"name"`
+	Name      string         `json:"name" gorm:"index"`
 	Type      DataEntityType `json:"type"`
 	Owner     string         `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType      `json:"owner_type"`         // e.g. user, system, org
@@ -26,6 +26,9 @@ type Knowledge struct {
 	// if only one integration for type is set.
 	IntegrationID string `json:"integration_id"`
 
+	// AppID through which the knowledge was created
+	AppID string `json:"app_id" gorm:"index"`
+
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
 	// every 24 hours.
@@ -37,6 +40,7 @@ type Knowledge struct {
 }
 
 type LookupKnowledge struct {
+	AppID string `json:"app_id"`
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Owner string `json:"owner"`
