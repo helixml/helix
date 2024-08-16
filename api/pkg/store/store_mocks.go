@@ -372,21 +372,6 @@ func (mr *MockStoreMockRecorder) GetKnowledge(ctx, id interface{}) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnowledge", reflect.TypeOf((*MockStore)(nil).GetKnowledge), ctx, id)
 }
 
-// GetKnowledgeByNameAndOwner mocks base method.
-func (m *MockStore) GetKnowledgeByNameAndOwner(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetKnowledgeByNameAndOwner", ctx, q)
-	ret0, _ := ret[0].(*types.Knowledge)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetKnowledgeByNameAndOwner indicates an expected call of GetKnowledgeByNameAndOwner.
-func (mr *MockStoreMockRecorder) GetKnowledgeByNameAndOwner(ctx, q interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKnowledgeByNameAndOwner", reflect.TypeOf((*MockStore)(nil).GetKnowledgeByNameAndOwner), ctx, q)
-}
-
 // GetSession mocks base method.
 func (m *MockStore) GetSession(ctx context.Context, id string) (*types.Session, error) {
 	m.ctrl.T.Helper()
@@ -565,6 +550,21 @@ func (m *MockStore) ListTools(ctx context.Context, q *ListToolsQuery) ([]*types.
 func (mr *MockStoreMockRecorder) ListTools(ctx, q interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTools", reflect.TypeOf((*MockStore)(nil).ListTools), ctx, q)
+}
+
+// LookupKnowledge mocks base method.
+func (m *MockStore) LookupKnowledge(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
+	ret0, _ := ret[0].(*types.Knowledge)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LookupKnowledge indicates an expected call of LookupKnowledge.
+func (mr *MockStoreMockRecorder) LookupKnowledge(ctx, q interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LookupKnowledge", reflect.TypeOf((*MockStore)(nil).LookupKnowledge), ctx, q)
 }
 
 // UpdateApp mocks base method.
