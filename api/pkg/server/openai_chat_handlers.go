@@ -68,6 +68,11 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		RAGSourceID: r.URL.Query().Get("rag_source_id"),
 	}
 
+	if user.AppID != "" {
+		log.Debug().Str("app_id", user.AppID).Msg("using app_id from user (api key)")
+		options.AppID = user.AppID
+	}
+
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
 		resp, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
