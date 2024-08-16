@@ -32,30 +32,16 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
-  const onCreateNewApp = useCallback(async () => {
+  const onCreateNewApp = useCallback(() => {
     if (!account.user) {
       account.setShowLoginWindow(true)
-      return false
+      return
     }
 
-    const newAppConfig: IAppConfig = {
-      helix: {
-        name: "New App",
-        description: "",
-        assistants: [],
-      },
-      secrets: {},
-      allowed_domains: [],
-    }
-
-    const newApp = await apps.createApp(APP_SOURCE_HELIX, newAppConfig)
-    if (newApp) {
-      snackbar.success('New app created')
-      navigate('app', {
-        app_id: newApp.id,
-      })
-    }
-  }, [account.user, apps.createApp, navigate, snackbar])
+    navigate('app', {
+      app_id: 'new',
+    })
+  }, [account.user, account.setShowLoginWindow, navigate])
 
   const onConnectRepo = useCallback(async (repo: string) => {
     const newApp = await apps.createGithubApp(repo)

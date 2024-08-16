@@ -54,8 +54,9 @@ export const useApps = () => {
     })
     if(!result) return
     setApp(result)
+    setData(prevData => prevData.map(a => a.id === id ? result : a))
     // setApp(APPS[0])
-  }, [])
+  }, [api])
 
   const loadGithubStatus = useCallback(async (pageURL: string) => {
     const result = await api.get<IGithubStatus>(`/api/v1/github/status`, {
@@ -115,29 +116,53 @@ export const useApps = () => {
     app_source: IAppSource,
     config: IAppConfig,
   ): Promise<IApp | undefined> => {
-    const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
-      app_source,
-      config,
-    }, {}, {
-      snackbar: true,
-    })
-    if(!result) return
-    loadData()
-    return result
-  }, [
-    loadData,
-  ])
+    console.log("useApps: Creating new app with source:", app_source);
+    console.log("useApps: App config:", config);
+    try {
+      const result = await api.post<Partial<IApp>, IApp>(`/api/v1/apps`, {
+        app_source,
+        config,
+      }, {}, {
+        snackbar: false, // We'll handle snackbar messages in the component
+      });
+      console.log("useApps: Create result:", result);
+      if (!result) {
+        console.log("useApps: No result returned from create");
+        return undefined;
+      }
+      loadData();
+      return result;
+    } catch (error) {
+      console.error("useApps: Error creating app:", error);
+      throw error; // Re-throw the error so it can be caught in the component
+    }
+  }, [api, loadData])
 
-  const updateApp = useCallback(async (id: string, data: IAppUpdate): Promise<IApp | undefined> => {
-    const result = await api.put<IAppUpdate, IApp>(`/api/v1/apps/github/${id}`, data, {}, {
-      snackbar: true,
-    })
-    if(!result) return
-    loadData()
-    return result
-  }, [
-    loadData,
-  ])
+  const updateApp = useCallback(async (id: string, updatedApp: IAppUpdate): Promise<IApp | undefined> => {
+    console.log("useApps: Updating app with ID:", id);
+    console.log("useApps: Update data:", JSON.stringify(updatedApp, null, 2));
+    try {
+      const url = `/api/v1/apps/${id}`;
+      console.log("useApps: Request URL:", url);
+      const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
+        snackbar: false,
+      });
+      console.log("useApps: Update result:", JSON.stringify(result, null, 2));
+      if (!result) {
+        console.log("useApps: No result returned from update");
+        return undefined;
+      }
+      loadData();
+      return result;
+    } catch (error) {
+      console.error("useApps: Error updating app:", error);
+      if (error instanceof Error) {
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+      }
+      throw error;
+    }
+  }, [api, loadData]);
 
   const deleteApp = useCallback(async (id: string): Promise<boolean | undefined> => {
     await api.delete(`/api/v1/apps/${id}`, {}, {
