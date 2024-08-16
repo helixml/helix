@@ -1,5 +1,4 @@
 import {
-  IHelixModel,
   ICreateSessionConfig,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
@@ -7,30 +6,6 @@ import {
   SESSION_MODE_FINETUNE,
   ISessionType,
 } from './types'
-
-export const HELIX_TEXT_MODELS: IHelixModel[] = [{
-  id: 'helix-3.5',
-  title: 'Helix 3.5',
-  description: 'Llama3-8B, fast and good for everyday tasks',
-}, {
-  id: 'helix-4',
-  title: 'Helix 4',
-  description: 'Llama3 70B, smarter but a bit slower',
-}, {
-  id: 'helix-mixtral',
-  title: 'Helix Mixtral',
-  description: 'Mistral 8x7B MoE, we rely on this for some use cases',
-}, {
-  id: 'helix-json',
-  title: 'Helix JSON',
-  description: 'Nous-Hermes 2 Theta, for function calling & JSON output',
-}, {
-  id: 'helix-small',
-  title: 'Helix Small',
-  description: 'Phi-3 Mini 3.8B, fast and memory efficient',
-}]
-
-export const HELIX_DEFAULT_TEXT_MODEL = 'helix-3.5'
 
 export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   activeToolIDs: [],

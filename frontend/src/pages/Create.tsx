@@ -51,7 +51,6 @@ import {
 } from '../types'
 
 import {
-  HELIX_DEFAULT_TEXT_MODEL,
   COLORS,
 } from '../config'
 
@@ -83,11 +82,12 @@ const Create: FC = () => {
   const [ showConfigWindow, setShowConfigWindow ] = useState(false)
   const [ showFileDrawer, setShowFileDrawer ] = useState(false)
   const [ showImageLabelsEmptyError, setShowImageLabelsEmptyError ] = useState(false)
+  const [focusInput, setFocusInput] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
   const appID = router.params.app_id || '' 
-  const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+  const model = router.params.model || ''
 
   const activeAssistantID = router.params.assistant_id || '0'
   const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
@@ -252,7 +252,11 @@ const Create: FC = () => {
           router.setParams({mode})
         }
       } }
-      onSetModel={ model => router.setParams({model}) }
+      onSetModel={ model => {
+        router.setParams({model})
+        // Trigger focus on the text box after setting the model
+        setFocusInput(true)
+      } }
     />
   )
 
@@ -270,7 +274,7 @@ const Create: FC = () => {
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
           type={ type }
-          focus={ activeAssistantID }
+          focus={ focusInput ? 'true' : activeAssistantID }
           value={ inputs.inputValue }
           disabled={ mode == SESSION_MODE_FINETUNE }
           startAdornment={ isBigScreen && (
@@ -495,6 +499,13 @@ const Create: FC = () => {
     backgroundPosition: (mode == SESSION_MODE_INFERENCE && isBigScreen) ? 'center center' : `center ${window.innerHeight - 280}px`,
     backgroundRepeat: 'no-repeat',
   }
+
+  // Reset focusInput after it's been used
+  useEffect(() => {
+    if (focusInput) {
+      setFocusInput(false)
+    }
+  }, [focusInput])
 
   return (
     <Page

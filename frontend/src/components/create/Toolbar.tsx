@@ -44,10 +44,10 @@ const CreateToolbar: FC<{
     <Row>
       <Cell>
         {
-          !app && model && mode == SESSION_MODE_INFERENCE && type == SESSION_TYPE_TEXT && (
+          !app && mode === SESSION_MODE_INFERENCE && type === SESSION_TYPE_TEXT && (
             <ModelPicker
-              model={ model }
-              onSetModel={ onSetModel }
+              model={model || ''}
+              onSetModel={onSetModel}
             />
           )
         }
