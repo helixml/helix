@@ -98,6 +98,14 @@ type Store interface {
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
+	// Knowledge
+	CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
+	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
+	GetKnowledgeByNameAndOwner(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error)
+	UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
+	ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error)
+	DeleteKnowledge(ctx context.Context, id string) error
+
 	// GPTScript runs history table
 	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
 	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
