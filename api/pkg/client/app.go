@@ -98,7 +98,8 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to update app, status code: %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to update app, status code: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	bts, err = io.ReadAll(resp.Body)

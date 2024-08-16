@@ -237,7 +237,6 @@ export interface IBotForm {
 }
 
 export interface IBotConfig {
-
 }
 
 export interface IBot {
@@ -501,25 +500,26 @@ export interface IAssistantGPTScript {
 }
 
 export interface IAssistantConfig {
-  id?: string,
-  name: string,
-  description: string,
-  avatar: string,
-  image: string,
-  model: string,
-  type: ISessionType,
-  system_prompt: string,
-  apis: IAssistantApi[],
-  gptscripts: IAssistantGPTScript[],
-  tools: ITool[],
+  id?: string;
+  name: string;
+  description: string;
+  avatar: string;
+  image: string;
+  model: string;
+  type: ISessionType; // Make sure this is explicitly ISessionType
+  system_prompt: string;
+  apis: IAssistantApi[];
+  gptscripts: IAssistantGPTScript[];
+  tools: ITool[];
 }
 
 export interface IAppHelixConfig {
-  name?: string,
-  description?: string,
-  avatar?: string,
-  image?: string,
-  assistants: IAssistantConfig[],  
+  name: string;
+  description: string;
+  avatar?: string;
+  image?: string;
+  assistants: IAssistantConfig[];
+  // Add any other properties that might be part of the helix config
 }
 
 export interface IAppGithubConfigUpdate {
@@ -536,10 +536,10 @@ export interface IAppGithubConfig {
 }
 
 export interface IAppConfig {
-  helix: IAppHelixConfig,
-  github?: IAppGithubConfig,
-  secrets: Record<string, string>,
-  allowed_domains: string[],
+  helix: IAppHelixConfig;
+  github?: IAppGithubConfig;
+  secrets: Record<string, string>;
+  allowed_domains: string[];
 }
 
 export interface IApp {
@@ -555,12 +555,17 @@ export interface IApp {
 }
 
 export interface IAppUpdate {
-  name: string,
-  description: string,
-  secrets: Record<string, string>,
-  allowed_domains: string[],
-  global: boolean,
-  shared: boolean,
+  id: string;
+  config: {
+    helix: IAppHelixConfig;
+    secrets: Record<string, string>;
+    allowed_domains: string[];
+    github?: IAppGithubConfig;
+  };
+  shared: boolean;
+  global: boolean;
+  owner: string;
+  owner_type: IOwnerType;
 }
 
 export interface IGithubStatus {
@@ -673,4 +678,11 @@ export interface IPageBreadcrumb {
   title: string,
   routeName?: string,
   params?: Record<string, any>,
+}
+
+// Add this interface near the top of the file, with other interfaces
+export interface IApiOptions {
+  snackbar?: boolean;
+  errorCapture?: (error: any) => void;
+  signal?: AbortSignal;
 }

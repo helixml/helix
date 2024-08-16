@@ -1,10 +1,11 @@
-import React, { FC, useState, useCallback, useMemo } from 'react'
+import React, { FC, useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import useApi from '../hooks/useApi'
 
 import {
   ITool,
   IToolConfig,
   IToolType,
+  IApiOptions,
 } from '../types'
 
 import {
@@ -15,6 +16,15 @@ export const useTools = () => {
   const api = useApi()
   
   const [ data, setData ] = useState<ITool[]>([])
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   const userTools = useMemo(() => {
     return data.filter(tool => !tool.global)
@@ -29,12 +39,20 @@ export const useTools = () => {
   ])
   
   const loadData = useCallback(async () => {
-    const result = await api.get<ITool[]>(`/api/v1/tools`, undefined, {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
+    const options: IApiOptions = {
       snackbar: true,
-    })
+      signal: abortControllerRef.current.signal,
+    }
+
+    const result = await api.get<ITool[]>(`/api/v1/tools`, undefined, options)
     if(!result) return
     setData(result)
-  }, [])
+  }, [api])
 
   const createTool = useCallback(async (name: string, tool_type: IToolType, description: string, config: IToolConfig): Promise<ITool | undefined> => {
     const result = await api.post<Partial<ITool>, ITool>(`/api/v1/tools`, {
@@ -52,16 +70,16 @@ export const useTools = () => {
     loadData,
   ])
 
-  const updateTool = useCallback(async (id: string, data: Partial<ITool>): Promise<ITool | undefined> => {
-    const result = await api.put<Partial<ITool>, ITool>(`/api/v1/tools/${id}`, data, {}, {
+  const updateTool = useCallback(async (id: string, updatedTool: ITool): Promise<ITool | undefined> => {
+    console.log("Updating tool:", id, updatedTool)
+    const result = await api.put<ITool, ITool>(`/api/v1/tools/${id}`, updatedTool, {}, {
       snackbar: true,
     })
+    console.log("Update result:", result)
     if(!result) return
     loadData()
     return result
-  }, [
-    loadData,
-  ])
+  }, [loadData])
 
   const deleteTool = useCallback(async (id: string): Promise<boolean | undefined> => {
     await api.delete(`/api/v1/tools/${id}`, {}, {
