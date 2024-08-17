@@ -37,6 +37,9 @@ type Knowledge struct {
 	Name      string    `json:"name" gorm:"index"`
 	Owner     string    `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
+
+	State KnowledgeState `json:"state"`
+
 	// AppID through which the knowledge was created
 	AppID string `json:"app_id" gorm:"index"`
 
@@ -55,6 +58,15 @@ type Knowledge struct {
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
 	RefreshSchedule string `json:"refresh_schedule"`
 }
+
+type KnowledgeState string
+
+const (
+	KnowledgeStatePending  KnowledgeState = "pending"
+	KnowledgeStateReady    KnowledgeState = "ready"
+	KnowledgeStateUpdating KnowledgeState = "updating"
+	KnowledgeStateError    KnowledgeState = "error"
+)
 
 type LookupKnowledge struct {
 	AppID string `json:"app_id"`
