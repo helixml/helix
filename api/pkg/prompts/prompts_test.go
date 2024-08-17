@@ -3,13 +3,11 @@ package prompts
 import (
 	"strings"
 	"testing"
-
-	"github.com/helixml/helix/api/pkg/types"
 )
 
 func TestRAGInferencePrompt(t *testing.T) {
 	// Test with rag results
-	ragResults := []*types.SessionRAGResult{
+	ragResults := []*RagContent{
 		{
 			DocumentID: "doc1",
 			Content:    "content1",

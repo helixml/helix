@@ -7,7 +7,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,32 +74,24 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 	return string(buf.Bytes()), nil
 }
 
+type RagContent struct {
+	DocumentID string
+	Content    string
+}
+
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
-func RAGInferencePrompt(userPrompt string, ragResults []*types.SessionRAGResult) (string, error) {
+func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
 	if err != nil {
 		return "", err
 	}
 
-	type RAGResult struct {
-		DocumentID string
-		Content    string
-	}
-
-	ragResultList := make([]RAGResult, len(ragResults))
-	for i, ragResult := range ragResults {
-		ragResultList[i] = RAGResult{
-			DocumentID: ragResult.DocumentID,
-			Content:    ragResult.Content,
-		}
-	}
-
 	tmplData := struct {
-		RagResults []RAGResult
+		RagResults []*RagContent
 		Question   string
 	}{
-		RagResults: ragResultList,
+		RagResults: rag,
 		Question:   userPrompt,
 	}
 	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(promptTemplate))
