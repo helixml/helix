@@ -102,3 +102,28 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 	}
 	return string(buf.Bytes()), nil
 }
+
+// KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
+func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge string) (string, error) {
+	promptTemplate, err := getPromptTemplate("knowledge-prompt")
+	if err != nil {
+		return "", err
+	}
+
+	tmplData := struct {
+		RagResults []*RagContent
+		Knowledge  string
+		Question   string
+	}{
+		RagResults: rag,
+		Knowledge:  knowledge,
+		Question:   userPrompt,
+	}
+	tmpl := template.Must(template.New("KnowledgePrompt").Parse(promptTemplate))
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, tmplData)
+	if err != nil {
+		return "", err
+	}
+	return string(buf.Bytes()), nil
+}
