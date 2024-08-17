@@ -931,9 +931,8 @@ type AssistantConfig struct {
 	// the data entity ID that we have created for the lora fine tune
 	LoraID string `json:"lora_id" yaml:"lora_id"`
 
-	// Name of the knowledge, should be declared in the knowledge section
-	// of the AppHelixConfig struct
-	Knowledge string `json:"knowledge" yaml:"knowledge"`
+	// Knowledge available to the assistant
+	Knowledge []*AssistantKnowledge `json:"knowledge" yaml:"knowledge"`
 
 	// Template for determining if the request is actionable or informative
 	IsActionableTemplate string `json:"is_actionable_template" yaml:"is_actionable_template"`
@@ -959,7 +958,6 @@ type AppHelixConfig struct {
 	ExternalURL string            `json:"external_url" yaml:"external_url"`
 	Assistants  []AssistantConfig `json:"assistants" yaml:"assistants"`
 	Triggers    []Trigger         `json:"triggers" yaml:"triggers"`
-	Knowledge   []Knowledge       `json:"knowledge" yaml:"knowledge"`
 }
 
 type AppGithubConfigUpdate struct {
