@@ -10,6 +10,9 @@ import (
 type AssistantKnowledge struct {
 	// Name of the knowledge, will be unique within the Helix app
 	Name string `json:"name" yaml:"name"`
+	// Description of the knowledge, will be used in the prompt
+	// to explain the knowledge to the assistant
+	Description string `json:"description" yaml:"description"`
 	// RAGSettings defines the settings for the RAG system, how
 	// chunking is configured and where the index/query service is
 	// hosted.
@@ -42,6 +45,10 @@ type Knowledge struct {
 
 	// AppID through which the knowledge was created
 	AppID string `json:"app_id" gorm:"index"`
+
+	// Description of the knowledge, will be used in the prompt
+	// to explain the knowledge to the assistant
+	Description string `json:"description"`
 
 	RAGSettings RAGSettings `json:"rag_settings" gorm:"jsonb"`
 
