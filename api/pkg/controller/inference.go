@@ -55,7 +55,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	err = c.enrichPromptWithKnowledge(ctx, user, &req, opts)
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
@@ -104,7 +104,7 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	}
 
 	// Check for knowledge
-	err = c.enrichPromptWithKnowledge(ctx, user, &req, opts)
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
@@ -259,16 +259,21 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	return assistant, nil
 }
 
-func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) error {
+func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
 	// Check for an extra RAG context
 	ragResults, err := c.evaluateRAG(ctx, user, *req, opts)
 	if err != nil {
 		return fmt.Errorf("failed to load RAG: %w", err)
 	}
 
+	backgroundKnowledge, err := c.evaluateKnowledge(ctx, user, *req, opts)
+	if err != nil {
+		return fmt.Errorf("failed to load knowledge: %w", err)
+	}
+
 	if len(ragResults) > 0 {
 		// Extend last message with the RAG results
-		err := extendMessageWithRAGResults(req, ragResults)
+		err := extendMessageWithKnowledge(req, ragResults, backgroundKnowledge)
 		if err != nil {
 			return err
 		}
@@ -313,13 +318,17 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	return ragContent, nil
 }
 
+func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, error) {
+	return []*prompts.BackgroundKnowledge{}, nil
+}
+
 // TODO: use different struct with just document ID and content
-func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent) error {
+func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, knowledge []*prompts.BackgroundKnowledge) error {
 	lastMessage := getLastMessage(*req)
 
-	extended, err := prompts.RAGInferencePrompt(lastMessage, ragResults)
+	extended, err := prompts.KnowledgePrompt(lastMessage, ragResults, knowledge)
 	if err != nil {
-		return fmt.Errorf("failed to extend message with RAG results: %w", err)
+		return fmt.Errorf("failed to extend message with knowledge: %w", err)
 	}
 
 	req.Messages[len(req.Messages)-1].Content = extended
