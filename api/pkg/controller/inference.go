@@ -55,18 +55,9 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	// Check for an extra RAG context
-	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load RAG: %w", err)
-	}
-
-	if len(ragResults) > 0 {
-		// Extend last message with the RAG results
-		err := extendMessageWithRAGResults(&req, ragResults)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
@@ -112,18 +103,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	// Check for an extra RAG context
-	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	// Check for knowledge
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load RAG: %w", err)
-	}
-
-	if len(ragResults) > 0 {
-		// Extend last message with the RAG results
-		err := extendMessageWithRAGResults(&req, ragResults)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
@@ -274,6 +257,24 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	}
 
 	return assistant, nil
+}
+
+func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, opts *ChatCompletionOptions) error {
+	// Check for an extra RAG context
+	ragResults, err := c.evaluateRAG(ctx, user, *req, opts)
+	if err != nil {
+		return fmt.Errorf("failed to load RAG: %w", err)
+	}
+
+	if len(ragResults) > 0 {
+		// Extend last message with the RAG results
+		err := extendMessageWithRAGResults(req, ragResults)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*prompts.RagContent, error) {
