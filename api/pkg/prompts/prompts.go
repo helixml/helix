@@ -10,6 +10,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type RagContent struct {
+	DocumentID string
+	Content    string
+}
+
+type BackgroundKnowledge struct {
+	Description string
+	Content     string
+}
+
 type Prompt struct {
 	Name     string `yaml:"name"`
 	Template string `yaml:"template"`
@@ -74,11 +84,6 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 	return string(buf.Bytes()), nil
 }
 
-type RagContent struct {
-	DocumentID string
-	Content    string
-}
-
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
 func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
@@ -104,7 +109,7 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 }
 
 // KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
-func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge string) (string, error) {
+func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge []*BackgroundKnowledge) (string, error) {
 	promptTemplate, err := getPromptTemplate("knowledge-prompt")
 	if err != nil {
 		return "", err
@@ -112,7 +117,7 @@ func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge string) (st
 
 	tmplData := struct {
 		RagResults []*RagContent
-		Knowledge  string
+		Knowledge  []*BackgroundKnowledge
 		Question   string
 	}{
 		RagResults: rag,

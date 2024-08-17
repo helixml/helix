@@ -48,7 +48,12 @@ prompts:
 
     {{- if .Knowledge }}
       Here is some background knowledge that you may refer to in your answer:
-      {{.Knowledge}}
+      {{- range .Knowledge }}
+        <article>
+        Description: {{ .Description }}
+        Content: {{ .Content }}
+        </article>
+      {{- end }}
     {{- end }}
     
     Here is the question from the user:
