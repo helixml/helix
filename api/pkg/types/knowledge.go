@@ -7,27 +7,44 @@ import (
 	"time"
 )
 
+type AssistantKnowledge struct {
+	// Name of the knowledge, will be unique within the Helix app
+	Name string `json:"name" yaml:"name"`
+	// RAGSettings defines the settings for the RAG system, how
+	// chunking is configured and where the index/query service is
+	// hosted.
+	RAGSettings RAGSettings `json:"rag_settings" yaml:"rag_settings"`
+
+	// Source defines where the raw data is fetched from. It can be
+	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
+	Source KnowledgeSource `json:"source" gorm:"jsonb"`
+
+	// RefreshEnabled defines if the knowledge should be refreshed periodically
+	// or on events. For example a Google Drive knowledge can be refreshed
+	// every 24 hours.
+	RefreshEnabled bool `json:"refresh_enabled"`
+	// RefreshSchedule defines the schedule for refreshing the knowledge.
+	// It can be specified in cron format or as a duration for example '@every 2h'
+	// or 'every 5m' or '0 0 * * *' for daily at midnight.
+	RefreshSchedule string `json:"refresh_schedule"`
+}
+
 type Knowledge struct {
-	ID        string         `json:"id" gorm:"primaryKey"`
-	Created   time.Time      `json:"created"`
-	Updated   time.Time      `json:"updated"`
-	Name      string         `json:"name" gorm:"index"`
-	Type      DataEntityType `json:"type"`
-	Owner     string         `json:"owner" gorm:"index"` // User ID
-	OwnerType OwnerType      `json:"owner_type"`         // e.g. user, system, org
+	ID      string    `json:"id" gorm:"primaryKey"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
+
+	Name      string    `json:"name" gorm:"index"`
+	Owner     string    `json:"owner" gorm:"index"` // User ID
+	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
+	// AppID through which the knowledge was created
+	AppID string `json:"app_id" gorm:"index"`
 
 	RAGSettings RAGSettings `json:"rag_settings" gorm:"jsonb"`
 
 	// Source defines where the raw data is fetched from. It can be
 	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
 	Source KnowledgeSource `json:"source" gorm:"jsonb"`
-	// IntegrationID defines which integration is used to access the
-	// data source. By default Helix looks up based on the source type
-	// if only one integration for type is set.
-	IntegrationID string `json:"integration_id"`
-
-	// AppID through which the knowledge was created
-	AppID string `json:"app_id" gorm:"index"`
 
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
@@ -60,7 +77,7 @@ type KnowledgeSource struct {
 	HelixDrive *KnowledgeSourceHelixDrive `json:"helix_drive"`
 	S3         *KnowledgeSourceS3         `json:"s3"`
 	GCS        *KnowledgeSourceGCS        `json:"gcs"`
-	URL        *KnowledgeSourceURL        `json:"url"`
+	Web        *KnowledgeSourceURL        `json:"web"`
 }
 
 func (m KnowledgeSource) Value() (driver.Value, error) {
@@ -86,7 +103,7 @@ func (KnowledgeSource) GormDataType() string {
 }
 
 type KnowledgeSourceURL struct {
-	URL string `json:"url"`
+	URLs []string `json:"urls"`
 }
 
 type KnowledgeSourceHelixDrive struct {
