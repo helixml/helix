@@ -276,9 +276,9 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	return assistant, nil
 }
 
-func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*types.SessionRAGResult, error) {
+func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*prompts.RagContent, error) {
 	if opts.RAGSourceID == "" {
-		return []*types.SessionRAGResult{}, nil
+		return []*prompts.RagContent{}, nil
 	}
 
 	entity, err := c.Options.Store.GetDataEntity(ctx, opts.RAGSourceID)
@@ -290,16 +290,30 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
 	}
 
-	return c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
+	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            getLastMessage(req),
 		DataEntityID:      entity.ID,
 		DistanceThreshold: entity.Config.RAGSettings.Threshold,
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("error querying RAG: %w", err)
+	}
+
+	var ragContent []*prompts.RagContent
+	for _, result := range ragResults {
+		ragContent = append(ragContent, &prompts.RagContent{
+			DocumentID: result.DocumentID,
+			Content:    result.Content,
+		})
+	}
+
+	return ragContent, nil
 }
 
-func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults []*types.SessionRAGResult) error {
+// TODO: use different struct with just document ID and content
+func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent) error {
 	lastMessage := getLastMessage(*req)
 
 	extended, err := prompts.RAGInferencePrompt(lastMessage, ragResults)
