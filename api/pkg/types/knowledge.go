@@ -75,21 +75,12 @@ type LookupKnowledge struct {
 	Owner string `json:"owner"`
 }
 
-type KnowledgeSourceType string
-
-const (
-	KnowledgeSourceTypeHelixDrive  KnowledgeSourceType = "helix_drive" // Files directly uploaded
-	KnowledgeSourceTypeS3          KnowledgeSourceType = "s3"
-	KnowledgeSourceTypeGCS         KnowledgeSourceType = "gcs"
-	KnowledgeSourceTypeGoogleDrive KnowledgeSourceType = "google_drive"
-	KnowledgeSourceTypeGmail       KnowledgeSourceType = "gmail"
-)
-
 type KnowledgeSource struct {
 	HelixDrive *KnowledgeSourceHelixDrive `json:"helix_drive"`
 	S3         *KnowledgeSourceS3         `json:"s3"`
 	GCS        *KnowledgeSourceGCS        `json:"gcs"`
-	Web        *KnowledgeSourceURL        `json:"web"`
+	Web        *KnowledgeSourceWeb        `json:"web"`
+	Content    *string                    `json:"text"`
 }
 
 func (m KnowledgeSource) Value() (driver.Value, error) {
@@ -114,7 +105,7 @@ func (KnowledgeSource) GormDataType() string {
 	return "json"
 }
 
-type KnowledgeSourceURL struct {
+type KnowledgeSourceWeb struct {
 	URLs []string `json:"urls"`
 }
 
