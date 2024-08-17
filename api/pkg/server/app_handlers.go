@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -179,6 +180,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 			types.AppSourceGithub)
 	}
 
+	err = s.ensureKnowledge(ctx, created)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	_, err = s.Controller.CreateAPIKey(ctx, user, &types.APIKey{
 		Name:  "api key 1",
 		Type:  types.APIKeyType_App,
@@ -189,6 +195,55 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	return created, nil
+}
+
+// ensureKnowledge creates or updates knowledge config in the database
+func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) error {
+	var knowledge []*types.AssistantKnowledge
+
+	// Get knowledge for all assistants
+	for _, assistant := range app.Config.Helix.Assistants {
+		for _, k := range assistant.Knowledge {
+			knowledge = append(knowledge, k)
+		}
+	}
+
+	for _, k := range knowledge {
+		existing, err := s.Store.LookupKnowledge(ctx, &types.LookupKnowledge{
+			AppID: app.ID,
+			Name:  k.Name,
+		})
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				// Create new knowledge
+				_, err = s.Store.CreateKnowledge(ctx, &types.Knowledge{
+					AppID:           app.ID,
+					Name:            k.Name,
+					Owner:           app.Owner,
+					OwnerType:       app.OwnerType,
+					State:           types.KnowledgeStatePending,
+					RAGSettings:     k.RAGSettings,
+					Source:          k.Source,
+					RefreshEnabled:  k.RefreshEnabled,
+					RefreshSchedule: k.RefreshSchedule,
+				})
+			}
+			return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
+		}
+
+		// Update existing knowledge
+		existing.RAGSettings = k.RAGSettings
+		existing.Source = k.Source
+		existing.RefreshEnabled = k.RefreshEnabled
+		existing.RefreshSchedule = k.RefreshSchedule
+
+		_, err = s.Store.UpdateKnowledge(ctx, existing)
+		if err != nil {
+			return fmt.Errorf("failed to update knowledge '%s': %w", existing.Name, err)
+		}
+	}
+
+	return nil
 }
 
 // what the user can change about a github app fromm the frontend
@@ -290,6 +345,11 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 	// Updating the app
 	updated, err := s.Store.UpdateApp(r.Context(), &update)
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	err = s.ensureKnowledge(r.Context(), updated)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
