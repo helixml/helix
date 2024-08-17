@@ -219,6 +219,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 				_, err = s.Store.CreateKnowledge(ctx, &types.Knowledge{
 					AppID:           app.ID,
 					Name:            k.Name,
+					Description:     k.Description,
 					Owner:           app.Owner,
 					OwnerType:       app.OwnerType,
 					State:           types.KnowledgeStatePending,
@@ -232,6 +233,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		}
 
 		// Update existing knowledge
+		existing.Description = k.Description
 		existing.RAGSettings = k.RAGSettings
 		existing.Source = k.Source
 		existing.RefreshEnabled = k.RefreshEnabled
