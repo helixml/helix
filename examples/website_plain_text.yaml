@@ -1,0 +1,27 @@
+name: website-knowledge
+description: |
+  A simple app that demonstrates how to setup Helix with knowledge from a website
+assistants:
+- name: Helix
+  description: Know
+  knowledge:
+  - name: nist_article
+    source:
+      content: |        
+        NIST announced a public competition for the best PQC algorithm back in 2016. They received a whopping 82 submissions from teams in 25 different countries. Since then, NIST has gone through 4 elimination rounds, finally whittling the pool down to four algorithms in 2022.
+        This lengthy process was a community-wide effort, with NIST taking input from the cryptographic research community, industry, and government stakeholders. “Industry has provided very valuable feedback,” says NIST’s Chen.
+        These four winning algorithms had intense-sounding names: CRYSTALS-Kyber, CRYSTALS-Dilithium, Sphincs+, and FALCON. Sadly, the names did not survive standardization: The algorithms are now known as Federal Information Processing Standard (FIPS) 203 through 206. FIPS 203, 204, and 205 are the focus of today’s announcement from NIST. FIPS 206, the algorithm previously known as FALCON, is expected to be standardized in late 2024.
+        The algorithms fall into two categories: general encryption, used to protect information transferred via a public network, and digital signature, used to authenticate individuals. Digital signatures are essential for preventing malware attacks, says Chen.
+        Every cryptography protocol is based on a math problem that’s hard to solve but easy to check once you have the correct answer. For RSA, it’s factoring large numbers into two primes—it’s hard to figure out what those two primes are (for a classical computer), but once you have one it’s straightforward to divide and get the other.
+
+        ## Lattice cryptography survives alarms over vulnerabilities
+
+        Earlier this year, a pre-print published to the arXiv alarmed the PQC community. The paper, authored by Yilei Chen of Tsinghua University 
+        in Beijing, claimed to show that lattice-based cryptography, the basis of two out of the three NIST protocols, was not, in fact, immune 
+        to quantum attacks. On further inspection, Yilei Chen’s argument turned out to have a flaw—and lattice cryptography is still believed to be secure against quantum attacks.
+
+        On the one hand, this incident highlights the central problem at the heart of all cryptography schemes: There is no proof that any of the math problems the schemes are 
+        based on are actually “hard.” The only proof, even for the standard RSA algorithms, is that people have been trying to break the encryption for a long time, and have all 
+        failed. Since post-quantum cryptography standards, including lattice cryptogrphay, are newer, there is less certainty that no one will find a way to break them.
+
+
