@@ -18,6 +18,7 @@ type RagContent struct {
 type BackgroundKnowledge struct {
 	Description string
 	Content     string
+	DocumentID  string
 }
 
 type Prompt struct {
