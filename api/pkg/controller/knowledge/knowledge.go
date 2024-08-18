@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 type Reconciler struct {
 	config       *config.ServerConfig
 	store        store.Store
-	extractor    extract.Extractor                       // Unstructured.io or equivalent
+	extractor    extract.Extractor // Unstructured.io or equivalent
+	httpClient   *http.Client
 	rAG          rag.RAG                                 // Default server RAG client
 	newRagClient func(indexURL, queryURL string) rag.RAG // Custom RAG server client constructor
 	wg           sync.WaitGroup
