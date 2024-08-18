@@ -130,9 +130,14 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 
 func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u string) ([]byte, error) {
 	// Extractor and indexer disabled, downloading directly
-	req, err := http.NewRequest(http.MethodGet, u, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get %s, error: %w", u, err)
+	}
+
+	// If username and password are specified, use them for basic auth
+	if k.Source.Web.Auth.Username != "" || k.Source.Web.Auth.Password != "" {
+		req.SetBasicAuth(k.Source.Web.Auth.Username, k.Source.Web.Auth.Password)
 	}
 
 	resp, err := r.httpClient.Do(req)
