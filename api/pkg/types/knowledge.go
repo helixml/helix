@@ -106,7 +106,13 @@ func (KnowledgeSource) GormDataType() string {
 }
 
 type KnowledgeSourceWeb struct {
-	URLs []string `json:"urls"`
+	URLs []string               `json:"urls"`
+	Auth KnowledgeSourceWebAuth `json:"auth"`
+}
+
+type KnowledgeSourceWebAuth struct {
+	Username string
+	Password string
 }
 
 type KnowledgeSourceHelixDrive struct {
