@@ -18,6 +18,7 @@ type Reconciler struct {
 	store        store.Store
 	rAG          rag.RAG                                 // Default server RAG client
 	newRagClient func(indexURL, queryURL string) rag.RAG // Custom RAG server client constructor
+	wg           sync.WaitGroup
 }
 
 func (r *Reconciler) Start(ctx context.Context) error {
