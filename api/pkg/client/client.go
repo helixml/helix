@@ -14,6 +14,10 @@ type Client interface {
 	UpdateApp(app *types.App) (*types.App, error)
 	DeleteApp(appID string) error
 	ListApps(f *AppFilter) ([]*types.App, error)
+
+	ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error)
+	DeleteKnowledge(id string) error
+	RefreshKnowledge(id string) error
 }
 
 // HelixClient is the client for the helix api
