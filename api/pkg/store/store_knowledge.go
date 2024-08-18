@@ -13,7 +13,7 @@ import (
 
 func (s *PostgresStore) CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error) {
 	if knowledge.ID == "" {
-		knowledge.ID = system.GenerateUUID()
+		knowledge.ID = system.GenerateKnowledgeID()
 	}
 
 	if knowledge.Owner == "" {
