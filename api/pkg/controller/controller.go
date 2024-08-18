@@ -44,6 +44,8 @@ type Controller struct {
 
 	openAIClient openai.Client
 
+	newRagClient func(indexURL, queryURL string) rag.RAG
+
 	// the backlog of sessions that need a GPU
 	sessionQueue []*types.Session
 	// we keep this managed to avoid having to lock the queue mutex
@@ -91,6 +93,9 @@ func NewController(
 		sessionQueue:        []*types.Session{},
 		sessionSummaryQueue: []*types.SessionSummary{},
 		models:              models,
+		newRagClient: func(indexURL, queryURL string) rag.RAG {
+			return rag.NewLlamaindex(indexURL, queryURL)
+		},
 		activeRunners:       xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
