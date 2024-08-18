@@ -71,6 +71,8 @@ func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([
 	switch {
 	case k.Source.Web != nil:
 		return r.extractDataFromWeb(ctx, k)
+	case k.Source.HelixDrive != nil:
+		return r.extractDataFromHelixDrive(ctx, k)
 	default:
 		return nil, fmt.Errorf("unknown source")
 	}
@@ -152,6 +154,10 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 	}
 
 	return bts, nil
+}
+
+func (r *Reconciler) extractDataFromHelixDrive(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	return nil, fmt.Errorf("TODO")
 }
 
 func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
