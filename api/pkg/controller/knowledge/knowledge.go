@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -16,6 +17,7 @@ import (
 type Reconciler struct {
 	config       *config.ServerConfig
 	store        store.Store
+	extractor    extract.Extractor                       // Unstructured.io or equivalent
 	rAG          rag.RAG                                 // Default server RAG client
 	newRagClient func(indexURL, queryURL string) rag.RAG // Custom RAG server client constructor
 	wg           sync.WaitGroup
