@@ -91,11 +91,10 @@ func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Kn
 type ListKnowledgeQuery struct {
 	Owner     string
 	OwnerType types.OwnerType
-	Type      types.DataEntityType
+	State     types.KnowledgeState
 }
 
 func (s *PostgresStore) ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error) {
-	var knowledgeList []*types.Knowledge
 	query := s.gdb.WithContext(ctx)
 
 	if q.Owner != "" {
@@ -104,9 +103,11 @@ func (s *PostgresStore) ListKnowledge(ctx context.Context, q *ListKnowledgeQuery
 	if q.OwnerType != "" {
 		query = query.Where("owner_type = ?", q.OwnerType)
 	}
-	if q.Type != "" {
-		query = query.Where("type = ?", q.Type)
+	if q.State != "" {
+		query = query.Where("state = ?", q.State)
 	}
+
+	var knowledgeList []*types.Knowledge
 
 	err := query.Find(&knowledgeList).Error
 	if err != nil {
