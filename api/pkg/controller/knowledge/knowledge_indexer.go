@@ -41,6 +41,16 @@ func (r *Reconciler) index(ctx context.Context) error {
 }
 
 func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) error {
+	// If source is plain text, nothing to do
+	if k.Source.Content != nil {
+		k.State = types.KnowledgeStateReady
+		_, err := r.store.UpdateKnowledge(ctx, k)
+		if err != nil {
+			return fmt.Errorf("failed to update knowledge")
+		}
+		return nil
+	}
+
 	// TODO
 	return nil
 }
