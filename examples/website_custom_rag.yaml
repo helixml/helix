@@ -1,0 +1,15 @@
+name: website-knowledge
+description: |
+  A simple app that demonstrates how to setup Helix with knowledge from a website
+assistants:
+- name: Helix
+  description: Know
+  knowledge:
+  - name: cars
+    rag_settings:
+      index_url: https://example.com/index
+      query_url: https://example.com/query
+    source:
+      s3:
+        bucket: acme-business-data
+        prefix: daily-exports
