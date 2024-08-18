@@ -553,7 +553,7 @@ func (mr *MockStoreMockRecorder) ListTools(ctx, q interface{}) *gomock.Call {
 }
 
 // LookupKnowledge mocks base method.
-func (m *MockStore) LookupKnowledge(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
+func (m *MockStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LookupKnowledge", ctx, q)
 	ret0, _ := ret[0].(*types.Knowledge)

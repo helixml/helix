@@ -46,7 +46,14 @@ func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Kno
 	return &knowledge, nil
 }
 
-func (s *PostgresStore) LookupKnowledge(ctx context.Context, q *types.LookupKnowledge) (*types.Knowledge, error) {
+type LookupKnowledgeQuery struct {
+	AppID string `json:"app_id"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Owner string `json:"owner"`
+}
+
+func (s *PostgresStore) LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error) {
 	var knowledge types.Knowledge
 	err := s.gdb.WithContext(ctx).Where(&types.Knowledge{
 		AppID: q.AppID,
