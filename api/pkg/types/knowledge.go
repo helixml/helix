@@ -70,17 +70,10 @@ type KnowledgeState string
 
 const (
 	KnowledgeStatePending  KnowledgeState = "pending"
+	KnowledgeStateIndexing KnowledgeState = "indexing"
 	KnowledgeStateReady    KnowledgeState = "ready"
-	KnowledgeStateUpdating KnowledgeState = "updating"
 	KnowledgeStateError    KnowledgeState = "error"
 )
-
-type LookupKnowledge struct {
-	AppID string `json:"app_id"`
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Owner string `json:"owner"`
-}
 
 type KnowledgeSource struct {
 	HelixDrive *KnowledgeSourceHelixDrive `json:"helix_drive"`

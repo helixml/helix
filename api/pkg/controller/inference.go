@@ -8,6 +8,7 @@ import (
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -325,7 +326,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 	prompt := getLastMessage(req)
 
 	for _, k := range assistant.Knowledge {
-		knowledge, err := c.Options.Store.LookupKnowledge(ctx, &types.LookupKnowledge{
+		knowledge, err := c.Options.Store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
 			Name:  k.Name,
 			AppID: opts.AppID,
 		})
