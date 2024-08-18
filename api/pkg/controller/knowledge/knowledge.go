@@ -25,6 +25,19 @@ type Reconciler struct {
 	wg           sync.WaitGroup
 }
 
+func New(config *config.ServerConfig, store store.Store, extractor extract.Extractor, httpClient *http.Client, ragClient rag.RAG) *Reconciler {
+	return &Reconciler{
+		config:     config,
+		store:      store,
+		extractor:  extractor,
+		httpClient: httpClient,
+		ragClient:  ragClient,
+		newRagClient: func(indexURL, queryURL string) rag.RAG {
+			return rag.NewLlamaindex(indexURL, queryURL)
+		},
+	}
+}
+
 func (r *Reconciler) Start(ctx context.Context) error {
 	err := r.reset(ctx)
 	if err != nil {
