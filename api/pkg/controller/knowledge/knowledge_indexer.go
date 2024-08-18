@@ -51,6 +51,31 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		return nil
 	}
 
-	// TODO
+	// TODO: 1. Extract text from the documents
+	// TODO: 2. Index chunks with the RAG server
 	return nil
+}
+
+func (r *Reconciler) extractText(ctx context.Context, k *types.Knowledge) (*indexerData, error) {
+	switch {
+	case k.Source.Web != nil:
+		return r.extractDataFromWeb(ctx, k)
+	default:
+		return nil, fmt.Errorf("unknown source")
+	}
+}
+
+func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge) (*indexerData, error) {
+
+}
+
+func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge) error {
+
+}
+
+// indexerData contains the raw contents of a website, file, etc.
+// This might be a text/html/pdf but it could also be something else
+// for example an sqlite database.
+type indexerData struct {
+	Data []byte
 }
