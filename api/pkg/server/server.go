@@ -302,6 +302,9 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/github/{id}", system.Wrapper(apiServer.updateGithubApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
+	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods("GET")
+	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.deleteKnowledge)).Methods("DELETE")
+
 	// we know which app this is by the token that is used (which is linked to the app)
 	// this is so frontend devs don't need anything other than their access token
 	// and can auto-connect to this endpoint
