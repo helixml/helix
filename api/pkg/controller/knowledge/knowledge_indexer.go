@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -168,7 +170,7 @@ func (r *Reconciler) extractDataFromHelixDrive(ctx context.Context, k *types.Kno
 	return nil, fmt.Errorf("TODO")
 }
 
-func (r *Reconciler) getRagClient(k *types.Knowledge) rag.Rag {
+func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
 	if k.RAGSettings.IndexURL != "" && k.RAGSettings.QueryURL != "" {
 		return r.newRagClient(k.RAGSettings.IndexURL, k.RAGSettings.QueryURL)
 	}
@@ -202,13 +204,51 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		}
 	}
 
-	// All good
+	// All good, nothing else to do
 	return nil
-
 }
 
+// indexDataWithChunking we expect to be operating on text data, first we split,
+// then index with the rag server
 func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
+		ChunkSize: k.RAGSettings.ChunkSize,
+		Overflow:  k.RAGSettings.ChunkOverflow,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create text splitter, error: %w", err)
+	}
+	documentGroupID := k.ID
 
+	for _, d := range data {
+		_, err := splitter.AddDocument(d.Source, string(d.Data), documentGroupID)
+		if err != nil {
+			return fmt.Errorf("failed to split %s, error %w", d.Source, err)
+		}
+	}
+
+	ragClient := r.getRagClient(k)
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int("chunks", len(splitter.Chunks)).
+		Msg("submitting chunks into the rag server")
+
+	for _, chunk := range splitter.Chunks {
+		err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
+			DataEntityID:    k.ID,
+			Filename:        chunk.Filename,
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to index chunk '%s', error: %w", chunk.Text, err)
+		}
+	}
+
+	return nil
 }
 
 func getDocumentID(contents []byte) string {
