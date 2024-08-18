@@ -37,6 +37,11 @@ func (r *Reconciler) index(ctx context.Context) error {
 					Err(err).
 					Str("knowledge_id", knowledge.ID).
 					Msg("failed to index knowledge")
+
+				k.State = types.KnowledgeStateError
+				k.Message = err.Error()
+				_, _ = r.store.UpdateKnowledge(ctx, k)
+
 			}
 		}(k)
 	}
