@@ -54,12 +54,20 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		return nil
 	}
 
-	// TODO: 1. Extract text from the documents
-	// TODO: 2. Index chunks with the RAG server
+	data, err := r.getIndexingData(ctx, k)
+	if err != nil {
+		return fmt.Errorf("failed to get indexing data, error: %w", err)
+	}
+
+	err = r.indexData(ctx, k, data)
+	if err != nil {
+		return fmt.Errorf("indexing failed, error: %w", err)
+	}
+
 	return nil
 }
 
-func (r *Reconciler) extractText(ctx context.Context, k *types.Knowledge) (*indexerData, error) {
+func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	switch {
 	case k.Source.Web != nil:
 		return r.extractDataFromWeb(ctx, k)
@@ -88,6 +96,7 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		extractorEnabled = false
 	}
 
+	// TODO: add concurrency
 	for _, u := range k.Source.Web.URLs {
 		if extractorEnabled {
 			extracted, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
@@ -140,8 +149,9 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 	return bts, nil
 }
 
-func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge) error {
+func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
 
+	return nil
 }
 
 // indexerData contains the raw contents of a website, file, etc.
