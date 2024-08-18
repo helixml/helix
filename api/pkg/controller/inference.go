@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -266,7 +267,7 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 		return fmt.Errorf("failed to load RAG: %w", err)
 	}
 
-	backgroundKnowledge, err := c.evaluateKnowledge(ctx, user, *req, opts)
+	backgroundKnowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
 	if err != nil {
 		return fmt.Errorf("failed to load knowledge: %w", err)
 	}
@@ -318,8 +319,60 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	return ragContent, nil
 }
 
-func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, error) {
-	return []*prompts.BackgroundKnowledge{}, nil
+func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, error) {
+	var backgroundKnowledge []*prompts.BackgroundKnowledge
+
+	prompt := getLastMessage(req)
+
+	for _, k := range assistant.Knowledge {
+		knowledge, err := c.Options.Store.LookupKnowledge(ctx, &types.LookupKnowledge{
+			Name:  k.Name,
+			AppID: opts.AppID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error getting knowledge: %w", err)
+		}
+		switch {
+		// If the knowledge is a content, add it to the background knowledge
+		// without anything else (no database to search in)
+		case knowledge.Source.Content != nil:
+			backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
+				Description: k.Description,
+				Content:     *k.Source.Content,
+			})
+		default:
+			// Other sources by default should be indexed and therefore can be
+			// queried for the RAG service
+			var ragClient rag.RAG
+
+			if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
+				ragClient = c.newRagClient(knowledge.RAGSettings.IndexURL, knowledge.RAGSettings.QueryURL)
+			} else {
+				ragClient = c.Options.RAG
+			}
+
+			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
+				Prompt:            prompt,
+				DataEntityID:      knowledge.ID,
+				DistanceThreshold: knowledge.RAGSettings.Threshold,
+				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
+				MaxResults:        knowledge.RAGSettings.ResultsCount,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error querying RAG: %w", err)
+			}
+
+			for _, result := range ragResults {
+				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
+					Description: knowledge.Description,
+					DocumentID:  result.DocumentID,
+					Content:     result.Content,
+				})
+			}
+		}
+	}
+
+	return backgroundKnowledge, nil
 }
 
 // TODO: use different struct with just document ID and content
