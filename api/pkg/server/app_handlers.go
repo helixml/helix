@@ -209,7 +209,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 	}
 
 	for _, k := range knowledge {
-		existing, err := s.Store.LookupKnowledge(ctx, &types.LookupKnowledge{
+		existing, err := s.Store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
 			AppID: app.ID,
 			Name:  k.Name,
 		})
