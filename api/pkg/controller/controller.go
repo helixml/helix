@@ -120,13 +120,13 @@ func (c *Controller) Initialize() error {
 }
 
 // this should be run in a go-routine
-func (c *Controller) StartLooping() {
+func (c *Controller) Start(ctx context.Context) {
 	for {
 		select {
-		case <-c.Ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-time.After(10 * time.Second):
-			err := c.loop(c.Ctx)
+			err := c.run(c.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in controller loop: %s", err.Error())
 				debug.PrintStack()
@@ -135,7 +135,7 @@ func (c *Controller) StartLooping() {
 	}
 }
 
-func (c *Controller) loop(ctx context.Context) error {
+func (c *Controller) run(ctx context.Context) error {
 	err := c.cleanOldRunnerMetrics(ctx)
 	if err != nil {
 		log.Error().Msgf("error in controller loop: %s", err.Error())
