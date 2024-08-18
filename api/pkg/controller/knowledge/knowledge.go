@@ -23,7 +23,9 @@ type Reconciler struct {
 func (r *Reconciler) Start(ctx context.Context) error {
 	err := r.reset(ctx)
 	if err != nil {
-		log.Err(err).Msg("knowledge state reset failed")
+		log.Error().
+			Err(err).
+			Msg("knowledge state reset failed")
 	}
 
 	var wg sync.WaitGroup
@@ -46,7 +48,7 @@ func (r *Reconciler) runIndexer(ctx context.Context) {
 		case <-time.After(3 * time.Second):
 			err := r.index(ctx)
 			if err != nil {
-				log.Err(err).Msg("failed to index knowledge")
+				log.Warn().Err(err).Msg("failed to index knowledge")
 			}
 		}
 	}
