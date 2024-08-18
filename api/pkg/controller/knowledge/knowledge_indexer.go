@@ -176,30 +176,39 @@ func (r *Reconciler) getRagClient(k *types.Knowledge) rag.Rag {
 }
 
 func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+	if k.RAGSettings.DisableChunking {
+		return r.indexDataDirectly(ctx, k, data)
+	}
+
+	return nil
+}
+
+func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
 	documentGroupID := k.ID
 
 	ragClient := r.getRagClient(k)
 
-	if k.RAGSettings.DisableChunking {
-		for _, d := range data {
-			err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
-				DataEntityID:    k.ID,
-				Filename:        d.Source,
-				DocumentID:      getDocumentID(d.Data),
-				DocumentGroupID: documentGroupID,
-				ContentOffset:   0,
-				Content:         string(d.Data),
-			})
-			if err != nil {
-				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
-			}
+	for _, d := range data {
+		err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
+			DataEntityID:    k.ID,
+			Filename:        d.Source,
+			DocumentID:      getDocumentID(d.Data),
+			DocumentGroupID: documentGroupID,
+			ContentOffset:   0,
+			Content:         string(d.Data),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
 		}
-
-		// All good
-		return nil
 	}
 
+	// All good
 	return nil
+
+}
+
+func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+
 }
 
 func getDocumentID(contents []byte) string {
