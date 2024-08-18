@@ -94,6 +94,11 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 	ragClient := r.getRagClient(k)
 
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int("payloads", len(data)).
+		Msg("submitting raw data into the rag server")
+
 	for _, d := range data {
 		err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
 			DataEntityID:    k.ID,
