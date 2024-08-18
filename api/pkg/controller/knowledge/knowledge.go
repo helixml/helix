@@ -20,7 +20,7 @@ type Reconciler struct {
 	store        store.Store
 	extractor    extract.Extractor // Unstructured.io or equivalent
 	httpClient   *http.Client
-	rAG          rag.RAG                                 // Default server RAG client
+	ragClient    rag.RAG                                 // Default server RAG client
 	newRagClient func(indexURL, queryURL string) rag.RAG // Custom RAG server client constructor
 	wg           sync.WaitGroup
 }
