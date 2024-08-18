@@ -2,6 +2,8 @@ package knowledge
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,7 +51,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		k.State = types.KnowledgeStateReady
 		_, err := r.store.UpdateKnowledge(ctx, k)
 		if err != nil {
-			return fmt.Errorf("failed to update knowledge")
+			return fmt.Errorf("failed to update knowledge, error: %w", err)
 		}
 		return nil
 	}
@@ -62,6 +64,12 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 	err = r.indexData(ctx, k, data)
 	if err != nil {
 		return fmt.Errorf("indexing failed, error: %w", err)
+	}
+
+	k.State = types.KnowledgeStateReady
+	_, err = r.store.UpdateKnowledge(ctx, k)
+	if err != nil {
+		return fmt.Errorf("failed to update knowledge, error: %w", err)
 	}
 
 	return nil
@@ -160,9 +168,45 @@ func (r *Reconciler) extractDataFromHelixDrive(ctx context.Context, k *types.Kno
 	return nil, fmt.Errorf("TODO")
 }
 
+func (r *Reconciler) getRagClient(k *types.Knowledge) rag.Rag {
+	if k.RAGSettings.IndexURL != "" && k.RAGSettings.QueryURL != "" {
+		return r.newRagClient(k.RAGSettings.IndexURL, k.RAGSettings.QueryURL)
+	}
+	return r.ragClient
+}
+
 func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+	documentGroupID := k.ID
+
+	ragClient := r.getRagClient(k)
+
+	if k.RAGSettings.DisableChunking {
+		for _, d := range data {
+			err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
+				DataEntityID:    k.ID,
+				Filename:        d.Source,
+				DocumentID:      getDocumentID(d.Data),
+				DocumentGroupID: documentGroupID,
+				ContentOffset:   0,
+				Content:         string(d.Data),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
+			}
+		}
+
+		// All good
+		return nil
+	}
 
 	return nil
+}
+
+func getDocumentID(contents []byte) string {
+	hash := sha256.Sum256(contents)
+	hashString := hex.EncodeToString(hash[:])
+
+	return hashString[:10]
 }
 
 // indexerData contains the raw contents of a website, file, etc.
