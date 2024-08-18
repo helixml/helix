@@ -41,7 +41,8 @@ type Knowledge struct {
 	Owner     string    `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
 
-	State KnowledgeState `json:"state"`
+	State   KnowledgeState `json:"state"`
+	Message string         `json:"message"` // Set if something wrong happens
 
 	// AppID through which the knowledge was created
 	AppID string `json:"app_id" gorm:"index"`
