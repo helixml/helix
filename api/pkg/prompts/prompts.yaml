@@ -47,7 +47,7 @@ prompts:
     {{- end }}
 
     {{- if .Knowledge }}
-      Here is some background knowledge that you may refer to in your answer:
+      Here is some background knowledge context that you may refer to in your answer:
       {{- range .Knowledge }}
         <article>
         {{- if .Description }}
