@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
@@ -282,7 +283,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	go appController.StartLooping()
+	go appController.Start(ctx)
+
+	knowledgeReconciler := knowledge.New(cfg, store, textExtractor, llamaindexRAG)
+
+	go knowledgeReconciler.Start(ctx)
 
 	trigger := trigger.NewTriggerManager(cfg, store, appController)
 	// Start integrations
