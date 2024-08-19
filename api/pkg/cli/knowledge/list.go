@@ -3,6 +3,7 @@ package knowledge
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -33,7 +34,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Source", "State", "Refresh Enabled"}
+		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh Enabled"}
 
 		table.SetHeader(header)
 
@@ -70,6 +71,7 @@ var listCmd = &cobra.Command{
 			row := []string{
 				k.ID,
 				k.Name,
+				k.Created.Format(time.RFC3339),
 				sourceStr,
 				stateStr,
 				strconv.FormatBool(k.RefreshEnabled),
