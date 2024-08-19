@@ -16,6 +16,7 @@ type Client interface {
 	ListApps(f *AppFilter) ([]*types.App, error)
 
 	ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error)
+	GetKnowledge(id string) (*types.Knowledge, error)
 	DeleteKnowledge(id string) error
 	RefreshKnowledge(id string) error
 }
