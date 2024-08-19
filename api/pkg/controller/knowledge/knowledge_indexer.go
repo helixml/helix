@@ -76,6 +76,10 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		return fmt.Errorf("failed to update knowledge, error: %w", err)
 	}
 
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Msg("knowledge indexed")
+
 	return nil
 }
 
