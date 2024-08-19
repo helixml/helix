@@ -10,11 +10,11 @@ import (
 )
 
 func init() {
-	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(removeCmd)
 }
 
-var deleteCmd = &cobra.Command{
-	Use:     "delete",
+var removeCmd = &cobra.Command{
+	Use:     "remove",
 	Aliases: []string{"rm"},
 	Short:   "Delete helix app",
 	Long:    ``,
