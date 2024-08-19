@@ -14,9 +14,10 @@ func init() {
 }
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete helix app",
-	Long:  ``,
+	Use:     "delete",
+	Aliases: []string{"rm"},
+	Short:   "Delete helix app",
+	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("app name or ID is required")

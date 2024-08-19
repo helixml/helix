@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/cli/app"
+	"github.com/helixml/helix/api/pkg/cli/knowledge"
 )
 
 var Fatal = FatalErrorHandler
@@ -33,6 +34,7 @@ func NewRootCmd() *cobra.Command {
 	// CLI
 	RootCmd.AddCommand(app.New())
 	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
+	RootCmd.AddCommand(knowledge.New())
 
 	return RootCmd
 }
