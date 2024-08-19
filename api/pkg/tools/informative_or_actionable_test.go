@@ -22,11 +22,12 @@ func TestActionTestSuite(t *testing.T) {
 
 type ActionTestSuite struct {
 	suite.Suite
-	ctrl     *gomock.Controller
-	executor *gptscript.MockExecutor
-	store    *store.MockStore
-	ctx      context.Context
-	strategy *ChainStrategy
+	ctrl      *gomock.Controller
+	executor  *gptscript.MockExecutor
+	apiClient *openai.MockClient
+	store     *store.MockStore
+	ctx       context.Context
+	strategy  *ChainStrategy
 }
 
 func (suite *ActionTestSuite) SetupTest() {
@@ -41,7 +42,17 @@ func (suite *ActionTestSuite) SetupTest() {
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
-	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, nil)
+	var apiClient openai.Client
+
+	if cfg.Providers.TogetherAI.APIKey != "" {
+		apiClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL)
+	} else {
+		apiClient = openai.NewMockClient(suite.ctrl)
+	}
+
+	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, apiClient)
 	suite.NoError(err)
 
 	suite.strategy = strategy
