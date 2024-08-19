@@ -32,7 +32,7 @@ func (c *ChainStrategy) logLLMCall(sessionID, interactionID string, step types.L
 		Step:             step,
 		Request:          reqBts,
 		Response:         respBts,
-		Provider:         string(c.cfg.Tools.Provider),
+		Provider:         string(c.cfg.Inference.Provider),
 		DurationMs:       durationMs,
 		PromptTokens:     int64(resp.Usage.PromptTokens),
 		CompletionTokens: int64(resp.Usage.CompletionTokens),
