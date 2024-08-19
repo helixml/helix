@@ -41,7 +41,7 @@ func (suite *ActionTestSuite) SetupTest() {
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
-	strategy, err := NewChainStrategy(&cfg, nil, suite.store, suite.executor, nil)
+	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, nil)
 	suite.NoError(err)
 
 	suite.strategy = strategy
