@@ -40,6 +40,7 @@ const CreateToolbar: FC<{
 }) => {
   const bigScreen = useIsBigScreen()
   const account = useAccount()
+  //const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
   return (
     <Row>
       <Cell>

@@ -93,9 +93,7 @@ export const useCreateInputs = () => {
       queryParams.delete('finetune');
     }
     const qp = Object.fromEntries(queryParams);
-    console.log("qp", JSON.stringify(qp), "p", JSON.stringify(params))
     if (JSON.stringify(qp) !== JSON.stringify(params)) {
-      console.log("DIFFERS")
       navigate("new", qp)
     }
   }, [sessionConfig]);

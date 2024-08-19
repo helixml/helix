@@ -12,9 +12,9 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   finetuneEnabled: false,
   ragEnabled: false,
   ragDistanceFunction: 'cosine', 
-  ragThreshold: 0.2,
+  ragThreshold: 0.4,
   ragResultsCount: 3,
-  ragChunkSize: 1024,
+  ragChunkSize: 2048,
   ragChunkOverflow: 20,
 }
 

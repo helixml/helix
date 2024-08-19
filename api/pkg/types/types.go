@@ -70,7 +70,7 @@ const (
 )
 
 type ResponseFormat struct {
-	Type   ResponseFormatType
+	Type   ResponseFormatType     `json:"type"`
 	Schema map[string]interface{} `json:"schema"`
 }
 

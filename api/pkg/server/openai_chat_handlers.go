@@ -20,8 +20,18 @@ const (
 	MEGABYTE
 )
 
-// https://platform.openai.com/docs/api-reference/chat/create
+
 // POST https://app.tryhelix.ai/v1/chat/completions
+
+// createTool godoc
+// @Summary Stream responses for chat
+// @Description Creates a model response for the given chat conversation.
+// @Tags    chat
+// @Success 200 {object} openai.ChatCompletionResponse
+// @Param request    body openai.ChatCompletionRequest true "Request body with options for conversational AI.")
+// @Router /v1/chat/completions [post]
+// @Security BearerAuth
+// @externalDocs.url https://platform.openai.com/docs/api-reference/chat/create
 func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Request) {
 	addCorsHeaders(rw)
 	if r.Method == "OPTIONS" {

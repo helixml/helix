@@ -75,7 +75,7 @@ helix/
 ```bash
 ./stack up
 ```
-This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs] (https://docs.helix.ml/helix/getting-started/architecture/)
+This will bring up the control plane which serves the front-end and various other components on the stack. Refer Helix architecture [docs](https://docs.helix.ml/helix/getting-started/architecture/)
 
 The control comes up on http://localhost:8080 by default.
 

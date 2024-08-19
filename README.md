@@ -19,9 +19,9 @@
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
-Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
+Private GenAI stack. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
-Including support for fine-tuning models that's as easy as drag'n'drop.
+Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps by writing a helix.yaml](https://docs.helix.ml/helix/develop/getting-started/).
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
@@ -46,7 +46,7 @@ docker compose up -d
 
 By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
-Attach GPU runners: see [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner)
+Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#using-an-external-llm-provider).
 
 ## Developer Instructions
 
