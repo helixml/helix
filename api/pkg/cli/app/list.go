@@ -26,9 +26,10 @@ func init() {
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List helix apps",
-	Long:  ``,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List helix apps",
+	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {

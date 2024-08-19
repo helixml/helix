@@ -16,9 +16,10 @@ func init() {
 }
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List helix knowledge",
-	Long:  ``,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List helix knowledge",
+	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
@@ -81,17 +82,4 @@ var listCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-var rootCmd = &cobra.Command{
-	Use:   "knowledge",
-	Short: "Helix knowledge management",
-	Long:  `TODO`,
-	Run: func(cmd *cobra.Command, args []string) {
-		// Do Stuff Here
-	},
-}
-
-func New() *cobra.Command {
-	return rootCmd
 }
