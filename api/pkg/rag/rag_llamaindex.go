@@ -81,7 +81,7 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 		return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 	}
 
-	logger.Debug().Msg("indexed document chunk")
+	logger.Info().Msg("indexed document chunk")
 
 	return nil
 }
@@ -150,6 +150,8 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 	if err != nil {
 		return nil, fmt.Errorf("error parsing JSON (%s), error: %s", string(body), err.Error())
 	}
+
+	logger.Info().Msg("query results")
 
 	return queryResp, nil
 }
