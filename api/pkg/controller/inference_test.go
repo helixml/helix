@@ -111,6 +111,79 @@ func (suite *ControllerSuite) Test_BasicInference() {
 	}, resp)
 }
 
+func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	app := &types.App{
+		ID:     "app_id",
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						ID: "0",
+						Knowledge: []*types.AssistantKnowledge{
+							{
+								Name: "knowledge_name",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetApp(suite.ctx, "app_id").Return(app, nil)
+
+	plainTextKnowledge := "foo bar"
+
+	knowledge := &types.Knowledge{
+		ID:    "knowledge_id",
+		AppID: "app_id",
+		Source: types.KnowledgeSource{
+			Content: &plainTextKnowledge,
+		},
+	}
+
+	suite.store.EXPECT().LookupKnowledge(suite.ctx, &store.LookupKnowledgeQuery{
+		Name:  "knowledge_name",
+		AppID: "app_id",
+	}).Return(knowledge, nil)
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, nil)
+
+	resp, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+		AppID:       "app_id",
+		AssistantID: "0",
+	})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
+}
+
 func Test_setSystemPrompt(t *testing.T) {
 	type args struct {
 		req          *openai.ChatCompletionRequest
