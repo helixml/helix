@@ -27,12 +27,13 @@ func TestControllerSuite(t *testing.T) {
 type ControllerSuite struct {
 	suite.Suite
 
+	ctx context.Context
+
 	store        *store.MockStore
 	pubsub       pubsub.PubSub
 	openAiClient *oai.MockClient
 	rag          *rag.MockRAG
-
-	user *types.User
+	user         *types.User
 
 	controller *Controller
 }
@@ -40,6 +41,7 @@ type ControllerSuite struct {
 func (suite *ControllerSuite) SetupTest() {
 	ctrl := gomock.NewController(suite.T())
 
+	suite.ctx = context.Background()
 	suite.store = store.NewMockStore(ctrl)
 	ps, err := pubsub.New(suite.T().TempDir())
 	suite.NoError(err)
@@ -73,6 +75,40 @@ func (suite *ControllerSuite) SetupTest() {
 	suite.NoError(err)
 
 	suite.controller = c
+}
+
+func (suite *ControllerSuite) Test_BasicInference() {
+	req := openai.ChatCompletionRequest{
+		Model: openai.GPT4TurboPreview,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Hello",
+			},
+		},
+	}
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(suite.ctx, gomock.Any()).Return(openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, nil)
+
+	resp, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	suite.NoError(err)
+	suite.Equal(&openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "Hello",
+				},
+			},
+		},
+	}, resp)
 }
 
 func Test_setSystemPrompt(t *testing.T) {
