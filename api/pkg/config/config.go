@@ -75,8 +75,7 @@ const (
 )
 
 type Tools struct {
-	Enabled  bool     `envconfig:"TOOLS_ENABLED" default:"true"`        // Enable/disable tools for the server
-	Provider Provider `envconfig:"TOOLS_PROVIDER" default:"togetherai"` // TODO: switch this to helix after thorough testing with adrienbrault/nous-hermes2theta-llama3-8b:q8_0
+	Enabled bool `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
 
 	// Suggestions based on provider:
 	// - OpenAI: gpt-4-1106-preview
