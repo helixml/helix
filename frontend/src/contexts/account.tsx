@@ -13,6 +13,7 @@ import {
   IApiKey,
   IServerConfig,
   IUserConfig,
+  IHelixModel,
 } from '../types'
 
 const REALM = 'helix'
@@ -36,6 +37,8 @@ export interface IAccountContext {
   onLogin: () => void,
   onLogout: () => void,
   loadApiKeys: (queryParams?: Record<string, string>) => void,
+  models: IHelixModel[];
+  fetchModels: () => Promise<void>;
 }
 
 export const AccountContext = createContext<IAccountContext>({
@@ -61,6 +64,8 @@ export const AccountContext = createContext<IAccountContext>({
   onLogin: () => {},
   onLogout: () => {},
   loadApiKeys: () => {},
+  models: [],
+  fetchModels: async () => {},
 })
 
 export const useAccountContext = (): IAccountContext => {
@@ -86,6 +91,7 @@ export const useAccountContext = (): IAccountContext => {
     apps_enabled: true,
   })
   const [ apiKeys, setApiKeys ] = useState<IApiKey[]>([])
+  const [ models, setModels ] = useState<IHelixModel[]>([])
 
   const keycloak = useMemo(() => {
     return new Keycloak({
@@ -206,20 +212,44 @@ export const useAccountContext = (): IAccountContext => {
     setInitialized(true)
   }, [])
 
+  const fetchModels = useCallback(async () => {
+    try {
+      const response = await api.get('/v1/models')
+      
+      let modelData: IHelixModel[] = [];
+      if (response && Array.isArray(response.data)) {
+        modelData = response.data.map((m: any) => ({
+          id: m.id,
+          name: m.name || m.id,
+          description: m.description || '',
+          hide: m.hide || false
+        }));
+
+        // Filter out hidden models
+        modelData = modelData.filter(m => !m.hide);
+      } else {
+        console.error('Unexpected API response structure:', response)
+      }
+
+      setModels(modelData)
+    } catch (error) {
+      console.error('Error fetching models:', error)
+      setModels([])
+    }
+  }, [api])
+
   useEffect(() => {
     initialize()
   }, [])
 
   useEffect(() => {
-    if(!user) {
-      loadServerConfig()
-    } else {
+    if (user) {
       loadAll()
+      fetchModels() // Add this line to fetch models when the user is set
+    } else {
+      loadServerConfig()
     }
-    
-  }, [
-    user,
-  ])
+  }, [user])
 
   return {
     initialized,
@@ -238,6 +268,8 @@ export const useAccountContext = (): IAccountContext => {
     onLogin,
     onLogout,
     loadApiKeys,
+    models,
+    fetchModels,
   }
 }
 

@@ -84,6 +84,14 @@ export interface IUserConfig {
   stripe_subscription_id?: string,
 }
 
+export interface IHelixModel {
+  id: string;
+  name: string;
+  description: string;
+  hide?: boolean;
+}
+
+
 export type IOwnerType = 'user' | 'system' | 'org'
 
 export type IApiKeyType = 'api' | 'github' | 'app'
