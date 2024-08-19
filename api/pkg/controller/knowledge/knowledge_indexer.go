@@ -25,6 +25,10 @@ func (r *Reconciler) index(ctx context.Context) error {
 		r.wg.Add(1)
 
 		go func(knowledge *types.Knowledge) {
+			k.State = types.KnowledgeStateIndexing
+			k.Message = ""
+			_, _ = r.store.UpdateKnowledge(ctx, k)
+
 			log.
 				Info().
 				Str("knowledge_id", knowledge.ID).
@@ -95,7 +99,7 @@ func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*
 		return r.indexDataDirectly(ctx, k, data)
 	}
 
-	return nil
+	return r.indexDataWithChunking(ctx, k, data)
 }
 
 func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
