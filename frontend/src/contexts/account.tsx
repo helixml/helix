@@ -243,9 +243,9 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   useEffect(() => {
+    fetchModels()
     if (user) {
       loadAll()
-      fetchModels() // Add this line to fetch models when the user is set
     } else {
       loadServerConfig()
     }
