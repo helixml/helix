@@ -264,7 +264,7 @@
                         <ListItemIcon>
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
-                        My account
+                        Account &amp; API
                       </MenuItem>
 
                       <MenuItem onClick={ () => {

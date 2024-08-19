@@ -92,22 +92,23 @@ const Account: FC = () => {
   --header 'Authorization: Bearer ${apiKey}' \\
   --header 'Content-Type: application/json' \\
   --data '{
-  "session_id": "",
-  "system": "you are an intelligent assistant that helps with geography",
-  "messages": [
-    {
-      "role": "user",
-      "content": { "content_type": "text", "parts": ["where are the Faroe islands located?"] }
-    }
-  ]
-}'`
+    "model": "${account.models[0].id}",
+    "session_id": "",
+    "system": "you are an intelligent assistant that helps with geography",
+    "messages": [
+      {
+        "role": "user",
+        "content": { "content_type": "text", "parts": ["where are the Faroe islands located?"] }
+      }
+    ]
+  }'`
 
   const openAICurlExample = `curl --request POST \\
   --url ${window.location.protocol}//${window.location.host}/v1/chat/completions \\
   --header 'Authorization: Bearer ${apiKey}' \\
   --header 'Content-Type: application/json' \\
   --data '{
-    "model": "helix-3.5",
+    "model": "${account.models[0].id}",
     "stream": false,
     "messages": [
       { "role": "system", "content": "You are a helpful assistant." },

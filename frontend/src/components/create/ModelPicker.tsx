@@ -1,17 +1,11 @@
-import React, { FC, useState, useEffect } from 'react'
+import React, { FC, useState, useEffect, useContext } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import useLightTheme from '../../hooks/useLightTheme'
-
-interface IHelixModel {
-  id: string;
-  name: string;
-  description: string;
-  hide?: boolean;
-}
+import { AccountContext } from '../../contexts/account'
 
 const ModelPicker: FC<{
   model: string,
@@ -22,43 +16,14 @@ const ModelPicker: FC<{
 }) => {
   const lightTheme = useLightTheme()
   const [modelMenuAnchorEl, setModelMenuAnchorEl] = useState<HTMLElement>()
-  const [models, setModels] = useState<IHelixModel[]>([])
+  const { models } = useContext(AccountContext)
 
   useEffect(() => {
-    fetchModels()
-  }, [])
-
-  const fetchModels = async () => {
-    try {
-      const response = await fetch('/v1/models')
-      const responseData = await response.json()
-      
-      let modelData: IHelixModel[] = [];
-      if (responseData && Array.isArray(responseData.data)) {
-        modelData = responseData.data.map((m: any) => ({
-          id: m.id,
-          name: m.name || m.id,
-          description: m.description || '',
-          hide: m.hide || false
-        }));
-
-        // Filter out hidden models
-        modelData = modelData.filter(m => !m.hide);
-
-        // Set the first model as default if current model is not in the list
-        if (modelData.length > 0 && (!model || !modelData.some(m => m.id === model))) {
-          onSetModel(modelData[0].id);
-        }
-      } else {
-        console.error('Unexpected API response structure:', responseData)
-      }
-
-      setModels(modelData)
-    } catch (error) {
-      console.error('Error fetching models:', error)
-      setModels([])
+    // Set the first model as default if current model is not in the list
+    if (models.length > 0 && (!model || !models.some(m => m.id === model))) {
+      onSetModel(models[0].id);
     }
-  }
+  }, [models, model, onSetModel])
 
   const handleOpenMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchorEl(event.currentTarget)
@@ -117,7 +82,7 @@ const ModelPicker: FC<{
                   handleCloseMenu()
                 }}
               >
-                { model.name } &nbsp; <small>({ model.description })</small>
+                { model.name } {model.description && <>&nbsp; <small>({model.description})</small></>}
               </MenuItem>
             ))
           }

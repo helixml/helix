@@ -106,6 +106,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
+		// If the session has an AppID, use it as the next interaction
+		if session.ParentApp != "" {
+			startReq.AppID = session.ParentApp
+		}
 	} else {
 		// Create session
 		session = &types.Session{
