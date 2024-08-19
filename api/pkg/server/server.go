@@ -303,6 +303,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods("GET")
+	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.getKnowledge)).Methods("GET")
 	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.deleteKnowledge)).Methods("DELETE")
 	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods("POST")
 
