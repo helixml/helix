@@ -228,6 +228,10 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 					RefreshEnabled:  k.RefreshEnabled,
 					RefreshSchedule: k.RefreshSchedule,
 				})
+				if err != nil {
+					return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
+				}
+				return nil
 			}
 			return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 		}
