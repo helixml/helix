@@ -117,7 +117,7 @@ const ModelPicker: FC<{
                   handleCloseMenu()
                 }}
               >
-                { model.name } &nbsp; <small>({ model.description })</small>
+                { model.name } {model.description && <>&nbsp; <small>({model.description})</small></>}
               </MenuItem>
             ))
           }
