@@ -1965,7 +1965,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "chunk_size": {
-                    "description": "the size of each text chunk - will default to 512 bytes",
+                    "description": "the size of each text chunk - will default to 2048 bytes",
                     "type": "integer"
                 },
                 "distance_function": {

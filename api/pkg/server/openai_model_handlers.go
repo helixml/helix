@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -89,6 +90,38 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint: %w", err)
 			}
 		}
+
+		// Sort models: meta-llama/* models first, then the rest, both in alphabetical order
+		sort.Slice(models, func(i, j int) bool {
+			if models[i].ID == "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" {
+				return true
+			}
+			if models[j].ID == "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" {
+				return false
+			}
+
+			iIsMetaLlama31 := strings.HasPrefix(models[i].ID, "meta-llama/Meta-Llama-3.1")
+			jIsMetaLlama31 := strings.HasPrefix(models[j].ID, "meta-llama/Meta-Llama-3.1")
+
+			if iIsMetaLlama31 && !jIsMetaLlama31 {
+				return true
+			}
+			if !iIsMetaLlama31 && jIsMetaLlama31 {
+				return false
+			}
+
+			iIsMetaLlama := strings.HasPrefix(models[i].ID, "meta-llama/")
+			jIsMetaLlama := strings.HasPrefix(models[j].ID, "meta-llama/")
+
+			if iIsMetaLlama && !jIsMetaLlama {
+				return true
+			}
+			if !iIsMetaLlama && jIsMetaLlama {
+				return false
+			}
+
+			return models[i].ID < models[j].ID
+		})
 
 		// Hack to workaround that OpenAI returns models like dall-e-3, which we
 		// can't send chat completion requests to. Use a rough heuristic to
