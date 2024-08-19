@@ -18,7 +18,7 @@ const (
 	DefaultThreshold        = 0.2
 	DefaultMaxResults       = 3
 
-	DefaultChunkSize     = 1024
+	DefaultChunkSize     = 2048
 	DefaultChunkOverflow = 20
 )
 
