@@ -93,10 +93,10 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 
 		// Sort models: meta-llama/* models first, then the rest, both in alphabetical order
 		sort.Slice(models, func(i, j int) bool {
-			if models[i].ID == "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" {
+			if models[i].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
 				return true
 			}
-			if models[j].ID == "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo" {
+			if models[j].ID == "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
 				return false
 			}
 
