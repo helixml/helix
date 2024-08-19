@@ -42,7 +42,7 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 	}
 
 	if apiKey == "" {
-		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account")
+		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account and set HELIX_API_KEY")
 	}
 
 	if !strings.HasSuffix(url, "/api/v1") {
