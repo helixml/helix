@@ -21,7 +21,7 @@
 
 Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
-Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop.
+Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps using helix.yaml](https://docs.helix.ml/helix/develop/getting-started/).
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
