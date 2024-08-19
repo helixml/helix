@@ -273,7 +273,7 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 		return fmt.Errorf("failed to load knowledge: %w", err)
 	}
 
-	if len(ragResults) > 0 {
+	if len(ragResults) > 0 || len(backgroundKnowledge) > 0 {
 		// Extend last message with the RAG results
 		err := extendMessageWithKnowledge(req, ragResults, backgroundKnowledge)
 		if err != nil {
