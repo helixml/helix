@@ -71,7 +71,7 @@ var applyCmd = &cobra.Command{
 
 		for _, existingApp := range existingApps {
 			if existingApp.Config.Helix.Name == appConfig.Name {
-				log.Info().Msgf("Existing app (%s) found, updating...", appConfig.Name)
+				log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.Name)
 				return updateApp(apiClient, existingApp, appConfig, shared, global)
 			}
 		}
@@ -90,7 +90,7 @@ func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHeli
 		return err
 	}
 
-	log.Info().Msgf("Updated app %s", app.ID)
+	fmt.Printf("%s\n", app.ID)
 
 	return nil
 }
@@ -111,7 +111,7 @@ func createApp(apiClient client.Client, appConfig *types.AppHelixConfig, shared,
 		return err
 	}
 
-	log.Info().Msgf("Created app %s", app.ID)
+	fmt.Printf("%s\n", app.ID)
 
 	return nil
 }
