@@ -100,7 +100,7 @@ func NewController(
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.PubSub, options.Store, options.GPTScriptExecutor, controller)
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, options.OpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}
