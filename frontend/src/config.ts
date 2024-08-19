@@ -14,7 +14,7 @@ export const DEFAULT_SESSION_CONFIG: ICreateSessionConfig = {
   ragDistanceFunction: 'cosine', 
   ragThreshold: 0.2,
   ragResultsCount: 3,
-  ragChunkSize: 1024,
+  ragChunkSize: 2048,
   ragChunkOverflow: 20,
 }
 
