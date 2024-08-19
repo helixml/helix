@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultDistanceFunction = "cosine"
-	DefaultThreshold        = 0.2
+	DefaultThreshold        = 0.4
 	DefaultMaxResults       = 3
 
 	DefaultChunkSize     = 2048

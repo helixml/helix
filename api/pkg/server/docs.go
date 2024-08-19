@@ -1977,7 +1977,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "threshold": {
-                    "description": "this is the threshold for a \"good\" answer - will default to 0.2",
+                    "description": "this is the threshold for a \"good\" answer - will default to 0.4",
                     "type": "number"
                 }
             }
