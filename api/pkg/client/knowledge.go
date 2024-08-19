@@ -40,6 +40,29 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 	return knowledge, nil
 }
 
+func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
+	req, err := http.NewRequest(http.MethodGet, c.url+"/knowledge/"+id, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var knowledge *types.Knowledge
+	err = json.NewDecoder(resp.Body).Decode(&knowledge)
+	if err != nil {
+		return nil, err
+	}
+
+	return knowledge, nil
+}
+
 func (c *HelixClient) DeleteKnowledge(id string) error {
 	req, err := http.NewRequest(http.MethodDelete, c.url+"/knowledge/"+id, nil)
 	if err != nil {
