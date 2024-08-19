@@ -19,7 +19,7 @@
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
-Private GenAI platform. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
+Private GenAI stack. Deploy the best of open AI in your own data center or VPC and retain complete data security & control.
 
 Including support for RAG, API-calling and fine-tuning models that's as easy as drag'n'drop. Build and deploy [LLM apps by writing a helix.yaml](https://docs.helix.ml/helix/develop/getting-started/).
 
