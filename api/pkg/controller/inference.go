@@ -229,8 +229,8 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 
 	isActionable, err := c.ToolsPlanner.IsActionable(ctx, sessionID, interactionID, assistant.Tools, history, lastMessage, options...)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to evaluate of the message is actionable, skipping to general knowledge")
-		return nil, nil, false, fmt.Errorf("failed to evaluate of the message is actionable: %w", err)
+		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
+		return nil, nil, false, fmt.Errorf("failed to evaluate if the message is actionable: %w", err)
 	}
 
 	if !isActionable.Actionable() {
