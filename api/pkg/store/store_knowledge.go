@@ -11,6 +11,14 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	DefaultKnowledgeDistanceFunction = "cosine"
+	DefaultKnowledgeChunkOverflow    = 20
+	DefaultKnowledgeResultsCount     = 3
+	DefaultKnowledgeThreshold        = 0.4
+	DefaultKnowledgeChunkSize        = 2000
+)
+
 func (s *PostgresStore) CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error) {
 	if knowledge.ID == "" {
 		knowledge.ID = system.GenerateKnowledgeID()
@@ -23,11 +31,31 @@ func (s *PostgresStore) CreateKnowledge(ctx context.Context, knowledge *types.Kn
 	knowledge.Created = time.Now()
 	knowledge.Updated = time.Now()
 
+	setDefaultKnowledgeRAGSettings(knowledge)
+
 	err := s.gdb.WithContext(ctx).Create(knowledge).Error
 	if err != nil {
 		return nil, err
 	}
 	return s.GetKnowledge(ctx, knowledge.ID)
+}
+
+func setDefaultKnowledgeRAGSettings(knowledge *types.Knowledge) {
+	if knowledge.RAGSettings.ChunkSize == 0 {
+		knowledge.RAGSettings.ChunkSize = DefaultKnowledgeChunkSize
+	}
+	if knowledge.RAGSettings.DistanceFunction == "" {
+		knowledge.RAGSettings.DistanceFunction = DefaultKnowledgeDistanceFunction
+	}
+	if knowledge.RAGSettings.ChunkOverflow == 0 {
+		knowledge.RAGSettings.ChunkOverflow = DefaultKnowledgeChunkOverflow
+	}
+	if knowledge.RAGSettings.ResultsCount == 0 {
+		knowledge.RAGSettings.ResultsCount = DefaultKnowledgeResultsCount
+	}
+	if knowledge.RAGSettings.Threshold == 0 {
+		knowledge.RAGSettings.Threshold = DefaultKnowledgeThreshold
+	}
 }
 
 func (s *PostgresStore) GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error) {
@@ -80,6 +108,8 @@ func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Kn
 	}
 
 	knowledge.Updated = time.Now()
+
+	setDefaultKnowledgeRAGSettings(knowledge)
 
 	err := s.gdb.WithContext(ctx).Save(knowledge).Error
 	if err != nil {
