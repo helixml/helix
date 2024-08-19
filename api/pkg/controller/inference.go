@@ -338,8 +338,8 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 		// without anything else (no database to search in)
 		case knowledge.Source.Content != nil:
 			backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
-				Description: k.Description,
-				Content:     *k.Source.Content,
+				Description: knowledge.Description,
+				Content:     *knowledge.Source.Content,
 			})
 		default:
 			// Other sources by default should be indexed and therefore can be
