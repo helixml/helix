@@ -4,6 +4,7 @@ description: |
 assistants:
 - name: Helix
   description: Knows about the news from an article
+  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
   knowledge:
   - name: news_article
     source:

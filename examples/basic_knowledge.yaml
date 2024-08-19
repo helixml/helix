@@ -1,6 +1,6 @@
-name: website-knowledge
+name: basic-knowledge
 description: |
-  A simple app that demonstrates how to setup Helix with knowledge from a website
+  A simple app that demonstrates how to provide knowledge to a Helix app
 assistants:
 - name: Helix
   description: Know
