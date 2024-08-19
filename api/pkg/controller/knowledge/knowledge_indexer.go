@@ -24,15 +24,16 @@ func (r *Reconciler) index(ctx context.Context) error {
 	for _, k := range data {
 		r.wg.Add(1)
 
-		go func(knowledge *types.Knowledge) {
-			k.State = types.KnowledgeStateIndexing
-			k.Message = ""
-			_, _ = r.store.UpdateKnowledge(ctx, k)
+		k.State = types.KnowledgeStateIndexing
+		k.Message = ""
+		_, _ = r.store.UpdateKnowledge(ctx, k)
 
-			log.
-				Info().
-				Str("knowledge_id", knowledge.ID).
-				Msg("indexing knowledge")
+		log.
+			Info().
+			Str("knowledge_id", k.ID).
+			Msg("indexing knowledge")
+
+		go func(knowledge *types.Knowledge) {
 
 			err := r.indexKnowledge(ctx, knowledge)
 			if err != nil {

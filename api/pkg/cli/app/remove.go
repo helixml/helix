@@ -5,7 +5,6 @@ import (
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +50,7 @@ var removeCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete app: %w", err)
 		}
 
-		log.Info().Msgf("App %s deleted", app.ID)
+		fmt.Printf("App %s deleted\n", app.ID)
 
 		return nil
 	},
