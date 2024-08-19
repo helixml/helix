@@ -274,7 +274,6 @@ const HomeFeatureCard: FC<{
   feature,
 }) => {
   const router = useRouter()
-  console.log('Feature actions:', feature.actions); // Add this line to debug
   return (
     <Card>
       <CardActionArea
