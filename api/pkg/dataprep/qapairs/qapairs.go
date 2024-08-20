@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"text/template"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	ext_openai "github.com/lukemarsden/go-openai2"
@@ -327,17 +327,7 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 	log.Printf("XXX Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
 
 	if jsonSchema == nil {
-		if strings.Contains(answer, "```json") {
-			answer = strings.Split(answer, "```json")[1]
-		}
-		// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-		parts := strings.Split(answer, "```")
-		answer = parts[0]
-
-		// LLMs are sometimes bad at correct JSON escaping, trying to escape
-		// characters like _ that don't need to be escaped. Just remove all
-		// backslashes for now... unless we're sure the model generated valid JSON
-		answer = strings.Replace(answer, "\\", "", -1)
+		answer = tools.AttemptFixJSON(answer)
 	}
 
 	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))
