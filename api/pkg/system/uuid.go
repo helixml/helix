@@ -16,6 +16,7 @@ const (
 	RequestPrefix             = "req_"
 	DataEntityPrefix          = "dent_"
 	LLMCallPrefix             = "llmc_"
+	KnowledgePrefix           = "kno_"
 )
 
 func GenerateUUID() string {
@@ -52,4 +53,8 @@ func GenerateRequestID() string {
 
 func GenerateLLMCallID() string {
 	return fmt.Sprintf("%s%s", LLMCallPrefix, newID())
+}
+
+func GenerateKnowledgeID() string {
+	return fmt.Sprintf("%s%s", KnowledgePrefix, newID())
 }

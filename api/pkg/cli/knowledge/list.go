@@ -1,34 +1,25 @@
-package app
+package knowledge
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// listCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// listCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-// listCmd represents the list command
 var listCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short:   "List helix apps",
+	Short:   "List helix knowledge",
 	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
@@ -36,14 +27,14 @@ var listCmd = &cobra.Command{
 			return err
 		}
 
-		apps, err := apiClient.ListApps(&client.AppFilter{})
+		knowledge, err := apiClient.ListKnowledge(&client.KnowledgeFilter{})
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
+			return fmt.Errorf("failed to list knowledge: %w", err)
 		}
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Source"}
+		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh Enabled"}
 
 		table.SetHeader(header)
 
@@ -59,12 +50,31 @@ var listCmd = &cobra.Command{
 		table.SetTablePadding(" ")
 		table.SetNoWhiteSpace(false)
 
-		for _, app := range apps {
+		for _, k := range knowledge {
+			var sourceStr string
+
+			switch {
+			case k.Source.Content != nil:
+				sourceStr = "plain_content"
+			case k.Source.Web != nil:
+				sourceStr = "web"
+			}
+
+			var stateStr string
+
+			if k.State == types.KnowledgeStateError {
+				stateStr = fmt.Sprintf("%s (%s)", k.State, k.Message)
+			} else {
+				stateStr = string(k.State)
+			}
+
 			row := []string{
-				app.ID,
-				app.Config.Helix.Name,
-				app.Created.Format(time.DateTime),
-				string(app.AppSource),
+				k.ID,
+				k.Name,
+				k.Created.Format(time.RFC3339),
+				sourceStr,
+				stateStr,
+				strconv.FormatBool(k.RefreshEnabled),
 			}
 
 			table.Append(row)

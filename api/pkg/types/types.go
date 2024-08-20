@@ -11,13 +11,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-type Module struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Cost     int    `json:"cost"`
-	Template string `json:"template"`
-}
-
 type Interaction struct {
 	ID        string      `json:"id"`
 	Created   time.Time   `json:"created"`
@@ -92,12 +85,41 @@ type SessionOrigin struct {
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
-type SessionRAGSettings struct {
+type RAGSettings struct {
 	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
 	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
 	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
-	ChunkSize        int     `json:"chunk_size"`        // the size of each text chunk - will default to 512 bytes
-	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
+
+	// Chunking configuration (Helix extracts text and chunks it)
+	ChunkSize       int  `json:"chunk_size"`       // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow   int  `json:"chunk_overflow"`   // the amount of overlap between chunks - will default to 32 bytes
+	DisableChunking bool `json:"disable_chunking"` // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+
+	// RAG endpoint configuration if used with a custom RAG service
+	IndexURL string `json:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
+	QueryURL string `json:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+}
+
+func (m RAGSettings) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *RAGSettings) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result RAGSettings
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (RAGSettings) GormDataType() string {
+	return "json"
 }
 
 // the data we send off to llamaindex to be indexed in the db
@@ -162,10 +184,10 @@ type SessionMetadata struct {
 	// we might choose to not use them (this will help our eval framework know what works the best)
 	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
 	// and what the threshold for a "good" answer is
-	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
-	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
-	RagSettings         SessionRAGSettings `json:"rag_settings"`
-	ActiveTools         []string           `json:"active_tools"`
+	RagEnabled          bool        `json:"rag_enabled"`           // without any user input, this will default to true
+	TextFinetuneEnabled bool        `json:"text_finetune_enabled"` // without any user input, this will default to true
+	RagSettings         RAGSettings `json:"rag_settings"`
+	ActiveTools         []string    `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
 	UploadedDataID string `json:"uploaded_data_entity_id"`
 	// the RAG source data entity we produced from this session
@@ -231,7 +253,7 @@ type SessionLearnRequest struct {
 	// You must provide a data entity ID for the uploaded documents if yes
 	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
 	// The settings we use for the RAG source
-	RagSettings SessionRAGSettings `json:"rag_settings"`
+	RagSettings RAGSettings `json:"rag_settings"`
 	// When doing RAG, allow the resulting inference session model to be specified
 	DefaultRAGModel string `json:"default_rag_model"`
 }
@@ -289,7 +311,7 @@ type InternalSessionRequest struct {
 	ManuallyReviewQuestions bool
 	RAGEnabled              bool
 	TextFinetuneEnabled     bool
-	RAGSettings             SessionRAGSettings
+	RAGSettings             RAGSettings
 	ActiveTools             []string
 	ResponseFormat          ResponseFormat
 	UploadedDataID          string
@@ -909,6 +931,9 @@ type AssistantConfig struct {
 	// the data entity ID that we have created for the lora fine tune
 	LoraID string `json:"lora_id" yaml:"lora_id"`
 
+	// Knowledge available to the assistant
+	Knowledge []*AssistantKnowledge `json:"knowledge" yaml:"knowledge"`
+
 	// Template for determining if the request is actionable or informative
 	IsActionableTemplate string `json:"is_actionable_template" yaml:"is_actionable_template"`
 
@@ -1119,8 +1144,8 @@ func (GptScriptResponse) GormDataType() string {
 }
 
 type DataEntityConfig struct {
-	FilestorePath string             `json:"filestore_path"`
-	RAGSettings   SessionRAGSettings `json:"rag_settings"`
+	FilestorePath string      `json:"filestore_path"`
+	RAGSettings   RAGSettings `json:"rag_settings"`
 }
 
 func (m DataEntityConfig) Value() (driver.Value, error) {

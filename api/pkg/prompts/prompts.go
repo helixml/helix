@@ -7,9 +7,19 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/helixml/helix/api/pkg/types"
 	"gopkg.in/yaml.v3"
 )
+
+type RagContent struct {
+	DocumentID string
+	Content    string
+}
+
+type BackgroundKnowledge struct {
+	Description string
+	Content     string
+	DocumentID  string
+}
 
 type Prompt struct {
 	Name     string `yaml:"name"`
@@ -77,33 +87,45 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
-func RAGInferencePrompt(userPrompt string, ragResults []*types.SessionRAGResult) (string, error) {
+func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
 	if err != nil {
 		return "", err
 	}
 
-	type RAGResult struct {
-		DocumentID string
-		Content    string
-	}
-
-	ragResultList := make([]RAGResult, len(ragResults))
-	for i, ragResult := range ragResults {
-		ragResultList[i] = RAGResult{
-			DocumentID: ragResult.DocumentID,
-			Content:    ragResult.Content,
-		}
-	}
-
 	tmplData := struct {
-		RagResults []RAGResult
+		RagResults []*RagContent
 		Question   string
 	}{
-		RagResults: ragResultList,
+		RagResults: rag,
 		Question:   userPrompt,
 	}
 	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(promptTemplate))
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, tmplData)
+	if err != nil {
+		return "", err
+	}
+	return string(buf.Bytes()), nil
+}
+
+// KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
+func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge []*BackgroundKnowledge) (string, error) {
+	promptTemplate, err := getPromptTemplate("knowledge-prompt")
+	if err != nil {
+		return "", err
+	}
+
+	tmplData := struct {
+		RagResults []*RagContent
+		Knowledge  []*BackgroundKnowledge
+		Question   string
+	}{
+		RagResults: rag,
+		Knowledge:  knowledge,
+		Question:   userPrompt,
+	}
+	tmpl := template.Must(template.New("KnowledgePrompt").Parse(promptTemplate))
 	var buf bytes.Buffer
 	err = tmpl.Execute(&buf, tmplData)
 	if err != nil {

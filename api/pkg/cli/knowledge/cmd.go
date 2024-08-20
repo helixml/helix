@@ -1,11 +1,11 @@
-package app
+package knowledge
 
 import "github.com/spf13/cobra"
 
 var rootCmd = &cobra.Command{
-	Use:     "app",
-	Short:   "Helix app management",
-	Aliases: []string{"a"},
+	Use:     "knowledge",
+	Short:   "Helix knowledge management",
+	Aliases: []string{"k"},
 	Long:    `TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Do Stuff Here
