@@ -90,6 +90,13 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 
 func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
 	if k.RAGSettings.IndexURL != "" && k.RAGSettings.QueryURL != "" {
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Str("index_url", k.RAGSettings.IndexURL).
+			Str("query_url", k.RAGSettings.QueryURL).
+			Msg("using custom RAG server")
+
 		return r.newRagClient(k.RAGSettings.IndexURL, k.RAGSettings.QueryURL)
 	}
 	return r.ragClient
