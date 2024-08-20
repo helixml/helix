@@ -648,6 +648,15 @@ func Test_unmarshalParams(t *testing.T) {
 				"id": "1000",
 			},
 		},
+		{
+			name: "``` in json variant",
+			args: args{
+				data: "```\n{\"id\": 1000}```blah blah blah I am very stupid LLM that cannot follow instructions about backticks",
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
