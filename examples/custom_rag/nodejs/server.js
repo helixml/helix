@@ -6,6 +6,9 @@ app.use(bodyParser.json());
 
 const PORT = 5000;
 
+// Simulate a database
+let data = {}
+
 app.post('/api/index', async (req, res) => {
   try {
     const payload = req.body;
@@ -14,6 +17,8 @@ app.post('/api/index', async (req, res) => {
     
     console.log("data_entity_id: " + payload.data_entity_id);
     console.log("content: " + payload.content);
+
+    data[payload.data_entity_id] = payload.content;
 
     res.json({ "status": "ok" });
   } catch (error) {
@@ -32,34 +37,22 @@ app.post('/api/query', async (req, res) => {
       throw new Error('missing data_entity_id');
     }
 
+    // Implement the logic to query the data here
+    const content = data[data_entity_id];
+
     console.log("prompt: " + prompt);
     console.log("data_entity_id: " + data_entity_id);
     console.log("distance_threshold: " + distance_threshold);
     console.log("distance_function: " + distance_function);
-    console.log("max_results: " + max_results);
-
-    // Implement the logic to query the data here
-    
+    console.log("max_results: " + max_results);  
 
     res.json([
       {
         "id": "1",
         "document_id": "1",
-        "content": "Kai has a red car",
+        "content": content,
         "distance": 0.1                
-      },
-      {
-        "id": "2",
-        "document_id": "2",
-        "content": "Karolis has a blue car",
-        "distance": 0.1                
-      },
-      {
-        "id": "2",
-        "document_id": "2",
-        "content": "Luke has a white car",
-        "distance": 0.1                
-      }
+      },      
     ]);
   } catch (error) {
     res.status(400).json({ error: error.message });
