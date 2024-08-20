@@ -32,4 +32,36 @@ prompts:
       Here is the question from the user:
       {{.Question}}
     {{- end }}
+ - name: knowledge-prompt
+   template: |
+    {{- if .RagResults }}
+      We have found the following context you may refer to in your answer:
+      {{- range .RagResults }}
+        <article>
+        DocumentID: {{ .DocumentID }}
+        Content: {{ .Content }}
+        </article>
+      {{- end }}
+
+      Please provided references in your answer in the format `[DOC_ID:DocumentID]`. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
+    {{- end }}
+
+    {{- if .Knowledge }}
+      Here is some background knowledge context that you may refer to in your answer:
+      {{- range .Knowledge }}
+        <article>
+        {{- if .Description }}
+        Description: {{ .Description }}
+        {{- end }}
+        Content: {{ .Content }}
+        {{- if .DocumentID }}
+        DocumentID: {{ .DocumentID }}
+        {{- end }}
+        </article>
+      {{- end }}
+
+      If article contains DocumentID then provided reference in your answer in the format `[DOC_ID:DocumentID]`. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+    {{- end }}
     
+    Here is the question from the user:
+    {{.Question}}

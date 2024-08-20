@@ -5,18 +5,18 @@ import (
 
 	"github.com/helixml/helix/api/pkg/client"
 	"github.com/helixml/helix/api/pkg/types"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
 func init() {
-	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(removeCmd)
 }
 
-var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete helix app",
-	Long:  ``,
+var removeCmd = &cobra.Command{
+	Use:     "remove",
+	Aliases: []string{"rm"},
+	Short:   "Delete helix app",
+	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("app name or ID is required")
@@ -50,7 +50,7 @@ var deleteCmd = &cobra.Command{
 			return fmt.Errorf("failed to delete app: %w", err)
 		}
 
-		log.Info().Msgf("App %s deleted", app.ID)
+		fmt.Printf("App %s deleted\n", app.ID)
 
 		return nil
 	},

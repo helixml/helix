@@ -510,9 +510,18 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 			if err != nil {
 				return nil, err
 			}
+
+			var ragContent []*prompts.RagContent
+			for _, result := range ragResults {
+				ragContent = append(ragContent, &prompts.RagContent{
+					DocumentID: result.DocumentID,
+					Content:    result.Content,
+				})
+			}
+
 			session, err = data.UpdateUserInteraction(session, func(userInteraction *types.Interaction) (*types.Interaction, error) {
 				userInteraction.DisplayMessage = userInteraction.Message
-				injectedUserPrompt, err := prompts.RAGInferencePrompt(userInteraction.Message, ragResults)
+				injectedUserPrompt, err := prompts.RAGInferencePrompt(userInteraction.Message, ragContent)
 				if err != nil {
 					return nil, err
 				}

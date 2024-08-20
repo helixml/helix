@@ -97,7 +97,9 @@ func (e *DefaultExtractor) Extract(ctx context.Context, extractReq *ExtractReque
 		return "", fmt.Errorf("error parsing JSON (%s), error: %s", string(body), err.Error())
 	}
 
-	logger.Debug().Str("extracted_text", extractResp.Text).Msg("extracted text")
+	logger.Debug().
+		Int("extracted_length", len(extractResp.Text)).
+		Msg("extracted text")
 
 	return extractResp.Text, nil
 }

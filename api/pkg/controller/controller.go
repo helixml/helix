@@ -44,6 +44,8 @@ type Controller struct {
 
 	openAIClient openai.Client
 
+	newRagClient func(indexURL, queryURL string) rag.RAG
+
 	// the backlog of sessions that need a GPU
 	sessionQueue []*types.Session
 	// we keep this managed to avoid having to lock the queue mutex
@@ -91,6 +93,9 @@ func NewController(
 		sessionQueue:        []*types.Session{},
 		sessionSummaryQueue: []*types.SessionSummary{},
 		models:              models,
+		newRagClient: func(indexURL, queryURL string) rag.RAG {
+			return rag.NewLlamaindex(indexURL, queryURL)
+		},
 		activeRunners:       xsync.NewMapOf[string, *types.RunnerState](),
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
@@ -115,13 +120,13 @@ func (c *Controller) Initialize() error {
 }
 
 // this should be run in a go-routine
-func (c *Controller) StartLooping() {
+func (c *Controller) Start(ctx context.Context) {
 	for {
 		select {
-		case <-c.Ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-time.After(10 * time.Second):
-			err := c.loop(c.Ctx)
+			err := c.run(c.Ctx)
 			if err != nil {
 				log.Error().Msgf("error in controller loop: %s", err.Error())
 				debug.PrintStack()
@@ -130,7 +135,7 @@ func (c *Controller) StartLooping() {
 	}
 }
 
-func (c *Controller) loop(ctx context.Context) error {
+func (c *Controller) run(ctx context.Context) error {
 	err := c.cleanOldRunnerMetrics(ctx)
 	if err != nil {
 		log.Error().Msgf("error in controller loop: %s", err.Error())

@@ -7,6 +7,8 @@ import (
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/prompts"
+	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
@@ -55,18 +57,9 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	// Check for an extra RAG context
-	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load RAG: %w", err)
-	}
-
-	if len(ragResults) > 0 {
-		// Extend last message with the RAG results
-		err := extendMessageWithRAGResults(&req, ragResults)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
@@ -112,18 +105,10 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
-	// Check for an extra RAG context
-	ragResults, err := c.evaluateRAG(ctx, user, req, opts)
+	// Check for knowledge
+	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load RAG: %w", err)
-	}
-
-	if len(ragResults) > 0 {
-		// Extend last message with the RAG results
-		err := extendMessageWithRAGResults(&req, ragResults)
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
@@ -276,9 +261,32 @@ func (c *Controller) loadAssistant(ctx context.Context, user *types.User, opts *
 	return assistant, nil
 }
 
-func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*types.SessionRAGResult, error) {
+func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.User, req *openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) error {
+	// Check for an extra RAG context
+	ragResults, err := c.evaluateRAG(ctx, user, *req, opts)
+	if err != nil {
+		return fmt.Errorf("failed to load RAG: %w", err)
+	}
+
+	backgroundKnowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
+	if err != nil {
+		return fmt.Errorf("failed to load knowledge: %w", err)
+	}
+
+	if len(ragResults) > 0 || len(backgroundKnowledge) > 0 {
+		// Extend last message with the RAG results
+		err := extendMessageWithKnowledge(req, ragResults, backgroundKnowledge)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) ([]*prompts.RagContent, error) {
 	if opts.RAGSourceID == "" {
-		return []*types.SessionRAGResult{}, nil
+		return []*prompts.RagContent{}, nil
 	}
 
 	entity, err := c.Options.Store.GetDataEntity(ctx, opts.RAGSourceID)
@@ -290,21 +298,91 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 		return nil, fmt.Errorf("you do not have access to the data entity with the id: %s", entity.ID)
 	}
 
-	return c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
+	ragResults, err := c.Options.RAG.Query(ctx, &types.SessionRAGQuery{
 		Prompt:            getLastMessage(req),
 		DataEntityID:      entity.ID,
 		DistanceThreshold: entity.Config.RAGSettings.Threshold,
 		DistanceFunction:  entity.Config.RAGSettings.DistanceFunction,
 		MaxResults:        entity.Config.RAGSettings.ResultsCount,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("error querying RAG: %w", err)
+	}
+
+	var ragContent []*prompts.RagContent
+	for _, result := range ragResults {
+		ragContent = append(ragContent, &prompts.RagContent{
+			DocumentID: result.DocumentID,
+			Content:    result.Content,
+		})
+	}
+
+	return ragContent, nil
 }
 
-func extendMessageWithRAGResults(req *openai.ChatCompletionRequest, ragResults []*types.SessionRAGResult) error {
+func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, error) {
+	var backgroundKnowledge []*prompts.BackgroundKnowledge
+
+	prompt := getLastMessage(req)
+
+	for _, k := range assistant.Knowledge {
+		knowledge, err := c.Options.Store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
+			Name:  k.Name,
+			AppID: opts.AppID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error getting knowledge: %w", err)
+		}
+		switch {
+		// If the knowledge is a content, add it to the background knowledge
+		// without anything else (no database to search in)
+		case knowledge.Source.Content != nil:
+			backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
+				Description: knowledge.Description,
+				Content:     *knowledge.Source.Content,
+			})
+		default:
+			// Other sources by default should be indexed and therefore can be
+			// queried for the RAG service
+			var ragClient rag.RAG
+
+			if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
+				ragClient = c.newRagClient(knowledge.RAGSettings.IndexURL, knowledge.RAGSettings.QueryURL)
+			} else {
+				ragClient = c.Options.RAG
+			}
+
+			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
+				Prompt:            prompt,
+				DataEntityID:      knowledge.ID,
+				DistanceThreshold: knowledge.RAGSettings.Threshold,
+				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
+				MaxResults:        knowledge.RAGSettings.ResultsCount,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error querying RAG: %w", err)
+			}
+
+			for _, result := range ragResults {
+				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
+					Description: knowledge.Description,
+					DocumentID:  result.DocumentID,
+					Content:     result.Content,
+				})
+			}
+		}
+	}
+
+	return backgroundKnowledge, nil
+}
+
+// TODO: use different struct with just document ID and content
+func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, knowledge []*prompts.BackgroundKnowledge) error {
 	lastMessage := getLastMessage(*req)
 
-	extended, err := prompts.RAGInferencePrompt(lastMessage, ragResults)
+	extended, err := prompts.KnowledgePrompt(lastMessage, ragResults, knowledge)
 	if err != nil {
-		return fmt.Errorf("failed to extend message with RAG results: %w", err)
+		return fmt.Errorf("failed to extend message with knowledge: %w", err)
 	}
 
 	req.Messages[len(req.Messages)-1].Content = extended
