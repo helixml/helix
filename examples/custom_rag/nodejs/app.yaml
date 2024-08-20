@@ -14,4 +14,9 @@ assistants:
     source:
       web:
         urls:
+        # URL contains a simple text file with the following content:
+        # 
+        # Karolis has a green car
+        # Luke has a blue car
+        # Kai has a red car
         - https://gist.githubusercontent.com/rusenask/d7d12da5bf8dd11a512e2f8143a4bd84/raw/bbf65a70aad34057b5595cb2aeaa8cf0c7d0277d/cars
