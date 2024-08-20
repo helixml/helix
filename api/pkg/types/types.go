@@ -86,18 +86,18 @@ type SessionOrigin struct {
 }
 
 type RAGSettings struct {
-	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
-	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
-	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
+	DistanceFunction string  `json:"distance_function" yaml:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	Threshold        float64 `json:"threshold" yaml:"threshold"`                 // this is the threshold for a "good" answer - will default to 0.2
+	ResultsCount     int     `json:"results_count" yaml:"results_count"`         // this is the max number of results to return - will default to 3
 
 	// Chunking configuration (Helix extracts text and chunks it)
-	ChunkSize       int  `json:"chunk_size"`       // the size of each text chunk - will default to 512 bytes
-	ChunkOverflow   int  `json:"chunk_overflow"`   // the amount of overlap between chunks - will default to 32 bytes
-	DisableChunking bool `json:"disable_chunking"` // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	ChunkSize       int  `json:"chunk_size" yaml:"chunk_size"`             // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow   int  `json:"chunk_overflow" yaml:"chunk_overflow"`     // the amount of overlap between chunks - will default to 32 bytes
+	DisableChunking bool `json:"disable_chunking" yaml:"disable_chunking"` // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
 
 	// RAG endpoint configuration if used with a custom RAG service
-	IndexURL string `json:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
-	QueryURL string `json:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	IndexURL string `json:"index_url" yaml:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
+	QueryURL string `json:"query_url" yaml:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 }
 
 func (m RAGSettings) Value() (driver.Value, error) {
