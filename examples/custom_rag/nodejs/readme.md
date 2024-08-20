@@ -1,5 +1,12 @@
 # Using a custom RAG server with Helix
 
+Helix allows for custom RAG servers to be used with the knowledge base. This example demonstrates how to setup a custom RAG server with Helix.
+
+Custom RAG servers can help you with:
+- Retrieving data from your internal database
+- Indexing non-textual data such as images, CSVs, sqlite databases, etc.
+- Trying out different RAG server implementations
+
 ## Prerequisites
 
 - [Helix account](https://app.tryhelix.ai/) or self-hosted controlplane
