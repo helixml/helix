@@ -12,7 +12,7 @@ Custom RAG servers can help you with:
 - [Helix account](https://app.tryhelix.ai/) or self-hosted controlplane
 - Node.js
 - npm
-- [Webhook Relay account](https://webhookrelay.com/) for development
+- [Webhook Relay account](https://webhookrelay.com/) for development. When running in production, we recommend exposing your server to Helix directly as a sidecar container similarly to how we expose our Llamaindex based default implementation.
 
 ## Setup
 
