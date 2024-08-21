@@ -760,6 +760,11 @@ func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolH
 		if message.Content == "" {
 			continue
 		}
+		if message.Role == openai.ChatMessageRoleSystem {
+			// it is a VERY bad idea to include >1 system message when talking to an LLM
+			// https://x.com/lmarsden/status/1826406206996693431
+			continue
+		}
 		history = append(history, &ToolHistoryMessage{
 			Role:    string(message.Role),
 			Content: message.Content,
