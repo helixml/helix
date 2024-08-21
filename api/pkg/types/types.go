@@ -755,16 +755,13 @@ type ToolHistoryMessage struct {
 func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
 	var history []*ToolHistoryMessage
 
-	// If it's just one message, return an empty history
-	if len(req.Messages) <= 1 {
-		return history
-	}
-
 	// Copy the messages from the request into history messages
-	// Remove the last message, as it's the one we're currently processing
-	for _, message := range req.Messages[:len(req.Messages)-1] {
+	for _, message := range req.Messages {
+		if message.Content == "" {
+			continue
+		}
 		history = append(history, &ToolHistoryMessage{
-			Role:    openai.ChatMessageRoleUser,
+			Role:    string(message.Role),
 			Content: message.Content,
 		})
 	}
@@ -1339,6 +1336,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
+	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
