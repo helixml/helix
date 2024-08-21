@@ -40,12 +40,12 @@ const CreateToolbar: FC<{
 }) => {
   const bigScreen = useIsBigScreen()
   const account = useAccount()
-  //const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
+  const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
   return (
     <Row>
       <Cell>
         {
-          !app && mode === SESSION_MODE_INFERENCE && type === SESSION_TYPE_TEXT && (
+          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && type === SESSION_TYPE_TEXT && (
             <ModelPicker
               model={model || ''}
               onSetModel={onSetModel}
