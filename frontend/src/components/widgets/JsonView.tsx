@@ -13,7 +13,7 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
 }) => {
   return (
     <TextView
-      data={typeof(data) == 'string' ? data : JSON.stringify(data, null, 4)}
+      data={JSON.stringify(data, null, 2)}
       scrolling={ scrolling }
     />
   )
