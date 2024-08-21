@@ -16,6 +16,8 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
+	"gorm.io/datatypes"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -211,7 +213,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		}
 
 		go func() {
-			s.legacyStreamUpdates(user, session, stream)
+			s.legacyStreamUpdates(user, session, stream, chatCompletionRequest)
 		}()
 
 		sessionDataJSON, err := json.Marshal(session)
@@ -301,6 +303,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Connection", "keep-alive")
 
 	var fullResponse string
+	started := time.Now()
 
 	// Write the stream into the response
 	for {
@@ -330,6 +333,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		writeChunk(rw, bts)
 	}
 
+	// Log the full LLM call after the stream is complete
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, &chatCompletionRequest, &openai.ChatCompletionResponse{
+		ID:      session.ID,
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: fullResponse}}},
+	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -341,13 +350,15 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 // legacyStreamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest openai.ChatCompletionRequest) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	interactionID := session.Interactions[len(session.Interactions)-1].ID
 
 	var responseMessage string
+
+	started := time.Now()
 
 	for {
 		response, err := stream.Recv()
@@ -412,6 +423,12 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 		log.Error().Err(err).Msg("failed to publish message")
 	}
 
+	// Log the full LLM call after the stream is complete
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, &chatCompletionRequest, &openai.ChatCompletionResponse{
+		ID:      session.ID,
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
+	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = responseMessage
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -419,4 +436,27 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	s.Controller.WriteSession(session)
+}
+
+func (s *HelixAPIServer) logLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
+	// Convert request and response to JSON strings
+	reqJSON, _ := json.Marshal(req)
+	respJSON, _ := json.Marshal(resp)
+
+	llmCall := &types.LLMCall{
+		UserID:        userID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          step,
+		Request:       datatypes.JSON(reqJSON),
+		Response:      datatypes.JSON(respJSON),
+		DurationMs:    durationMs,
+		Model:         model,
+		Provider:      provider,
+	}
+
+	_, err := s.Store.CreateLLMCall(context.Background(), llmCall)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to log LLM call")
+	}
 }
