@@ -86,18 +86,10 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	messages = append(messages, systemPrompt)
 
 	for _, msg := range history {
-		// switch msg. {
-		// case types.CreatorTypeUser:
 		messages = append(messages, openai.ChatCompletionMessage{
 			Role:    msg.Role,
 			Content: msg.Content,
 		})
-		// case types.CreatorTypeSystem:
-		// 	messages = append(messages, openai.ChatCompletionMessage{
-		// 		Role:    openai.ChatMessageRoleAssistant,
-		// 		Content: interaction.Message,
-		// 	})
-		// }
 	}
 
 	// Adding current message
@@ -131,6 +123,9 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	var actionableResponse IsActionableResponse
 
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no response from inference API")
+	}
 	answer := resp.Choices[0].Message.Content
 
 	err = unmarshalJSON(answer, &actionableResponse)

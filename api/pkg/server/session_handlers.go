@@ -314,8 +314,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		}
 
 		// Accumulate the response
-		fullResponse += response.Choices[0].Delta.Content
-
+		if len(response.Choices) > 0 {
+			fullResponse += response.Choices[0].Delta.Content
+		}
 		// Update the response with the interaction ID
 		response.ID = session.ID
 
