@@ -11,6 +11,7 @@ import (
 
 type Client interface {
 	CreateApp(app *types.App) (*types.App, error)
+	GetApp(appID string) (*types.App, error)
 	UpdateApp(app *types.App) (*types.App, error)
 	DeleteApp(appID string) error
 	ListApps(f *AppFilter) ([]*types.App, error)
