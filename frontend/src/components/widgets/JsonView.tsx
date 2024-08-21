@@ -1,5 +1,5 @@
-import React, { FC } from 'react'
-import { Box, Typography } from '@mui/material'
+import React, { FC, useState } from 'react'
+import { Box, Typography, Switch, FormControlLabel } from '@mui/material'
 
 interface JsonViewProps {
   data: any,
@@ -63,21 +63,35 @@ const JsonView: FC<React.PropsWithChildren<JsonViewProps>> = ({
   data,
   scrolling = false
 }) => {
+  const [useFancyRendering, setUseFancyRendering] = useState(true);
+
+  const toggleRendering = () => {
+    setUseFancyRendering(!useFancyRendering);
+  };
+
   return (
-    <Box
-      sx={{
-        fontFamily: '"Roboto Mono", monospace',
-        whiteSpace: 'pre-wrap',
-        overflowX: 'auto',
-        overflowY: scrolling ? 'auto' : 'visible',
-        maxHeight: scrolling ? '400px' : 'none',
-        padding: 2,
-        backgroundColor: '#121212',
-        color: 'white',
-        borderRadius: 1,
-      }}
-    >
-      {renderJsonValue(data)}
+    <Box>
+      <FormControlLabel
+        control={<Switch checked={useFancyRendering} onChange={toggleRendering} />}
+        label="Fancy Rendering"
+      />
+      <Box
+        sx={{
+          fontFamily: '"Roboto Mono", monospace',
+          whiteSpace: 'pre-wrap',
+          overflowX: 'auto',
+          overflowY: scrolling ? 'auto' : 'visible',
+          maxHeight: scrolling ? '400px' : 'none',
+          padding: 2,
+          backgroundColor: '#121212',
+          color: 'white',
+          borderRadius: 1,
+        }}
+      >
+        {useFancyRendering
+          ? renderJsonValue(data)
+          : <pre>{JSON.stringify(data, null, 2)}</pre>}
+      </Box>
     </Box>
   )
 }
