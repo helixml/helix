@@ -291,14 +291,16 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 }
 
 func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	go func() {
-		s.legacyStreamUpdates(user, session, stream, chatCompletionRequest)
+		// we log the updated request here because the controller mutates it
+		// when doing e.g. tools calls and RAG
+		s.legacyStreamUpdates(user, session, stream, updatedReq)
 	}()
 
 	sessionDataJSON, err := json.Marshal(session)
@@ -314,8 +316,11 @@ func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *t
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
+
+	started := time.Now()
+
 	// Call the LLM
-	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+	chatCompletionResponse, updatedReq, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
@@ -332,6 +337,10 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	if len(chatCompletionResponse.Choices) == 0 {
 		return errors.New("no data in the LLM response")
 	}
+
+	// Log the LLM call
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, chatCompletionResponse, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update the session with the response
 	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -356,10 +365,10 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 }
 
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
-	// Ensure request is not streaming
+	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
@@ -402,7 +411,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	}
 
 	// Log the full LLM call after the stream is complete
-	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, &chatCompletionRequest, &openai.ChatCompletionResponse{
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, &openai.ChatCompletionResponse{
 		ID:      session.ID,
 		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: fullResponse}}},
 	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
@@ -418,7 +427,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 // legacyStreamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest openai.ChatCompletionRequest) {
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest *openai.ChatCompletionRequest) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -492,7 +501,7 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	}
 
 	// Log the full LLM call after the stream is complete
-	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, &chatCompletionRequest, &openai.ChatCompletionResponse{
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, chatCompletionRequest, &openai.ChatCompletionResponse{
 		ID:      session.ID,
 		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
 	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
