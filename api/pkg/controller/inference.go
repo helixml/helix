@@ -27,6 +27,7 @@ type ChatCompletionOptions struct {
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
+// Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
 func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
@@ -71,7 +72,7 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 	return &resp, &req, nil
 }
 
-// ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
+// ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
 func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
 	req.Stream = true
