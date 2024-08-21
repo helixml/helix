@@ -298,7 +298,7 @@ func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *t
 	}
 
 	go func() {
-		s.legacyStreamUpdates(user, session, stream)
+		s.legacyStreamUpdates(user, session, stream, chatCompletionRequest)
 	}()
 
 	sessionDataJSON, err := json.Marshal(session)
