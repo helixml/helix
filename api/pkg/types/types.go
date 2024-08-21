@@ -798,6 +798,16 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 	return history
 }
 
+// Add this struct to the existing types.go file
+
+type PaginatedLLMCalls struct {
+	Calls      []*LLMCall `json:"calls"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"pageSize"`
+	TotalCount int64      `json:"totalCount"`
+	TotalPages int        `json:"totalPages"`
+}
+
 type ToolType string
 
 const (
