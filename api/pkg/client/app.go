@@ -41,6 +41,34 @@ func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
 	return apps, nil
 }
 
+func (c *HelixClient) GetApp(appID string) (*types.App, error) {
+	req, err := http.NewRequest(http.MethodGet, c.url+"/apps/"+appID, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bts, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var app types.App
+	err = json.Unmarshal(bts, &app)
+	if err != nil {
+		return nil, err
+	}
+
+	return &app, nil
+}
+
 func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 	bts, err := json.Marshal(app)
 	if err != nil {
