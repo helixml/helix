@@ -127,6 +127,10 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no response from inference API")
+	}
+
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
