@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -206,24 +207,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// TODO: remove once frontend is removed
 	if startReq.Legacy {
-		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		go func() {
-			s.legacyStreamUpdates(user, session, stream, chatCompletionRequest)
-		}()
-
-		sessionDataJSON, err := json.Marshal(session)
-		if err != nil {
-			http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		rw.Header().Set("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusOK)
-		rw.Write(sessionDataJSON)
+		s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
 		return
 	}
 	// End of TODO
@@ -241,6 +225,90 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		log.Err(err).Msg("error handling blocking session")
 	}
 	return
+}
+
+func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	session_id := mux.Vars(req)["id"]
+	session, err := s.Store.GetSession(ctx, session_id)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", session_id, err), http.StatusInternalServerError)
+		return
+	}
+
+	modelName, e := types.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName.String(), types.SessionModeInference, types.SessionTypeText, false, false)
+	if e != nil {
+		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if modelName.String() != session.ModelName.String() {
+		session.ModelName = modelName
+	}
+
+	// Restart the previous interaction
+	if len(session.Interactions) > 0 {
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		lastInteraction.State = types.InteractionStateWaiting
+		lastInteraction.Completed = time.Time{}
+		lastInteraction.Finished = false
+		lastInteraction.Error = ""
+		lastInteraction.Message = ""
+	}
+
+	// Update the session
+	err = s.Controller.WriteSession(session)
+	if err != nil {
+		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert interactions (except the last one) to messages
+	var (
+		chatCompletionRequest = openai.ChatCompletionRequest{
+			Model: modelName.String(),
+		}
+
+		options = &controller.ChatCompletionOptions{
+			AppID:       session.ParentApp,
+			AssistantID: session.Metadata.AssistantID,
+			RAGSourceID: session.Metadata.RAGSourceID,
+			QueryParams: session.Metadata.AppQueryParams,
+		}
+	)
+	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    string(interaction.Creator),
+			Content: interaction.Message,
+		})
+	}
+
+	// Set required context values
+	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID)
+
+	// TODO: This uses the "old style" frontend websocket stream, copied from startChatSessionHandler
+	s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
+}
+
+func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
+	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	go func() {
+		s.legacyStreamUpdates(user, session, stream)
+	}()
+
+	sessionDataJSON, err := json.Marshal(session)
+	if err != nil {
+		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(sessionDataJSON)
 }
 
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
