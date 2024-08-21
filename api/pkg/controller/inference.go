@@ -28,11 +28,11 @@ type ChatCompletionOptions struct {
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
 // Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
-func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
-		return nil, nil, err
+		return nil, err
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -40,11 +40,11 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		// if yes, execute the tools and return the response
 		toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tool execution failed: %w", err)
+			return nil, fmt.Errorf("tool execution failed: %w", err)
 		}
 
 		if ok {
-			return toolResp, &req, nil
+			return toolResp, nil
 		}
 	}
 
@@ -60,27 +60,27 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
-		return nil, nil, err
+		return nil, err
 	}
 
-	return &resp, &req, nil
+	return &resp, nil
 }
 
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
-func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
+func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, error) {
 	req.Stream = true
 
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
-		return nil, nil, err
+		return nil, err
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -88,11 +88,11 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		// if yes, execute the tools and return the response
 		toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load tools: %w", err)
+			return nil, fmt.Errorf("failed to load tools: %w", err)
 		}
 
 		if ok {
-			return toolRespStream, &req, nil
+			return toolRespStream, nil
 		}
 	}
 
@@ -109,16 +109,16 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	// Check for knowledge
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion stream")
-		return nil, nil, err
+		return nil, err
 	}
 
-	return stream, &req, nil
+	return stream, nil
 }
 
 func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
