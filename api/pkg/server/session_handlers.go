@@ -204,7 +204,11 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
+	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     session.ID,
+		InteractionID: session.Interactions[0].ID,
+	})
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
@@ -311,7 +315,11 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 	}
 
 	// Set required context values
-	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID)
+	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     session.ID,
+		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
+	})
 
 	// TODO: This uses the "old style" frontend websocket stream, copied from startChatSessionHandler
 	s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)

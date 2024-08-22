@@ -69,7 +69,12 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	chatCompletionRequest.Model = modelName.String()
 
-	ctx := oai.SetContextValues(r.Context(), user.ID, "n/a", "n/a")
+	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     "n/a",
+		InteractionID: "n/a",
+		Step:          types.LLMCallStepDefault,
+	})
 
 	options := &controller.ChatCompletionOptions{
 		AppID:       r.URL.Query().Get("app_id"),
