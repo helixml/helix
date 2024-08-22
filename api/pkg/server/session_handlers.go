@@ -352,10 +352,8 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
 
-	started := time.Now()
-
 	// Call the LLM
-	chatCompletionResponse, updatedReq, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
@@ -372,9 +370,6 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	if len(chatCompletionResponse.Choices) == 0 {
 		return errors.New("no data in the LLM response")
 	}
-
-	// Log the LLM call
-	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, chatCompletionResponse, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
 
 	// Update the session with the response
 	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
@@ -403,7 +398,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
-	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
@@ -415,7 +410,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Connection", "keep-alive")
 
 	var fullResponse string
-	started := time.Now()
 
 	// Write the stream into the response
 	for {
@@ -444,12 +438,6 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 		writeChunk(rw, bts)
 	}
-
-	// Log the full LLM call after the stream is complete
-	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, &openai.ChatCompletionResponse{
-		ID:      session.ID,
-		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: fullResponse}}},
-	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
 
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
@@ -536,7 +524,7 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	}
 
 	// Log the full LLM call after the stream is complete
-	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, chatCompletionRequest, &openai.ChatCompletionResponse{
+	s.logLegacyLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepDefault, chatCompletionRequest, &openai.ChatCompletionResponse{
 		ID:      session.ID,
 		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
 	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
@@ -550,7 +538,7 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	s.Controller.WriteSession(session)
 }
 
-func (s *HelixAPIServer) logLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
+func (s *HelixAPIServer) logLegacyLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
 	// Convert request and response to JSON strings
 	reqJSON, _ := json.Marshal(req)
 	respJSON, _ := json.Marshal(resp)
