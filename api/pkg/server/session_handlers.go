@@ -32,9 +32,15 @@ import (
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
+	if err != nil {
+		log.Error().Err(err).Msg("error reading body")
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	var startReq types.SessionChatRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
+	err = json.Unmarshal(body, &startReq)
 	if err != nil {
 		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -205,9 +211,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	}
 
 	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
-		OwnerID:       user.ID,
-		SessionID:     session.ID,
-		InteractionID: session.Interactions[0].ID,
+		OwnerID:         user.ID,
+		SessionID:       session.ID,
+		InteractionID:   session.Interactions[0].ID,
+		OriginalRequest: body,
 	})
 
 	var (
