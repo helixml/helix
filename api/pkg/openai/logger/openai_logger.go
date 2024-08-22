@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 
@@ -29,19 +30,19 @@ type LogStore interface {
 var _ oai.Client = &LoggingMiddleware{}
 
 type LoggingMiddleware struct {
-	cfg      *config.ServerConfig
-	client   oai.Client
-	logStore LogStore
-	wg       sync.WaitGroup
+	cfg       *config.ServerConfig
+	client    oai.Client
+	logStores []LogStore
+	wg        sync.WaitGroup
 }
 
-func Wrap(cfg *config.ServerConfig, logStore LogStore, client oai.Client) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
 
 	return &LoggingMiddleware{
-		cfg:      cfg,
-		logStore: logStore,
-		client:   client,
-		wg:       sync.WaitGroup{},
+		cfg:       cfg,
+		logStores: logStores,
+		client:    client,
+		wg:        sync.WaitGroup{},
 	}
 }
 
@@ -54,7 +55,14 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 
 	m.wg.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Recovered from panic: %v", r)
+			}
+		}()
+
 		defer m.wg.Done()
+
 		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
 	}()
 
@@ -74,15 +82,19 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 	m.wg.Add(1)
 	go func() {
+		// defer func() {
+		// 	if r := recover(); r != nil {
+		// 		log.Error().Msgf("Recovered from panic: %v", r)
+		// 	}
+		// }()
+
 		defer m.wg.Done()
 		// Once done, close the writer
 		defer downstreamWriter.Close()
 
 		start := time.Now()
 
-		var (
-			resp openai.ChatCompletionResponse
-		)
+		var resp = openai.ChatCompletionResponse{}
 
 		// Read from the upstream stream and write to the downstream stream
 		for {
@@ -115,11 +127,35 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 }
 
 func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompletionStreamResponse) {
-	if resp.Choices == nil {
-		resp.Choices = []openai.ChatCompletionChoice{}
+	if chunk == nil {
+		return
 	}
+
+	if len(resp.Choices) == 0 {
+		resp.Choices = []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{},
+			},
+		}
+	}
+
+	if chunk.Model != "" {
+		resp.Model = chunk.Model
+	}
+
+	if chunk.ID != "" {
+		resp.ID = chunk.ID
+	}
+
+	if chunk.Created != 0 {
+		resp.Created = chunk.Created
+	}
+
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
+		spew.Dump(resp)
+		spew.Dump(chunk)
+
 		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
 
 		if chunk.Choices[0].Delta.FunctionCall != nil {
@@ -183,8 +219,10 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 	ctx, cancel := context.WithTimeout(context.Background(), logCallTimeout)
 	defer cancel()
 
-	_, err = m.logStore.CreateLLMCall(ctx, llmCall)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to log LLM call")
+	for _, logStore := range m.logStores {
+		_, err = logStore.CreateLLMCall(ctx, llmCall)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to log LLM call")
+		}
 	}
 }
