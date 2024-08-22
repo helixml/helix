@@ -84,7 +84,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 
 	// Non-streaming request returns the response immediately
 	if !chatCompletionRequest.Stream {
-		resp, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+		resp, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 		if err != nil {
 			log.Error().Err(err).Msg("error creating chat completion")
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -114,7 +114,7 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	}
 
 	// Streaming request, receive and write the stream in chunks
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
