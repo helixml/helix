@@ -9,10 +9,10 @@ import (
 
 	"github.com/avast/retry-go/v4"
 
-	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
-	"github.com/rs/zerolog/log"
 )
 
 type IsActionableResponse struct {
@@ -110,9 +110,6 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		Model:    c.cfg.Tools.Model,
 		Messages: messages,
 	}
-
-	// Required for the correct openai context to be set
-	ctx = oai.SetContextValues(ctx, "system", sessionID, interactionID)
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {

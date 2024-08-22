@@ -1335,6 +1335,8 @@ const (
 	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
+	LLMCallStepRawStreaming      LLMCallStep = "raw_streaming"
+	LLMCallStepRawBlocking       LLMCallStep = "raw_blocking"
 )
 
 // LLMCall used to store the request and response of LLM calls
