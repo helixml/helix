@@ -120,10 +120,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Basic_Blocking() {
 			suite.Equal("system", req.Messages[0].Role)
 			suite.Equal("user", req.Messages[1].Role)
 
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
 				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -182,10 +183,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_Streaming() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			return stream, nil
 		})
@@ -343,10 +345,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 
 			suite.Equal("user", req.Messages[1].Role)
 
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
 				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -458,10 +461,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 
 			suite.Equal("user", req.Messages[1].Role)
 
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			suite.Contains(req.Messages[1].Content, "This is a test RAG source 1")
 			suite.Contains(req.Messages[1].Content, "This is a test RAG source 2")
@@ -553,10 +557,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 
 			suite.Equal("user", req.Messages[1].Role)
 
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			return oai.ChatCompletionResponse{
 				Model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -630,10 +635,11 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
-			owner, sessionID, interactionID := openai.GetContextValues(ctx)
-			suite.Equal("user_id", owner)
-			suite.Equal("n/a", sessionID)
-			suite.Equal("n/a", interactionID)
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
 
 			suite.Require().Equal(2, len(req.Messages))
 
