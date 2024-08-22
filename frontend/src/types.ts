@@ -688,6 +688,7 @@ export interface LLMCall {
   step: string;
   request: any;
   response: any;
+  original_request: any;
   duration_ms: number;
   prompt_tokens: number;
   completion_tokens: number;
