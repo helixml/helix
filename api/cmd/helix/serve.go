@@ -257,7 +257,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		controllerOpenAIClient = helixInference
 	}
 
-	controllerOpenAIClient = logger.Wrap(cfg, store, controllerOpenAIClient)
+	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, store)
 
 	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
 
