@@ -1,6 +1,10 @@
 package openai
 
-import "context"
+import (
+	"context"
+
+	"github.com/helixml/helix/api/pkg/types"
+)
 
 type contextValues struct {
 	OwnerID       string
@@ -10,23 +14,26 @@ type contextValues struct {
 
 const contextValuesKey = "contextValues"
 
-func SetContextValues(ctx context.Context, ownerID, sessionID, interactionID string) context.Context {
-	return context.WithValue(ctx, contextValuesKey, contextValues{
-		OwnerID:       ownerID,
-		SessionID:     sessionID,
-		InteractionID: interactionID,
-	})
+type ContextValues struct {
+	OwnerID       string
+	SessionID     string
+	InteractionID string
+	Step          types.LLMCallStep
 }
 
-func GetContextValues(ctx context.Context) (ownerID, sessionID, interactionID string) {
+func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {
+	return context.WithValue(ctx, contextValuesKey, vals)
+}
+
+func GetContextValues(ctx context.Context) (*ContextValues, bool) {
 	if ctx == nil {
-		return "", "", ""
+		return nil, false
 	}
 
-	values, ok := ctx.Value(contextValuesKey).(contextValues)
+	values, ok := ctx.Value(contextValuesKey).(*ContextValues)
 	if !ok {
-		return "", "", ""
+		return nil, false
 	}
 
-	return values.OwnerID, values.SessionID, values.InteractionID
+	return values, true
 }
