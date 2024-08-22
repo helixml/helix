@@ -23,6 +23,13 @@ type ContextValues struct {
 }
 
 func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {
+	// Check if the context already has values, if it does,
+	// preserve the OriginalRequest
+	existingValues, ok := GetContextValues(ctx)
+	if ok {
+		vals.OriginalRequest = existingValues.OriginalRequest
+	}
+
 	return context.WithValue(ctx, contextValuesKey, vals)
 }
 
