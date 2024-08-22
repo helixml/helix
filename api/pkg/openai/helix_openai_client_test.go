@@ -56,7 +56,11 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
 		ctx, cancel := context.WithTimeout(suite.ctx, 100*time.Millisecond)
 		defer cancel()
 
-		ctx = SetContextValues(ctx, ownerID, sessionID, interactionID)
+		ctx = SetContextValues(ctx, &ContextValues{
+			OwnerID:       ownerID,
+			SessionID:     sessionID,
+			InteractionID: interactionID,
+		})
 		_, _ = suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 			Model:  types.Model_Ollama_Llama3_8b.String(),
 			Stream: false,
@@ -126,7 +130,11 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_Response() {
 		},
 	})
 
-	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+	ctx := SetContextValues(suite.ctx, &ContextValues{
+		OwnerID:       ownerID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+	})
 
 	resp, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model:    types.Model_Ollama_Llama3_8b.String(),
@@ -155,7 +163,11 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ErrorResponse() {
 		},
 	})
 
-	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+	ctx := SetContextValues(suite.ctx, &ContextValues{
+		OwnerID:       ownerID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+	})
 
 	_, err := suite.srv.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model:    types.Model_Ollama_Llama3_8b.String(),
@@ -220,7 +232,11 @@ func (suite *HelixClientTestSuite) Test_CreateChatCompletion_StreamingResponse()
 		},
 	})
 
-	ctx := SetContextValues(suite.ctx, ownerID, sessionID, interactionID)
+	ctx := SetContextValues(suite.ctx, &ContextValues{
+		OwnerID:       ownerID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+	})
 
 	stream, err := suite.srv.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model:    types.Model_Ollama_Llama3_8b.String(),

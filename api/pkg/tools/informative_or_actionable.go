@@ -112,18 +112,20 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	}
 
 	// Required for the correct openai context to be set
-	ctx = oai.SetContextValues(ctx, "system", sessionID, interactionID)
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       "system",
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+	})
+
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStepIsActionable,
+	})
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
-
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.logLLMCall(sessionID, interactionID, types.LLMCallStepIsActionable, &req, &resp, time.Since(started).Milliseconds())
-	}()
 
 	var actionableResponse IsActionableResponse
 

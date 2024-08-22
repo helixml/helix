@@ -1332,6 +1332,7 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
+	LLMCallStepDefault           LLMCallStep = "default"
 	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
@@ -1349,6 +1350,7 @@ type LLMCall struct {
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`
+	OriginalRequest  datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`
