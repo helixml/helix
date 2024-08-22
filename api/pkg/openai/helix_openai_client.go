@@ -31,9 +31,13 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 
 	doneCh := make(chan struct{})
 
-	ownerID, sessionID, interactionID := GetContextValues(ctx)
+	// ownerID, sessionID, interactionID := GetContextValues(ctx)
+	vals, ok := GetContextValues(ctx)
+	if !ok {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("ownerID not set in context, use 'openai.SetContextValues()' before calling this method")
+	}
 
-	if ownerID == "" {
+	if vals.OwnerID == "" {
 		return openai.ChatCompletionResponse{}, fmt.Errorf("ownerID not set in context, use 'openai.SetContextValues()' before calling this method")
 	}
 
@@ -43,7 +47,7 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	)
 
 	// Subscribe to the runner response from the runner
-	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(ownerID, requestID), func(payload []byte) error {
+	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(vals.OwnerID, requestID), func(payload []byte) error {
 		var runnerResp types.RunnerLLMInferenceResponse
 		err := json.Unmarshal(payload, &runnerResp)
 		if err != nil {
@@ -72,9 +76,9 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
-		OwnerID:       ownerID,
-		SessionID:     sessionID,
-		InteractionID: interactionID,
+		OwnerID:       vals.OwnerID,
+		SessionID:     vals.SessionID,
+		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
 
@@ -97,8 +101,13 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 
 	requestID := system.GenerateRequestID()
 
-	ownerID, sessionID, interactionID := GetContextValues(ctx)
-	if ownerID == "" {
+	// ownerID, sessionID, interactionID := GetContextValues(ctx)
+	vals, ok := GetContextValues(ctx)
+	if !ok {
+		return nil, fmt.Errorf("ownerID not set in context, use 'openai.SetContextValues()' before calling this method")
+	}
+
+	if vals.OwnerID == "" {
 		return nil, fmt.Errorf("ownerID not set in context, use 'openai.SetContextValues()' before calling this method")
 	}
 
@@ -120,7 +129,7 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	client := openai.NewClientWithConfig(config)
 
 	// Subscribe to the runner response from the runner
-	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(ownerID, requestID), func(payload []byte) error {
+	sub, err := c.pubsub.Subscribe(ctx, pubsub.GetRunnerResponsesQueue(vals.OwnerID, requestID), func(payload []byte) error {
 		var runnerResp types.RunnerLLMInferenceResponse
 		err := json.Unmarshal(payload, &runnerResp)
 		if err != nil {
@@ -156,9 +165,9 @@ func (c *InternalHelixServer) CreateChatCompletionStream(ctx context.Context, re
 	c.enqueueRequest(&types.RunnerLLMInferenceRequest{
 		RequestID:     requestID,
 		CreatedAt:     time.Now(),
-		OwnerID:       ownerID,
-		SessionID:     sessionID,
-		InteractionID: interactionID,
+		OwnerID:       vals.OwnerID,
+		SessionID:     vals.SessionID,
+		InteractionID: vals.InteractionID,
 		Request:       &request,
 	})
 

@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
@@ -255,6 +256,13 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 		controllerOpenAIClient = helixInference
 	}
+
+	logStores := []logger.LogStore{
+		store,
+		// TODO: bigquery
+	}
+
+	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
 	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
 

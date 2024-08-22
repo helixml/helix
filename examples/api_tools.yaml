@@ -1,0 +1,12 @@
+name: api-tools
+description: |
+  A simple app that demonstrates how Helix can use 3rd party APIs.
+assistants:
+- name: Helix
+  description: Responds knowing about the hiring pipeline
+  apis:
+  - name: Demo Hiring Pipeline API
+    description: List all job vacancies, optionally filter by job title and/or candidate name
+    url: https://demos.tryhelix.ai
+    schema: ./openapi/jobvacancies.yaml
+
