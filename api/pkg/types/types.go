@@ -1332,6 +1332,7 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
+	LLMCallStepDefault           LLMCallStep = "default"
 	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
