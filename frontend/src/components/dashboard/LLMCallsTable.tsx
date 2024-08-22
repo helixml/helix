@@ -83,6 +83,7 @@ const LLMCallsTable: React.FC = () => {
               <TableCell>Provider</TableCell>
               <TableCell>Step</TableCell>
               <TableCell>Duration (ms)</TableCell>
+              <TableCell>Original Request</TableCell>
               <TableCell>Request</TableCell>
               <TableCell>Response</TableCell>
             </TableRow>
@@ -98,6 +99,11 @@ const LLMCallsTable: React.FC = () => {
                 <TableCell>{call.provider}</TableCell>
                 <TableCell>{call.step}</TableCell>
                 <TableCell>{call.duration_ms}</TableCell>
+                <TableCell>
+                  {call.original_request && (
+                    <Button onClick={() => handleOpenModal(call.original_request)}>View</Button>
+                  )}
+                </TableCell>
                 <TableCell>
                   <Button onClick={() => handleOpenModal(call.request)}>View</Button>
                 </TableCell>
