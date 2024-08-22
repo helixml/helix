@@ -62,12 +62,6 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	vals, ok := oai.GetContextValues(ctx)
-	if !ok {
-		// Not set, use empty values
-		vals = &oai.ContextValues{}
-	}
-
 	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
 	if err != nil {
 		return nil, err
@@ -84,7 +78,11 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		// Once done, close the writer
 		defer downstreamWriter.Close()
 
-		var streamingErr error
+		start := time.Now()
+
+		var (
+			resp openai.ChatCompletionResponse
+		)
 
 		// Read from the upstream stream and write to the downstream stream
 		for {
@@ -94,14 +92,15 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 					break
 				}
 				log.Error().Err(err).Msg("failed to receive message from upstream stream")
-				streamingErr = err
 				break
 			}
+
+			// Add the message to the response
+			appendChunk(&resp, &msg)
 
 			bts, err := json.Marshal(msg)
 			if err != nil {
 				log.Error().Err(err).Msg("failed to marshal message")
-				streamingErr = err
 				break
 			}
 
@@ -109,10 +108,30 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 		}
 
 		// Once the stream is done, close the downstream writer
-
+		m.logLLMCall(ctx, &request, &resp, time.Since(start).Milliseconds())
 	}()
 
 	return downstream, nil
+}
+
+func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompletionStreamResponse) {
+	if resp.Choices == nil {
+		resp.Choices = []openai.ChatCompletionChoice{}
+	}
+	// Append the chunk to the response
+	if len(chunk.Choices) > 0 {
+		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
+
+		if chunk.Choices[0].Delta.FunctionCall != nil {
+			resp.Choices[0].Message.FunctionCall = chunk.Choices[0].Delta.FunctionCall
+		}
+	}
+
+	// Append the usage
+	// TODO: need to update the fork
+	// resp.Usage.PromptTokens += chunk.Usage.PromptTokens
+	// resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
+	// resp.Usage.TotalTokens += chunk.Usage.TotalTokens
 }
 
 func writeChunk(w io.Writer, chunk []byte) error {
