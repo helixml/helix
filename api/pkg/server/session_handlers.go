@@ -17,6 +17,8 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
+	"gorm.io/datatypes"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -49,6 +51,33 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	if assistantID := req.URL.Query().Get("assistant_id"); assistantID != "" {
 		startReq.AssistantID = assistantID
+	}
+
+	// if the app specifies a model, override startReq.Model so that we display
+	// the correct model in the UI (and some things may rely on it)
+	if startReq.AppID != "" {
+		// load the app
+		app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
+			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If an AssistantID is specified, get the correct assistant from the app
+		if startReq.AssistantID != "" {
+			var assistant *types.AssistantConfig
+			assistantID := startReq.AssistantID
+			if assistantID == "" {
+				assistantID = "0"
+			}
+			assistant = data.GetAssistant(app, assistantID)
+
+			// Update the model if the assistant has one
+			if assistant.Model != "" {
+				startReq.Model = assistant.Model
+			}
+		}
 	}
 
 	if len(startReq.Messages) == 0 {
@@ -289,14 +318,16 @@ func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *
 }
 
 func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	go func() {
-		s.legacyStreamUpdates(user, session, stream)
+		// we log the updated request here because the controller mutates it
+		// when doing e.g. tools calls and RAG
+		s.legacyStreamUpdates(user, session, stream, updatedReq)
 	}()
 
 	sessionDataJSON, err := json.Marshal(session)
@@ -312,8 +343,11 @@ func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *t
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
+
+	started := time.Now()
+
 	// Call the LLM
-	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+	chatCompletionResponse, updatedReq, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
@@ -330,6 +364,10 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 	if len(chatCompletionResponse.Choices) == 0 {
 		return errors.New("no data in the LLM response")
 	}
+
+	// Log the LLM call
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, chatCompletionResponse, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update the session with the response
 	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -354,10 +392,10 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 }
 
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
-	// Ensure request is not streaming
+	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
@@ -369,6 +407,7 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 	rw.Header().Set("Connection", "keep-alive")
 
 	var fullResponse string
+	started := time.Now()
 
 	// Write the stream into the response
 	for {
@@ -398,6 +437,12 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		writeChunk(rw, bts)
 	}
 
+	// Log the full LLM call after the stream is complete
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, updatedReq, &openai.ChatCompletionResponse{
+		ID:      session.ID,
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: fullResponse}}},
+	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = fullResponse
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -409,13 +454,15 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 // legacyStreamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest *openai.ChatCompletionRequest) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	interactionID := session.Interactions[len(session.Interactions)-1].ID
 
 	var responseMessage string
+
+	started := time.Now()
 
 	for {
 		response, err := stream.Recv()
@@ -480,6 +527,12 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 		log.Error().Err(err).Msg("failed to publish message")
 	}
 
+	// Log the full LLM call after the stream is complete
+	s.logLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepInterpretResponse, chatCompletionRequest, &openai.ChatCompletionResponse{
+		ID:      session.ID,
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
+	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = responseMessage
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -487,4 +540,27 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	s.Controller.WriteSession(session)
+}
+
+func (s *HelixAPIServer) logLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
+	// Convert request and response to JSON strings
+	reqJSON, _ := json.Marshal(req)
+	respJSON, _ := json.Marshal(resp)
+
+	llmCall := &types.LLMCall{
+		UserID:        userID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          step,
+		Request:       datatypes.JSON(reqJSON),
+		Response:      datatypes.JSON(respJSON),
+		DurationMs:    durationMs,
+		Model:         model,
+		Provider:      provider,
+	}
+
+	_, err := s.Store.CreateLLMCall(context.Background(), llmCall)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to log LLM call")
+	}
 }

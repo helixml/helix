@@ -312,8 +312,8 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	// and can auto-connect to this endpoint
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
 	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
-
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
+	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods("GET")
 
 	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")

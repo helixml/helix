@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"

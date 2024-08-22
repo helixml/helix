@@ -17,6 +17,7 @@ import SessionToolbar from '../components/session/SessionToolbar'
 import RunnerSummary from '../components/session/RunnerSummary'
 import SchedulingDecisionSummary from '../components/session/SchedulingDecisionSummary'
 import SessionBadgeKey from '../components/session/SessionBadgeKey'
+import LLMCallsTable from '../components/dashboard/LLMCallsTable'
 
 import useRouter from '../hooks/useRouter'
 import useAccount from '../hooks/useAccount'
@@ -120,151 +121,171 @@ const Dashboard: FC = () => {
           sx={{
             width: '100%',
             display: 'flex',
-            flexDirection: 'row',
+            flexDirection: 'column',
             alignItems: 'flex-start',
             justifyContent: 'flex-start',
           }}
         >
           <Box
             sx={{
-              p: 3,
-              flexGrow: 0,
-              width: '480px',
-              minWidth: '480px',
-              overflowY: 'auto',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              justifyContent: 'flex-start',
             }}
           >
             <Box
               sx={{
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
+                p: 3,
+                flexGrow: 0,
+                width: '480px',
+                minWidth: '480px',
+                overflowY: 'auto',
               }}
             >
               <Box
                 sx={{
-                  flexGrow: 0,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
                 }}
               >
-                <FormGroup>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={ active }
-                        onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                          activeRef.current = event.target.checked
-                          setActive(event.target.checked)
-                        }}
-                      />
-                    }
-                    label="Live Updates?"
-                  />
-                </FormGroup>
-              </Box>
-              <Box
-                sx={{
-                  flexGrow: 1,
-                  textAlign: 'right',
-                }}
-              >
-                <JsonWindowLink
-                  data={ data }
+                <Box
+                  sx={{
+                    flexGrow: 0,
+                  }}
                 >
-                  view data
-                </JsonWindowLink>
-              </Box>
-              
-            </Box>
-            <Divider
-              sx={{
-                mt: 1,
-                mb: 1,
-              }}
-            />
-            {
-              data?.runners.map((runner) => {
-                const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
-                  return modelInstance.current_session ? [ ...allSessions, modelInstance.current_session ] : allSessions
-                }, [])
-                return allSessions.length > 0 ? (
-                  <React.Fragment key={ runner.id }>
-                    <Typography variant="h6">Running: { runner.id }</Typography>
-                    {
-                      allSessions.map(session => (
-                        <SessionSummary
-                          key={ session.session_id }
-                          session={ session }
-                          onViewSession={ onViewSession }
+                  <FormGroup>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={ active }
+                          onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                            activeRef.current = event.target.checked
+                            setActive(event.target.checked)
+                          }}
                         />
-                      ))
-                    }
-                  </React.Fragment>
-                ) : null
-              })
-            }
-            {
-              data.session_queue.length > 0 && (
-                <Typography variant="h6">Queued Jobs</Typography>
-              )
-            }
-            {
-              data.session_queue.map((session) => {
-                return (
-                  <SessionSummary
-                    key={ session.session_id }
-                    session={ session }
-                    onViewSession={ onViewSession }
-                  />
-                )
-              })
-            }
-            {
-              data.global_scheduling_decisions.length > 0 && (
-                <Typography variant="h6">Global Scheduling</Typography>
-              )
-            }
-            {
-              data.global_scheduling_decisions.map((decision, i) => {
-                return (
-                  <SchedulingDecisionSummary
-                    key={ i }
-                    decision={ decision }
-                    onViewSession={ onViewSession }
-                  />
-                )
-              })
-            }
-          </Box>
-          <Box
-            sx={{
-              flexGrow: 1,
-              p: 2,
-              height: '100%',
-              width: '100%',
-              overflowY: 'auto',
-            }}
-          >
-            <Grid
-              container
-              spacing={ 2 }
-              sx={{
-                width: '100%',
-              }}
-            >
+                      }
+                      label="Live Updates?"
+                    />
+                  </FormGroup>
+                </Box>
+                <Box
+                  sx={{
+                    flexGrow: 1,
+                    textAlign: 'right',
+                  }}
+                >
+                  <JsonWindowLink
+                    data={ data }
+                  >
+                    view data
+                  </JsonWindowLink>
+                </Box>
+              
+              </Box>
+              <Divider
+                sx={{
+                  mt: 1,
+                  mb: 1,
+                }}
+              />
               {
-                data.runners.map((runner) => {
+                data?.runners.map((runner) => {
+                  const allSessions = runner.model_instances.reduce<ISessionSummary[]>((allSessions, modelInstance) => {
+                    return modelInstance.current_session ? [ ...allSessions, modelInstance.current_session ] : allSessions
+                  }, [])
+                  return allSessions.length > 0 ? (
+                    <React.Fragment key={ runner.id }>
+                      <Typography variant="h6">Running: { runner.id }</Typography>
+                      {
+                        allSessions.map(session => (
+                          <SessionSummary
+                            key={ session.session_id }
+                            session={ session }
+                            onViewSession={ onViewSession }
+                          />
+                        ))
+                      }
+                    </React.Fragment>
+                  ) : null
+                })
+              }
+              {
+                data.session_queue.length > 0 && (
+                  <Typography variant="h6">Queued Jobs</Typography>
+                )
+              }
+              {
+                data.session_queue.map((session) => {
                   return (
-                    <Grid item key={ runner.id } sm={ 12 } md={ 6 }>
-                      <RunnerSummary
-                        runner={ runner }
-                        onViewSession={ onViewSession }
-                      />
-                    </Grid>
+                    <SessionSummary
+                      key={ session.session_id }
+                      session={ session }
+                      onViewSession={ onViewSession }
+                    />
                   )
                 })
               }
-            </Grid>
+              {
+                data.global_scheduling_decisions.length > 0 && (
+                  <Typography variant="h6">Global Scheduling</Typography>
+                )
+              }
+              {
+                data.global_scheduling_decisions.map((decision, i) => {
+                  return (
+                    <SchedulingDecisionSummary
+                      key={ i }
+                      decision={ decision }
+                      onViewSession={ onViewSession }
+                    />
+                  )
+                })
+              }
+            </Box>
+            <Box
+              sx={{
+                flexGrow: 1,
+                p: 2,
+                height: '100%',
+                width: '100%',
+                overflowY: 'auto',
+              }}
+            >
+              <Grid
+                container
+                spacing={ 2 }
+                sx={{
+                  width: '100%',
+                }}
+              >
+                {
+                  data.runners.map((runner) => {
+                    return (
+                      <Grid item key={ runner.id } sm={ 12 } md={ 6 }>
+                        <RunnerSummary
+                          runner={ runner }
+                          onViewSession={ onViewSession }
+                        />
+                      </Grid>
+                    )
+                  })
+                }
+              </Grid>
+            </Box>
           </Box>
+          
+          <Box
+            sx={{
+              width: '100%',
+              mt: 4,
+            }}
+          >
+            <LLMCallsTable />
+          </Box>
+          
           {
             viewingSession && (
               <Window
