@@ -73,7 +73,6 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		OwnerID:       user.ID,
 		SessionID:     "n/a",
 		InteractionID: "n/a",
-		Step:          types.LLMCallStepDefault,
 	})
 
 	options := &controller.ChatCompletionOptions{
