@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -27,12 +29,13 @@ type ChatCompletionOptions struct {
 
 // ChatCompletion is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the response.
-// Returns the updated request because the controller mutates it when doing e.g. tools calls and RAG
-func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, *openai.ChatCompletionRequest, error) {
+func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, error) {
+	start := time.Now()
+
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
-		return nil, nil, err
+		return nil, err
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -40,11 +43,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		// if yes, execute the tools and return the response
 		toolResp, ok, err := c.evaluateToolUsage(ctx, user, req, opts)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tool execution failed: %w", err)
+			return nil, fmt.Errorf("tool execution failed: %w", err)
 		}
 
 		if ok {
-			return toolResp, &req, nil
+			c.logToDatabase(ctx, user, req, toolResp, start)
+			return toolResp, nil
 		}
 	}
 
@@ -60,27 +64,54 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
-		return nil, nil, err
+		return nil, err
 	}
 
-	return &resp, &req, nil
+	c.logToDatabase(ctx, user, req, &resp, start)
+	return &resp, nil
+}
+
+func (c *Controller) logToDatabase(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, start time.Time) {
+	// log LLM call to database (TODO: maybe refactor wrt StreamLogger)
+	reqJSON, _ := json.Marshal(req)
+	respJSON, _ := json.Marshal(resp)
+	llmCall := &types.LLMCall{
+		UserID:           user.ID,
+		SessionID:        "", // TODO
+		InteractionID:    "", // TODO
+		Model:            req.Model,
+		Step:             types.LLMCallStepRawBlocking,
+		Request:          reqJSON,
+		Response:         respJSON, // TODO include details from stream here too
+		DurationMs:       time.Since(start).Milliseconds(),
+		PromptTokens:     int64(0), // TODO
+		CompletionTokens: int64(0), // TODO
+		TotalTokens:      int64(0), // TODO
+	}
+	ctx, cancel := context.WithTimeout(ctx, logCallTimeout)
+	defer cancel()
+
+	_, err := c.Options.Store.CreateLLMCall(ctx, llmCall)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to log LLM call")
+	}
 }
 
 // ChatCompletionStream is used by the OpenAI compatible API. Doesn't handle any historical sessions, etc.
 // Runs the OpenAI with tools/app configuration and returns the stream.
-func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, *openai.ChatCompletionRequest, error) {
+func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*StreamLogger, error) {
 	req.Stream = true
 
 	assistant, err := c.loadAssistant(ctx, user, opts)
 	if err != nil {
 		log.Info().Msg("no assistant found")
-		return nil, nil, err
+		return nil, err
 	}
 
 	if len(assistant.Tools) > 0 {
@@ -88,11 +119,14 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		// if yes, execute the tools and return the response
 		toolRespStream, ok, err := c.evaluateToolUsageStream(ctx, user, req, opts)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load tools: %w", err)
+			return nil, fmt.Errorf("failed to load tools: %w", err)
 		}
 
 		if ok {
-			return toolRespStream, &req, nil
+			// Create a proxy stream that logs the actual real life request and response
+			// to the database
+			proxyStream := NewStreamLogger(c, c.Options.Store, &req, toolRespStream)
+			return proxyStream, nil
 		}
 	}
 
@@ -109,16 +143,20 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 	// Check for knowledge
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
+		return nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
 	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion stream")
-		return nil, nil, err
+		return nil, err
 	}
 
-	return stream, &req, nil
+	// Create a proxy stream that logs the actual real life request and response
+	// to the database
+	proxyStream := NewStreamLogger(c, c.Options.Store, &req, stream)
+
+	return proxyStream, nil
 }
 
 func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
