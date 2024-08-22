@@ -257,7 +257,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		controllerOpenAIClient = helixInference
 	}
 
-	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, store)
+	logStores := []logger.LogStore{
+		store,
+		// TODO: bigquery
+	}
+
+	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
 	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
 
