@@ -671,3 +671,19 @@ func (mr *MockStoreMockRecorder) UpdateUserMeta(ctx, UserMeta interface{}) *gomo
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserMeta", reflect.TypeOf((*MockStore)(nil).UpdateUserMeta), ctx, UserMeta)
 }
+
+// ListLLMCalls mocks base method.
+func (m *MockStore) ListLLMCalls(ctx context.Context, page, pageSize int) ([]*types.LLMCall, int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLLMCalls", ctx, page, pageSize)
+	ret0, _ := ret[0].([]*types.LLMCall)
+	ret1, _ := ret[1].(int64)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ListLLMCalls indicates an expected call of ListLLMCalls.
+func (mr *MockStoreMockRecorder) ListLLMCalls(ctx, page, pageSize interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLLMCalls", reflect.TypeOf((*MockStore)(nil).ListLLMCalls), ctx, page, pageSize)
+}

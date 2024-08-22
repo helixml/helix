@@ -7,7 +7,7 @@ RUN go mod download
 
 ### API Development ###
 #----------------------
-FROM api-base as api-dev-env
+FROM api-base AS api-dev-env
 # - Air provides hot reload for Go
 RUN go install github.com/air-verse/air@v1.52.3
 # - Copy the files and run a build to make startup faster
@@ -24,12 +24,12 @@ CMD ["serve"]
 #-----------------------
 FROM api-base AS api-build-env
 # Following git lines required for buildvcs to work
-RUN apk add --no-cache git 
-COPY .git /app/.git  
+RUN apk add --no-cache git
+COPY .git /app/.git
 COPY api /app/api
 WORKDIR /app/api
 # - main.version is a variable required by Sentry and is set in .drone.yaml
-ARG APP_VERSION="v0.0.0+unknown" 
+ARG APP_VERSION="v0.0.0+unknown"
 RUN CGO_ENABLED=0 go build -buildvcs=true -ldflags "-s -w -X main.version=$APP_VERSION" -o /helix
 
 ### Frontend Base ###

@@ -676,3 +676,28 @@ export interface IPageBreadcrumb {
   routeName?: string,
   params?: Record<string, any>,
 }
+
+export interface LLMCall {
+  id: string;
+  created: string;
+  updated: string;
+  session_id: string;
+  interaction_id: string;
+  model: string;
+  provider: string;
+  step: string;
+  request: any;
+  response: any;
+  duration_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface PaginatedLLMCalls {
+  calls: LLMCall[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
