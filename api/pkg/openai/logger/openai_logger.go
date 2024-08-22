@@ -205,7 +205,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 
 	step, ok := oai.GetStep(ctx)
 	if !ok {
-		log.Error().Msg("failed to get step")
+		log.Warn().Msg("failed to get step")
 		step = &oai.Step{}
 	}
 
@@ -222,6 +222,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		PromptTokens:     int64(resp.Usage.PromptTokens),
 		CompletionTokens: int64(resp.Usage.CompletionTokens),
 		TotalTokens:      int64(resp.Usage.TotalTokens),
+		UserID:           vals.OwnerID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), logCallTimeout)
 	defer cancel()

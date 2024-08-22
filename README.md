@@ -1,5 +1,4 @@
 <div align="center">
-
 <img alt="logo" src="https://tryhelix.ai/assets/img/CDfWIfha3--900.webp" width="250px">
 
 <br/>
