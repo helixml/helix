@@ -124,10 +124,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		OwnerID:       "system",
 		SessionID:     sessionID,
 		InteractionID: interactionID,
-		Step:          types.LLMCallStepPrepareAPIRequest,
 	})
 
-	// start := time.Now()
+	ctx = oai.SetStep(ctx, &oai.Step{
+		Step: types.LLMCallStepPrepareAPIRequest,
+	})
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -137,12 +138,6 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response from inference API")
 	}
-
-	// c.wg.Add(1)
-	// go func() {
-	// 	defer c.wg.Done()
-	// 	c.logLLMCall(sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
-	// }()
 
 	answer := resp.Choices[0].Message.Content
 
