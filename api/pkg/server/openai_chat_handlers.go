@@ -70,9 +70,10 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	chatCompletionRequest.Model = modelName.String()
 
 	ctx := oai.SetContextValues(r.Context(), &oai.ContextValues{
-		OwnerID:       user.ID,
-		SessionID:     "n/a",
-		InteractionID: "n/a",
+		OwnerID:         user.ID,
+		SessionID:       "n/a",
+		InteractionID:   "n/a",
+		OriginalRequest: body,
 	})
 
 	options := &controller.ChatCompletionOptions{

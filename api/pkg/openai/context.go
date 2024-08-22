@@ -16,9 +16,10 @@ type Step struct {
 }
 
 type ContextValues struct {
-	OwnerID       string
-	SessionID     string
-	InteractionID string
+	OwnerID         string
+	SessionID       string
+	InteractionID   string
+	OriginalRequest []byte
 }
 
 func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {
