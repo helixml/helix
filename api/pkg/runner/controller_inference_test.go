@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/freeport"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/puzpuzpuz/xsync/v3"
@@ -87,7 +90,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	defer func() { freePortFinder = curPortFinder }()
 
 	// Mock command to override the ollama command
-	cmd := exec.Command("echo", "ok")
+	cmd := exec.Command("sleep", "999999")
 
 	// Create a mock commander
 	mockCommander := NewMockCommander(ctrl)
@@ -105,6 +108,8 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	freePortFinder = mockFreePortFinder
 
 	// Add the runner options
+	modelName := types.Model_Ollama_Llama3_8b
+
 	ctx := context.Background()
 	runner := &Runner{
 		Ctx: context.Background(),
@@ -113,13 +118,22 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 			ApiHost:     "http://localhost",
 			ApiToken:    "test-token",
 			MemoryBytes: 1024,
+			Config: &config.RunnerConfig{
+				Runtimes: config.Runtimes{
+					Ollama: config.OllamaRuntimeConfig{
+						Enabled:      true,
+						WarmupModels: []string{string(modelName)},
+						InstanceTTL:  1 * time.Millisecond,
+					},
+				},
+			},
 		},
 		activeModelInstances: xsync.NewMapOf[string, ModelInstance](),
 	}
 
 	request := &types.RunnerLLMInferenceRequest{
 		Request: &openai.ChatCompletionRequest{
-			Model: string(types.Model_Ollama_Llama3_8b),
+			Model: string(modelName),
 		},
 	}
 
@@ -169,4 +183,32 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	if !found {
 		t.Fatalf("expected model instance to be stored, but it was not")
 	}
+
+	// Wait while the model instance is in use
+	var stale = false
+	for !stale {
+		runner.activeModelInstances.Range(func(key string, value ModelInstance) bool {
+			stale = value.Stale()
+			return false
+		})
+	}
+
+	var pidStatusCode string
+	pidStatusCode, _ = getPidStatus(cmd.Process.Pid)
+	assert.Contains(t, pidStatusCode, "S")
+
+	// We've set the model instance to be stale after 1ms, so it should kill
+	aiModel, err := model.GetModel(modelName)
+	assert.NoError(t, err)
+	err = runner.checkForStaleModelInstances(ctx, aiModel, types.SessionModeInference)
+	assert.NoError(t, err)
+
+	for {
+		pidStatusCode, _ = getPidStatus(cmd.Process.Pid)
+		if pidStatusCode == "" {
+			break
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	assert.Equal(t, pidStatusCode, "")
 }

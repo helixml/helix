@@ -100,6 +100,14 @@ func killProcessTree(pid int) error {
 	}
 }
 
+func getPidStatus(pid int) (string, error) {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "state=").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("error calling ps -p %d: %s, %s", pid, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 //go:generate mockgen -source $GOFILE -destination utils_mocks.go -package $GOPACKAGE
 type FreePortFinder interface {
 	GetFreePort() (int, error)
