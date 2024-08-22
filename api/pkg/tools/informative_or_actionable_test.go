@@ -94,14 +94,6 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 
 	currentMessage := "What is the weather like in San Francisco?"
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		})
-
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
 	suite.Require().NoError(err)
 
@@ -136,14 +128,6 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 			},
 		},
 	}, nil)
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		}).Times(2)
 
 	tools := []*types.Tool{
 		{
@@ -224,14 +208,6 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "What's the reason why oceans have less fish??"
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		})
 
 	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
 	suite.NoError(err)

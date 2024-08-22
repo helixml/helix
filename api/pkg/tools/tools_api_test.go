@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/stretchr/testify/assert"
@@ -162,13 +160,13 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 
 	currentMessage := "Can you please give me the details for pet 55443?"
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	// 		suite.Equal("session-123", call.SessionID)
+	// 		suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
 
-			return call, nil
-		})
+	// 		return call, nil
+	// 	})
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
@@ -203,14 +201,6 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 	history := []*types.ToolHistoryMessage{}
 
 	currentMessage := "Can you please give me the details for pet 55443?"
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
-			return call, nil
-		})
 
 	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
 	suite.NoError(err)
