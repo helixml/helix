@@ -3,6 +3,9 @@ package logger
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -26,12 +30,13 @@ var _ oai.Client = &LoggingMiddleware{}
 
 type LoggingMiddleware struct {
 	cfg      *config.ServerConfig
+	client   oai.Client
 	logStore LogStore
-	client   *openai.Client
 	wg       sync.WaitGroup
 }
 
-func New(cfg *config.ServerConfig, logStore LogStore, client *openai.Client) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, logStore LogStore, client oai.Client) *LoggingMiddleware {
+
 	return &LoggingMiddleware{
 		cfg:      cfg,
 		logStore: logStore,
@@ -57,7 +62,71 @@ func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request op
 }
 
 func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, request openai.ChatCompletionRequest) (*openai.ChatCompletionStream, error) {
-	return m.client.CreateChatCompletionStream(ctx, request)
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		// Not set, use empty values
+		vals = &oai.ContextValues{}
+	}
+
+	upstream, err := m.client.CreateChatCompletionStream(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	downstream, downstreamWriter, err := transport.NewOpenAIStreamingAdapter(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create streaming adapter: %w", err)
+	}
+
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		// Once done, close the writer
+		defer downstreamWriter.Close()
+
+		var streamingErr error
+
+		// Read from the upstream stream and write to the downstream stream
+		for {
+			msg, err := upstream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Error().Err(err).Msg("failed to receive message from upstream stream")
+				streamingErr = err
+				break
+			}
+
+			bts, err := json.Marshal(msg)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to marshal message")
+				streamingErr = err
+				break
+			}
+
+			writeChunk(downstreamWriter, bts)
+		}
+
+		// Once the stream is done, close the downstream writer
+
+	}()
+
+	return downstream, nil
+}
+
+func writeChunk(w io.Writer, chunk []byte) error {
+	_, err := fmt.Fprintf(w, "data: %s\n\n", string(chunk))
+	if err != nil {
+		return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
+	}
+
+	// Flush the ResponseWriter buffer to send the chunk immediately
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+
+	return nil
 }
 
 func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
