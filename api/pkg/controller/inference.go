@@ -130,7 +130,10 @@ func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error 
 }
 
 func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionResponse, bool, error) {
-	_, sessionID, interactionID := oai.GetContextValues(ctx)
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
+	}
 
 	selectedTool, isActionable, ok, err := c.selectAndConfigureTool(ctx, user, req, opts)
 	if err != nil {
@@ -144,7 +147,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	lastMessage := getLastMessage(req)
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, sessionID, interactionID, selectedTool, history, lastMessage, isActionable.Api)
+	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.Api)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
@@ -161,7 +164,10 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 }
 
 func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, opts *ChatCompletionOptions) (*openai.ChatCompletionStream, bool, error) {
-	_, sessionID, interactionID := oai.GetContextValues(ctx)
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
+	}
 
 	selectedTool, isActionable, ok, err := c.selectAndConfigureTool(ctx, user, req, opts)
 	if err != nil {
@@ -175,7 +181,7 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 	lastMessage := getLastMessage(req)
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	stream, err := c.ToolsPlanner.RunActionStream(ctx, sessionID, interactionID, selectedTool, history, lastMessage, isActionable.Api)
+	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.Api)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
@@ -211,9 +217,12 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	_, sessionID, interactionID := oai.GetContextValues(ctx)
+	vals, ok := oai.GetContextValues(ctx)
+	if !ok {
+		vals = &oai.ContextValues{}
+	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, sessionID, interactionID, assistant.Tools, history, lastMessage, options...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, lastMessage, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
 		return nil, nil, false, fmt.Errorf("failed to evaluate if the message is actionable: %w", err)
