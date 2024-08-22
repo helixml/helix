@@ -168,7 +168,6 @@ func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, session
 			Str("interaction_id", interactionID).
 			Dur("duration", time.Since(started)).
 			Msg("LLM call")
-		// This gets logged in StreamLogger now as a raw message...
 		// c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 
@@ -213,7 +212,6 @@ func (c *ChainStrategy) handleErrorResponseStream(ctx context.Context, sessionID
 			Str("interaction_id", interactionID).
 			Dur("duration", time.Since(started)).
 			Msg("LLM call")
-		// This gets logged in StreamLogger now as a raw message...
 		// c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
 	}()
 

@@ -98,7 +98,7 @@ func (suite *ControllerSuite) Test_BasicInference() {
 		},
 	}, nil)
 
-	resp, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{})
 	suite.NoError(err)
 	suite.Equal(&openai.ChatCompletionResponse{
 		Choices: []openai.ChatCompletionChoice{
@@ -168,7 +168,7 @@ func (suite *ControllerSuite) Test_BasicInferenceWithKnowledge() {
 		},
 	}, nil)
 
-	resp, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
+	resp, _, err := suite.controller.ChatCompletion(suite.ctx, suite.user, req, &ChatCompletionOptions{
 		AppID:       "app_id",
 		AssistantID: "0",
 	})
