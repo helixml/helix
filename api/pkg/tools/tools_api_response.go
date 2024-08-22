@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
@@ -48,18 +49,25 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 		Messages: messages,
 	}
 
-	started := time.Now()
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       "system",
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          types.LLMCallStepInterpretResponse,
+	})
+
+	// started := time.Now()
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
-	}()
+	// c.wg.Add(1)
+	// go func() {
+	// 	defer c.wg.Done()
+	// 	c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+	// }()
 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response from inference API")
@@ -94,18 +102,25 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 		Messages: messages,
 	}
 
-	started := time.Now()
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       "system",
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          types.LLMCallStepInterpretResponse,
+	})
+
+	// started := time.Now()
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
-	}()
+	// c.wg.Add(1)
+	// go func() {
+	// 	defer c.wg.Done()
+	// 	c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
+	// }()
 
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response from inference API")

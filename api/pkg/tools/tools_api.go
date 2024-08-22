@@ -7,9 +7,9 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
@@ -120,7 +120,14 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		Messages: messages,
 	}
 
-	start := time.Now()
+	ctx = oai.SetContextValues(ctx, &oai.ContextValues{
+		OwnerID:       "system",
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          types.LLMCallStepPrepareAPIRequest,
+	})
+
+	// start := time.Now()
 
 	resp, err := c.apiClient.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -131,11 +138,11 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		return nil, fmt.Errorf("no response from inference API")
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		c.logLLMCall(sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
-	}()
+	// c.wg.Add(1)
+	// go func() {
+	// 	defer c.wg.Done()
+	// 	c.logLLMCall(sessionID, interactionID, types.LLMCallStepPrepareAPIRequest, &req, &resp, time.Since(start).Milliseconds())
+	// }()
 
 	answer := resp.Choices[0].Message.Content
 
