@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -35,7 +34,8 @@ type InferenceModelInstanceConfig struct {
 }
 
 var (
-	_ ModelInstance = &OllamaInferenceModelInstance{}
+	ollamaCommander Commander     = &RealCommander{}
+	_               ModelInstance = &OllamaInferenceModelInstance{}
 )
 
 func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelInstanceConfig, request *types.RunnerLLMInferenceRequest) (*OllamaInferenceModelInstance, error) {
@@ -61,6 +61,8 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		runnerOptions:   cfg.RunnerOptions,
 		jobHistory:      []*types.SessionSummary{},
 		lastActivity:    time.Now(),
+		commander:       ollamaCommander,
+		freePortFinder:  freePortFinder,
 	}
 
 	// Enqueue the first request
@@ -118,6 +120,12 @@ type OllamaInferenceModelInstance struct {
 
 	// a history of the session IDs
 	jobHistory []*types.SessionSummary
+
+	// Interface to run commands
+	commander Commander
+
+	// Interface to find free ports
+	freePortFinder FreePortFinder
 }
 
 // Warmup starts Ollama server and pulls the models
@@ -246,13 +254,13 @@ func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
 }
 
 func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) error {
-	ollamaPath, err := exec.LookPath("ollama")
+	ollamaPath, err := i.commander.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
 	}
 
 	// Get random free port
-	port, err := freeport.GetFreePort()
+	port, err := i.freePortFinder.GetFreePort()
 	if err != nil {
 		return fmt.Errorf("error getting free port: %s", err.Error())
 	}
@@ -262,7 +270,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) er
 
 	i.client = openai.NewClientWithConfig(config)
 
-	cmd := exec.CommandContext(i.ctx, ollamaPath, "serve")
+	cmd := i.commander.CommandContext(i.ctx, ollamaPath, "serve")
 	// Getting base env (HOME, etc)
 	cmd.Env = append(cmd.Env,
 		os.Environ()...,

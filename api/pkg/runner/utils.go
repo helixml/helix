@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/helixml/helix/api/pkg/freeport"
 )
 
 func getChildPids(pid int) ([]int, error) {
@@ -97,3 +99,16 @@ func killProcessTree(pid int) error {
 		}
 	}
 }
+
+//go:generate mockgen -source $GOFILE -destination utils_mocks.go -package $GOPACKAGE
+type FreePortFinder interface {
+	GetFreePort() (int, error)
+}
+
+type RealFreePortFinder struct{}
+
+func (f *RealFreePortFinder) GetFreePort() (int, error) {
+	return freeport.GetFreePort()
+}
+
+var freePortFinder FreePortFinder = &RealFreePortFinder{}
