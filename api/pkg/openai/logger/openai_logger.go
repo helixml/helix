@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -37,7 +38,6 @@ type LoggingMiddleware struct {
 }
 
 func Wrap(cfg *config.ServerConfig, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
-
 	return &LoggingMiddleware{
 		cfg:       cfg,
 		logStores: logStores,
@@ -82,11 +82,11 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 
 	m.wg.Add(1)
 	go func() {
-		// defer func() {
-		// 	if r := recover(); r != nil {
-		// 		log.Error().Msgf("Recovered from panic: %v", r)
-		// 	}
-		// }()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().Msgf("Recovered from panic: %v\n%s", r, debug.Stack())
+			}
+		}()
 
 		defer m.wg.Done()
 		// Once done, close the writer
@@ -203,11 +203,17 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		vals = &oai.ContextValues{}
 	}
 
+	step, ok := oai.GetStep(ctx)
+	if !ok {
+		log.Error().Msg("failed to get step")
+		step = &oai.Step{}
+	}
+
 	llmCall := &types.LLMCall{
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
 		Model:            req.Model,
-		Step:             vals.Step,
+		Step:             step.Step,
 		Request:          reqBts,
 		Response:         respBts,
 		Provider:         string(m.cfg.Inference.Provider),
