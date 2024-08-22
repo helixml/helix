@@ -53,6 +53,33 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.AssistantID = assistantID
 	}
 
+	// if the app specifies a model, override startReq.Model so that we display
+	// the correct model in the UI (and some things may rely on it)
+	if startReq.AppID != "" {
+		// load the app
+		app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
+			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If an AssistantID is specified, get the correct assistant from the app
+		if startReq.AssistantID != "" {
+			var assistant *types.AssistantConfig
+			assistantID := startReq.AssistantID
+			if assistantID == "" {
+				assistantID = "0"
+			}
+			assistant = data.GetAssistant(app, assistantID)
+
+			// Update the model if the assistant has one
+			if assistant.Model != "" {
+				startReq.Model = assistant.Model
+			}
+		}
+	}
+
 	if len(startReq.Messages) == 0 {
 		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
 		return
