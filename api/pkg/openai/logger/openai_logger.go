@@ -214,6 +214,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		InteractionID:    vals.InteractionID,
 		Model:            req.Model,
 		Step:             step.Step,
+		OriginalRequest:  vals.OriginalRequest,
 		Request:          reqBts,
 		Response:         respBts,
 		Provider:         string(m.cfg.Inference.Provider),
