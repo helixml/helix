@@ -360,7 +360,6 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no Ollama process to stop")
 	}
-	i.cancel()
 
 	log.Info().Msgf("🟢 stop Ollama model instance tree")
 	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
@@ -369,6 +368,12 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	}
 	log.Info().Msgf("🟢 stopped Ollama instance")
 	close(i.workCh)
+	// It is very important that we cancel the context only after we've
+	// gracefully shut down the child processes in killProcessTree() above.
+	// Otherwise we will leave child processes of ollama using GPU memory
+	// forever, not discoverable via parent pid thereby permanently making this
+	// runner mysteriously terribly slow.
+	i.cancel()
 
 	return nil
 }
