@@ -2,7 +2,7 @@ import { check } from 'k6';
 import http from 'k6/http';
 
 export default function () {
-  const url = 'http://localhost/api/v1/apps/script';
+  const url = 'http://localhost:8080/api/v1/apps/script';
   const payload = JSON.stringify({
     file_path: '/scripts/hello.gpt',
     input: 'run this python',
@@ -11,7 +11,7 @@ export default function () {
   const params = {
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + __ENV.HELIX_TOKEN,
+      'Authorization': 'Bearer ' + __ENV.HELIX_API_KEY,
     },
   };
 

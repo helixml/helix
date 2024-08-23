@@ -15,9 +15,9 @@ export default function () {
   };
 
   let res = http.post("http://localhost:8080/v1/chat/completions", JSON.stringify(data), {
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer hl-0-B1syFafXf0faEAjXGv1iaqAnSCdmCD3Z4BeN_a6xI=',
+      'Authorization': 'Bearer ' + __ENV.HELIX_API_KEY,
     },
   });
 
