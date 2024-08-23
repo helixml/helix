@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -10,112 +11,126 @@ import (
 
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/rs/zerolog/log"
-	"github.com/shirou/gopsutil/process"
 )
 
-func getChildPids(pid int) ([]int, error) {
-	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).CombinedOutput()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Command exited with non-zero exit code
-			exitCode := exitErr.ExitCode()
-			// Handle the exit code as needed
-			if exitCode == 1 {
-				// this CAN mean pgrep just found no matches, this just means no children
-				return []int{}, nil
-			} else {
-				return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
-			}
-		} else {
-			return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
-		}
-	}
-
-	var pids []int
-	for _, pidStr := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if pidStr != "" {
-			pid, _ := strconv.Atoi(pidStr)
-			pids = append(pids, pid)
-		}
-	}
-	return pids, nil
-}
-
-func getAllDescendants(pid int) ([]int, error) {
-	var descendants []int
-	children, err := getChildPids(pid)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, child := range children {
-		descendants = append(descendants, child)
-		grandchildren, err := getAllDescendants(child)
-		if err != nil {
-			return nil, err
-		}
-		descendants = append(descendants, grandchildren...)
-	}
-
-	return descendants, nil
-}
-
 func killProcessTree(pid int) error {
-	descendants, err := getAllDescendants(pid)
+	log.Debug().Int("pid", pid).Msg("Entering killProcessTree function")
+
+	// Send ctrl+c equivalent signal, which hopefully makes the process clean up
+	// all its children
+	log.Debug().Int("pid", pid).Msg("Sending SIGINT to process")
+	err := syscall.Kill(pid, syscall.SIGINT)
 	if err != nil {
-		return err
+		log.Error().Err(err).Int("pid", pid).Msg("Failed to send SIGINT to process")
+		return fmt.Errorf("failed to send SIGINT to process %d: %w", pid, err)
 	}
+	log.Debug().Int("pid", pid).Msg("Successfully sent SIGINT to process")
 
-	// Add the original PID to the list
-	allPids := append(descendants, pid)
-	log.Debug().Msgf("killing process tree with PIDs: %v", allPids)
-
-	// First, try to terminate gracefully
-	for _, p := range allPids {
-		syscall.Kill(p, syscall.SIGTERM)
-	}
-
-	// Wait for processes to exit, or force kill after timeout
-	timeout := time.After(5 * time.Second)
+	// Wait for the process and its descendants to exit, or timeout after 30 seconds
+	log.Debug().Int("pid", pid).Msg("Starting wait loop for process and descendants")
+	panicTimeout := time.After(30 * time.Second)
+	sigkillTimeout := time.After(10 * time.Second)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-timeout:
-			log.Warn().Msgf("having to force kill process tree for PIDs: %v", allPids)
-			// Force kill any remaining processes
-			for _, p := range allPids {
-				syscall.Kill(p, syscall.SIGKILL)
+		case <-panicTimeout:
+			log.Warn().Int("pid", pid).Msg("Timed out waiting for process and descendants to exit")
+			panic(fmt.Sprintf(
+				"Timed out waiting for process %d and its descendants to exit. "+
+					"No idea if we have freed GPU memory at this point, "+
+					"so exiting and hoping we get restarted",
+				pid))
+		case <-sigkillTimeout:
+			log.Warn().Int("pid", pid).Msg("10 seconds passed, sending SIGKILL to process and descendants")
+			descendants, _ := getDescendantPIDs(pid)
+			for _, descendantPID := range descendants {
+				log.Debug().Int("descendant_pid", descendantPID).Msg("Sending SIGKILL to descendant")
+				_ = syscall.Kill(descendantPID, syscall.SIGKILL)
 			}
-			return nil
+			log.Debug().Int("pid", pid).Msg("Sending SIGKILL to main process")
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			// Continue waiting for processes to exit
 		case <-ticker.C:
-			allExited := true
-			for _, p := range allPids {
-				if err := syscall.Kill(p, 0); err == nil {
-					allExited = false
-					break
-				}
-			}
-			if allExited {
+			log.Debug().Int("pid", pid).Msg("Checking if process and descendants still exist")
+			// Check if the process and its descendants still exist
+			descendants, err := getDescendantPIDs(pid)
+			if err != nil {
+				log.Debug().Err(err).Int("pid", pid).Msg("Failed to get descendants, assuming process has exited")
+				// If we can't get descendants, assume the process has exited
 				return nil
 			}
+			log.Debug().Int("pid", pid).Str("descendants", fmt.Sprintf("%v", descendants)).Msg("Found descendants")
+
+			if len(descendants) == 0 {
+				log.Info().Int("pid", pid).Msg("All processes have exited")
+				// All processes have exited
+				return nil
+			}
+			log.Debug().Int("pid", pid).Msg("Some processes are still running, continuing to wait")
 		}
 	}
 }
 
-func getPidStatus(pid int) (string, error) {
-	p, err := process.NewProcess(int32(pid))
+func getDescendantPIDs(pid int) ([]int, error) {
+	log.Debug().Int("pid", pid).Msg("Entering getDescendantPIDs function")
+
+	cmd := exec.Command("pgrep", "-P", strconv.Itoa(pid))
+	log.Debug().Int("pid", pid).Str("command", cmd.String()).Msg("Executing pgrep command")
+	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		// Check if the error is due to no matching processes (exit status 1)
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			log.Debug().Int("pid", pid).Msg("No child processes found")
+			return []int{}, nil
+		}
+		log.Error().Err(err).Int("pid", pid).Msg("Failed to execute pgrep command")
+		return nil, err
 	}
 
-	stat, err := p.Status()
-	if err != nil {
-		return "", err
+	var pids []int
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		childPID, err := strconv.Atoi(line)
+		if err != nil {
+			log.Warn().Err(err).Str("line", line).Msg("Failed to convert PID to integer, skipping")
+			continue
+		}
+		pids = append(pids, childPID)
+		log.Debug().Int("child_pid", childPID).Msg("Found child process")
+
+		// Recursively get descendants of this child
+		descendants, err := getDescendantPIDs(childPID)
+		if err == nil {
+			pids = append(pids, descendants...)
+			log.Debug().Int("child_pid", childPID).Int("descendant_count", len(descendants)).Msg("Found descendants for child process")
+		} else {
+			log.Warn().Err(err).Int("child_pid", childPID).Msg("Failed to get descendants for child process")
+		}
 	}
 
-	return stat, nil
+	// Check if the original process still exists
+	log.Debug().Int("pid", pid).Msg("Checking if original process still exists")
+	process, err := os.FindProcess(pid)
+	if err == nil {
+		// On Unix, FindProcess always succeeds, so we need to send signal 0 to test existence
+		err = process.Signal(syscall.Signal(0))
+		if err == nil {
+			pids = append(pids, pid)
+			log.Debug().Int("pid", pid).Msg("Original process still exists")
+		} else {
+			log.Debug().Int("pid", pid).Msg("Original process no longer exists")
+		}
+	} else {
+		log.Debug().Int("pid", pid).Msg("Failed to find process")
+	}
+
+	log.Debug().Int("pid", pid).Int("total_pids", len(pids)).Msg("Exiting getDescendantPIDs function")
+	return pids, nil
 }
 
 //go:generate mockgen -source $GOFILE -destination utils_mocks.go -package $GOPACKAGE
@@ -126,7 +141,14 @@ type FreePortFinder interface {
 type RealFreePortFinder struct{}
 
 func (f *RealFreePortFinder) GetFreePort() (int, error) {
-	return freeport.GetFreePort()
+	log.Debug().Msg("Getting free port")
+	port, err := freeport.GetFreePort()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get free port")
+	} else {
+		log.Debug().Int("port", port).Msg("Successfully got free port")
+	}
+	return port, err
 }
 
 var freePortFinder FreePortFinder = &RealFreePortFinder{}
