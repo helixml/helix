@@ -44,16 +44,29 @@ func killProcessTree(pid int) error {
 
 	// First kill all the children
 	for _, p := range descendants {
-		err := p.Terminate()
+		running, err := p.IsRunning()
 		if err != nil {
-			log.Error().Err(err).Msgf("failed to terminate process %d", p.Pid)
+			log.Error().Err(err).Msgf("failed to check if process %d is running", p.Pid)
+			continue
+		}
+		if running {
+			err := p.Terminate()
+			if err != nil {
+				log.Error().Err(err).Msgf("failed to terminate process %d", p.Pid)
+			}
 		}
 	}
 
 	// Then terminate the parent
-	err = parent.Terminate()
+	running, err := parent.IsRunning()
 	if err != nil {
-		log.Error().Err(err).Msgf("failed to terminate process %d", pid)
+		log.Error().Err(err).Msgf("failed to check if process %d is running", p.Pid)
+	}
+	if running {
+		err := parent.Terminate()
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to terminate process %d", p.Pid)
+		}
 	}
 
 	// Wait for processes to exit, or force kill after timeout
