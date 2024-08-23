@@ -1,11 +1,6 @@
 package runner
 
 import (
-	"fmt"
-	"os/exec"
-	"strconv"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
@@ -13,37 +8,9 @@ import (
 	"github.com/shirou/gopsutil/process"
 )
 
-func getChildPids(pid int) ([]int, error) {
-	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).CombinedOutput()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Command exited with non-zero exit code
-			exitCode := exitErr.ExitCode()
-			// Handle the exit code as needed
-			if exitCode == 1 {
-				// this CAN mean pgrep just found no matches, this just means no children
-				return []int{}, nil
-			} else {
-				return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
-			}
-		} else {
-			return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
-		}
-	}
-
-	var pids []int
-	for _, pidStr := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if pidStr != "" {
-			pid, _ := strconv.Atoi(pidStr)
-			pids = append(pids, pid)
-		}
-	}
-	return pids, nil
-}
-
-func getAllDescendants(pid int) ([]int, error) {
-	var descendants []int
-	children, err := getChildPids(pid)
+func getAllDescendants(p *process.Process) ([]*process.Process, error) {
+	var descendants []*process.Process
+	children, err := p.Children()
 	if err != nil {
 		return nil, err
 	}
@@ -61,18 +28,28 @@ func getAllDescendants(pid int) ([]int, error) {
 }
 
 func killProcessTree(pid int) error {
-	descendants, err := getAllDescendants(pid)
+	parent, err := process.NewProcess(int32(pid))
 	if err != nil {
 		return err
 	}
 
-	// Add the original PID to the list
-	allPids := append(descendants, pid)
-	log.Debug().Msgf("killing process tree with PIDs: %v", allPids)
+	descendants, err := getAllDescendants(parent)
+	if err != nil {
+		return err
+	}
 
-	// First, try to terminate gracefully, ignore errors for now
-	for _, p := range allPids {
-		syscall.Kill(p, syscall.SIGTERM)
+	// First kill all the children
+	for _, p := range descendants {
+		err := p.Terminate()
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to terminate process %d", p.Pid)
+		}
+	}
+
+	// Then terminate the parent
+	err = parent.Terminate()
+	if err != nil {
+		log.Error().Err(err).Msgf("failed to terminate process %d", pid)
 	}
 
 	// Wait for processes to exit, or force kill after timeout
@@ -83,27 +60,41 @@ func killProcessTree(pid int) error {
 	for {
 		select {
 		case <-timeout:
-			log.Warn().Msgf("having to force kill process tree for PIDs: %v", allPids)
+			log.Warn().Msgf("having to force kill process tree for PIDs")
 			// Force kill any remaining processes
-			for _, p := range allPids {
-				err := syscall.Kill(p, syscall.SIGKILL)
+			for _, p := range descendants {
+				running, err := p.IsRunning()
 				if err != nil {
-					if err.Error() == "signal: killed" {
-						// This is fine, expected
-					} else if err.Error() == "no such process" {
-						// This is fine too, process already exited
-					} else {
-						return err
+					log.Error().Err(err).Msgf("failed to check if process %d is running", p.Pid)
+				}
+				if running {
+					err := p.Kill()
+					if err != nil {
+						log.Error().Err(err).Msgf("failed to kill process %d", p.Pid)
 					}
+				}
+			}
+			// And force kill the parent
+			running, err := parent.IsRunning()
+			if err != nil {
+				log.Error().Err(err).Msgf("failed to check if process %d is running", pid)
+			}
+			if running {
+				err = parent.Kill()
+				if err != nil {
+					log.Error().Err(err).Msgf("failed to kill process %d", pid)
 				}
 			}
 			return nil
 		case <-ticker.C:
 			allExited := true
-			for _, p := range allPids {
-				if err := syscall.Kill(p, 0); err == nil {
+			for _, p := range descendants {
+				running, err := p.IsRunning()
+				if err != nil {
+					log.Error().Err(err).Msgf("failed to check if process %d is running", p.Pid)
+				}
+				if running {
 					allExited = false
-					break
 				}
 			}
 			if allExited {
