@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 func getChildPids(pid int) ([]int, error) {
@@ -56,44 +58,95 @@ func getAllDescendants(pid int) ([]int, error) {
 	return descendants, nil
 }
 
+func logAllProcesses() {
+	cmd := exec.Command("ps", "auxwww")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to execute ps auxwwww")
+		return
+	}
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if !strings.Contains(line, "<defunct>") {
+			log.Info().Str("process", strings.TrimSpace(line)).Msg("Procs: ")
+		}
+	}
+}
+
 func killProcessTree(pid int) error {
+	log.Info().Int("pid", pid).Msg("Starting killProcessTree")
+
+	logAllProcesses()
 	descendants, err := getAllDescendants(pid)
 	if err != nil {
+		log.Error().Err(err).Int("pid", pid).Msg("Failed to get descendants")
 		return err
 	}
 
+	log.Info().Int("pid", pid).Ints("descendants", descendants).Msg("Got all descendants")
+
 	// Add the original PID to the list
 	allPids := append(descendants, pid)
+	log.Info().Ints("all_pids", allPids).Msg("All PIDs to be terminated")
 
-	// First, try to terminate gracefully
+	// First, try to terminate gracefully with SIGINT
 	for _, p := range allPids {
-		syscall.Kill(p, syscall.SIGTERM)
+		log.Info().Int("pid", p).Msg("Sending SIGINT to process")
+		err := syscall.Kill(p, syscall.SIGINT)
+		if err != nil {
+			log.Warn().Err(err).Int("pid", p).Msg("Failed to send SIGINT")
+		}
+		time.Sleep(10 * time.Second)
 	}
 
-	// Wait for processes to exit, or force kill after timeout
-	timeout := time.After(5 * time.Second)
+	// Wait for processes to exit, or send SIGTERM after 10 seconds
+	sigintTimeout := time.After(10 * time.Second)
+	sigtermTimeout := time.After(40 * time.Second) // 10 seconds for SIGINT + 30 seconds for SIGTERM
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-timeout:
-			// Force kill any remaining processes
-			for _, p := range allPids {
-				syscall.Kill(p, syscall.SIGKILL)
-			}
-			return nil
-		case <-ticker.C:
-			allExited := true
+		case <-sigintTimeout:
+			logAllProcesses()
+			log.Warn().Msg("SIGINT timeout reached, sending SIGTERM to remaining processes")
 			for _, p := range allPids {
 				if err := syscall.Kill(p, 0); err == nil {
-					allExited = false
-					break
+					log.Info().Int("pid", p).Msg("Sending SIGTERM to process")
+					err := syscall.Kill(p, syscall.SIGTERM)
+					if err != nil {
+						log.Warn().Err(err).Int("pid", p).Msg("Failed to send SIGTERM")
+					}
+					time.Sleep(10 * time.Second)
 				}
 			}
-			if allExited {
+		case <-sigtermTimeout:
+			logAllProcesses()
+			log.Warn().Msg("SIGTERM timeout reached, force killing remaining processes")
+			for _, p := range allPids {
+				if err := syscall.Kill(p, 0); err == nil {
+					log.Info().Int("pid", p).Msg("Sending SIGKILL to process")
+					err := syscall.Kill(p, syscall.SIGKILL)
+					if err != nil {
+						log.Warn().Err(err).Int("pid", p).Msg("Failed to send SIGKILL")
+					}
+					time.Sleep(10 * time.Second)
+				}
+			}
+			log.Info().Msg("All processes should be terminated now")
+			return nil
+		case <-ticker.C:
+			remainingPids := []int{}
+			for _, p := range allPids {
+				if err := syscall.Kill(p, 0); err == nil {
+					remainingPids = append(remainingPids, p)
+				}
+			}
+			if len(remainingPids) == 0 {
+				log.Info().Ints("all_pids", allPids).Msg("All processes have exited")
 				return nil
 			}
+			log.Info().Ints("remaining_pids", remainingPids).Msg("Processes still running")
 		}
 	}
 }

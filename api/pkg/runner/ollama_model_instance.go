@@ -120,6 +120,7 @@ type OllamaModelInstance struct {
 }
 
 func (i *OllamaModelInstance) Start(ctx context.Context) error {
+	panic("haha, you are in OllamaModelInstance, i think you want OllamaInferenceModelInstance")
 	ollamaPath, err := exec.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
