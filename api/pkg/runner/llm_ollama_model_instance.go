@@ -317,6 +317,11 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) erro
 	go func() {
 		defer close(i.finishCh)
 		if err := cmd.Wait(); err != nil {
+			if err.Error() == "signal: killed" {
+				log.Info().Msgf("🟢 Ollama model instance stopped, signal: killed")
+				return
+			}
+
 			log.Error().Msgf("Ollama model instance exited with error: %s", err.Error())
 
 			errMsg := string(stderrBuf.Bytes())
