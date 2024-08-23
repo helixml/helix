@@ -72,7 +72,14 @@ func killProcessTree(pid int) error {
 
 	// First, try to terminate gracefully
 	for _, p := range allPids {
-		syscall.Kill(p, syscall.SIGTERM)
+		err := syscall.Kill(p, syscall.SIGTERM)
+		if err != nil {
+			if err.Error() == "signal: killed" {
+				// This is fine, expected
+			} else {
+				return err
+			}
+		}
 	}
 
 	// Wait for processes to exit, or force kill after timeout
@@ -86,7 +93,10 @@ func killProcessTree(pid int) error {
 			log.Warn().Msgf("having to force kill process tree for PIDs: %v", allPids)
 			// Force kill any remaining processes
 			for _, p := range allPids {
-				syscall.Kill(p, syscall.SIGKILL)
+				err := syscall.Kill(p, syscall.SIGKILL)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		case <-ticker.C:
