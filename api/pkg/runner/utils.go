@@ -60,12 +60,12 @@ func killProcessTree(pid int) error {
 	// Then terminate the parent
 	running, err := parent.IsRunning()
 	if err != nil {
-		log.Error().Err(err).Msgf("failed to check if process %d is running", p.Pid)
+		log.Error().Err(err).Msgf("failed to check if process %d is running", parent.Pid)
 	}
 	if running {
 		err := parent.Terminate()
 		if err != nil {
-			log.Error().Err(err).Msgf("failed to terminate process %d", p.Pid)
+			log.Error().Err(err).Msgf("failed to terminate process %d", parent.Pid)
 		}
 	}
 
