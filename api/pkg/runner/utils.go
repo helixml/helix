@@ -74,7 +74,7 @@ func killProcessTree(pid int) error {
 	for _, p := range allPids {
 		err := syscall.Kill(p, syscall.SIGTERM)
 		if err != nil {
-			if err.Error() == "signal: killed" {
+			if err.Error() == "error: signal: killed" {
 				// This is fine, expected
 			} else {
 				return err
