@@ -1,6 +1,11 @@
 package runner
 
 import (
+	"fmt"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
@@ -8,16 +13,66 @@ import (
 	"github.com/shirou/gopsutil/process"
 )
 
+func getChildPids(pid int) ([]int, error) {
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).CombinedOutput()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Command exited with non-zero exit code
+			exitCode := exitErr.ExitCode()
+			// Handle the exit code as needed
+			if exitCode == 1 {
+				// this CAN mean pgrep just found no matches, this just means no children
+				return []int{}, nil
+			} else {
+				return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
+			}
+		} else {
+			return nil, fmt.Errorf("error calling pgrep -P %d: %s, %s", pid, err, out)
+		}
+	}
+
+	var pids []int
+	for _, pidStr := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if pidStr != "" {
+			pid, _ := strconv.Atoi(pidStr)
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
+}
+
+func getAllDescendants(pid int) ([]int, error) {
+	var descendants []int
+	children, err := getChildPids(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, child := range children {
+		descendants = append(descendants, child)
+		grandchildren, err := getAllDescendants(child)
+		if err != nil {
+			return nil, err
+		}
+		descendants = append(descendants, grandchildren...)
+	}
+
+	return descendants, nil
+}
+
 func killProcessTree(pid int) error {
-	p, err := process.NewProcess(int32(pid))
+	descendants, err := getAllDescendants(pid)
 	if err != nil {
 		return err
 	}
 
+	// Add the original PID to the list
+	allPids := append(descendants, pid)
+	log.Debug().Msgf("killing process tree with PIDs: %v", allPids)
+
 	// First, try to terminate gracefully, ignore errors for now
-	err = p.Terminate()
-	if err != nil {
-		return err
+	for _, p := range allPids {
+		syscall.Kill(p, syscall.SIGTERM)
 	}
 
 	// Wait for processes to exit, or force kill after timeout
@@ -28,19 +83,30 @@ func killProcessTree(pid int) error {
 	for {
 		select {
 		case <-timeout:
-			log.Warn().Msgf("having to force kill process tree for PIDs: %v", pid)
+			log.Warn().Msgf("having to force kill process tree for PIDs: %v", allPids)
 			// Force kill any remaining processes
-			err = p.Kill()
-			if err != nil {
-				return err
+			for _, p := range allPids {
+				err := syscall.Kill(p, syscall.SIGKILL)
+				if err != nil {
+					if err.Error() == "signal: killed" {
+						// This is fine, expected
+					} else if err.Error() == "no such process" {
+						// This is fine too, process already exited
+					} else {
+						return err
+					}
+				}
 			}
 			return nil
 		case <-ticker.C:
-			isRunning, err := p.IsRunning()
-			if err != nil {
-				return err
+			allExited := true
+			for _, p := range allPids {
+				if err := syscall.Kill(p, 0); err == nil {
+					allExited = false
+					break
+				}
 			}
-			if !isRunning {
+			if allExited {
 				return nil
 			}
 		}
