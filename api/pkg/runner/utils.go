@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/rs/zerolog/log"
+	"github.com/shirou/gopsutil/process"
 )
 
 func getChildPids(pid int) ([]int, error) {
@@ -104,13 +105,17 @@ func killProcessTree(pid int) error {
 }
 
 func getPidStatus(pid int) (string, error) {
-	out, _ := exec.Command("ps", "-p", strconv.Itoa(pid)).CombinedOutput()
-	println("OUT", string(out))
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "state=").CombinedOutput()
+	p, err := process.NewProcess(int32(pid))
 	if err != nil {
-		return "", fmt.Errorf("error calling ps -p %d: %s, %s", pid, err, out)
+		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+
+	stat, err := p.Status()
+	if err != nil {
+		return "", err
+	}
+
+	return stat, nil
 }
 
 //go:generate mockgen -source $GOFILE -destination utils_mocks.go -package $GOPACKAGE
