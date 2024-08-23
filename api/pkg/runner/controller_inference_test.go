@@ -176,6 +176,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 
 	var pidStatusCode string
 	pidStatusCode, _ = getPidStatus(cmd.Process.Pid)
+	println("PID STATUS CODE", pidStatusCode)
 	assert.Contains(t, pidStatusCode, "S")
 
 	// We've set the model instance to be stale after 1ms, so it should kill
