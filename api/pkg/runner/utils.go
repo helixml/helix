@@ -104,6 +104,8 @@ func killProcessTree(pid int) error {
 }
 
 func getPidStatus(pid int) (string, error) {
+	out, _ := exec.Command("ps", "-p", strconv.Itoa(pid)).CombinedOutput()
+	println("OUT", string(out))
 	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "state=").CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("error calling ps -p %d: %s, %s", pid, err, out)
