@@ -90,6 +90,8 @@ func killProcessTree(pid int) error {
 				if err != nil {
 					if err.Error() == "error: signal: killed" {
 						// This is fine, expected
+					} else if err.Error() == "no such process" {
+						// This is fine too, process already exited
 					} else {
 						return err
 					}
