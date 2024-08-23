@@ -129,17 +129,17 @@ type OllamaInferenceModelInstance struct {
 }
 
 // Warmup starts Ollama server and pulls the models
-func (i *OllamaInferenceModelInstance) Warmup(ctx context.Context) error {
-	err := i.startOllamaServer(ctx)
+func (i *OllamaInferenceModelInstance) Warmup(_ context.Context) error {
+	err := i.startOllamaServer(i.ctx)
 	if err != nil {
 		return err
 	}
 
-	return i.warmup(ctx)
+	return i.warmup(i.ctx)
 }
 
-func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
-	err := i.startOllamaServer(ctx)
+func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
+	err := i.startOllamaServer(i.ctx)
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (i *OllamaInferenceModelInstance) fetchNextRequest() (*types.RunnerLLMInfer
 	return i.getNextRequest()
 }
 
-func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
+func (i *OllamaInferenceModelInstance) warmup(_ context.Context) error {
 	var err error
 	var wg sync.WaitGroup
 
@@ -253,7 +253,7 @@ func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
 	return nil
 }
 
-func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) error {
+func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) error {
 	ollamaPath, err := i.commander.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
