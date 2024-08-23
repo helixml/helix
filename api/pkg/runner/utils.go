@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
@@ -12,6 +13,9 @@ func getAllDescendants(p *process.Process) ([]*process.Process, error) {
 	var descendants []*process.Process
 	children, err := p.Children()
 	if err != nil {
+		if errors.Is(err, process.ErrorNoChildren) {
+			return descendants, nil
+		}
 		return nil, err
 	}
 
