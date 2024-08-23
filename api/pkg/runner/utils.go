@@ -70,16 +70,9 @@ func killProcessTree(pid int) error {
 	allPids := append(descendants, pid)
 	log.Debug().Msgf("killing process tree with PIDs: %v", allPids)
 
-	// First, try to terminate gracefully
+	// First, try to terminate gracefully, ignore errors for now
 	for _, p := range allPids {
-		err := syscall.Kill(p, syscall.SIGTERM)
-		if err != nil {
-			if err.Error() == "error: signal: killed" {
-				// This is fine, expected
-			} else {
-				return err
-			}
-		}
+		syscall.Kill(p, syscall.SIGTERM)
 	}
 
 	// Wait for processes to exit, or force kill after timeout
@@ -95,7 +88,11 @@ func killProcessTree(pid int) error {
 			for _, p := range allPids {
 				err := syscall.Kill(p, syscall.SIGKILL)
 				if err != nil {
-					return err
+					if err.Error() == "error: signal: killed" {
+						// This is fine, expected
+					} else {
+						return err
+					}
 				}
 			}
 			return nil
