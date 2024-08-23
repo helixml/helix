@@ -36,6 +36,18 @@ func killProcessTree(pid int) error {
 		return err
 	}
 
+	children, err := getAllDescendants(parent)
+	if err != nil {
+		return err
+	}
+
+	for _, child := range children {
+		err := child.Terminate()
+		if err != nil {
+			log.Error().Err(err).Msgf("failed to terminate process %d", child.Pid)
+		}
+	}
+
 	err = parent.Terminate()
 	if err != nil {
 		log.Error().Err(err).Msgf("failed to terminate process %d", parent.Pid)
