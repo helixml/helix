@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+//go:generate mockgen -source $GOFILE -destination model_instance_mocks.go -package $GOPACKAGE
 type ModelInstance interface {
 	ID() string
 	Filter() types.SessionFilter

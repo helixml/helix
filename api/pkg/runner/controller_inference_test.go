@@ -80,7 +80,6 @@ func (m *MockReadCloser) Close() error {
 	}
 	return nil
 }
-
 func TestCreateInferenceModelInstance(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -111,25 +110,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	modelName := types.Model_Ollama_Llama3_8b
 
 	ctx := context.Background()
-	runner := &Runner{
-		Ctx: context.Background(),
-		Options: RunnerOptions{
-			ID:          "test-id",
-			ApiHost:     "http://localhost",
-			ApiToken:    "test-token",
-			MemoryBytes: 1024,
-			Config: &config.RunnerConfig{
-				Runtimes: config.Runtimes{
-					Ollama: config.OllamaRuntimeConfig{
-						Enabled:      true,
-						WarmupModels: []string{string(modelName)},
-						InstanceTTL:  1 * time.Millisecond,
-					},
-				},
-			},
-		},
-		activeModelInstances: xsync.NewMapOf[string, ModelInstance](),
-	}
+	runner := createTestRunner(1024*model.MB, 1*time.Millisecond)
 
 	request := &types.RunnerLLMInferenceRequest{
 		Request: &openai.ChatCompletionRequest{
@@ -211,4 +192,108 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 		time.Sleep(1 * time.Millisecond)
 	}
 	assert.Equal(t, pidStatusCode, "")
+}
+
+func TestCheckForStaleModelInstances(t *testing.T) {
+	t.Run("should remove stale instances and keep active ones", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		// Create a mock runner
+		runner := createTestRunner(1024*model.MB, 1*time.Millisecond)
+
+		// Create mock model
+		m := model.NewMockModel(ctrl)
+		m.EXPECT().GetMemoryRequirements(gomock.Any()).Return(uint64(model.MB * 400)).AnyTimes()
+
+		// Create mock model instances
+		activeInstance := createMockModelInstance(ctrl, "active", false, m, types.SessionModeInference)
+		staleInstance := createMockModelInstance(ctrl, "stale", true, m, types.SessionModeInference)
+
+		// Add instances to the runner
+		runner.activeModelInstances.Store(activeInstance.ID(), activeInstance)
+		runner.activeModelInstances.Store(staleInstance.ID(), staleInstance)
+
+		// Create a new model that requires more memory and Run the function
+		err := runner.checkForStaleModelInstances(context.Background(), m, types.SessionModeInference)
+		assert.NoError(t, err)
+
+		// Check that only the stale instance was removed
+		var activeCount int
+		runner.activeModelInstances.Range(func(key string, value ModelInstance) bool {
+			activeCount++
+			assert.Equal(t, "active", value.ID())
+			return true
+		})
+		assert.Equal(t, 1, activeCount)
+
+		// Print all schedulingDecisions
+		fmt.Println(runner.schedulingDecisions)
+		assert.Equal(t, 1, len(runner.schedulingDecisions))
+		assert.Contains(t, runner.schedulingDecisions[0], "Killing stale model instance")
+	})
+
+	t.Run("if all models are not stale, should return scheduling error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		// Create a mock runner
+		runner := createTestRunner(1024*model.MB, 1*time.Millisecond)
+
+		// Create mock model
+		m := model.NewMockModel(ctrl)
+		m.EXPECT().GetMemoryRequirements(gomock.Any()).Return(uint64(model.MB * 400)).AnyTimes()
+
+		// Create mock model instances
+		activeInstance := createMockModelInstance(ctrl, "active", false, m, types.SessionModeInference)
+		activeInstance2 := createMockModelInstance(ctrl, "active2", false, m, types.SessionModeInference)
+
+		// Add instances to the runner
+		runner.activeModelInstances.Store(activeInstance.ID(), activeInstance)
+		runner.activeModelInstances.Store(activeInstance2.ID(), activeInstance2)
+
+		// Create a new model that requires more memory and Run the function
+		err := runner.checkForStaleModelInstances(context.Background(), m, types.SessionModeInference)
+		assert.NoError(t, err)
+
+		// Print all schedulingDecisions
+		fmt.Println(runner.schedulingDecisions)
+		assert.Equal(t, 1, len(runner.schedulingDecisions))
+		assert.Contains(t, runner.schedulingDecisions[0], "we didn't free as much memory as we needed")
+	})
+}
+
+func createTestRunner(memoryBytes uint64, instanceTTL time.Duration) *Runner {
+	return &Runner{
+		Ctx: context.Background(),
+		Options: RunnerOptions{
+			ID:          "test-id",
+			ApiHost:     "http://localhost",
+			ApiToken:    "test-token",
+			MemoryBytes: memoryBytes,
+			Config: &config.RunnerConfig{
+				Runtimes: config.Runtimes{
+					Ollama: config.OllamaRuntimeConfig{
+						Enabled:     true,
+						InstanceTTL: instanceTTL,
+					},
+				},
+			},
+			SchedulingDecisionBufferSize: 10,
+		},
+		activeModelInstances: xsync.NewMapOf[string, ModelInstance](),
+		schedulingDecisions:  []string{},
+	}
+}
+
+func createMockModelInstance(ctrl *gomock.Controller, id string, stale bool, m *model.MockModel, sessionMode types.SessionMode) *MockModelInstance {
+	instance := NewMockModelInstance(ctrl)
+	instance.EXPECT().ID().Return(id).AnyTimes()
+	instance.EXPECT().Stale().Return(stale).AnyTimes()
+	instance.EXPECT().Model().Return(m).AnyTimes()
+	instance.EXPECT().Filter().Return(types.SessionFilter{
+		Mode: sessionMode,
+	}).AnyTimes()
+	instance.EXPECT().Stop().Return(nil).AnyTimes()
+	return instance
 }
