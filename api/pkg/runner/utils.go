@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/freeport"
+	"github.com/rs/zerolog/log"
 )
 
 func getChildPids(pid int) ([]int, error) {
@@ -66,6 +67,7 @@ func killProcessTree(pid int) error {
 
 	// Add the original PID to the list
 	allPids := append(descendants, pid)
+	log.Debug().Msgf("killing process tree with PIDs: %v", allPids)
 
 	// First, try to terminate gracefully
 	for _, p := range allPids {
@@ -80,6 +82,7 @@ func killProcessTree(pid int) error {
 	for {
 		select {
 		case <-timeout:
+			log.Warn().Msgf("having to force kill process tree for PIDs: %v", allPids)
 			// Force kill any remaining processes
 			for _, p := range allPids {
 				syscall.Kill(p, syscall.SIGKILL)
