@@ -88,7 +88,7 @@ func killProcessTree(pid int) error {
 			for _, p := range allPids {
 				err := syscall.Kill(p, syscall.SIGKILL)
 				if err != nil {
-					if err.Error() == "error: signal: killed" {
+					if err.Error() == "signal: killed" {
 						// This is fine, expected
 					} else if err.Error() == "no such process" {
 						// This is fine too, process already exited
