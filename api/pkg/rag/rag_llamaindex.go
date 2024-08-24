@@ -46,6 +46,7 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 		Str("document_group_id", indexReq.DocumentGroupID).
 		Str("document_id", indexReq.DocumentID).
 		Int("content_offset", indexReq.ContentOffset).
+		Str("filename", indexReq.Filename).
 		Logger()
 
 	if indexReq.DataEntityID == "" {
