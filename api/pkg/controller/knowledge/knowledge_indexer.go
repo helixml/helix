@@ -35,7 +35,7 @@ func (r *Reconciler) index(ctx context.Context) error {
 		// so that on failed indexing we can retry without setting a new version
 		// and previous version will be used
 		if k.Version == "" {
-			k.Version = time.Now().Format("2006-01-02-15-04-05")
+			k.Version = time.Now().Format("2006-01-02_15-04-05")
 		}
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
@@ -157,6 +157,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 				DataEntityID:    k.GetDataEntityID(),
 				Filename:        d.Source,
+				Source:          d.Source,
 				DocumentID:      getDocumentID(d.Data),
 				DocumentGroupID: documentGroupID,
 				ContentOffset:   0,
@@ -214,6 +215,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 				DataEntityID:    k.GetDataEntityID(),
 				Filename:        chunk.Filename,
+				Source:          chunk.Filename, // For backwards compatibility
 				DocumentID:      chunk.DocumentID,
 				DocumentGroupID: chunk.DocumentGroupID,
 				ContentOffset:   chunk.Index,
