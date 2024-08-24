@@ -86,7 +86,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 	elapsed := time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
-		Dur("elapsed", elapsed).
+		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("indexing data loaded")
 
 	start = time.Now()
@@ -98,7 +98,7 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 	elapsed = time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
-		Dur("elapsed", elapsed).
+		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("data indexed")
 
 	k.State = types.KnowledgeStateReady
