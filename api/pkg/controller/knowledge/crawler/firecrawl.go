@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/mendableai/firecrawl-go"
@@ -38,7 +37,7 @@ type Firecrawl struct {
 	knowledge *types.Knowledge
 }
 
-func (f *Firecrawl) Crawl(ctx context.Context) (string, error) {
+func (f *Firecrawl) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	crawlParams := map[string]any{
 		"crawlerOptions": map[string]any{
 			"excludes": f.knowledge.Source.Web.Excludes,
@@ -56,15 +55,24 @@ func (f *Firecrawl) Crawl(ctx context.Context) (string, error) {
 
 	result, err := f.app.CrawlURL(f.knowledge.Source.Web.URLs[0], crawlParams, true, 2, idempotencyKey)
 	if err != nil {
-		return "", fmt.Errorf("failed to crawl url: %w", err)
+		return nil, fmt.Errorf("failed to crawl url: %w", err)
 	}
 
-	jsonCrawlResult, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal crawl result: %w", err)
+	docs, ok := result.([]*firecrawl.FirecrawlDocument)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert result to FirecrawlDocument")
 	}
 
-	fmt.Println(string(jsonCrawlResult))
+	var crawledDocs []*types.CrawledDocument
+	for _, doc := range docs {
+		crawledDocs = append(crawledDocs, &types.CrawledDocument{
+			ID:          doc.ID,
+			Title:       doc.Metadata.Title,
+			Description: doc.Metadata.Description,
+			SourceURL:   doc.Metadata.SourceURL,
+			Content:     doc.Content,
+		})
+	}
 
-	return string(jsonCrawlResult), nil
+	return crawledDocs, nil
 }
