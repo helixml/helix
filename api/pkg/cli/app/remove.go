@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/client"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -27,22 +26,9 @@ var removeCmd = &cobra.Command{
 			return err
 		}
 
-		apps, err := apiClient.ListApps(&client.AppFilter{})
+		app, err := lookupApp(apiClient, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
-		}
-
-		// Find the app by name or ID
-		var app *types.App
-		for _, a := range apps {
-			if a.Config.Helix.Name == args[0] || a.ID == args[0] {
-				app = a
-				break
-			}
-		}
-
-		if app == nil {
-			return fmt.Errorf("app %s not found", args[0])
+			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
 		// Delete the app

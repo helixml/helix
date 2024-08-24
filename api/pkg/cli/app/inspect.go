@@ -23,9 +23,9 @@ var inspectCmd = &cobra.Command{
 			return err
 		}
 
-		app, err := apiClient.GetApp(args[0])
+		app, err := lookupApp(apiClient, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to get app: %w", err)
+			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
 		jsonBytes, err := json.MarshalIndent(app, "", "  ")
