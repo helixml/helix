@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -26,6 +27,14 @@ func (r *Reconciler) index(ctx context.Context) error {
 
 		k.State = types.KnowledgeStateIndexing
 		k.Message = ""
+
+		// Set version for the indexing process
+		// TODO: maybe we should set this only when we have finished indexing
+		// so that on failed indexing we can retry without setting a new version
+		// and previous version will be used
+		if k.Version == "" {
+			k.Version = time.Now().Format("2006-01-02-15-04-05")
+		}
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
 		log.
@@ -46,8 +55,9 @@ func (r *Reconciler) index(ctx context.Context) error {
 				k.State = types.KnowledgeStateError
 				k.Message = err.Error()
 				_, _ = r.store.UpdateKnowledge(ctx, k)
-
+				return
 			}
+
 		}(k)
 	}
 
@@ -65,15 +75,29 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		return nil
 	}
 
+	start := time.Now()
+
 	data, err := r.getIndexingData(ctx, k)
 	if err != nil {
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
 	}
+	elapsed := time.Since(start)
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Dur("elapsed", elapsed).
+		Msg("indexing data loaded")
+
+	start = time.Now()
 
 	err = r.indexData(ctx, k, data)
 	if err != nil {
 		return fmt.Errorf("indexing failed, error: %w", err)
 	}
+	elapsed = time.Since(start)
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Dur("elapsed", elapsed).
+		Msg("data indexed")
 
 	k.State = types.KnowledgeStateReady
 	_, err = r.store.UpdateKnowledge(ctx, k)
@@ -122,7 +146,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 	for _, d := range data {
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-			DataEntityID:    k.ID,
+			DataEntityID:    k.GetDataEntityID(),
 			Filename:        d.Source,
 			DocumentID:      getDocumentID(d.Data),
 			DocumentGroupID: documentGroupID,
@@ -166,7 +190,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 	for _, chunk := range splitter.Chunks {
 		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-			DataEntityID:    k.ID,
+			DataEntityID:    k.GetDataEntityID(),
 			Filename:        chunk.Filename,
 			DocumentID:      chunk.DocumentID,
 			DocumentGroupID: chunk.DocumentGroupID,
