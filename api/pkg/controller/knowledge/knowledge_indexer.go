@@ -165,7 +165,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		Msg("submitting chunks into the rag server")
 
 	for _, chunk := range splitter.Chunks {
-		err := ragClient.Index(context.Background(), &types.SessionRAGIndexChunk{
+		err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 			DataEntityID:    k.ID,
 			Filename:        chunk.Filename,
 			DocumentID:      chunk.DocumentID,
