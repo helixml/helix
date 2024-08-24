@@ -1,6 +1,8 @@
 module github.com/helixml/helix
 
-go 1.22.2
+go 1.22.5
+
+toolchain go1.22.6
 
 require (
 	cloud.google.com/go/storage v1.33.0
@@ -17,7 +19,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/golang/mock v1.6.0
 	github.com/google/go-github/v61 v61.0.0
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gptscript-ai/gptscript v0.5.0
@@ -29,6 +31,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/lukemarsden/go-openai2 v0.0.0-20240813161405-ab225dee41d4
+	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/nats-io/nats-server/v2 v2.10.9
 	github.com/nats-io/nats.go v1.32.0
 	github.com/oklog/ulid/v2 v2.1.0
