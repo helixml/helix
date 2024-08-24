@@ -377,6 +377,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
 					Description: knowledge.Description,
 					DocumentID:  result.DocumentID,
+					Source:      result.Source,
 					Content:     result.Content,
 				})
 			}
