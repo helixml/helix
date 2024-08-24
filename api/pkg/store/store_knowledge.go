@@ -28,10 +28,6 @@ func (s *PostgresStore) CreateKnowledge(ctx context.Context, knowledge *types.Kn
 		return nil, fmt.Errorf("owner not specified")
 	}
 
-	if knowledge.Version == "" {
-		knowledge.Version = time.Now().Format("2006-01-02-15-04-05")
-	}
-
 	knowledge.Created = time.Now()
 	knowledge.Updated = time.Now()
 
