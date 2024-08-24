@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -34,9 +35,8 @@ func (r *Reconciler) index(ctx context.Context) error {
 		// TODO: maybe we should set this only when we have finished indexing
 		// so that on failed indexing we can retry without setting a new version
 		// and previous version will be used
-		if k.Version == "" {
-			k.Version = time.Now().Format("2006-01-02_15-04-05")
-		}
+		k.Version = system.GenerateVersion()
+
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
 		log.
