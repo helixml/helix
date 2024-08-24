@@ -144,7 +144,7 @@ func (s *PostgresStore) ListKnowledge(ctx context.Context, q *ListKnowledgeQuery
 
 	var knowledgeList []*types.Knowledge
 
-	err := query.Find(&knowledgeList).Error
+	err := query.Order("id DESC").Find(&knowledgeList).Error
 	if err != nil {
 		return nil, err
 	}
