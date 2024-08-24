@@ -163,3 +163,12 @@ type KnowledgeSourceGithub struct {
 	FilterPaths      []string `json:"filter_paths"`
 	FilterExtensions []string `json:"filter_extensions"`
 }
+
+// CrawledDocument used internally to work with the crawled data
+type CrawledDocument struct {
+	ID          string
+	Title       string
+	Description string
+	SourceURL   string
+	Content     string
+}
