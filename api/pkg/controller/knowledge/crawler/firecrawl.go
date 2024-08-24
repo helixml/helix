@@ -8,6 +8,7 @@ import (
 	"github.com/mendableai/firecrawl-go"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -44,13 +45,16 @@ func (f *Firecrawl) Crawl(ctx context.Context) (string, error) {
 		},
 	}
 
+	idempotencyKey := system.GenerateUUID()
+
 	log.Info().
 		Str("knowledge_id", f.knowledge.ID).
 		Str("knowledge_name", f.knowledge.Name).
 		Str("url", f.knowledge.Source.Web.URLs[0]).
+		Str("idempotency_key", idempotencyKey).
 		Msg("starting to crawl the website")
 
-	result, err := f.app.CrawlURL(f.knowledge.Source.Web.URLs[0], crawlParams, true, 2, f.knowledge.ID)
+	result, err := f.app.CrawlURL(f.knowledge.Source.Web.URLs[0], crawlParams, true, 2, idempotencyKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to crawl url: %w", err)
 	}
