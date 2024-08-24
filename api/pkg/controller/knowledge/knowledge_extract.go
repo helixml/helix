@@ -104,11 +104,13 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 			return nil, fmt.Errorf("failed to crawl: %w", err)
 		}
 
-		data := []*indexerData{
-			{
-				Data:   []byte(result),
-				Source: k.Source.Web.URLs[0],
-			},
+		var data []*indexerData
+
+		for _, doc := range result {
+			data = append(data, &indexerData{
+				Data:   []byte(doc.Content),
+				Source: doc.SourceURL,
+			})
 		}
 
 		return data, nil
