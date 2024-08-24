@@ -126,6 +126,7 @@ func (RAGSettings) GormDataType() string {
 // the data we send off to llamaindex to be indexed in the db
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
+	Source          string `json:"source"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
 	DocumentGroupID string `json:"document_group_id"`
@@ -152,6 +153,7 @@ type SessionRAGResult struct {
 	DocumentID      string  `json:"document_id"`
 	DocumentGroupID string  `json:"document_group_id"`
 	Filename        string  `json:"filename"`
+	Source          string  `json:"source"`
 	ContentOffset   int     `json:"content_offset"`
 	Content         string  `json:"content"`
 	Distance        float64 `json:"distance"`
