@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/helixml/helix/api/pkg/types"
-
 	"github.com/mendableai/firecrawl-go"
+	"github.com/rs/zerolog/log"
+
+	"github.com/helixml/helix/api/pkg/types"
 )
 
 func NewFirecrawl(k *types.Knowledge) (*Firecrawl, error) {
@@ -42,6 +43,12 @@ func (f *Firecrawl) Crawl(ctx context.Context) (string, error) {
 			"excludes": f.knowledge.Source.Web.Excludes,
 		},
 	}
+
+	log.Info().
+		Str("knowledge_id", f.knowledge.ID).
+		Str("knowledge_name", f.knowledge.Name).
+		Str("url", f.knowledge.Source.Web.URLs[0]).
+		Msg("starting to crawl the website")
 
 	result, err := f.app.CrawlURL(f.knowledge.Source.Web.URLs[0], crawlParams, true, 2, f.knowledge.ID)
 	if err != nil {
