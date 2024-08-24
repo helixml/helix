@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -57,6 +58,11 @@ type Knowledge struct {
 	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
 	Source KnowledgeSource `json:"source" gorm:"jsonb"`
 
+	// Version of the knowledge, will be used to separate different versions
+	// of the same knowledge when updating it. Format is
+	// YYYY-MM-DD-HH-MM-SS.
+	Version string `json:"version" yaml:"version"`
+
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
 	// every 24 hours.
@@ -65,6 +71,13 @@ type Knowledge struct {
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
 	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
+}
+
+func (k *Knowledge) GetDataEntityID() string {
+	if k.Version == "" {
+		return k.ID
+	}
+	return fmt.Sprintf("%s-%s", k.ID, k.Version)
 }
 
 type KnowledgeState string
