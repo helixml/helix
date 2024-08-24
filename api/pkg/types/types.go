@@ -91,9 +91,10 @@ type RAGSettings struct {
 	ResultsCount     int     `json:"results_count" yaml:"results_count"`         // this is the max number of results to return - will default to 3
 
 	// Chunking configuration (Helix extracts text and chunks it)
-	ChunkSize       int  `json:"chunk_size" yaml:"chunk_size"`             // the size of each text chunk - will default to 512 bytes
-	ChunkOverflow   int  `json:"chunk_overflow" yaml:"chunk_overflow"`     // the amount of overlap between chunks - will default to 32 bytes
-	DisableChunking bool `json:"disable_chunking" yaml:"disable_chunking"` // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	ChunkSize          int  `json:"chunk_size" yaml:"chunk_size"`                   // the size of each text chunk - will default to 512 bytes
+	ChunkOverflow      int  `json:"chunk_overflow" yaml:"chunk_overflow"`           // the amount of overlap between chunks - will default to 32 bytes
+	DisableChunking    bool `json:"disable_chunking" yaml:"disable_chunking"`       // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	DisableDownloading bool `json:"disable_downloading" yaml:"disable_downloading"` // if true, we will not download the file and send the URL to the RAG indexing endpoint
 
 	// RAG endpoint configuration if used with a custom RAG service
 	IndexURL string `json:"index_url" yaml:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
