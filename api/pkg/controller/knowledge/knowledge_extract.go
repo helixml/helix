@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -26,6 +27,10 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		return nil, fmt.Errorf("no web source defined")
 	}
 
+	if crawlerEnabled(k) {
+		return r.extractDataFromWebWithCrawler(ctx, k)
+	}
+
 	var result []*indexerData
 
 	if len(k.Source.Web.URLs) == 0 {
@@ -43,6 +48,14 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 
 	// TODO: add concurrency
 	for _, u := range k.Source.Web.URLs {
+		// If we are not downloading the file, we just send the URL
+		if k.RAGSettings.DisableDownloading {
+			result = append(result, &indexerData{
+				Source: u,
+			})
+			continue
+		}
+
 		if extractorEnabled {
 			extracted, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
 				URL: u,
@@ -59,6 +72,7 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 			continue
 		}
 
+		// Download the file
 		bts, err := r.downloadDirectly(ctx, k, u)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download data from %s, error: %w", u, err)
@@ -71,6 +85,36 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 	}
 
 	return result, nil
+}
+
+func crawlerEnabled(k *types.Knowledge) bool {
+	return k.Source.Web != nil && k.Source.Web.Crawler != nil && k.Source.Web.Crawler.Firecrawl != nil
+}
+
+func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	switch {
+	case k.Source.Web.Crawler.Firecrawl != nil:
+		crawler, err := crawler.NewFirecrawl(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create crawler: %w", err)
+		}
+
+		result, err := crawler.Crawl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to crawl: %w", err)
+		}
+
+		data := []*indexerData{
+			{
+				Data:   []byte(result),
+				Source: k.Source.Web.URLs[0],
+			},
+		}
+
+		return data, nil
+	default:
+		return nil, fmt.Errorf("unknown crawler")
+	}
 }
 
 func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u string) ([]byte, error) {
