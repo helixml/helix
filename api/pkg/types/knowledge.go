@@ -107,19 +107,19 @@ func (KnowledgeSource) GormDataType() string {
 }
 
 type KnowledgeSourceWeb struct {
-	Excludes []string               `json:"excludes"`
-	URLs     []string               `json:"urls"`
-	Auth     KnowledgeSourceWebAuth `json:"auth"`
-	Crawler  *WebsiteCrawler
+	Excludes []string               `json:"excludes" yaml:"excludes"`
+	URLs     []string               `json:"urls" yaml:"urls"`
+	Auth     KnowledgeSourceWebAuth `json:"auth" yaml:"auth"`
+	Crawler  *WebsiteCrawler        `json:"crawler" yaml:"crawler"`
 }
 
 type WebsiteCrawler struct {
-	Firecrawl *Firecrawl `json:"firecrawl"`
+	Firecrawl *Firecrawl `json:"firecrawl" yaml:"firecrawl"`
 }
 
 type Firecrawl struct {
-	APIKey string `json:"api_key"`
-	APIURL string `json:"api_url"`
+	APIKey string `json:"api_key" yaml:"api_key"`
+	APIURL string `json:"api_url" yaml:"api_url"`
 }
 
 type KnowledgeSourceWebAuth struct {
