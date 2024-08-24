@@ -10,10 +10,15 @@ import (
 )
 
 type KnowledgeFilter struct {
+	AppID string
 }
 
 func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url+"/knowledge", nil)
+	url := c.url + "/knowledge"
+	if f.AppID != "" {
+		url += "?app_id=" + f.AppID
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
