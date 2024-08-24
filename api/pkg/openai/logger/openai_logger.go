@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 
@@ -153,9 +152,6 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 
 	// Append the chunk to the response
 	if len(chunk.Choices) > 0 {
-		spew.Dump(resp)
-		spew.Dump(chunk)
-
 		resp.Choices[0].Message.Content += chunk.Choices[0].Delta.Content
 
 		if chunk.Choices[0].Delta.FunctionCall != nil {
