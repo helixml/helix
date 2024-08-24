@@ -45,7 +45,6 @@ func (r *Reconciler) index(ctx context.Context) error {
 			Msg("indexing knowledge")
 
 		go func(knowledge *types.Knowledge) {
-
 			err := r.indexKnowledge(ctx, knowledge)
 			if err != nil {
 				log.
