@@ -63,7 +63,12 @@ var listCmd = &cobra.Command{
 			var stateStr string
 
 			if k.State == types.KnowledgeStateError {
-				stateStr = fmt.Sprintf("%s (%s)", k.State, k.Message)
+				// Truncate the message to 100 characters
+				truncatedMessage := k.Message
+				if len(truncatedMessage) > 100 {
+					truncatedMessage = truncatedMessage[:100] + "..."
+				}
+				stateStr = fmt.Sprintf("%s (%s)", k.State, truncatedMessage)
 			} else {
 				stateStr = string(k.State)
 			}
