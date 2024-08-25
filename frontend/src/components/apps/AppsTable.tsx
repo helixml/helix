@@ -94,9 +94,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
       const apisElem = apiTools.length > 0 ? (
         <>
-          <Box sx={{mb: 2}}>
+          <Box sx={{mt: 2, mb: 2}}>
             <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-              APIs
+              API Tools
             </Typography>
           </Box>
           {
