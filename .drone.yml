@@ -10,7 +10,12 @@ steps:
 - name: build-backend
   image: golang:1.22.2-alpine3.19
   commands:
-    - go build -o helix
+    - |
+      if [ -n "$DRONE_TAG" ]; then
+        go build -ldflags "-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG" -o helix
+      else
+        go build -o helix
+      fi
 
 - name: unit-test
   image: golang:1.22.2-alpine3.19
