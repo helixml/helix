@@ -7,6 +7,7 @@ import (
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/gocolly/colly/v2"
+	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -34,6 +35,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	collector := colly.NewCollector(
 		colly.AllowedDomains(domains...),
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
+		colly.MaxDepth(5), // Limit crawl depth to avoid infinite crawling
 	)
 
 	var crawledDocs []*types.CrawledDocument
@@ -62,14 +64,30 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		crawledDocs = append(crawledDocs, doc)
 	})
 
+	// Add this new OnHTML callback to find and visit links
+	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		link := e.Attr("href")
+		collector.Visit(e.Request.AbsoluteURL(link))
+		log.Debug().Str("url", link).Msg("Visiting link")
+	})
+
 	collector.OnRequest(func(r *colly.Request) {
 		r.Ctx.Put("url", r.URL.String())
 	})
 
+	log.Info().
+		Str("knowledge_id", d.knowledge.ID).
+		Str("knowledge_name", d.knowledge.Name).
+		Str("url", d.knowledge.Source.Web.URLs[0]).
+		Str("domains", strings.Join(domains, ",")).
+		Msg("starting to crawl the website")
+
 	for _, url := range d.knowledge.Source.Web.URLs {
 		err := collector.Visit(url)
 		if err != nil {
-			return nil, err
+			log.Warn().Err(err).Str("url", url).Msg("Error visiting URL")
+			// Continue with the next URL instead of returning
+			continue
 		}
 	}
 
