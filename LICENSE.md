@@ -28,7 +28,7 @@ Definitions. Capitalized terms shall have the meanings defined herein.
 
 “Order Form” means the digital or physical ordering document identifying the products and related fees as applicable for Customer’s purchases from Helix. Order Forms shall be deemed incorporated herein by reference.
 
-“Pricing Page” means the Pricing and Subscriptions page which has a description of the Offering tier of the Service set forth at https://helix.ml/pricing.
+“Pricing Page” means the Pricing and Subscriptions page which has a description of the Offering tier of the Service set forth at https://helix.ml/#pricing.
 
 “Data Processing Agreement” means Helix’s data processing agreement available at https://helix.ml/legal/data-processing-agreement.
 
