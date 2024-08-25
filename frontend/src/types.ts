@@ -438,6 +438,9 @@ export interface IToolApiConfig {
   actions: IToolApiAction[],
   headers: Record<string, string>,
   query: Record<string, string>,
+  request_prep_template?: string,
+  response_success_template?: string,
+  response_error_template?: string,
 }
 
 export interface IToolGptScriptConfig {
@@ -527,7 +530,7 @@ export interface IAppGithubConfigUpdate {
   hash: string,
   error: string,
 }
-
+ 
 export interface IAppGithubConfig {
   repo: string,
   hash: string,
@@ -544,14 +547,70 @@ export interface IAppConfig {
 
 export interface IApp {
   id: string,
-  created: Date,
-  updated: Date,
-  owner: string,
-  owner_type: IOwnerType,
-  app_source: IAppSource,
-  config: IAppConfig,
-  global: boolean,
-  shared: boolean,
+  config: {
+    allowed_domains: string[];
+    secrets: Record<string, string>;
+    helix: {
+      name: string;
+      description: string;
+      avatar: string;
+      image: string;
+      external_url: string;
+      assistants: Array<{
+        id: string;
+        name: string;
+        description: string;
+        avatar: string;
+        image: string;
+        model: string;
+        type: ISessionType;
+        system_prompt: string;
+        rag_source_id: string;
+        lora_id: string;
+        is_actionable_template: string;
+        apis: Array<{
+          name: string;
+          description: string;
+          schema: string;
+          url: string;
+          headers: Record<string, string>;
+          query: Record<string, string>;
+          request_prep_template: string;
+          response_success_template: string;
+          response_error_template: string;
+        }>;
+        gptscripts: Array<{
+          name: string;
+          description: string;
+          file: string;
+          content: string;
+        }>;
+        tools: ITool[];
+      }>;
+    };
+    github?: {
+      repo: string;
+      hash: string;
+      key_pair: {
+        type: string;
+        private_key: string;
+        public_key: string;
+      };
+      webhook_secret: string;
+      last_update: {
+        updated: string;
+        hash: string;
+        error: string;
+      };
+    };
+  };
+  shared: boolean;
+  global: boolean;
+  created: Date;
+  updated: Date;
+  owner: string;
+  owner_type: IOwnerType;
+  app_source: IAppSource;
 }
 
 export interface IAppUpdate {
