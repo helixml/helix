@@ -13,20 +13,24 @@ steps:
     GITHUB_TOKEN:
       from_secret: github_token
   commands:
+    - apk add --no-cache git make
+    - go install github.com/mitchellh/gox@latest
     - |
       if [ -n "$DRONE_TAG" ]; then
-        go build -ldflags "-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG" -o helix
+        VERSION_FLAG="-X github.com/helixml/helix/api/pkg/data.Version=$DRONE_TAG"
       else
-        go build -o helix
+        VERSION_FLAG=""
       fi
-      ./helix version
-      set -xeuo pipefail
-      apk add github-cli
+      gox -osarch="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64" -ldflags "$VERSION_FLAG" -output="helix-{{.OS}}-{{.Arch}}"
+    - ./helix-linux-amd64 version
+    - set -xeuo pipefail
+    - apk add --no-cache github-cli
+    - |
       if [ -n "$DRONE_TAG" ]; then
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
-          echo "Uploading helix binary to release $RELEASE"
-          gh release upload "$RELEASE" helix
+          echo "Uploading helix binaries to release $RELEASE"
+          gh release upload "$RELEASE" helix-linux-amd64 helix-linux-arm64 helix-darwin-amd64 helix-darwin-arm64
         else
           echo "No matching release found for tag $DRONE_TAG"
         fi
