@@ -23,7 +23,6 @@ steps:
       set -xeuo pipefail
       apk add github-cli
       if [ -n "$DRONE_TAG" ]; then
-        echo "$GITHUB_TOKEN" | gh auth login --with-token
         RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
         if [ -n "$RELEASE" ]; then
           echo "Uploading helix binary to release $RELEASE"
