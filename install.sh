@@ -2,6 +2,23 @@
 
 # To install, run:
 # curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash
+#
+# Examples:
+#
+# 1. Install just the CLI:
+#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane false --runner false
+#
+# 2. Install CLI and controlplane with external TogetherAI token:
+#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner false --togetherai-token YOUR_TOGETHERAI_TOKEN
+#
+# 3. Install CLI and controlplane (to install runner separately):
+#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner false
+#
+# 4. Install CLI, controlplane, and runner on a node with a GPU:
+#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner true
+#
+# 5. Install just the runner, pointing to a controlplane with a DNS name:
+#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli false --controlplane false --runner true --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
 
 set -euo pipefail
 
