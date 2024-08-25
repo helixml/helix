@@ -1,0 +1,12 @@
+name: email-tools
+description: |
+  A simple app that demonstrates how Helix can send emails.
+assistants:
+- name: Helix
+  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  description: Can send emails to users
+  email_sending:
+    enabled: true    
+    description: You must use this tool if a user asks to send an email.
+  
+
