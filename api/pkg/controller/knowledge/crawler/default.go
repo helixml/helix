@@ -3,6 +3,7 @@ package crawler
 import (
 	"context"
 	"net/url"
+	"regexp"
 	"strings"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
@@ -56,11 +57,20 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		userAgent = d.knowledge.Source.Web.Crawler.UserAgent
 	}
 
-	collector := colly.NewCollector(
+	collyOptions := []colly.CollectorOption{
 		colly.AllowedDomains(domains...),
 		colly.UserAgent(userAgent),
 		colly.MaxDepth(maxDepth), // Limit crawl depth to avoid infinite crawling
-	)
+		colly.IgnoreRobotsTxt(),
+	}
+
+	if len(d.knowledge.Source.Web.Excludes) > 0 {
+		// Create the regex for the excludes
+		excludesRegex := regexp.MustCompile(strings.Join(d.knowledge.Source.Web.Excludes, "|"))
+		collyOptions = append(collyOptions, colly.DisallowedURLFilters(excludesRegex))
+	}
+
+	collector := colly.NewCollector(collyOptions...)
 
 	var crawledDocs []*types.CrawledDocument
 	converter := md.NewConverter("", true, nil)
@@ -92,7 +102,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
 		collector.Visit(e.Request.AbsoluteURL(link))
-		log.Debug().Str("url", link).Msg("Visiting link")
+		log.Info().Str("url", link).Msg("Visiting link")
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
