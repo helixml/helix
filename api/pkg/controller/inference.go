@@ -364,7 +364,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
-				DataEntityID:      knowledge.ID,
+				DataEntityID:      knowledge.GetDataEntityID(),
 				DistanceThreshold: knowledge.RAGSettings.Threshold,
 				DistanceFunction:  knowledge.RAGSettings.DistanceFunction,
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
@@ -377,6 +377,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				backgroundKnowledge = append(backgroundKnowledge, &prompts.BackgroundKnowledge{
 					Description: knowledge.Description,
 					DocumentID:  result.DocumentID,
+					Source:      result.Source,
 					Content:     result.Content,
 				})
 			}

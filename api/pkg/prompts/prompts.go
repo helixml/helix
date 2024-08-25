@@ -19,6 +19,7 @@ type BackgroundKnowledge struct {
 	Description string
 	Content     string
 	DocumentID  string
+	Source      string
 }
 
 type Prompt struct {
