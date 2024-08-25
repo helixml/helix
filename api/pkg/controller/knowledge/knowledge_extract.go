@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
@@ -88,12 +89,26 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 }
 
 func crawlerEnabled(k *types.Knowledge) bool {
-	return k.Source.Web != nil && k.Source.Web.Crawler != nil && k.Source.Web.Crawler.Firecrawl != nil
+	if k.Source.Web == nil {
+		return false
+	}
+
+	if k.Source.Web.Crawl {
+		return true
+	}
+
+	return false
 }
 
 func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	switch {
+	// If firecrawl is configured, use it
 	case k.Source.Web.Crawler.Firecrawl != nil:
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Msgf("Using firecrawl crawler")
+
 		crawler, err := crawler.NewFirecrawl(k)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create crawler: %w", err)
@@ -115,7 +130,32 @@ func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types
 
 		return data, nil
 	default:
-		return nil, fmt.Errorf("unknown crawler")
+		// Using default crawler
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Msgf("Using default Helix crawler")
+
+		crawler, err := crawler.NewDefault(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create crawler: %w", err)
+		}
+
+		result, err := crawler.Crawl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to crawl: %w", err)
+		}
+
+		var data []*indexerData
+
+		for _, doc := range result {
+			data = append(data, &indexerData{
+				Data:   []byte(doc.Content),
+				Source: doc.SourceURL,
+			})
+		}
+
+		return data, nil
 	}
 }
 
