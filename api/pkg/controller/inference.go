@@ -147,7 +147,7 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 	lastMessage := getLastMessage(req)
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.Api)
+	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.ToolName)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
@@ -232,9 +232,9 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		return nil, nil, false, nil
 	}
 
-	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.Api)
+	selectedTool, ok := getToolFromAction(assistant.Tools, isActionable.ToolName)
 	if !ok {
-		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.Api)
+		return nil, nil, false, fmt.Errorf("tool not found for action: %s", isActionable.ToolName)
 	}
 
 	if len(opts.QueryParams) > 0 && selectedTool.Config.API != nil {

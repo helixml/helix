@@ -50,7 +50,6 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 	for idx, assistant := range app.Assistants {
 
 		if assistant.EmailSending != nil {
-			fmt.Println("xx ", assistant.EmailSending)
 			app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, &types.Tool{
 				Name:        "Email",
 				Description: assistant.EmailSending.Description,

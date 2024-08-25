@@ -7,6 +7,10 @@ import (
 func getToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
 	for _, tool := range tools {
 		switch tool.ToolType {
+		case types.ToolTypeEmail:
+			if tool.Name == action {
+				return tool, true
+			}
 		case types.ToolTypeAPI:
 			for _, a := range tool.Config.API.Actions {
 				if a.Name == action {
