@@ -54,13 +54,13 @@ prompts:
         Description: {{ .Description }}
         {{- end }}
         Content: {{ .Content }}
-        {{- if .DocumentID }}
-        DocumentID: {{ .DocumentID }}
-        {{- end }}
+        {{- if .Source }}
+        Source: {{ .Source }}
+        {{- end }}        
         </article>
       {{- end }}
 
-      If article contains DocumentID then provided reference in your answer in the format `[DOC_ID:DocumentID]`. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+      If article contains Source then provide reference in your answer as markdown link `[SOURCE](Source)`. For example, "According to [this page](https://example.com/some/page), the answer is 42."      
     {{- end }}
     
     Here is the question from the user:

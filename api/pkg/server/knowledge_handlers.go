@@ -86,6 +86,13 @@ func (s *HelixAPIServer) refreshKnowledge(_ http.ResponseWriter, r *http.Request
 		return nil, system.NewHTTPError403("you do not have permission to refresh this knowledge")
 	}
 
+	switch existing.State {
+	case types.KnowledgeStateIndexing:
+		return nil, system.NewHTTPError400("knowledge is already being indexed")
+	case types.KnowledgeStatePending:
+		return nil, system.NewHTTPError400("knowledge is queued for indexing, please wait")
+	}
+
 	// Push back to pending
 	existing.State = types.KnowledgeStatePending
 	existing.Message = ""

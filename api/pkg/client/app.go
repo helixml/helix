@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -143,8 +145,10 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	return &updatedApp, nil
 }
 
-func (c *HelixClient) DeleteApp(appID string) error {
-	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID, nil)
+func (c *HelixClient) DeleteApp(appID string, deleteKnowledge bool) error {
+	query := url.Values{}
+	query.Add("knowledge", strconv.FormatBool(deleteKnowledge))
+	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}
