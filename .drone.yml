@@ -9,6 +9,9 @@ workspace:
 steps:
 - name: build-backend
   image: golang:1.22.2-alpine3.19
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
   commands:
     - |
       if [ -n "$DRONE_TAG" ]; then
@@ -17,6 +20,20 @@ steps:
         go build -o helix
       fi
       ./helix version
+      apk add github-cli
+      if [ -n "$DRONE_TAG" ]; then
+        echo "$GITHUB_TOKEN" | gh auth login --with-token
+        RELEASE=$(gh release list | grep "^$DRONE_TAG " | head -n 1 | awk '{print $1}')
+        if [ -n "$RELEASE" ]; then
+          echo "Uploading helix binary to release $RELEASE"
+          gh release upload "$RELEASE" helix
+        else
+          echo "No matching release found for tag $DRONE_TAG"
+        fi
+      else
+        echo "No tag present, skipping release upload"
+      fi
+
 
 - name: unit-test
   image: golang:1.22.2-alpine3.19
@@ -38,23 +55,6 @@ steps:
     - cd frontend
     - yarn install
     - yarn build
-
-# - name: upload-to-github-release
-#   image: plugins/github-release
-#   settings:
-#     api_key:
-#       from_secret: github_token
-#     files: helix
-#     checksum:
-#       - md5
-#       - sha1
-#       - sha256
-#     draft: false
-#     prerelease: false
-#     overwrite: true
-#   when:
-#     event:
-#       - tag
 
 services:
 - name: postgres
