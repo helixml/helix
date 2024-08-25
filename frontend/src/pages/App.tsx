@@ -586,6 +586,7 @@ const App: FC = () => {
   }, [app, snackbar]);
 
   const onAddGptScript = useCallback(() => {
+    const currentDateTime = new Date().toISOString();
     const newScript: IAssistantGPTScript = {
       name: '',
       description: '',
@@ -603,8 +604,8 @@ const App: FC = () => {
           script: newScript.content,
         }
       },
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
+      created: currentDateTime,
+      updated: currentDateTime,
       owner: account.user?.id || '',
       owner_type: 'user',
     });
@@ -617,11 +618,25 @@ const App: FC = () => {
       return;
     }
 
+    const currentDateTime = new Date().toISOString();
+
     const newScript: IAssistantGPTScript = {
       name: tool.name,
       description: tool.description,
       file: tool.id,
       content: tool.config.gptscript?.script || '',
+    };
+
+    const updatedTool: ITool = {
+      ...tool,
+      created: tool.created || currentDateTime,
+      updated: currentDateTime,
+      config: {
+        gptscript: {
+          script: tool.config.gptscript?.script || '',
+          script_url: tool.config.gptscript?.script ? '' : tool.config.gptscript?.script_url || '',
+        }
+      }
     };
 
     setApp(prevApp => {
@@ -635,13 +650,13 @@ const App: FC = () => {
             : [...assistant.gptscripts, newScript]
           : [newScript],
         tools: assistant.tools
-          ? assistant.tools.map(t => t.id === tool.id ? tool : t)
-          : [tool]
+          ? assistant.tools.map(t => t.id === updatedTool.id ? updatedTool : t)
+          : [updatedTool]
       }));
 
-      if (!updatedAssistants.some(assistant => assistant.tools.some(t => t.id === tool.id))) {
+      if (!updatedAssistants.some(assistant => assistant.tools.some(t => t.id === updatedTool.id))) {
         if (updatedAssistants[0]) {
-          updatedAssistants[0].tools = [...(updatedAssistants[0].tools || []), tool];
+          updatedAssistants[0].tools = [...(updatedAssistants[0].tools || []), updatedTool];
         } else {
           console.error('No assistants available to add the tool');
         }
@@ -660,8 +675,8 @@ const App: FC = () => {
     });
 
     setTools(prevTools => {
-      const updatedTools = prevTools.filter(t => t.id !== tool.id);
-      return [...updatedTools, tool];
+      const updatedTools = prevTools.filter(t => t.id !== updatedTool.id);
+      return [...updatedTools, updatedTool];
     });
 
     setEditingTool(null);
