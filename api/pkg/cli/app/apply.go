@@ -101,6 +101,8 @@ var applyCmd = &cobra.Command{
 						}
 					}
 				}
+
+				return nil
 			}
 		}
 
