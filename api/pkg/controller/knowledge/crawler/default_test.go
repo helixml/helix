@@ -16,6 +16,10 @@ func TestDefault_Crawl(t *testing.T) {
 		Source: types.KnowledgeSource{
 			Web: &types.KnowledgeSourceWeb{
 				URLs: []string{"https://docs.helix.ml/helix"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: true,
+				},
+				Excludes: []string{"searchbot/*"},
 			},
 		},
 	}
@@ -51,4 +55,6 @@ func TestDefault_Crawl(t *testing.T) {
 
 	require.True(t, apiToolsTextFound, "api tools text not found")
 	require.True(t, privateDeploymentTextFound, "private deployment text not found")
+
+	t.Logf("docs: %d", len(docs))
 }
