@@ -36,6 +36,8 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			retry.Delay(delayBetweenApiRetries),
 			retry.Context(ctx),
 		)
+	case types.ToolTypeEmail:
+		return c.RunEmailAction(ctx, tool, history, currentMessage, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
