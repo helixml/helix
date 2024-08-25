@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
-	"github.com/rs/zerolog/log"
 )
 
 func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
@@ -158,23 +156,10 @@ func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, session
 		Messages: messages,
 	}
 
-	started := time.Now()
-
 	resp, err := c.apiClient.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
-
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		log.Info().
-			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Dur("duration", time.Since(started)).
-			Msg("LLM call")
-		// c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
-	}()
 
 	return resp, nil
 }
@@ -202,23 +187,10 @@ func (c *ChainStrategy) handleErrorResponseStream(ctx context.Context, sessionID
 		Messages: messages,
 	}
 
-	started := time.Now()
-
 	resp, err := c.apiClient.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get response from inference API: %w", err)
 	}
-
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		log.Info().
-			Str("session_id", sessionID).
-			Str("interaction_id", interactionID).
-			Dur("duration", time.Since(started)).
-			Msg("LLM call")
-		// c.logLLMCall(sessionID, interactionID, types.LLMCallStepInterpretResponse, &req, &resp, time.Since(started).Milliseconds())
-	}()
 
 	return resp, nil
 }
