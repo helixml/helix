@@ -177,6 +177,12 @@ func (c *ChainStrategy) getActionableSystemPrompt(tools []*types.Tool, options O
 				Description: tool.Description,
 				ToolType:    string(tool.ToolType),
 			})
+		case types.ToolTypeEmail:
+			modelTools = append(modelTools, &modelTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+				ToolType:    string(tool.ToolType),
+			})
 		}
 
 	}

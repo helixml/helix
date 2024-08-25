@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -22,12 +23,14 @@ func TestActionTestSuite(t *testing.T) {
 
 type ActionTestSuite struct {
 	suite.Suite
-	ctrl      *gomock.Controller
-	executor  *gptscript.MockExecutor
-	apiClient *openai.MockClient
-	store     *store.MockStore
-	ctx       context.Context
-	strategy  *ChainStrategy
+	ctrl          *gomock.Controller
+	executor      *gptscript.MockExecutor
+	apiClient     *openai.MockClient
+	store         *store.MockStore
+	authenticator *auth.MockAuthenticator
+	user          *types.User
+	ctx           context.Context
+	strategy      *ChainStrategy
 }
 
 func (suite *ActionTestSuite) SetupTest() {
@@ -37,6 +40,14 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
 	suite.store = store.NewMockStore(suite.ctrl)
+
+	user := &types.User{
+		ID:    "user-123",
+		Email: "test@example.com",
+	}
+
+	suite.authenticator = auth.NewMockAuthenticator(user)
+	suite.user = user
 
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
@@ -53,7 +64,7 @@ func (suite *ActionTestSuite) SetupTest() {
 		apiClient = openai.NewMockClient(suite.ctrl)
 	}
 
-	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, apiClient)
+	strategy, err := NewChainStrategy(&cfg, suite.store, suite.authenticator, suite.executor, apiClient)
 	suite.NoError(err)
 
 	suite.strategy = strategy
