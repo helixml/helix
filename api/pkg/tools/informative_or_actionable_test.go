@@ -112,7 +112,7 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 	suite.strategy.wg.Wait()
 
 	suite.Equal("yes", resp.NeedsTool)
-	suite.Equal("getWeather", resp.Api)
+	suite.Equal("getWeather", resp.ToolName)
 }
 
 func (suite *ActionTestSuite) TestIsActionable_Retryable() {
@@ -182,7 +182,7 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 	suite.strategy.wg.Wait()
 
 	suite.Equal("yes", resp.NeedsTool)
-	suite.Equal("getWeather", resp.Api)
+	suite.Equal("getWeather", resp.ToolName)
 }
 
 func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
@@ -227,5 +227,5 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 	suite.strategy.wg.Wait()
 
 	suite.Equal("no", resp.NeedsTool)
-	suite.Equal("", resp.Api)
+	suite.Equal("", resp.ToolName)
 }
