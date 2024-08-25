@@ -13,7 +13,7 @@ steps:
     GITHUB_TOKEN:
       from_secret: github_token
   commands:
-    - apk add --no-cache git make
+    - apk add --no-cache git make gcc musl-dev
     - go install github.com/mitchellh/gox@latest
     - |
       if [ -n "$DRONE_TAG" ]; then
