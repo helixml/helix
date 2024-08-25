@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/apps"
+	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -127,6 +128,13 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 					return nil, system.NewHTTPError400(err.Error())
 				}
 			}
+
+			for _, k := range assistant.Knowledge {
+				err = s.validateKnowledge(k)
+				if err != nil {
+					return nil, system.NewHTTPError400(err.Error())
+				}
+			}
 		}
 
 		created, err = s.Store.CreateApp(ctx, &app)
@@ -195,6 +203,10 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	}
 
 	return created, nil
+}
+
+func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
+	return knowledge.Validate(k)
 }
 
 // ensureKnowledge creates or updates knowledge config in the database
@@ -293,7 +305,7 @@ func (s *HelixAPIServer) getApp(_ http.ResponseWriter, r *http.Request) (*types.
 	return app, nil
 }
 
-// updateTool godoc
+// updateApp godoc
 // @Summary Update an existing app
 // @Description Update existing app
 // @Tags    apps
@@ -347,6 +359,13 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 				return nil, system.NewHTTPError400(err.Error())
 			}
 		}
+
+		for _, k := range assistant.Knowledge {
+			err = s.validateKnowledge(k)
+			if err != nil {
+				return nil, system.NewHTTPError400(err.Error())
+			}
+		}
 	}
 
 	// Updating the app
@@ -363,7 +382,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	return updated, nil
 }
 
-// updateTool godoc
+// updateGithubApp godoc
 // @Summary Update an existing app
 // @Description Update existing app
 // @Tags    apps
@@ -469,8 +488,9 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)
-
 	id := getID(r)
+
+	deleteKnowledge := r.URL.Query().Get("knowledge") == "true"
 
 	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
@@ -487,6 +507,22 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	} else {
 		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError403("you do not have permission to delete this app")
+		}
+	}
+
+	if deleteKnowledge {
+		knowledge, err := s.Store.ListKnowledge(r.Context(), &store.ListKnowledgeQuery{
+			AppID: id,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		for _, k := range knowledge {
+			err = s.Store.DeleteKnowledge(r.Context(), k.ID)
+			if err != nil {
+				return nil, system.NewHTTPError500(err.Error())
+			}
 		}
 	}
 

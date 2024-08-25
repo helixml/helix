@@ -4,12 +4,13 @@ import (
 	"fmt"
 
 	"github.com/helixml/helix/api/pkg/client"
-	"github.com/helixml/helix/api/pkg/types"
 	"github.com/spf13/cobra"
 )
 
 func init() {
 	rootCmd.AddCommand(removeCmd)
+
+	removeCmd.Flags().Bool("knowledge", true, "Delete knowledge")
 }
 
 var removeCmd = &cobra.Command{
@@ -22,31 +23,23 @@ var removeCmd = &cobra.Command{
 			return fmt.Errorf("app name or ID is required")
 		}
 
+		knowledge, err := cmd.Flags().GetBool("knowledge")
+		if err != nil {
+			return err
+		}
+
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
 			return err
 		}
 
-		apps, err := apiClient.ListApps(&client.AppFilter{})
+		app, err := lookupApp(apiClient, args[0])
 		if err != nil {
-			return fmt.Errorf("failed to list apps: %w", err)
-		}
-
-		// Find the app by name or ID
-		var app *types.App
-		for _, a := range apps {
-			if a.Config.Helix.Name == args[0] || a.ID == args[0] {
-				app = a
-				break
-			}
-		}
-
-		if app == nil {
-			return fmt.Errorf("app %s not found", args[0])
+			return fmt.Errorf("failed to lookup app: %w", err)
 		}
 
 		// Delete the app
-		if err := apiClient.DeleteApp(app.ID); err != nil {
+		if err := apiClient.DeleteApp(app.ID, knowledge); err != nil {
 			return fmt.Errorf("failed to delete app: %w", err)
 		}
 

@@ -1,6 +1,12 @@
 package app
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/helixml/helix/api/pkg/client"
+	"github.com/helixml/helix/api/pkg/types"
+	"github.com/spf13/cobra"
+)
 
 var rootCmd = &cobra.Command{
 	Use:     "app",
@@ -14,4 +20,19 @@ var rootCmd = &cobra.Command{
 
 func New() *cobra.Command {
 	return rootCmd
+}
+
+func lookupApp(apiClient *client.HelixClient, ref string) (*types.App, error) {
+	apps, err := apiClient.ListApps(&client.AppFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list apps: %w", err)
+	}
+
+	for _, app := range apps {
+		if app.Config.Helix.Name == ref || app.ID == ref {
+			return app, nil
+		}
+	}
+
+	return nil, fmt.Errorf("app not found: %s", ref)
 }

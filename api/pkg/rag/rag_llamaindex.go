@@ -46,6 +46,8 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 		Str("document_group_id", indexReq.DocumentGroupID).
 		Str("document_id", indexReq.DocumentID).
 		Int("content_offset", indexReq.ContentOffset).
+		Str("filename", indexReq.Filename).
+		Str("source", indexReq.Source).
 		Logger()
 
 	if indexReq.DataEntityID == "" {
@@ -149,6 +151,13 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 	err = json.Unmarshal(body, &queryResp)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing JSON (%s), error: %s", string(body), err.Error())
+	}
+
+	for _, result := range queryResp {
+		// Backwards compatibility
+		if result.Source == "" {
+			result.Source = result.Filename
+		}
 	}
 
 	logger.Info().Msg("query results")
