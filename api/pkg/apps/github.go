@@ -293,6 +293,19 @@ func (githubApp *GithubApp) processConfig(config *types.AppHelixConfig) (*types.
 			config.Assistants[i].GPTScripts = []types.AssistantGPTScript{}
 		}
 
+		if assistant.EmailSending != nil {
+			config.Assistants[i].Tools = append(config.Assistants[i].Tools, &types.Tool{
+				Name:        "Email",
+				Description: assistant.EmailSending.Description,
+				ToolType:    types.ToolTypeEmail,
+				Config: types.ToolConfig{
+					Email: &types.ToolEmailConfig{
+						Enabled: assistant.EmailSending.Enabled,
+					},
+				},
+			})
+		}
+
 		var (
 			newTools   []*types.Tool
 			newScripts []types.AssistantGPTScript

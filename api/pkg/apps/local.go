@@ -48,6 +48,21 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 	)
 
 	for idx, assistant := range app.Assistants {
+
+		if assistant.EmailSending != nil {
+			fmt.Println("xx ", assistant.EmailSending)
+			app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, &types.Tool{
+				Name:        "Email",
+				Description: assistant.EmailSending.Description,
+				ToolType:    types.ToolTypeEmail,
+				Config: types.ToolConfig{
+					Email: &types.ToolEmailConfig{
+						Enabled: assistant.EmailSending.Enabled,
+					},
+				},
+			})
+		}
+
 		for _, api := range assistant.APIs {
 			schema, err := processApiSchema(filename, api.Schema)
 			if err != nil {
@@ -71,7 +86,8 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 			})
 		}
 
-		app.Assistants[idx].Tools = apiTools
+		// app.Assistants[idx].Tools = apiTools
+		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, apiTools...)
 
 		for _, script := range assistant.GPTScripts {
 			switch {
@@ -116,7 +132,11 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 				}
 			}
 		}
+
+		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, gptScripts...)
 	}
+
+	// spew.Dump(app)
 
 	return &LocalApp{
 		filename: filename,

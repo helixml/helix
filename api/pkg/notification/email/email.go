@@ -51,3 +51,7 @@ func (e *Email) getClient(email string) *notify.Notify {
 
 	return ntf
 }
+
+func Enabled(cfg *config.ServerConfig) bool {
+	return cfg.Notifications.Email.Mailgun.APIKey != "" || cfg.Notifications.Email.SMTP.Host != ""
+}
