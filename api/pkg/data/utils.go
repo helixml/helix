@@ -11,6 +11,30 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// Version is set by the build process
+var Version string
+
+func GetHelixVersion() string {
+	if Version != "" {
+		return Version
+	}
+
+	helixVersion := "<unknown>"
+	info, ok := debug.ReadBuildInfo()
+	if ok {
+		for _, kv := range info.Settings {
+			if kv.Value == "" {
+				continue
+			}
+			switch kv.Key {
+			case "vcs.revision":
+				helixVersion = kv.Value
+			}
+		}
+	}
+	return helixVersion
+}
+
 func GetInteractionFinetuneFile(session *types.Session, interactionID string) (string, error) {
 	interaction, err := GetInteraction(session, interactionID)
 	if err != nil {
@@ -237,23 +261,6 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 		Summary:       summary,
 		Priority:      session.Metadata.Priority,
 	}, nil
-}
-
-func GetHelixVersion() string {
-	helixVersion := "<unknown>"
-	info, ok := debug.ReadBuildInfo()
-	if ok {
-		for _, kv := range info.Settings {
-			if kv.Value == "" {
-				continue
-			}
-			switch kv.Key {
-			case "vcs.revision":
-				helixVersion = kv.Value
-			}
-		}
-	}
-	return helixVersion
 }
 
 func CloneSession(
