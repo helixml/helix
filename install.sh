@@ -34,4 +34,4 @@ sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEAS
 
 echo "Helix CLI has been installed to /usr/local/bin/helix"
 echo "docker-compose.yaml has been downloaded to /opt/HelixML/docker-compose.yaml"
-echo "You can now cd /opt/HelixML and run 'docker-compose up' to start Helix"
+echo "You can now cd /opt/HelixML and run 'docker compose up -d' to start Helix"
