@@ -16,6 +16,7 @@ steps:
       else
         go build -o helix
       fi
+      ./helix version
 
 - name: unit-test
   image: golang:1.22.2-alpine3.19
@@ -38,6 +39,22 @@ steps:
     - yarn install
     - yarn build
 
+# - name: upload-to-github-release
+#   image: plugins/github-release
+#   settings:
+#     api_key:
+#       from_secret: github_token
+#     files: helix
+#     checksum:
+#       - md5
+#       - sha1
+#       - sha256
+#     draft: false
+#     prerelease: false
+#     overwrite: true
+#   when:
+#     event:
+#       - tag
 
 services:
 - name: postgres
