@@ -14,3 +14,4 @@ kubeconfig
 helix
 .vscode
 integration-test/frontend/screenshots
+instructions.txt
