@@ -160,6 +160,8 @@ type TextExtractor struct {
 }
 
 type RAG struct {
+	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"20" description:"The number of concurrent indexing tasks."`
+
 	Llamaindex struct {
 		// the URL we can post a chunk of text to for RAG indexing
 		RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`

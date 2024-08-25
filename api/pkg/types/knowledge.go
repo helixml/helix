@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -57,6 +58,11 @@ type Knowledge struct {
 	// directly uploaded files, S3, GCS, Google Drive, Gmail, etc.
 	Source KnowledgeSource `json:"source" gorm:"jsonb"`
 
+	// Version of the knowledge, will be used to separate different versions
+	// of the same knowledge when updating it. Format is
+	// YYYY-MM-DD-HH-MM-SS.
+	Version string `json:"version" yaml:"version"`
+
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
 	// every 24 hours.
@@ -65,6 +71,13 @@ type Knowledge struct {
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
 	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
+}
+
+func (k *Knowledge) GetDataEntityID() string {
+	if k.Version == "" {
+		return k.ID
+	}
+	return fmt.Sprintf("%s-%s", k.ID, k.Version)
 }
 
 type KnowledgeState string
@@ -107,8 +120,24 @@ func (KnowledgeSource) GormDataType() string {
 }
 
 type KnowledgeSourceWeb struct {
-	URLs []string               `json:"urls"`
-	Auth KnowledgeSourceWebAuth `json:"auth"`
+	Excludes []string               `json:"excludes" yaml:"excludes"`
+	URLs     []string               `json:"urls" yaml:"urls"`
+	Auth     KnowledgeSourceWebAuth `json:"auth" yaml:"auth"`
+	// Additional options for the crawler
+	Crawler *WebsiteCrawler `json:"crawler" yaml:"crawler"`
+}
+
+type WebsiteCrawler struct {
+	Firecrawl *Firecrawl `json:"firecrawl" yaml:"firecrawl"`
+
+	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	MaxDepth  int    `json:"max_depth" yaml:"max_depth"` // Limit crawl depth to avoid infinite crawling
+	UserAgent string `json:"user_agent" yaml:"user_agent"`
+}
+
+type Firecrawl struct {
+	APIKey string `json:"api_key" yaml:"api_key"`
+	APIURL string `json:"api_url" yaml:"api_url"`
 }
 
 type KnowledgeSourceWebAuth struct {
@@ -138,4 +167,13 @@ type KnowledgeSourceGithub struct {
 	Branch           string   `json:"branch"`
 	FilterPaths      []string `json:"filter_paths"`
 	FilterExtensions []string `json:"filter_extensions"`
+}
+
+// CrawledDocument used internally to work with the crawled data
+type CrawledDocument struct {
+	ID          string
+	Title       string
+	Description string
+	SourceURL   string
+	Content     string
 }

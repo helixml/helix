@@ -6,8 +6,10 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
@@ -24,6 +26,10 @@ func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([
 func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	if k.Source.Web == nil {
 		return nil, fmt.Errorf("no web source defined")
+	}
+
+	if crawlerEnabled(k) {
+		return r.extractDataFromWebWithCrawler(ctx, k)
 	}
 
 	var result []*indexerData
@@ -43,6 +49,14 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 
 	// TODO: add concurrency
 	for _, u := range k.Source.Web.URLs {
+		// If we are not downloading the file, we just send the URL
+		if k.RAGSettings.DisableDownloading {
+			result = append(result, &indexerData{
+				Source: u,
+			})
+			continue
+		}
+
 		if extractorEnabled {
 			extracted, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
 				URL: u,
@@ -59,6 +73,7 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 			continue
 		}
 
+		// Download the file
 		bts, err := r.downloadDirectly(ctx, k, u)
 		if err != nil {
 			return nil, fmt.Errorf("failed to download data from %s, error: %w", u, err)
@@ -71,6 +86,81 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 	}
 
 	return result, nil
+}
+
+func crawlerEnabled(k *types.Knowledge) bool {
+	if k.Source.Web == nil {
+		return false
+	}
+
+	if k.Source.Web.Crawler == nil {
+		return false
+	}
+
+	if k.Source.Web.Crawler.Enabled {
+		return true
+	}
+
+	return false
+}
+
+func (r *Reconciler) extractDataFromWebWithCrawler(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	switch {
+	// If firecrawl is configured, use it
+	case k.Source.Web.Crawler.Firecrawl != nil:
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Msgf("Using firecrawl crawler")
+
+		crawler, err := crawler.NewFirecrawl(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create crawler: %w", err)
+		}
+
+		result, err := crawler.Crawl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to crawl: %w", err)
+		}
+
+		var data []*indexerData
+
+		for _, doc := range result {
+			data = append(data, &indexerData{
+				Data:   []byte(doc.Content),
+				Source: doc.SourceURL,
+			})
+		}
+
+		return data, nil
+	default:
+		// Using default crawler
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Str("knowledge_name", k.Name).
+			Msgf("Using default Helix crawler")
+
+		crawler, err := crawler.NewDefault(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create crawler: %w", err)
+		}
+
+		result, err := crawler.Crawl(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to crawl: %w", err)
+		}
+
+		var data []*indexerData
+
+		for _, doc := range result {
+			data = append(data, &indexerData{
+				Data:   []byte(doc.Content),
+				Source: doc.SourceURL,
+			})
+		}
+
+		return data, nil
+	}
 }
 
 func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u string) ([]byte, error) {

@@ -3,6 +3,7 @@ package system
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
@@ -57,4 +58,11 @@ func GenerateLLMCallID() string {
 
 func GenerateKnowledgeID() string {
 	return fmt.Sprintf("%s%s", KnowledgePrefix, newID())
+}
+
+// GenerateVersion generates a version string for the knowledge
+// This is used to identify the version of the knowledge
+// and to determine if the knowledge has been updated
+func GenerateVersion() string {
+	return time.Now().Format("2006-01-02_15-04-05")
 }

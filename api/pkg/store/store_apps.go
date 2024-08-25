@@ -70,7 +70,7 @@ func (s *PostgresStore) ListApps(ctx context.Context, q *ListAppsQuery) ([]*type
 		Owner:     q.Owner,
 		OwnerType: q.OwnerType,
 		Global:    q.Global,
-	}).Find(&tools).Error
+	}).Order("id DESC").Find(&tools).Error
 	if err != nil {
 		return nil, err
 	}

@@ -91,9 +91,10 @@ type RAGSettings struct {
 	ResultsCount     int     `json:"results_count" yaml:"results_count"`         // this is the max number of results to return - will default to 3
 
 	// Chunking configuration (Helix extracts text and chunks it)
-	ChunkSize       int  `json:"chunk_size" yaml:"chunk_size"`             // the size of each text chunk - will default to 512 bytes
-	ChunkOverflow   int  `json:"chunk_overflow" yaml:"chunk_overflow"`     // the amount of overlap between chunks - will default to 32 bytes
-	DisableChunking bool `json:"disable_chunking" yaml:"disable_chunking"` // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	ChunkSize          int  `json:"chunk_size" yaml:"chunk_size"`                   // the size of each text chunk - will default to 2000 bytes
+	ChunkOverflow      int  `json:"chunk_overflow" yaml:"chunk_overflow"`           // the amount of overlap between chunks - will default to 32 bytes
+	DisableChunking    bool `json:"disable_chunking" yaml:"disable_chunking"`       // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	DisableDownloading bool `json:"disable_downloading" yaml:"disable_downloading"` // if true, we will not download the file and send the URL to the RAG indexing endpoint
 
 	// RAG endpoint configuration if used with a custom RAG service
 	IndexURL string `json:"index_url" yaml:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
@@ -125,6 +126,7 @@ func (RAGSettings) GormDataType() string {
 // the data we send off to llamaindex to be indexed in the db
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
+	Source          string `json:"source"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
 	DocumentGroupID string `json:"document_group_id"`
@@ -151,6 +153,7 @@ type SessionRAGResult struct {
 	DocumentID      string  `json:"document_id"`
 	DocumentGroupID string  `json:"document_group_id"`
 	Filename        string  `json:"filename"`
+	Source          string  `json:"source"`
 	ContentOffset   int     `json:"content_offset"`
 	Content         string  `json:"content"`
 	Distance        float64 `json:"distance"`
