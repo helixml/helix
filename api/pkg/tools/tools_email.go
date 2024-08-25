@@ -8,12 +8,49 @@ import (
 
 	"github.com/helixml/helix/api/pkg/notification/email"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
+	"github.com/rs/zerolog/log"
 )
 
-func (c *ChainStrategy) RunEmailAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
+func (c *ChainStrategy) runEmailActionStream(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*openai.ChatCompletionStream, error) {
+	resp, err := c.runEmailAction(ctx, tool, history, currentMessage, action)
+	if err != nil {
+		return nil, err
+	}
+
+	downstream, downstreamWriter, err := transport.NewOpenAIStreamingAdapter(openai.ChatCompletionRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create streaming adapter: %w", err)
+	}
+
+	go func() {
+		defer downstreamWriter.Close()
+
+		// Write the response to the stream
+		parts := strings.Split(resp.Message, " ")
+		for _, part := range parts {
+			downstreamWriter.Write([]byte(part))
+			oai.WriteStreamingResponseChunk(downstreamWriter, &openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{
+					{
+						Delta: openai.ChatCompletionStreamChoiceDelta{
+							Content: part,
+						},
+					},
+				},
+			})
+		}
+	}()
+
+	return downstream, nil
+}
+
+func (c *ChainStrategy) runEmailAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
 	if !c.emailConfigured() {
+		log.Warn().
+			Msg("Email is not configured in Helix, follow the instructions in the readme to configure email")
 		return &RunActionResponse{
 			Message: "Email is not configured in Helix, follow the instructions in the readme to configure email",
 		}, nil
@@ -146,6 +183,12 @@ func (c *ChainStrategy) emailConfigured() bool {
 
 func (c *ChainStrategy) sendEmail(ctx context.Context, to, subject, body string) error {
 	client := email.New(c.cfg)
+
+	log.Info().
+		Str("to", to).
+		Str("subject", subject).
+		Str("body", body).
+		Msg("sending email")
 
 	return client.Send(ctx, to, subject, body)
 }

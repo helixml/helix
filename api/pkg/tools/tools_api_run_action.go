@@ -37,7 +37,7 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 			retry.Context(ctx),
 		)
 	case types.ToolTypeEmail:
-		return c.RunEmailAction(ctx, tool, history, currentMessage, action)
+		return c.runEmailAction(ctx, tool, history, currentMessage, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
@@ -49,6 +49,8 @@ func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interact
 	// 	return c.RunGPTScriptAction(ctx, tool, history, currentMessage, action)
 	case types.ToolTypeAPI:
 		return c.runApiActionStream(ctx, sessionID, interactionID, tool, history, currentMessage, action)
+	case types.ToolTypeEmail:
+		return c.runEmailActionStream(ctx, tool, history, currentMessage, action)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", tool.ToolType)
 	}
