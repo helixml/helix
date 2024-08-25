@@ -19,6 +19,7 @@ import AccordionDetails from '@mui/material/AccordionDetails'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import AddIcon from '@mui/icons-material/Add'
 import { v4 as uuidv4 } from 'uuid'; // Add this import for generating unique IDs
+import { parse as parseYaml } from 'yaml';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -142,7 +143,7 @@ const isGithubApp = (app: IApp): boolean => {
 };
 
 const App: FC = () => {
-  console.log('App component rendered');
+  console.log('App component rendering');
   const loading = useLoading()
   const account = useAccount()
   const apps = useApps()
@@ -180,6 +181,7 @@ const App: FC = () => {
   const [updatedTools, setUpdatedTools] = useState<ITool[]>([]);
 
   const [app, setApp] = useState<IApp | null>(null);
+  const [tools, setTools] = useState<ITool[]>([]);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -221,6 +223,9 @@ const App: FC = () => {
       initialApp = apps.data.find((a) => a.id === params.app_id) || null;
     }
     setApp(initialApp);
+    if (initialApp && initialApp.config.helix.assistants.length > 0) {
+      setTools(initialApp.config.helix.assistants[0].tools || []);
+    }
   }, [params.app_id, apps.data, account.user]);
 
   const isReadOnly = useMemo(() => {
@@ -345,6 +350,25 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
+  const validateApiSchemas = (app: IApp): string[] => {
+    const errors: string[] = [];
+    app.config.helix.assistants.forEach((assistant, assistantIndex) => {
+      assistant.tools.forEach((tool, toolIndex) => {
+        if (tool.tool_type === 'api' && tool.config.api) {
+          try {
+            const parsedSchema = parseYaml(tool.config.api.schema);
+            if (!parsedSchema || typeof parsedSchema !== 'object') {
+              errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+            }
+          } catch (error) {
+            errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
+          }
+        }
+      });
+    });
+    return errors;
+  };
+
   const onUpdate = useCallback(async () => {
     if (!app) {
       snackbar.error('No app data available');
@@ -353,6 +377,12 @@ const App: FC = () => {
 
     if (!validate()) {
       setShowErrors(true);
+      return;
+    }
+
+    const schemaErrors = validateApiSchemas(app);
+    if (schemaErrors.length > 0) {
+      snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
       return;
     }
 
@@ -366,6 +396,10 @@ const App: FC = () => {
           ...app.config.helix,
           name,
           description,
+          assistants: app.config.helix.assistants.map(assistant => ({
+            ...assistant,
+            tools: tools,
+          })),
         },
         secrets,
         allowed_domains: allowedDomains,
@@ -395,11 +429,13 @@ const App: FC = () => {
     } catch (error: unknown) {
       if (error instanceof Error) {
         snackbar.error('Error in app operation: ' + error.message);
+        console.error('Full error:', error);
       } else {
         snackbar.error('An unknown error occurred during the app operation');
+        console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, params.app_id, navigate, snackbar, validate]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, params.app_id, navigate, snackbar, validate, tools]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -476,8 +512,38 @@ const App: FC = () => {
       owner: account.user?.id || '',
       owner_type: 'user',
     };
+
+    if (!app || !app.config.helix.assistants.length) {
+      // If there are no assistants, create one
+      setApp(prevApp => ({
+        ...prevApp!,
+        config: {
+          ...prevApp!.config,
+          helix: {
+            ...prevApp!.config.helix,
+            assistants: [{
+              id: uuidv4(),
+              name: 'Default Assistant',
+              description: 'Default Assistant',
+              avatar: '',
+              image: '',
+              model: '',
+              type: 'text',
+              system_prompt: '',
+              rag_source_id: '',
+              lora_id: '',
+              is_actionable_template: '',
+              apis: [],
+              gptscripts: [],
+              tools: [newTool],
+            }],
+          },
+        },
+      }));
+    }
+
     setEditingTool(newTool);
-  }, [account.user]);
+  }, [account.user, app]);
 
   const onSaveApiTool = useCallback((tool: ITool) => {
     if (!app) {
@@ -486,21 +552,17 @@ const App: FC = () => {
       return;
     }
     
+    console.log('Saving API Tool:', tool);
+
     setApp(prevApp => {
       if (!prevApp) return prevApp;
 
       const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
         ...assistant,
-        tools: assistant.tools ? assistant.tools.map(t => t.id === tool.id ? tool : t) : [tool]
+        tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
       }));
 
-      if (!updatedAssistants.some(assistant => assistant.tools.some(t => t.id === tool.id))) {
-        if (updatedAssistants[0]) {
-          updatedAssistants[0].tools = [...(updatedAssistants[0].tools || []), tool];
-        } else {
-          console.error('No assistants available to add the tool');
-        }
-      }
+      console.log('Updated assistants:', updatedAssistants);
 
       return {
         ...prevApp,
@@ -512,6 +574,11 @@ const App: FC = () => {
           },
         },
       };
+    });
+
+    setTools(prevTools => {
+      const updatedTools = prevTools.filter(t => t.id !== tool.id);
+      return [...updatedTools, tool];
     });
 
     setEditingTool(null);
@@ -592,6 +659,11 @@ const App: FC = () => {
       };
     });
 
+    setTools(prevTools => {
+      const updatedTools = prevTools.filter(t => t.id !== tool.id);
+      return [...updatedTools, tool];
+    });
+
     setEditingTool(null);
     snackbar.success('GPT Script saved successfully');
   }, [app, snackbar]);
@@ -623,7 +695,12 @@ const App: FC = () => {
 
   useEffect(() => {
     if (app && app.config.helix) {
-      const allTools = app.config.helix.assistants.flatMap(assistant => assistant.tools || []);
+      console.log('Initial assistants:', app.config.helix.assistants);
+      const allTools = app.config.helix.assistants.flatMap(assistant => {
+        console.log('Assistant:', assistant);
+        return assistant.tools || [];
+      });
+      console.log('All tools:', allTools);
       setDisplayedTools(allTools);
     }
   }, [app]);
@@ -647,6 +724,9 @@ const App: FC = () => {
   useEffect(() => {
     loadAppTools();
   }, [loadAppTools]);
+
+  console.log('Current app state:', app);
+  console.log('Displayed tools:', displayedTools);
 
   if(!account.user) return null
   if(!app) return null
@@ -774,42 +854,37 @@ const App: FC = () => {
                 <Typography variant="h6" sx={{ mb: 1 }}>
                   API Tools
                 </Typography>
-                {!isGithubApp && (
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={onAddApiTool}
-                    sx={{ mb: 2 }}
-                    disabled={isReadOnly}
-                  >
-                    Add API Tool
-                  </Button>
-                )}
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={onAddApiTool}
+                  sx={{ mb: 2 }}
+                  disabled={isReadOnly}
+                >
+                  Add API Tool
+                </Button>
                 <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                  {app?.config.helix.assistants.flatMap(assistant => 
-                    assistant.tools.filter(tool => tool.tool_type === 'api').map((apiTool, index) => (
-                      <Box
-                        key={`${assistant.id}-${apiTool.id}`}
-                        sx={{
-                          p: 2,
-                          border: '1px solid #303047',
-                          mb: 2,
-                        }}
+                  {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
+                    <Box
+                      key={apiTool.id}
+                      sx={{
+                        p: 2,
+                        border: '1px solid #303047',
+                        mb: 2,
+                      }}
+                    >
+                      <Typography variant="h6">{apiTool.name}</Typography>
+                      <Typography variant="body1">{apiTool.description}</Typography>
+                      <Button
+                        variant="outlined"
+                        onClick={() => setEditingTool(apiTool)}
+                        sx={{ mt: 1 }}
+                        disabled={isReadOnly}
                       >
-                        <ToolDetail tool={apiTool} />
-                        {!isGithubApp && (
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool(apiTool)}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        )}
-                      </Box>
-                    ))
-                  )}
+                        Edit
+                      </Button>
+                    </Box>
+                  ))}
                 </Box>
               </Box>
 
@@ -818,17 +893,15 @@ const App: FC = () => {
                 <Typography variant="h6" sx={{ mb: 1 }}>
                   GPT Scripts
                 </Typography>
-                {!isGithubApp && (
-                  <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={onAddGptScript}
-                    sx={{ mb: 2 }}
-                    disabled={isReadOnly}
-                  >
-                    Add GPT Script
-                  </Button>
-                )}
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={onAddGptScript}
+                  sx={{ mb: 2 }}
+                  disabled={isReadOnly}
+                >
+                  Add GPT Script
+                </Button>
                 <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
                   {app?.config.helix.assistants.flatMap(assistant => 
                     assistant.gptscripts.map((script, index) => (
@@ -842,31 +915,29 @@ const App: FC = () => {
                       >
                         <Typography variant="subtitle1">{script.name}</Typography>
                         <Typography variant="body2">{script.description}</Typography>
-                        {!isGithubApp && (
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool({
-                              id: script.file,
-                              name: script.name,
-                              description: script.description,
-                              tool_type: 'gptscript',
-                              global: false,
-                              config: {
-                                gptscript: {
-                                  script: script.content,
-                                }
-                              },
-                              created: '',
-                              updated: '',
-                              owner: '',
-                              owner_type: 'user',
-                            })}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        )}
+                        <Button
+                          variant="outlined"
+                          onClick={() => setEditingTool({
+                            id: script.file,
+                            name: script.name,
+                            description: script.description,
+                            tool_type: 'gptscript',
+                            global: false,
+                            config: {
+                              gptscript: {
+                                script: script.content,
+                              }
+                            },
+                            created: '',
+                            updated: '',
+                            owner: '',
+                            owner_type: 'user',
+                          })}
+                          sx={{ mt: 1 }}
+                          disabled={isReadOnly}
+                        >
+                          Edit
+                        </Button>
                       </Box>
                     ))
                   )}

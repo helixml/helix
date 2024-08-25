@@ -36,6 +36,9 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
   const [actions, setActions] = useState<IToolApiAction[]>(initialData.config.api?.actions || []);
+  const [requestPrepTemplate, setRequestPrepTemplate] = useState(initialData.config.api?.request_prep_template || '');
+  const [responseSuccessTemplate, setResponseSuccessTemplate] = useState(initialData.config.api?.response_success_template || '');
+  const [responseErrorTemplate, setResponseErrorTemplate] = useState(initialData.config.api?.response_error_template || '');
 
   useEffect(() => {
     console.log('ToolEditor: useEffect triggered with initialData:', initialData);
@@ -49,6 +52,9 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
         setHeaders(initialData.config.api.headers || {});
         setQuery(initialData.config.api.query || {});
         setActions(initialData.config.api.actions || []);
+        setRequestPrepTemplate(initialData.config.api.request_prep_template || '');
+        setResponseSuccessTemplate(initialData.config.api.response_success_template || '');
+        setResponseErrorTemplate(initialData.config.api.response_error_template || '');
       } else if (initialData.config.gptscript) {
         setGptScriptURL(initialData.config.gptscript.script_url || '');
         setGptScript(initialData.config.gptscript.script || '');
@@ -89,9 +95,9 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
               actions,
               headers,
               query,
-              request_prep_template: initialData.config.api?.request_prep_template || '',
-              response_success_template: initialData.config.api?.response_success_template || '',
-              response_error_template: initialData.config.api?.response_error_template || '',
+              request_prep_template: requestPrepTemplate,
+              response_success_template: responseSuccessTemplate,
+              response_error_template: responseErrorTemplate,
             },
           }
         : {
@@ -101,6 +107,7 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
             },
           },
     };
+    console.log('Saving tool:', updatedData);
     onSave(updatedData);
   };
 
@@ -292,6 +299,39 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
               >
                 Add Action
               </Button>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                value={requestPrepTemplate}
+                onChange={(e) => setRequestPrepTemplate(e.target.value)}
+                label="Request Prep Template"
+                fullWidth
+                multiline
+                rows={4}
+                disabled={isReadOnly}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                value={responseSuccessTemplate}
+                onChange={(e) => setResponseSuccessTemplate(e.target.value)}
+                label="Response Success Template"
+                fullWidth
+                multiline
+                rows={4}
+                disabled={isReadOnly}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                value={responseErrorTemplate}
+                onChange={(e) => setResponseErrorTemplate(e.target.value)}
+                label="Response Error Template"
+                fullWidth
+                multiline
+                rows={4}
+                disabled={isReadOnly}
+              />
             </Grid>
           </>
         ) : (
