@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -28,6 +29,7 @@ type ControllerOptions struct {
 	Config            *config.ServerConfig
 	Store             store.Store
 	PubSub            pubsub.PubSub
+	Authenticator     auth.Authenticator
 	Extractor         extract.Extractor
 	RAG               rag.RAG
 	GPTScriptExecutor gptscript.Executor
@@ -100,7 +102,7 @@ func NewController(
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, options.OpenAIClient)
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.Authenticator, options.GPTScriptExecutor, options.OpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}

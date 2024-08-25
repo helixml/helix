@@ -271,6 +271,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	controllerOptions := controller.ControllerOptions{
 		Config:            cfg,
 		Store:             store,
+		Authenticator:     keycloakAuthenticator,
 		PubSub:            ps,
 		RAG:               llamaindexRAG,
 		Extractor:         textExtractor,
