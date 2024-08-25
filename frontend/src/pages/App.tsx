@@ -20,6 +20,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import AddIcon from '@mui/icons-material/Add'
 import { v4 as uuidv4 } from 'uuid'; // Add this import for generating unique IDs
 import { parse as parseYaml } from 'yaml';
+import Tooltip from '@mui/material/Tooltip';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -182,6 +183,7 @@ const App: FC = () => {
 
   const [app, setApp] = useState<IApp | null>(null);
   const [tools, setTools] = useState<ITool[]>([]);
+  const [isNewApp, setIsNewApp] = useState(false);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -219,8 +221,10 @@ const App: FC = () => {
         owner_type: "user",
         app_source: "helix" as IAppSource,
       };
+      setIsNewApp(true);
     } else {
       initialApp = apps.data.find((a) => a.id === params.app_id) || null;
+      setIsNewApp(false);
     }
     setApp(initialApp);
     if (initialApp && initialApp.config.helix.assistants.length > 0) {
@@ -229,8 +233,8 @@ const App: FC = () => {
   }, [params.app_id, apps.data, account.user]);
 
   const isReadOnly = useMemo(() => {
-    return app?.app_source === APP_SOURCE_GITHUB;
-  }, [app]);
+    return app?.app_source === APP_SOURCE_GITHUB && !isNewApp;
+  }, [app, isNewApp]);
 
   const readOnly = useMemo(() => {
     if(!app) return true
@@ -412,7 +416,7 @@ const App: FC = () => {
 
     try {
       let result;
-      if (params.app_id === "new") {
+      if (isNewApp) {
         result = await apps.createApp(app.app_source, updatedApp.config);
       } else {
         result = await apps.updateApp(app.id, updatedApp);
@@ -424,7 +428,8 @@ const App: FC = () => {
       }
 
       setApp(result);
-      snackbar.success(params.app_id === "new" ? 'App created' : 'App updated');
+      setIsNewApp(false); // The app is no longer new after saving
+      snackbar.success(isNewApp ? 'App created' : 'App updated');
       navigate('apps');
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -435,7 +440,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, params.app_id, navigate, snackbar, validate, tools]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -832,34 +837,40 @@ const App: FC = () => {
                 label="Description"
                 helperText="Enter a description of this tool (optional)"
               />
-              <FormGroup>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={ shared }
-                      onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                        setShared(event.target.checked)
-                      } }
-                    />
-                  }
-                  label="Shared?"
-                />
-              </FormGroup>
+              <Tooltip title="Share this app with other users in your organization">
+                <FormGroup>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={ shared }
+                        onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                          setShared(event.target.checked)
+                        } }
+                        disabled={isReadOnly}
+                      />
+                    }
+                    label="Shared?"
+                  />
+                </FormGroup>
+              </Tooltip>
               {
                 account.admin && (
-                  <FormGroup>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={ global }
-                          onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                            setGlobal(event.target.checked)
-                          } }
-                        />
-                      }
-                      label="Global?"
-                    />
-                  </FormGroup>
+                  <Tooltip title="Make this app available to all users">
+                    <FormGroup>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={ global }
+                            onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                              setGlobal(event.target.checked)
+                            } }
+                            disabled={isReadOnly}
+                          />
+                        }
+                        label="Global?"
+                      />
+                    </FormGroup>
+                  </Tooltip>
                 )
               }
               <Divider sx={{mt:4,mb:4}} />
@@ -913,13 +924,13 @@ const App: FC = () => {
                   startIcon={<AddIcon />}
                   onClick={onAddGptScript}
                   sx={{ mb: 2 }}
-                  disabled={isReadOnly}
+                  disabled={isReadOnly || isGithubApp}
                 >
                   Add GPT Script
                 </Button>
                 <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                  {app?.config.helix.assistants.flatMap(assistant => 
-                    assistant.gptscripts.map((script, index) => (
+                  {app?.config.helix?.assistants?.flatMap(assistant => 
+                    assistant.gptscripts?.map((script, index) => (
                       <Box
                         key={`${assistant.id}-${script.file}`}
                         sx={{
@@ -949,12 +960,12 @@ const App: FC = () => {
                             owner_type: 'user',
                           })}
                           sx={{ mt: 1 }}
-                          disabled={isReadOnly}
+                          disabled={isReadOnly || isGithubApp}
                         >
                           Edit
                         </Button>
                       </Box>
-                    ))
+                    )) || []
                   )}
                 </Box>
               </Box>
