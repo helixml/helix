@@ -865,7 +865,9 @@ func (ToolConfig) GormDataType() string {
 }
 
 type ToolEmailConfig struct {
-	AllowedAddresses []string `json:"allowed_addresses" yaml:"allowed_addresses"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	Name        string `json:"name" yaml:"name"`
+	Description string `json:"description" yaml:"description"`
 }
 
 type ToolApiConfig struct {
@@ -963,6 +965,9 @@ type AssistantConfig struct {
 
 	// the list of gpt scripts this assistant will use
 	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+
+	EmailSending *ToolEmailConfig `json:"email_sending" yaml:"email_sending"`
+
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because

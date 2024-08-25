@@ -13,6 +13,18 @@ import (
 )
 
 func (c *ChainStrategy) RunEmailAction(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (*RunActionResponse, error) {
+	if !c.emailConfigured() {
+		return &RunActionResponse{
+			Message: "Email is not configured in Helix, follow the instructions in the readme to configure email",
+		}, nil
+	}
+
+	// Get user's email address from the database
+	userEmail, err := c.getUserEmail(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user's email address: %w", err)
+	}
+
 	// Generate email content
 	emailContent, err := c.generateEmailContent(ctx, tool, history, currentMessage)
 	if err != nil {
@@ -23,12 +35,6 @@ func (c *ChainStrategy) RunEmailAction(ctx context.Context, tool *types.Tool, hi
 	emailTitle, err := c.generateEmailTitle(ctx, tool, history, currentMessage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate email title: %w", err)
-	}
-
-	// Get user's email address from the database
-	userEmail, err := c.getUserEmail(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user's email address: %w", err)
 	}
 
 	// Send the email
@@ -132,6 +138,10 @@ func (c *ChainStrategy) getUserEmail(ctx context.Context) (string, error) {
 	}
 
 	return user.Email, nil
+}
+
+func (c *ChainStrategy) emailConfigured() bool {
+	return email.Enabled(c.cfg)
 }
 
 func (c *ChainStrategy) sendEmail(ctx context.Context, to, subject, body string) error {

@@ -67,6 +67,9 @@ func (c *ChainStrategy) validateOperationIDs(_ context.Context, _ *types.Tool, s
 
 func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 	switch tool.ToolType {
+	case types.ToolTypeEmail:
+		// OK
+		return nil
 	case types.ToolTypeGPTScript:
 
 		if tool.Config.GPTScript.Script == "" && tool.Config.GPTScript.ScriptURL == "" {
