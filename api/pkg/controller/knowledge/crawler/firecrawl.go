@@ -63,6 +63,12 @@ func (f *Firecrawl) Crawl(ctx context.Context) ([]*types.CrawledDocument, error)
 		return nil, fmt.Errorf("failed to convert result to FirecrawlDocument")
 	}
 
+	log.Info().
+		Str("knowledge_id", f.knowledge.ID).
+		Str("knowledge_name", f.knowledge.Name).
+		Int("num_docs", len(docs)).
+		Msg("crawling completed")
+
 	var crawledDocs []*types.CrawledDocument
 	for _, doc := range docs {
 		crawledDocs = append(crawledDocs, &types.CrawledDocument{
