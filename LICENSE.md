@@ -30,7 +30,7 @@ Definitions. Capitalized terms shall have the meanings defined herein.
 
 “Pricing Page” means the Pricing and Subscriptions page which has a description of the Offering tier of the Service set forth at https://helix.ml/#pricing.
 
-“Data Processing Agreement” means Helix’s data processing agreement available at https://helix.ml/legal/data-processing-agreement.
+“Data Processing Agreement” means Helix’s data processing agreement available at https://github.com/helixml/helix/blob/main/data-processing-agreement.md.
 
 “Subscription Term” means the period of time set forth in the applicable Order Form during which Customer is authorized to use the Helix Platform.
 
