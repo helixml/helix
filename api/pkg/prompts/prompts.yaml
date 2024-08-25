@@ -60,7 +60,7 @@ prompts:
         </article>
       {{- end }}
 
-      If article contains Source then provide reference in your answer in the format `[SOURCE:Source]`. For example, "According to [SOURCE:https://example.com/some/page], the answer is 42."      
+      If article contains Source then provide reference in your answer as markdown link `[SOURCE](Source)`. For example, "According to [this page](https://example.com/some/page), the answer is 42."      
     {{- end }}
     
     Here is the question from the user:
