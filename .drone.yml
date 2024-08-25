@@ -16,6 +16,7 @@ steps:
       else
         go build -o helix
       fi
+      helix version
 
 - name: unit-test
   image: golang:1.22.2-alpine3.19
