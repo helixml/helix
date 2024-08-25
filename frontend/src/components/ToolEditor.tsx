@@ -39,6 +39,7 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
   const [requestPrepTemplate, setRequestPrepTemplate] = useState(initialData.config.api?.request_prep_template || '');
   const [responseSuccessTemplate, setResponseSuccessTemplate] = useState(initialData.config.api?.response_success_template || '');
   const [responseErrorTemplate, setResponseErrorTemplate] = useState(initialData.config.api?.response_error_template || '');
+  const [useScriptUrl, setUseScriptUrl] = useState(!!initialData.config.gptscript?.script_url);
 
   useEffect(() => {
     console.log('ToolEditor: useEffect triggered with initialData:', initialData);
@@ -337,39 +338,55 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
         ) : (
           <>
             <Grid item xs={12}>
-              <TextField
-                value={gptScriptURL}
-                onChange={(e) => setGptScriptURL(e.target.value)}
-                label="Script URL"
-                fullWidth
-                id="tool-script-url"
-                name="tool-script-url"
-                error={showErrors && !gptScriptURL && !gptScript}
-                helperText={
-                  showErrors && !gptScriptURL && !gptScript
-                    ? 'Please enter a script URL or script'
-                    : ''
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={useScriptUrl}
+                    onChange={(e) => {
+                      setUseScriptUrl(e.target.checked);
+                      if (e.target.checked) {
+                        setGptScript('');
+                      } else {
+                        setGptScriptURL('');
+                      }
+                    }}
+                    disabled={isReadOnly}
+                  />
                 }
-                disabled={isReadOnly}
+                label="Use Script URL"
               />
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                value={gptScript}
-                onChange={(e) => setGptScript(e.target.value)}
-                label="Script"
-                fullWidth
-                id="tool-script"
-                name="tool-script"
-                error={showErrors && !gptScriptURL && !gptScript}
-                helperText={
-                  showErrors && !gptScriptURL && !gptScript
-                    ? 'Please enter a script URL or script'
-                    : ''
-                }
-                disabled={isReadOnly}
-              />
-            </Grid>
+            {useScriptUrl ? (
+              <Grid item xs={12}>
+                <TextField
+                  value={gptScriptURL}
+                  onChange={(e) => setGptScriptURL(e.target.value)}
+                  label="Script URL"
+                  fullWidth
+                  id="tool-script-url"
+                  name="tool-script-url"
+                  error={showErrors && !gptScriptURL}
+                  helperText={showErrors && !gptScriptURL ? 'Please enter a script URL' : ''}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+            ) : (
+              <Grid item xs={12}>
+                <TextField
+                  value={gptScript}
+                  onChange={(e) => setGptScript(e.target.value)}
+                  label="Script"
+                  fullWidth
+                  multiline
+                  rows={10}
+                  id="tool-script"
+                  name="tool-script"
+                  error={showErrors && !gptScript}
+                  helperText={showErrors && !gptScript ? 'Please enter a script' : ''}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+            )}
           </>
         )}
       </Grid>
