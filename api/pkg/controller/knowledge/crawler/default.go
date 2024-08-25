@@ -12,6 +12,11 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+const (
+	defaultMaxDepth  = 10
+	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 // Default crawler for web sources, uses colly to crawl the website
 // and convert the content to markdown
 type Default struct {
@@ -34,10 +39,27 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		domains = append(domains, parsedURL.Host)
 	}
 
+	var (
+		maxDepth  int
+		userAgent string
+	)
+
+	if d.knowledge.Source.Web.Crawler.MaxDepth == 0 {
+		maxDepth = defaultMaxDepth
+	} else {
+		maxDepth = d.knowledge.Source.Web.Crawler.MaxDepth
+	}
+
+	if d.knowledge.Source.Web.Crawler.UserAgent == "" {
+		userAgent = defaultUserAgent
+	} else {
+		userAgent = d.knowledge.Source.Web.Crawler.UserAgent
+	}
+
 	collector := colly.NewCollector(
 		colly.AllowedDomains(domains...),
-		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
-		colly.MaxDepth(5), // Limit crawl depth to avoid infinite crawling
+		colly.UserAgent(userAgent),
+		colly.MaxDepth(maxDepth), // Limit crawl depth to avoid infinite crawling
 	)
 
 	var crawledDocs []*types.CrawledDocument

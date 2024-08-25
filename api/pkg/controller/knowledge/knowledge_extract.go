@@ -93,7 +93,11 @@ func crawlerEnabled(k *types.Knowledge) bool {
 		return false
 	}
 
-	if k.Source.Web.Crawl {
+	if k.Source.Web.Crawler == nil {
+		return false
+	}
+
+	if k.Source.Web.Crawler.Enabled {
 		return true
 	}
 
