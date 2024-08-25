@@ -13,7 +13,7 @@ type Client interface {
 	CreateApp(app *types.App) (*types.App, error)
 	GetApp(appID string) (*types.App, error)
 	UpdateApp(app *types.App) (*types.App, error)
-	DeleteApp(appID string) error
+	DeleteApp(appID string, deleteKnowledge bool) error
 	ListApps(f *AppFilter) ([]*types.App, error)
 
 	ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error)

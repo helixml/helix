@@ -9,6 +9,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(removeCmd)
+
+	removeCmd.Flags().Bool("knowledge", true, "Delete knowledge")
 }
 
 var removeCmd = &cobra.Command{
@@ -19,6 +21,11 @@ var removeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("app name or ID is required")
+		}
+
+		knowledge, err := cmd.Flags().GetBool("knowledge")
+		if err != nil {
+			return err
 		}
 
 		apiClient, err := client.NewClientFromEnv()
@@ -32,7 +39,7 @@ var removeCmd = &cobra.Command{
 		}
 
 		// Delete the app
-		if err := apiClient.DeleteApp(app.ID); err != nil {
+		if err := apiClient.DeleteApp(app.ID, knowledge); err != nil {
 			return fmt.Errorf("failed to delete app: %w", err)
 		}
 
