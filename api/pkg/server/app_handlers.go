@@ -488,8 +488,9 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 // @Security BearerAuth
 func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	user := getRequestUser(r)
-
 	id := getID(r)
+
+	deleteKnowledge := r.URL.Query().Get("knowledge") == "true"
 
 	existing, err := s.Store.GetApp(r.Context(), id)
 	if err != nil {
@@ -506,6 +507,22 @@ func (s *HelixAPIServer) deleteApp(_ http.ResponseWriter, r *http.Request) (*typ
 	} else {
 		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError403("you do not have permission to delete this app")
+		}
+	}
+
+	if deleteKnowledge {
+		knowledge, err := s.Store.ListKnowledge(r.Context(), &store.ListKnowledgeQuery{
+			AppID: id,
+		})
+		if err != nil {
+			return nil, system.NewHTTPError500(err.Error())
+		}
+
+		for _, k := range knowledge {
+			err = s.Store.DeleteKnowledge(r.Context(), k.ID)
+			if err != nil {
+				return nil, system.NewHTTPError500(err.Error())
+			}
 		}
 	}
 
