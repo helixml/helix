@@ -7,6 +7,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,9 +39,13 @@ func TestDefault_Crawl(t *testing.T) {
 	for _, doc := range docs {
 		if strings.Contains(doc.Content, apiToolsText) {
 			apiToolsTextFound = true
+
+			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/develop/helix-tools/")
 		}
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
+
+			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/private-deployment/controlplane/")
 		}
 	}
 

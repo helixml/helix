@@ -12,6 +12,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+// Default crawler for web sources, uses colly to crawl the website
+// and convert the content to markdown
 type Default struct {
 	knowledge *types.Knowledge
 }

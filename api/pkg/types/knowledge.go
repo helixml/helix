@@ -123,7 +123,9 @@ type KnowledgeSourceWeb struct {
 	Excludes []string               `json:"excludes" yaml:"excludes"`
 	URLs     []string               `json:"urls" yaml:"urls"`
 	Auth     KnowledgeSourceWebAuth `json:"auth" yaml:"auth"`
-	Crawler  *WebsiteCrawler        `json:"crawler" yaml:"crawler"`
+	Crawl    bool                   `json:"crawl" yaml:"crawl"`
+	// Additional options for the crawler
+	Crawler *WebsiteCrawler `json:"crawler" yaml:"crawler"`
 }
 
 type WebsiteCrawler struct {
