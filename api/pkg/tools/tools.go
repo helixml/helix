@@ -10,6 +10,7 @@ import (
 	oai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -34,6 +35,7 @@ var _ Planner = &ChainStrategy{}
 type ChainStrategy struct {
 	cfg                  *config.ServerConfig
 	store                store.Store
+	authenticator        auth.Authenticator
 	apiClient            openai.Client
 	httpClient           *http.Client
 	gptScriptExecutor    gptscript.Executor
@@ -41,7 +43,7 @@ type ChainStrategy struct {
 	wg                   sync.WaitGroup
 }
 
-func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExecutor gptscript.Executor, client openai.Client) (*ChainStrategy, error) {
+func NewChainStrategy(cfg *config.ServerConfig, store store.Store, authenticator auth.Authenticator, gptScriptExecutor gptscript.Executor, client openai.Client) (*ChainStrategy, error) {
 	isActionableTemplate, err := getIsActionablePromptTemplate(cfg)
 	if err != nil {
 		log.Err(err).Msg("failed to get actionable template, falling back to default")
@@ -54,6 +56,7 @@ func NewChainStrategy(cfg *config.ServerConfig, store store.Store, gptScriptExec
 		cfg:                  cfg,
 		apiClient:            client,
 		store:                store,
+		authenticator:        authenticator,
 		gptScriptExecutor:    gptScriptExecutor,
 		httpClient:           retryClient.StandardClient(),
 		isActionableTemplate: isActionableTemplate,

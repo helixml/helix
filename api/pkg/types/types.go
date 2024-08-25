@@ -818,6 +818,7 @@ type ToolType string
 const (
 	ToolTypeAPI       ToolType = "api"
 	ToolTypeGPTScript ToolType = "gptscript"
+	ToolTypeEmail     ToolType = "email"
 )
 
 type Tool struct {
@@ -838,6 +839,7 @@ type Tool struct {
 type ToolConfig struct {
 	API       *ToolApiConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
+	Email     *ToolEmailConfig     `json:"email"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -860,6 +862,10 @@ func (t *ToolConfig) Scan(src interface{}) error {
 
 func (ToolConfig) GormDataType() string {
 	return "json"
+}
+
+type ToolEmailConfig struct {
+	AllowedAddresses []string `json:"allowed_addresses" yaml:"allowed_addresses"`
 }
 
 type ToolApiConfig struct {
