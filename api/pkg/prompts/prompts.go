@@ -8,6 +8,8 @@ import (
 	"text/template"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/helixml/helix/api/pkg/prompts/templates"
 )
 
 type RagContent struct {
@@ -19,7 +21,7 @@ type BackgroundKnowledge struct {
 	Description string
 	Content     string
 	DocumentID  string
-	Source      string
+	Source      string // source of the document (URL)
 }
 
 type Prompt struct {
@@ -110,60 +112,32 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 	return string(buf.Bytes()), nil
 }
 
-const knowledgePromptTemplate = `
-{{- if .RagResults }}
-	We have found the following context you may refer to in your answer:
-	{{- range .RagResults }}
-		<article>
-		DocumentID: {{ .DocumentID }}
-		Content: {{ .Content }}
-		</article>
-	{{- end }}
-
-	Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
-{{- end }}
-
-{{- if .Knowledge }}
-Here is some background knowledge context that you may refer to in your answer:
-{{- range .Knowledge }}
-<article>
-{{- if .Description }}
-Description: {{ .Description }}
-{{- end }}
-Content: {{ .Content }}
-{{- if .Source }}
-Source: {{ .Source }}
-{{- end }}        
-</article>
-{{- end }}
-
-If you think you need to refer to the knowledge, then do so by providing a list of markdown bullet points with links ` + "`" + "[SOURCE](Source)" + "`" + ` to the knowledge source.	
-
-For example:
-"
-You can find more information about this topic in:
-- [this page](https://example.com/first/page).
-- [this page](https://example.com/second/page).
-"	
-{{- end }}
-
-Here is the question from the user:
-{{.Question}}
-`
+type KnowledgePromptRequest struct {
+	UserPrompt     string
+	RAGResults     []*RagContent
+	Knowledge      []*BackgroundKnowledge
+	PromptTemplate string // Override the default prompt template
+}
 
 // KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
-func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge []*BackgroundKnowledge) (string, error) {
+func KnowledgePrompt(req *KnowledgePromptRequest) (string, error) {
 
 	tmplData := struct {
 		RagResults []*RagContent
 		Knowledge  []*BackgroundKnowledge
 		Question   string
 	}{
-		RagResults: rag,
-		Knowledge:  knowledge,
-		Question:   userPrompt,
+		RagResults: req.RAGResults,
+		Knowledge:  req.Knowledge,
+		Question:   req.UserPrompt,
 	}
-	tmpl := template.Must(template.New("KnowledgePrompt").Parse(knowledgePromptTemplate))
+
+	promptTemplate := req.PromptTemplate
+	if promptTemplate == "" {
+		promptTemplate = templates.KnowledgeTemplate
+	}
+
+	tmpl := template.Must(template.New("KnowledgePrompt").Parse(promptTemplate))
 	var buf bytes.Buffer
 	err := tmpl.Execute(&buf, tmplData)
 	if err != nil {

@@ -391,7 +391,13 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, knowledge []*prompts.BackgroundKnowledge) error {
 	lastMessage := getLastMessage(*req)
 
-	extended, err := prompts.KnowledgePrompt(lastMessage, ragResults, knowledge)
+	promptRequest := &prompts.KnowledgePromptRequest{
+		UserPrompt: lastMessage,
+		RAGResults: ragResults,
+		Knowledge:  knowledge,
+	}
+
+	extended, err := prompts.KnowledgePrompt(promptRequest)
 	if err != nil {
 		return fmt.Errorf("failed to extend message with knowledge: %w", err)
 	}
