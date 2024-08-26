@@ -9,3 +9,6 @@ var KnowledgeTemplate string
 
 //go:embed rag.tmpl
 var RagTemplate string
+
+//go:embed finetuning.tmpl
+var FinetuningTemplate string
