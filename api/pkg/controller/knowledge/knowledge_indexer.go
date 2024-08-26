@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
+	"github.com/tmc/langchaingo/textsplitter"
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -181,19 +182,27 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 // indexDataWithChunking we expect to be operating on text data, first we split,
 // then index with the rag server
 func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
-	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-		ChunkSize: k.RAGSettings.ChunkSize,
-		Overflow:  k.RAGSettings.ChunkOverflow,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create text splitter, error: %w", err)
-	}
-	documentGroupID := k.ID
+	splitter := textsplitter.NewMarkdownTextSplitter(
+		textsplitter.WithChunkSize(k.RAGSettings.ChunkSize),
+		textsplitter.WithChunkOverlap(k.RAGSettings.ChunkOverflow),
+	)
+
+	var chunks []*text.DataPrepTextSplitterChunk
 
 	for _, d := range data {
-		_, err := splitter.AddDocument(d.Source, string(d.Data), documentGroupID)
+		parts, err := splitter.SplitText(string(d.Data))
 		if err != nil {
 			return fmt.Errorf("failed to split %s, error %w", d.Source, err)
+		}
+
+		for _, part := range parts {
+			chunks = append(chunks, &text.DataPrepTextSplitterChunk{
+				Filename:        d.Source,
+				Index:           0,
+				Text:            string(part),
+				DocumentID:      getDocumentID(d.Data),
+				DocumentGroupID: k.ID,
+			})
 		}
 	}
 
@@ -201,14 +210,14 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 	log.Info().
 		Str("knowledge_id", k.ID).
-		Int("chunks", len(splitter.Chunks)).
+		Int("chunks", len(chunks)).
 		Msg("submitting chunks into the rag server")
 
 	pool := pool.New().
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
 		WithErrors()
 
-	for _, chunk := range splitter.Chunks {
+	for _, chunk := range chunks {
 		chunk := chunk
 		pool.Go(func() error {
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
