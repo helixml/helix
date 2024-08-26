@@ -91,11 +91,6 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
 func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
-	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
-	if err != nil {
-		return "", err
-	}
-
 	tmplData := struct {
 		RagResults []*RagContent
 		Question   string
@@ -103,9 +98,9 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 		RagResults: rag,
 		Question:   userPrompt,
 	}
-	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(promptTemplate))
+	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(templates.RagTemplate))
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, tmplData)
+	err := tmpl.Execute(&buf, tmplData)
 	if err != nil {
 		return "", err
 	}
