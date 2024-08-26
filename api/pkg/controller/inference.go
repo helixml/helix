@@ -278,14 +278,14 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 		return fmt.Errorf("failed to load RAG: %w", err)
 	}
 
-	backgroundKnowledge, knowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
+	knowledgeResults, knowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
 	if err != nil {
 		return fmt.Errorf("failed to load knowledge: %w", err)
 	}
 
-	if len(ragResults) > 0 || len(backgroundKnowledge) > 0 {
+	if len(ragResults) > 0 || len(knowledgeResults) > 0 {
 		// Extend last message with the RAG results
-		err := extendMessageWithKnowledge(req, ragResults, knowledge, backgroundKnowledge)
+		err := extendMessageWithKnowledge(req, ragResults, knowledge, knowledgeResults)
 		if err != nil {
 			return err
 		}
@@ -399,9 +399,9 @@ func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []
 	lastMessage := getLastMessage(*req)
 
 	promptRequest := &prompts.KnowledgePromptRequest{
-		UserPrompt: lastMessage,
-		RAGResults: ragResults,
-		Knowledge:  knowledgeResults,
+		UserPrompt:       lastMessage,
+		RAGResults:       ragResults,
+		KnowledgeResults: knowledgeResults,
 	}
 
 	if k.RAGSettings.PromptTemplate != "" {

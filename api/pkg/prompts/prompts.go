@@ -113,23 +113,23 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 }
 
 type KnowledgePromptRequest struct {
-	UserPrompt     string
-	RAGResults     []*RagContent
-	Knowledge      []*BackgroundKnowledge
-	PromptTemplate string // Override the default prompt template
+	UserPrompt       string
+	RAGResults       []*RagContent
+	KnowledgeResults []*BackgroundKnowledge
+	PromptTemplate   string // Override the default prompt template
 }
 
 // KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
 func KnowledgePrompt(req *KnowledgePromptRequest) (string, error) {
 
 	tmplData := struct {
-		RagResults []*RagContent
-		Knowledge  []*BackgroundKnowledge
-		Question   string
+		RagResults       []*RagContent
+		KnowledgeResults []*BackgroundKnowledge
+		Question         string
 	}{
-		RagResults: req.RAGResults,
-		Knowledge:  req.Knowledge,
-		Question:   req.UserPrompt,
+		RagResults:       req.RAGResults,
+		KnowledgeResults: req.KnowledgeResults,
+		Question:         req.UserPrompt,
 	}
 
 	promptTemplate := req.PromptTemplate
