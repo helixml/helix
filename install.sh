@@ -14,7 +14,7 @@
 #    ./install-helix.sh --cli
 #
 # 3. Install CLI and controlplane with external TogetherAI token:
-#    ./install-helix.sh --cli --controlplane --no-runner --togetherai-token YOUR_TOGETHERAI_TOKEN
+#    ./install-helix.sh --cli --controlplane --togetherai-token YOUR_TOGETHERAI_TOKEN
 #
 # 4. Install CLI and controlplane (to install runner separately):
 #    ./install-helix.sh --cli --controlplane
@@ -28,9 +28,10 @@
 set -euo pipefail
 
 # Default values
-CLI=true
-CONTROLPLANE=true
-RUNNER=auto
+AUTO=true
+CLI=false
+CONTROLPLANE=false
+RUNNER=false
 LARGE=false
 API_HOST=""
 RUNNER_TOKEN=""
@@ -41,18 +42,17 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --cli)
             CLI=true
+            AUTO=false
             shift
             ;;
         --controlplane)
             CONTROLPLANE=true
+            AUTO=false
             shift
             ;;
         --runner)
             RUNNER=true
-            shift
-            ;;
-        --no-runner)
-            RUNNER=false
+            AUTO=false
             shift
             ;;
         --large)
@@ -78,12 +78,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Adjust default values based on provided arguments
-if [ "$RUNNER" = "auto" ]; then
-    if [ "$CONTROLPLANE" = true ] && [ -z "$API_HOST" ]; then
+# Adjust default values based on provided arguments and AUTO mode
+if [ "$AUTO" = true ]; then
+    CLI=true
+    CONTROLPLANE=true
+    if command -v nvidia-smi &> /dev/null; then
         RUNNER=true
+    fi
+    echo "Auto-install mode detected. Installing CLI and Control Plane."
+    if command -v nvidia-smi &> /dev/null; then
+        echo "NVIDIA GPU detected. Runner will be installed."
     else
-        RUNNER=false
+        echo "No NVIDIA GPU detected. Runner will not be installed. See command "
+        echo "at the end to install runner separately on a GPU node."
     fi
 fi
 
@@ -110,7 +117,7 @@ BINARY_NAME="helix-${OS}-${ARCH}"
 # Create installation directory
 sudo mkdir -p /opt/HelixML/data/helix-{postgres,filestore}
 
-# Install CLI if requested
+# Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
     echo "Downloading Helix CLI..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
@@ -203,7 +210,7 @@ install_nvidia_docker() {
     fi
 }
 
-# Install controlplane if requested
+# Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
     echo "Downloading docker-compose.yaml..."
@@ -276,7 +283,7 @@ EOF
     echo "You can now cd /opt/HelixML and run 'docker compose up -d' to start Helix"
 fi
 
-# Install runner if requested
+# Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
     install_docker
     install_nvidia_docker
