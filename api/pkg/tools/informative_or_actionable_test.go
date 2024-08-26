@@ -10,10 +10,10 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/golang/mock/gomock"
 	"github.com/kelseyhightower/envconfig"
 	openai_ext "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 )
 
 func TestActionTestSuite(t *testing.T) {
