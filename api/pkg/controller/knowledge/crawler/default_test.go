@@ -41,6 +41,9 @@ func TestDefault_Crawl(t *testing.T) {
 	)
 
 	for _, doc := range docs {
+		// Uncomment to save the chunks to a file for debugging
+		// os.WriteFile(fmt.Sprintf("doc-%s.html", doc.Title), []byte(doc.Content), 0644)
+
 		if strings.Contains(doc.Content, apiToolsText) {
 			apiToolsTextFound = true
 
