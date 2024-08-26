@@ -278,14 +278,14 @@ func (c *Controller) enrichPromptWithKnowledge(ctx context.Context, user *types.
 		return fmt.Errorf("failed to load RAG: %w", err)
 	}
 
-	backgroundKnowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
+	backgroundKnowledge, knowledge, err := c.evaluateKnowledge(ctx, user, *req, assistant, opts)
 	if err != nil {
 		return fmt.Errorf("failed to load knowledge: %w", err)
 	}
 
 	if len(ragResults) > 0 || len(backgroundKnowledge) > 0 {
 		// Extend last message with the RAG results
-		err := extendMessageWithKnowledge(req, ragResults, backgroundKnowledge)
+		err := extendMessageWithKnowledge(req, ragResults, knowledge, backgroundKnowledge)
 		if err != nil {
 			return err
 		}
@@ -330,8 +330,11 @@ func (c *Controller) evaluateRAG(ctx context.Context, user *types.User, req open
 	return ragContent, nil
 }
 
-func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, error) {
-	var backgroundKnowledge []*prompts.BackgroundKnowledge
+func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, req openai.ChatCompletionRequest, assistant *types.AssistantConfig, opts *ChatCompletionOptions) ([]*prompts.BackgroundKnowledge, *types.Knowledge, error) {
+	var (
+		backgroundKnowledge []*prompts.BackgroundKnowledge
+		usedKnowledge       *types.Knowledge
+	)
 
 	prompt := getLastMessage(req)
 
@@ -341,7 +344,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 			AppID: opts.AppID,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("error getting knowledge: %w", err)
+			return nil, nil, fmt.Errorf("error getting knowledge: %w", err)
 		}
 		switch {
 		// If the knowledge is a content, add it to the background knowledge
@@ -370,7 +373,7 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				MaxResults:        knowledge.RAGSettings.ResultsCount,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("error querying RAG: %w", err)
+				return nil, nil, fmt.Errorf("error querying RAG: %w", err)
 			}
 
 			for _, result := range ragResults {
@@ -381,20 +384,28 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 					Content:     result.Content,
 				})
 			}
+
+			if len(ragResults) > 0 {
+				usedKnowledge = knowledge
+			}
 		}
 	}
 
-	return backgroundKnowledge, nil
+	return backgroundKnowledge, usedKnowledge, nil
 }
 
 // TODO: use different struct with just document ID and content
-func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, knowledge []*prompts.BackgroundKnowledge) error {
+func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []*prompts.RagContent, k *types.Knowledge, knowledgeResults []*prompts.BackgroundKnowledge) error {
 	lastMessage := getLastMessage(*req)
 
 	promptRequest := &prompts.KnowledgePromptRequest{
 		UserPrompt: lastMessage,
 		RAGResults: ragResults,
-		Knowledge:  knowledge,
+		Knowledge:  knowledgeResults,
+	}
+
+	if k.RAGSettings.PromptTemplate != "" {
+		promptRequest.PromptTemplate = k.RAGSettings.PromptTemplate
 	}
 
 	extended, err := prompts.KnowledgePrompt(promptRequest)
