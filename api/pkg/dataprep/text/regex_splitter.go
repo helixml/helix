@@ -37,12 +37,19 @@ const (
 	MAX_HTML_TAG_ATTRIBUTES_LENGTH     = 100
 	MAX_HTML_TAG_CONTENT_LENGTH        = 1000
 	LOOKAHEAD_RANGE                    = 100
+
+	AVOID_AT_START        = `[\s\]})>,'']`
+	PUNCTUATION           = `[.!?…]|\.{3}|[\u2026\u2047-\u2049]|[\p{Emoji_Presentation}\p{Extended_Pictographic}]`
+	QUOTE_END             = `(?:'(?=` + "`" + `)|''(?=` + "``" + `))`
+	SENTENCE_END          = `(?:{{.PUNCTUATION}}(?<!{{.AVOID_AT_START}}(?={{.PUNCTUATION}}))|{{.QUOTE_END}})(?=\S|$)`
+	SENTENCE_BOUNDARY     = `(?:{{.SENTENCE_END}}|(?=[\r\n]|$))`
+	LOOKAHEAD_PATTERN     = `(?:(?!{{.SENTENCE_END}}).){1,{{.LOOKAHEAD_RANGE}}}{{.SENTENCE_END}}`
+	NOT_PUNCTUATION_SPACE = `(?!{{.PUNCTUATION}}\s)`
+	SENTENCE_PATTERN      = `{{.NOT_PUNCTUATION_SPACE}}(?:[^\r\n]{1,{{.MAX_LENGTH}}}{{.SENTENCE_BOUNDARY}}|[^\r\n]{1,{{.MAX_LENGTH}}}(?={{.PUNCTUATION}}|{{.QUOTE_END}})(?:{{.LOOKAHEAD_PATTERN}})?)`
 )
 
-// ... (rest of the constants)
-
 // Construct the regex pattern using text/template
-var patternTemplate = `(?:^(?:[#*=-]{1,{{.MAX_HEADING_LENGTH}}|\w[^\r\n]{0,{{.MAX_HEADING_CONTENT_LENGTH}}}\r?\n[-=]{2,{{.MAX_HEADING_UNDERLINE_LENGTH}}}|<h[1-6][^>]{0,{{.MAX_HTML_HEADING_ATTRIBUTES_LENGTH}}>)[^\r\n]{1,{{.MAX_HEADING_CONTENT_LENGTH}}}(?:</h[1-6]>)?(?:\r?\n|$))|(?:\[[0-9]+\][^\r\n]{1,{{.MAX_STANDALONE_LINE_LENGTH}}})|(?:(?:^|\r?\n)[ \t]{0,3}(?:[-*+•]|\d{1,3}\.\w\.|\[[ xX]\])[ \t]+[^\r\n]{1,{{.MAX_LIST_ITEM_LENGTH}}})|(?:(?:^>(?:>|\s{2,}){0,2}[^\r\n]{1,{{.MAX_BLOCKQUOTE_LINE_LENGTH}}}\r?\n?){1,{{.MAX_BLOCKQUOTE_LINES}}})|(?:(?:^|\r?\n)(?:` + "```" + `|~~~)(?:\w{0,{{.MAX_CODE_LANGUAGE_LENGTH}}})?\r?\n[\s\S]{0,{{.MAX_CODE_BLOCK_LENGTH}}}?(?:` + "```" + `|~~~)\r?\n?)|(?:(?:^|\r?\n)(?:\|[^\r\n]{0,{{.MAX_TABLE_CELL_LENGTH}}}\|(?:\r?\n\|[-:]{1,{{.MAX_TABLE_CELL_LENGTH}}}\|){0,1}(?:\r?\n\|[^\r\n]{0,{{.MAX_TABLE_CELL_LENGTH}}}\|){0,{{.MAX_TABLE_ROWS}}}|<table>[\s\S]{0,{{.MAX_HTML_TABLE_LENGTH}}}?</table>))|(?:^(?:[-*_]){{{.MIN_HORIZONTAL_RULE_LENGTH}},}\s*$|<hr\s*/?>)|(?:[^\r\n]{1,{{.MAX_STANDALONE_LINE_LENGTH}}}(?:\r?\n|$))|(?:[^\r\n]{1,{{.MAX_SENTENCE_LENGTH}}})|(?:(?:^|\r?\n\r?\n)(?:<p>)?[^\r\n]{1,{{.MAX_PARAGRAPH_LENGTH}}}(?:</p>)?(?=\r?\n\r?\n|$))|(?:<[a-zA-Z][^>]{0,{{.MAX_HTML_TAG_ATTRIBUTES_LENGTH}}}(?:>[\s\S]{0,{{.MAX_HTML_TAG_CONTENT_LENGTH}}}?</[a-zA-Z]+>|\s*/>))|(?:(?:\$\$[\s\S]{0,{{.MAX_MATH_BLOCK_LENGTH}}}?\$\$)|(?:\$[^\$\r\n]{0,{{.MAX_MATH_INLINE_LENGTH}}}\$))`
+var patternTemplate = `(?:^(?:[#*=-]{1,{{.MAX_HEADING_LENGTH}}|\w[^\r\n]{0,{{.MAX_HEADING_CONTENT_LENGTH}}}\r?\n[-=]{2,{{.MAX_HEADING_UNDERLINE_LENGTH}}}|<h[1-6][^>]{0,{{.MAX_HTML_HEADING_ATTRIBUTES_LENGTH}}>)[^\r\n]{1,{{.MAX_HEADING_CONTENT_LENGTH}}}(?:</h[1-6]>)?(?:\r?\n|$))|(?:\[[0-9]+\][^\r\n]{1,{{.MAX_STANDALONE_LINE_LENGTH}}})|(?:(?:^|\r?\n)[ \t]{0,3}(?:[-*+•]|\d{1,3}\.\w\.|\[[ xX]\])[ \t]+{{.SENTENCE_PATTERN}})|(?:(?:^>(?:>|\s{2,}){0,2}[^\r\n]{1,{{.MAX_BLOCKQUOTE_LINE_LENGTH}}}\r?\n?){1,{{.MAX_BLOCKQUOTE_LINES}}})|(?:(?:^|\r?\n)(?:` + "```" + `|~~~)(?:\w{0,{{.MAX_CODE_LANGUAGE_LENGTH}}})?\r?\n[\s\S]{0,{{.MAX_CODE_BLOCK_LENGTH}}}?(?:` + "```" + `|~~~)\r?\n?)|(?:(?:^|\r?\n)(?:\|[^\r\n]{0,{{.MAX_TABLE_CELL_LENGTH}}}\|(?:\r?\n\|[-:]{1,{{.MAX_TABLE_CELL_LENGTH}}}\|){0,1}(?:\r?\n\|[^\r\n]{0,{{.MAX_TABLE_CELL_LENGTH}}}\|){0,{{.MAX_TABLE_ROWS}}}|<table>[\s\S]{0,{{.MAX_HTML_TABLE_LENGTH}}}?</table>))|(?:^(?:[-*_]){{"{"}}{{.MIN_HORIZONTAL_RULE_LENGTH}}{{"}"}}},}\s*$|<hr\s*/?>)|(?:[^\r\n]{1,{{.MAX_STANDALONE_LINE_LENGTH}}}(?:\r?\n|$))|{{.SENTENCE_PATTERN}}|(?:(?:^|\r?\n\r?\n)(?:<p>)?[^\r\n]{1,{{.MAX_PARAGRAPH_LENGTH}}}(?:</p>)?(?=\r?\n\r?\n|$))|(?:<[a-zA-Z][^>]{0,{{.MAX_HTML_TAG_ATTRIBUTES_LENGTH}}}(?:>[\s\S]{0,{{.MAX_HTML_TAG_CONTENT_LENGTH}}}?</[a-zA-Z]+>|\s*/>))|(?:(?:\$\$[\s\S]{0,{{.MAX_MATH_BLOCK_LENGTH}}}?\$\$)|(?:\$[^\$\r\n]{0,{{.MAX_MATH_INLINE_LENGTH}}}\$))`
 
 var pattern string
 
@@ -73,6 +80,15 @@ func init() {
 		MAX_HTML_TAG_CONTENT_LENGTH        int
 		MAX_MATH_BLOCK_LENGTH              int
 		MAX_MATH_INLINE_LENGTH             int
+		AVOID_AT_START                     string
+		PUNCTUATION                        string
+		QUOTE_END                          string
+		SENTENCE_END                       string
+		SENTENCE_BOUNDARY                  string
+		LOOKAHEAD_PATTERN                  string
+		NOT_PUNCTUATION_SPACE              string
+		SENTENCE_PATTERN                   string
+		LOOKAHEAD_RANGE                    int
 	}{
 		MAX_HEADING_LENGTH,
 		MAX_HEADING_CONTENT_LENGTH,
@@ -94,6 +110,15 @@ func init() {
 		MAX_HTML_TAG_CONTENT_LENGTH,
 		MAX_MATH_BLOCK_LENGTH,
 		MAX_MATH_INLINE_LENGTH,
+		AVOID_AT_START,
+		PUNCTUATION,
+		QUOTE_END,
+		SENTENCE_END,
+		SENTENCE_BOUNDARY,
+		LOOKAHEAD_PATTERN,
+		NOT_PUNCTUATION_SPACE,
+		SENTENCE_PATTERN,
+		LOOKAHEAD_RANGE,
 	}
 
 	var buf bytes.Buffer
@@ -106,21 +131,12 @@ func init() {
 
 var regex = regexp.MustCompile(pattern)
 
-// regex, err := regexp.Compile(pattern)
-// if err != nil {
-// 	return nil, fmt.Errorf("failed to compile regex: %w", err)
-// }
-
 type RegexTextSplitter struct {
 	Chunks []*DataPrepTextSplitterChunk
-	regex  *regexp.Regexp
 }
 
 func NewRegexTextSplitter() (*RegexTextSplitter, error) {
-
-	return &RegexTextSplitter{
-		// regex: regex,
-	}, nil
+	return &RegexTextSplitter{}, nil
 }
 
 func (r *RegexTextSplitter) AddDocument(filename, content, documentGroupID string) (string, error) {
@@ -133,6 +149,10 @@ func (r *RegexTextSplitter) AddDocument(filename, content, documentGroupID strin
 
 	// Create chunks from the matches
 	for i, match := range matches {
+		if match == "" {
+			continue
+		}
+
 		r.Chunks = append(r.Chunks, &DataPrepTextSplitterChunk{
 			Filename:        filename,
 			Index:           i,
