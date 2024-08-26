@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	gomock "github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	gomock "go.uber.org/mock/gomock"
 )
 
 func TestHelixClientTestSuite(t *testing.T) {

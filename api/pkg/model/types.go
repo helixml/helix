@@ -51,6 +51,7 @@ type OpenAIModelsList struct {
 	Models []OpenAIModel `json:"data"`
 }
 
+//go:generate mockgen -source $GOFILE -destination types_mocks.go -package $GOPACKAGE
 type Model interface {
 	// return the number of bytes of memory this model will require
 	// this enables the runner to multiplex models onto one GPU
