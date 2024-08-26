@@ -15,6 +15,7 @@ func NewMarkdownSplitter(chunkSize, chunkOverflow int) *MarkdownSplitter {
 	splitter := textsplitter.NewMarkdownTextSplitter(
 		textsplitter.WithChunkSize(chunkSize),
 		textsplitter.WithChunkOverlap(chunkOverflow),
+		textsplitter.WithCodeBlocks(true),
 	)
 
 	return &MarkdownSplitter{
