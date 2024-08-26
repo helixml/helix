@@ -1,0 +1,49 @@
+{{- if .RagResults }}
+We have found the following context you may refer to in your answer:
+{{- range .RagResults }}
+<article>
+DocumentID: {{ .DocumentID }}
+Content: {{ .Content }}
+</article>
+{{- end }}
+
+Please provided references in your answer in the format '[DOC_ID:DocumentID]'. For example, "According to [DOC_ID:f6962c8007], the answer is 42."            
+{{- end }}
+
+{{- if .Knowledge }}
+Here is some background knowledge context that you may refer to in your answer:
+{{- range .Knowledge }}
+<article>
+{{- if .Description }}
+Description: {{ .Description }}
+{{- end }}
+Content: {{ .Content }}
+{{- if .Source }}
+Source: {{ .Source }}
+{{- end }}        
+</article>
+{{- end }}
+
+If you have used the background knowledge in your answer, then provide a list of markdown bullet 
+points at the end of your answer with the relevant sources used such as 
+- [Source 1 URL]
+- [Source 2 URL]
+
+Do not repeat the same source link twice. Only include sources that were actually used in the answer.
+
+For example:
+"
+To setup the Webhook Relay agent locally, download the CLI:
+```
+curl https://my.webhookrelay.com/webhookrelay/downloads/install-cli.sh | bash
+```
+And then run login command to authenticate.
+
+You can find more information about this topic in:
+- https://example.com/agent/install.
+- https://example.com/agent/login.
+"	
+{{- end }}
+
+Here is the question from the user:
+{{.Question}}
