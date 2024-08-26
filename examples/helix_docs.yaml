@@ -6,17 +6,23 @@ assistants:
   model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
   system_prompt: |
     You are an expert at answering questions about the website https://docs.helix.ml/ and how to
-    run the Helix platform
+    run the Helix platform. Make sure your answers are very detailed and comprehensive. Use 
+    as much background knowledge as possible to answer the question and provide creative ways 
+    to resolve the question.
   knowledge:
   - name: helix-docs
-    source:
-      web:
-        rag_settings:
-          results_count: 5
-          chunk_size: 2048
+    rag_settings:
+      results_count: 8
+      chunk_size: 2048
+    source:      
+      web:        
         urls:
         - https://docs.helix.ml/helix/
         excludes:
         - searchbot/*
         crawler:
           enabled: true
+
+triggers:
+- discord:
+    server_name: "HelixML"
