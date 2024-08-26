@@ -195,10 +195,10 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 			return fmt.Errorf("failed to split %s, error %w", d.Source, err)
 		}
 
-		for _, part := range parts {
+		for idx, part := range parts {
 			chunks = append(chunks, &text.DataPrepTextSplitterChunk{
 				Filename:        d.Source,
-				Index:           0,
+				Index:           idx,
 				Text:            string(part),
 				DocumentID:      getDocumentID(d.Data),
 				DocumentGroupID: k.ID,
