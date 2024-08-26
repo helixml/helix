@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
+	"go.uber.org/mock/gomock"
 )
 
 const echoGPT = `description: Returns back the input of the script

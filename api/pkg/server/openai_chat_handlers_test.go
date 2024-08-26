@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang/mock/gomock"
 	oai "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
