@@ -111,7 +111,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
       // TODO: add the list of apis also to this display
       // we can grab stuff from the tools package that already renders endpoints
 
-      const accessType = app.global ? 'Global' : 'User'
+      const accessType = app.global ? 'Global' : 'Private'
 
       return {
         id: app.id,
@@ -147,7 +147,7 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         ),
         type: (
           <Typography variant="body1">
-            { app.app_source } ({accessType})
+            {accessType}
           </Typography>
         ),
         details: (
@@ -213,15 +213,16 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
   return (
     <SimpleTable
-      fields={[{
-        name: 'name',
-        title: 'Name',
+      fields={[
+      {
+          name: 'name',
+          title: 'Name',
       }, {
         name: 'type',
-        title: 'Type',
+        title: 'Access Type',
       }, {
         name: 'updated',
-        title: 'Updated',
+        title: 'Updated At',
       }, {
         name: 'details',
         title: 'Details',
