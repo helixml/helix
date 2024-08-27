@@ -457,10 +457,16 @@ const App: FC = () => {
                   maxHeight: '300px',
                 }}
               >
-                <AppGptscriptsGrid
-                  data={ app.config.helix?.assistants[0]?.gptscripts || [] }
-                  onRunScript={ onRunScript }
-                />
+                {app.config.helix?.assistants[0]?.gptscripts && app.config.helix.assistants[0].gptscripts.length > 0 ? (
+                  <AppGptscriptsGrid
+                    data={ app.config.helix.assistants[0].gptscripts }
+                    onRunScript={ onRunScript }
+                  />
+                ) : (
+                  <Typography variant="body2" sx={{color: 'text.secondary', fontStyle: 'italic'}}>
+                    No GPT Scripts are configured for this app.
+                  </Typography>
+                )}
               </Box>
               <Divider sx={{mt:4,mb:4}} />
               <Typography variant="subtitle1">
