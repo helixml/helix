@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
-	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -181,34 +180,23 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 // indexDataWithChunking we expect to be operating on text data, first we split,
 // then index with the rag server
 func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
-	splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
-		ChunkSize: k.RAGSettings.ChunkSize,
-		Overflow:  k.RAGSettings.ChunkOverflow,
-	})
+	chunks, err := splitData(k, data)
 	if err != nil {
-		return fmt.Errorf("failed to create text splitter, error: %w", err)
-	}
-	documentGroupID := k.ID
-
-	for _, d := range data {
-		_, err := splitter.AddDocument(d.Source, string(d.Data), documentGroupID)
-		if err != nil {
-			return fmt.Errorf("failed to split %s, error %w", d.Source, err)
-		}
+		return fmt.Errorf("failed to split data, error: %w", err)
 	}
 
 	ragClient := r.getRagClient(k)
 
 	log.Info().
 		Str("knowledge_id", k.ID).
-		Int("chunks", len(splitter.Chunks)).
+		Int("chunks", len(chunks)).
 		Msg("submitting chunks into the rag server")
 
 	pool := pool.New().
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
 		WithErrors()
 
-	for _, chunk := range splitter.Chunks {
+	for _, chunk := range chunks {
 		chunk := chunk
 		pool.Go(func() error {
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{

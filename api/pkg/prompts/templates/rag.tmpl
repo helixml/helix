@@ -1,0 +1,17 @@
+{{- if eq (len .RagResults) 0 }}
+We have no relevant documents to provide context for this question. Please suggest ways to
+improve the user's question.
+{{- else }}
+We have found the following context you may refer to in your answer:
+{{- range .RagResults }}
+  <article>
+  DocumentID: {{ .DocumentID }}
+  Content: {{ .Content }}
+  </article>
+{{- end }}
+
+Please provided references in your answer in the format `[DOC_ID:DocumentID]`. For example, "According to [DOC_ID:f6962c8007], the answer is 42."
+
+Here is the question from the user:
+{{.Question}}
+{{- end }}

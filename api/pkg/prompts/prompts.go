@@ -3,11 +3,10 @@ package prompts
 import (
 	"bytes"
 	_ "embed"
-	"fmt"
 	"strings"
 	"text/template"
 
-	"gopkg.in/yaml.v3"
+	"github.com/helixml/helix/api/pkg/prompts/templates"
 )
 
 type RagContent struct {
@@ -19,7 +18,7 @@ type BackgroundKnowledge struct {
 	Description string
 	Content     string
 	DocumentID  string
-	Source      string
+	Source      string // source of the document (URL)
 }
 
 type Prompt struct {
@@ -31,43 +30,8 @@ type PromptConfig struct {
 	Prompts []Prompt `yaml:"prompts"`
 }
 
-//go:embed prompts.yaml
-var promptConfigString string
-
-var allPrompts []Prompt
-
-func getPrompts() ([]Prompt, error) {
-	if allPrompts != nil {
-		return allPrompts, nil
-	}
-	var config PromptConfig
-	err := yaml.Unmarshal([]byte(promptConfigString), &config)
-	if err != nil {
-		return nil, err
-	}
-	allPrompts = config.Prompts
-	return allPrompts, nil
-}
-
-func getPromptTemplate(name string) (string, error) {
-	prompts, err := getPrompts()
-	if err != nil {
-		return "", err
-	}
-	for _, prompt := range prompts {
-		if prompt.Name == name {
-			return prompt.Template, nil
-		}
-	}
-	return "", fmt.Errorf("could not find prompt with name %s", name)
-}
-
 // this prompt is applied as the system prompt for a session that has been fine-tuned on some documents
 func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (string, error) {
-	promptTemplate, err := getPromptTemplate("finetune-system-prompt")
-	if err != nil {
-		return "", err
-	}
 	tmplData := struct {
 		DocumentIDs   string
 		DocumentGroup string
@@ -77,9 +41,10 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 		DocumentGroup: documentGroupID,
 		DocumentCount: len(documentIDs),
 	}
-	tmpl := template.Must(template.New("TextFinetuneSystemPrompt").Parse(promptTemplate))
+	tmpl := template.Must(template.New("TextFinetuneSystemPrompt").Parse(templates.FinetuningTemplate))
+
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, tmplData)
+	err := tmpl.Execute(&buf, tmplData)
 	if err != nil {
 		return "", err
 	}
@@ -89,11 +54,6 @@ func TextFinetuneSystemPrompt(documentIDs []string, documentGroupID string) (str
 // this prompt is applied before the user prompt is forwarded to the LLM
 // we inject the list of RAG results we loaded from the vector store
 func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
-	promptTemplate, err := getPromptTemplate("rag-inference-prompt")
-	if err != nil {
-		return "", err
-	}
-
 	tmplData := struct {
 		RagResults []*RagContent
 		Question   string
@@ -101,34 +61,43 @@ func RAGInferencePrompt(userPrompt string, rag []*RagContent) (string, error) {
 		RagResults: rag,
 		Question:   userPrompt,
 	}
-	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(promptTemplate))
+	tmpl := template.Must(template.New("RAGInferencePrompt").Parse(templates.RagTemplate))
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, tmplData)
+	err := tmpl.Execute(&buf, tmplData)
 	if err != nil {
 		return "", err
 	}
 	return string(buf.Bytes()), nil
 }
 
+type KnowledgePromptRequest struct {
+	UserPrompt       string
+	RAGResults       []*RagContent
+	KnowledgeResults []*BackgroundKnowledge
+	PromptTemplate   string // Override the default prompt template
+}
+
 // KnowledgePrompt generates a prompt for knowledge-based questions, optionally including RAG results
-func KnowledgePrompt(userPrompt string, rag []*RagContent, knowledge []*BackgroundKnowledge) (string, error) {
-	promptTemplate, err := getPromptTemplate("knowledge-prompt")
-	if err != nil {
-		return "", err
-	}
+func KnowledgePrompt(req *KnowledgePromptRequest) (string, error) {
 
 	tmplData := struct {
-		RagResults []*RagContent
-		Knowledge  []*BackgroundKnowledge
-		Question   string
+		RagResults       []*RagContent
+		KnowledgeResults []*BackgroundKnowledge
+		Question         string
 	}{
-		RagResults: rag,
-		Knowledge:  knowledge,
-		Question:   userPrompt,
+		RagResults:       req.RAGResults,
+		KnowledgeResults: req.KnowledgeResults,
+		Question:         req.UserPrompt,
 	}
+
+	promptTemplate := req.PromptTemplate
+	if promptTemplate == "" {
+		promptTemplate = templates.KnowledgeTemplate
+	}
+
 	tmpl := template.Must(template.New("KnowledgePrompt").Parse(promptTemplate))
 	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, tmplData)
+	err := tmpl.Execute(&buf, tmplData)
 	if err != nil {
 		return "", err
 	}
