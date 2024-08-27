@@ -354,6 +354,8 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 				Description: knowledge.Description,
 				Content:     *knowledge.Source.Content,
 			})
+
+			usedKnowledge = knowledge
 		default:
 			// Other sources by default should be indexed and therefore can be
 			// queried for the RAG service
