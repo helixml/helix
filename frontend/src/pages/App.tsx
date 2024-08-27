@@ -425,27 +425,29 @@ const App: FC = () => {
               <Typography variant="h6" sx={{mb: 1}}>
                 APIs
               </Typography>
-              <Box
-                sx={{mb: 2}}
-              >
-                {
+              <Box sx={{mb: 2}}>
+                {(app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').length > 0 ? (
                   (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
                     return (
                       <Box
-                        key={ index }
+                        key={index}
                         sx={{
                           p: 2,
                           border: '1px solid #303047',
                         }}
                       >
                         <ToolDetail
-                          key={ index }
-                          tool={ apiTool }
+                          key={index}
+                          tool={apiTool}
                         />
                       </Box>
                     )
                   })
-                }
+                ) : (
+                  <Typography variant="body2" sx={{color: 'text.secondary', fontStyle: 'italic'}}>
+                    No API tools are configured for this app.
+                  </Typography>
+                )}
               </Box>
               <Typography variant="h6" sx={{mb: 1}}>
                 GPT Scripts
