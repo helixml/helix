@@ -195,13 +195,15 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 
 	vals, ok := oai.GetContextValues(ctx)
 	if !ok {
-		log.Error().Msg("failed to get context values")
+		// Session data will be missing for Discord, Slack, etc.
+		log.Debug().Msg("failed to get context values")
 		vals = &oai.ContextValues{}
 	}
 
 	step, ok := oai.GetStep(ctx)
 	if !ok {
-		log.Warn().Msg("failed to get step")
+		// It's normal to not have the step in the context (if it's not a tool)
+		log.Debug().Msg("failed to get step")
 		step = &oai.Step{}
 	}
 
