@@ -469,19 +469,23 @@ const App: FC = () => {
                 )}
               </Box>
               <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1">
-                Environment Variables
-              </Typography>
-              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                These will be available to your GPT Scripts as environment variables
-              </Typography>
-              <StringMapEditor
-                entityTitle="variable"
-                disabled={ readOnly }
-                data={ secrets }
-                onChange={ setSecrets }
-              />
-              <Divider sx={{mt:4,mb:4}} />
+              {app.config.helix?.assistants[0]?.gptscripts && app.config.helix.assistants[0].gptscripts.length > 0 && (
+                <>
+                  <Typography variant="subtitle1">
+                    Environment Variables
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    These will be available to your GPT Scripts as environment variables
+                  </Typography>
+                  <StringMapEditor
+                    entityTitle="variable"
+                    disabled={ readOnly }
+                    data={ secrets }
+                    onChange={ setSecrets }
+                  />
+                  <Divider sx={{mt:4,mb:4}} />
+                </>
+              )}
               <Typography variant="subtitle1">
                 Allowed Domains
               </Typography>
