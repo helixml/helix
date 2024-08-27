@@ -1,9 +1,5 @@
-Here's the modified text with references to Docker changed to HelixML Inc. (“Helix”):
-
----
-
 **HELIXML INC. DATA PROCESSING AGREEMENT**
-Last updated October 31, 2023
+Last updated August 27th 2024
 
 This Data Processing Agreement for HelixML Inc. Services (“DPA”) forms a part of the software subscription agreement or other written agreement between HelixML Inc. (“Helix”) and Customer (“Agreement”) regarding Helix’s subscriptions and/or products or services provided by Helix and ordered by Customer (the “Service”) in accordance with the Agreement. All contacts regarding this DPA must be made to: privacy@helix.com.
 
