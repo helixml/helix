@@ -406,7 +406,7 @@ func extendMessageWithKnowledge(req *openai.ChatCompletionRequest, ragResults []
 		KnowledgeResults: knowledgeResults,
 	}
 
-	if k.RAGSettings.PromptTemplate != "" {
+	if k != nil && k.RAGSettings.PromptTemplate != "" {
 		promptRequest.PromptTemplate = k.RAGSettings.PromptTemplate
 	}
 
