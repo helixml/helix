@@ -13,6 +13,8 @@ import Alert from '@mui/material/Alert'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
+import Breadcrumbs from '@mui/material/Breadcrumbs'
+import Link from '@mui/material/Link'
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -282,7 +284,15 @@ const App: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Edit App"
+      breadcrumbs={[
+        {
+          title: 'Apps',
+          routeName: 'apps'
+        },
+        {
+          title: app.config.helix.name || 'App',
+        }
+      ]}
       topbarContent={(
         <Box
           sx={{
