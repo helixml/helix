@@ -75,7 +75,7 @@ const Page: React.FC<{
               component="span"
               key={ index }
               sx={{
-                fontSize: isLast ? '1.3rem' : '1rem',
+                fontSize: '1rem', // Changed this line to make all items the same size
               }}
             >
               {

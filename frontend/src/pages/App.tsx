@@ -13,6 +13,8 @@ import Alert from '@mui/material/Alert'
 import FormGroup from '@mui/material/FormGroup'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
+import Breadcrumbs from '@mui/material/Breadcrumbs'
+import Link from '@mui/material/Link'
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -282,7 +284,15 @@ const App: FC = () => {
 
   return (
     <Page
-      breadcrumbTitle="Edit App"
+      breadcrumbs={[
+        {
+          title: 'Apps',
+          routeName: 'apps'
+        },
+        {
+          title: app.config.helix.name || 'App',
+        }
+      ]}
       topbarContent={(
         <Box
           sx={{
@@ -358,7 +368,7 @@ const App: FC = () => {
                 multiline
                 rows={2}
                 label="Description"
-                helperText="Enter a description of this tool (optional)"
+                helperText="Enter a description for this app"
               />
               <FormGroup>
                 <FormControlLabel
@@ -390,41 +400,8 @@ const App: FC = () => {
                   </FormGroup>
                 )
               }
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="h6" sx={{mb: 1}}>
-                Github
-              </Typography>
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.config.github?.repo }
-                disabled
-                fullWidth
-                label="Repo"
-                helperText="The repository this app is linked to"
-              />
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.config.github?.hash }
-                disabled
-                fullWidth
-                label="Hash"
-                helperText="The commit hash this app is linked to"
-              />
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.updated }
-                disabled
-                fullWidth
-                label="Updated"
-                helperText="The last time this app was updated"
-              />
-              <Divider sx={{mt:4,mb:4}} />
+              <Divider sx={{mt:4,mb:4}} />              
+             
               <Typography variant="h6" sx={{mb: 1}}>
                 App Configuration
               </Typography>
@@ -458,27 +435,29 @@ const App: FC = () => {
               <Typography variant="h6" sx={{mb: 1}}>
                 APIs
               </Typography>
-              <Box
-                sx={{mb: 2}}
-              >
-                {
+              <Box sx={{mb: 2}}>
+                {(app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').length > 0 ? (
                   (app.config.helix?.assistants[0]?.tools || []).filter(t => t.tool_type == 'api').map((apiTool, index) => {
                     return (
                       <Box
-                        key={ index }
+                        key={index}
                         sx={{
                           p: 2,
                           border: '1px solid #303047',
                         }}
                       >
                         <ToolDetail
-                          key={ index }
-                          tool={ apiTool }
+                          key={index}
+                          tool={apiTool}
                         />
                       </Box>
                     )
                   })
-                }
+                ) : (
+                  <Typography variant="body2" sx={{color: 'text.secondary', fontStyle: 'italic'}}>
+                    No API tools are configured for this app.
+                  </Typography>
+                )}
               </Box>
               <Typography variant="h6" sx={{mb: 1}}>
                 GPT Scripts
@@ -488,30 +467,41 @@ const App: FC = () => {
                   maxHeight: '300px',
                 }}
               >
-                <AppGptscriptsGrid
-                  data={ app.config.helix?.assistants[0]?.gptscripts || [] }
-                  onRunScript={ onRunScript }
-                />
+                {app.config.helix?.assistants[0]?.gptscripts && app.config.helix.assistants[0].gptscripts.length > 0 ? (
+                  <AppGptscriptsGrid
+                    data={ app.config.helix.assistants[0].gptscripts }
+                    onRunScript={ onRunScript }
+                  />
+                ) : (
+                  <Typography variant="body2" sx={{color: 'text.secondary', fontStyle: 'italic'}}>
+                    No GPT Scripts are configured for this app.
+                  </Typography>
+                )}
               </Box>
               <Divider sx={{mt:4,mb:4}} />
+              {app.config.helix?.assistants[0]?.gptscripts && app.config.helix.assistants[0].gptscripts.length > 0 && (
+                <>
+                  <Typography variant="subtitle1">
+                    Environment Variables
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    These will be available to your GPT Scripts as environment variables
+                  </Typography>
+                  <StringMapEditor
+                    entityTitle="variable"
+                    disabled={ readOnly }
+                    data={ secrets }
+                    onChange={ setSecrets }
+                  />
+                  <Divider sx={{mt:4,mb:4}} />
+                </>
+              )}
               <Typography variant="subtitle1">
-                Environment Variables
-              </Typography>
-              <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                These will be available to your GPT Scripts as environment variables
-              </Typography>
-              <StringMapEditor
-                entityTitle="variable"
-                disabled={ readOnly }
-                data={ secrets }
-                onChange={ setSecrets }
-              />
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="subtitle1">
-                Allowed Domains
+                Allowed Domains (website widget)
               </Typography>
               <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
                 The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+                Ensures the website chat widget can work for your custom domain.
               </Typography>
               <StringArrayEditor
                 entityTitle="domain"
@@ -523,7 +513,10 @@ const App: FC = () => {
               <Row>
                 <Cell grow>
                   <Typography variant="subtitle1" sx={{mb: 1}}>
-                    API Keys
+                    App-scoped API Keys
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    Using this key will automatically force all requests to use this app.
                   </Typography>
                 </Cell>
                 <Cell>
