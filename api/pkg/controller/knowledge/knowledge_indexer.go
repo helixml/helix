@@ -9,9 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
-	"github.com/tmc/langchaingo/textsplitter"
 
-	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -182,28 +180,9 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 // indexDataWithChunking we expect to be operating on text data, first we split,
 // then index with the rag server
 func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
-	splitter := textsplitter.NewMarkdownTextSplitter(
-		textsplitter.WithChunkSize(k.RAGSettings.ChunkSize),
-		textsplitter.WithChunkOverlap(k.RAGSettings.ChunkOverflow),
-	)
-
-	var chunks []*text.DataPrepTextSplitterChunk
-
-	for _, d := range data {
-		parts, err := splitter.SplitText(string(d.Data))
-		if err != nil {
-			return fmt.Errorf("failed to split %s, error %w", d.Source, err)
-		}
-
-		for idx, part := range parts {
-			chunks = append(chunks, &text.DataPrepTextSplitterChunk{
-				Filename:        d.Source,
-				Index:           idx,
-				Text:            string(part),
-				DocumentID:      getDocumentID(d.Data),
-				DocumentGroupID: k.ID,
-			})
-		}
+	chunks, err := splitData(k, data)
+	if err != nil {
+		return fmt.Errorf("failed to split data, error: %w", err)
 	}
 
 	ragClient := r.getRagClient(k)
