@@ -497,10 +497,11 @@ const App: FC = () => {
                 </>
               )}
               <Typography variant="subtitle1">
-                Allowed Domains
+                Allowed Domains (website widget)
               </Typography>
               <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
                 The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+                Ensures the website chat widget can work for your custom domain.
               </Typography>
               <StringArrayEditor
                 entityTitle="domain"
@@ -512,7 +513,10 @@ const App: FC = () => {
               <Row>
                 <Cell grow>
                   <Typography variant="subtitle1" sx={{mb: 1}}>
-                    API Keys
+                    App-scoped API Keys
+                  </Typography>
+                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                    Using this key will automatically force all requests to use this app.
                   </Typography>
                 </Cell>
                 <Cell>
