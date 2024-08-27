@@ -358,7 +358,7 @@ const App: FC = () => {
                 multiline
                 rows={2}
                 label="Description"
-                helperText="Enter a description of this tool (optional)"
+                helperText="Enter a description for this app"
               />
               <FormGroup>
                 <FormControlLabel
@@ -390,41 +390,8 @@ const App: FC = () => {
                   </FormGroup>
                 )
               }
-              <Divider sx={{mt:4,mb:4}} />
-              <Typography variant="h6" sx={{mb: 1}}>
-                Github
-              </Typography>
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.config.github?.repo }
-                disabled
-                fullWidth
-                label="Repo"
-                helperText="The repository this app is linked to"
-              />
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.config.github?.hash }
-                disabled
-                fullWidth
-                label="Hash"
-                helperText="The commit hash this app is linked to"
-              />
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                value={ app.updated }
-                disabled
-                fullWidth
-                label="Updated"
-                helperText="The last time this app was updated"
-              />
-              <Divider sx={{mt:4,mb:4}} />
+              <Divider sx={{mt:4,mb:4}} />              
+             
               <Typography variant="h6" sx={{mb: 1}}>
                 App Configuration
               </Typography>
