@@ -97,10 +97,6 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	messages = append(messages,
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("<user_message>\n\n%s\n\n</user_message>", currentMessage),
-		},
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
 			Content: "Return the corresponding json for the last user input",
 		},
 	)
