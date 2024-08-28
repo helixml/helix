@@ -57,7 +57,10 @@ const CreateToolbar: FC<{
         
       </Cell>
       {
-        !app && (
+        // don't show the tools icon in inference mode since we don't have
+        // global tools any more. we still show it in "learn" mode where it
+        // controls rag and finetune settings.
+        !app && !(mode === SESSION_MODE_INFERENCE) && (
           <Cell>
             <IconButton
               onClick={ onOpenConfig }
