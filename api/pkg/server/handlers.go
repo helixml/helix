@@ -648,7 +648,7 @@ func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *ht
 		return nil, err
 	}
 	// If it is a text inference session, then restart using the "new" openai controllers
-	if session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+	if session.Metadata.OriginalMode != types.SessionModeFinetune && session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
 		apiServer.restartChatSessionHandler(res, req)
 		return session, nil
 	}
