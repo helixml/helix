@@ -38,7 +38,7 @@ func newQapairCommand() *cobra.Command {
 				serverConfig.FineTuning.QAPairGenModel = qaPairGenModel
 			}
 
-			return qapairs.Run(client, serverConfig.FineTuning.QAPairGenModel, prompt, theText)
+			return qapairs.Run(client, "n/a", "n/a", serverConfig.FineTuning.QAPairGenModel, prompt, theText)
 		},
 	}
 

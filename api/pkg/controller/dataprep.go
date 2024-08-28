@@ -299,12 +299,14 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
+	log.Debug().Int("beforechunks", len(splitter.Chunks)).Msg("PHIL")
 	// Some qapair generators expand each chunk into N chunks so they can be run
 	// by our outer concurrency manager
 	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Int("afterChunks", len(allChunks)).Msg("PHIL")
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range allChunks {
@@ -317,6 +319,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 }
 
 func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+	log.Debug().Msg("PHIL getRagChunksToProcess")
 	filesToConvert, err := c.getTextFilesToConvert(session)
 	if err != nil {
 		return nil, err
@@ -337,6 +340,9 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 		newMeta.DocumentIDs = map[string]string{}
 	}
 
+	log.Debug().
+		Interface("filesToConvert", filesToConvert).
+		Msg("PHIL Files to convert for RAG processing")
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
@@ -488,6 +494,10 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	if err != nil {
 		return nil, 0, err
 	}
+	log.Debug().
+		Int("chunksToProcess", len(chunksToProcess)).
+		Str("sessionID", session.ID).
+		Msg("PHIL Retrieved chunks to process for QA conversion")
 
 	if len(chunksToProcess) == 0 {
 		return session, 0, nil
@@ -610,7 +620,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
 			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
+			questions, convertError := dataprep.ConvertChunk(session.Owner, session.ID, chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {

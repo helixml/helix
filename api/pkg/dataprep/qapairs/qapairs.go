@@ -114,7 +114,7 @@ func FindPrompt(name string) (Prompt, error) {
 	return Prompt{}, fmt.Errorf("could not find prompt with name %s", name)
 }
 
-func Run(client openai.Client, model string, promptFilter, textFilter []string) error {
+func Run(client openai.Client, ownerID, sessionID, model string, promptFilter, textFilter []string) error {
 	var config Config
 	err := yaml.Unmarshal([]byte(qapairConfig), &config)
 	if err != nil {
@@ -154,7 +154,7 @@ func Run(client openai.Client, model string, promptFilter, textFilter []string) 
 	for _, prompt := range filteredPrompts {
 		for _, text := range filteredTexts {
 			fmt.Printf("Running helix qapairs --target=\"%s\" --prompt=\"%s\" --text=\"%s\"\n", model, prompt.Name, text.Name)
-			resp, err := Query(client, model, prompt, text, "", "", 0)
+			resp, err := Query(client, ownerID, sessionID, model, prompt, text, "", "", 0)
 			if err != nil {
 				return fmt.Errorf("error querying model: %v", err)
 			}
@@ -176,7 +176,7 @@ type TemplateData struct {
 	DocumentChunk   string
 }
 
-func Query(client openai.Client, model string, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
+func Query(client openai.Client, ownerID, sessionID, model string, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
 	// Perform the query for the given target and prompt
 	var (
 		contents string
@@ -233,10 +233,10 @@ func Query(client openai.Client, model string, prompt Prompt, text Text, documen
 	startTime := time.Now()
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
 	// try not enforcing json schema initially, only retry if we fail to parse
-	resp, err := chatWithModel(client, model, systemPrompt, userPrompt, debug, nil)
+	resp, err := chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
 		log.Warn().Msgf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
-		resp, err = chatWithModel(client, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
+		resp, err = chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
 			log.Warn().Msgf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()
@@ -295,7 +295,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(client openai.Client, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
 	req := ext_openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []ext_openai.ChatCompletionMessage{
@@ -318,8 +318,8 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 	}
 
 	ctx := openai.SetContextValues(context.Background(), &openai.ContextValues{
-		OwnerID:       "n/a",
-		SessionID:     "n/a",
+		OwnerID:       ownerID,
+		SessionID:     sessionID,
 		InteractionID: "n/a",
 	})
 
