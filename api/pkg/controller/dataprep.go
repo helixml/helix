@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/prompts"
@@ -242,13 +241,8 @@ func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, er
 }
 
 func (c *Controller) getDataPrepFactory() (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
-	client, err := qapairs.NewClient(c.Options.Config, c.Options.PubSub, c)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initialize qapairs client: %s", err.Error())
-	}
-
 	questionGenerator := text.NewDynamicDataPrep(
-		client,
+		c.openAIClient,
 		c.Options.Config.FineTuning.QAPairGenModel,
 	)
 

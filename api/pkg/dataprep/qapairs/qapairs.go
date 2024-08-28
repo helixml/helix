@@ -317,7 +317,13 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 		}
 	}
 
-	resp, err := client.CreateChatCompletion(context.Background(), req)
+	ctx := openai.SetContextValues(context.Background(), &openai.ContextValues{
+		OwnerID:       "n/a",
+		SessionID:     "n/a",
+		InteractionID: "n/a",
+	})
+
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("ChatCompletion error (%s): %v", debug, err)
 	}
