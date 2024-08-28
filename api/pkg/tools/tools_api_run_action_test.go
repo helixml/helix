@@ -58,11 +58,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 99944?",
+		},
+	}
 
-	currentMessage := "Can you please give me the details for pet 99944?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -71,7 +74,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }
 
@@ -154,11 +157,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "What's the weather like in London?",
+		},
+	}
 
-	currentMessage := "What's the weather like in London?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -167,7 +173,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }
 
@@ -228,11 +234,13 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 			Role:    openai.ChatMessageRoleAssistant,
 			Content: "The capital of the United Kingdom is London.",
 		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "What's the weather like there?",
+		},
 	}
 
-	currentMessage := "What's the weather like there?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -241,6 +249,6 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[2].Content)
 	fmt.Println("A:", resp.Message)
 }

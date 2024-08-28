@@ -6,6 +6,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
+	oai "github.com/lukemarsden/go-openai2"
 	"go.uber.org/mock/gomock"
 )
 
@@ -32,18 +33,21 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_helloWorld() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "echo back 'Hello World'",
+		},
+	}
 
-	currentMessage := "echo back 'Hello World'"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", echoGptScript, history, currentMessage, "echo")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", echoGptScript, history, "echo")
 	suite.NoError(err)
 
 	suite.Assert().Contains(resp.Message, "Hello World")
 
 	spew.Dump(resp)
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }
 
@@ -75,17 +79,20 @@ func (suite *ActionTestSuite) TestAction_runGPTScriptAction_ReceiveInput() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "can I get info about the volvo truck?",
+		},
+	}
 
-	currentMessage := "can I get info about the volvo truck?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", echoGptScript, history, currentMessage, "echo")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", echoGptScript, history, "echo")
 	suite.NoError(err)
 
 	suite.Assert().Contains(resp.Message, `Thanks for asking "can I get info about the volvo truck?", I'm am looking into it and will send you an email once I am done!`)
 
 	spew.Dump(resp)
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }

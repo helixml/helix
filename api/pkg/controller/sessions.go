@@ -600,16 +600,14 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		return session, nil
 	}
 
-	userInteraction, err := data.GetLastUserInteraction(session.Interactions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
-	}
-
 	history := data.GetLastInteractions(session, actionContextHistorySize)
 
-	// If history has more than 2 interactions, remove the last 2 as it's the current user and assistant interaction
-	if len(history) > 2 {
-		history = history[:len(history)-2]
+	for i, interaction := range history {
+		log.Info().
+			Int("index", i).
+			Str("creator", string(interaction.Creator)).
+			Str("message", interaction.Message).
+			Msg("History item")
 	}
 
 	messageHistory := types.HistoryFromInteractions(history)
@@ -627,7 +625,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		options = append(options, tools.WithIsActionableTemplate(assistant.IsActionableTemplate))
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, userInteraction.Message, options...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, session.ID, lastInteraction.ID, activeTools, messageHistory, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
 		return session, nil
@@ -637,7 +635,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 		Str("api", isActionable.Api).
 		Str("actionable", isActionable.NeedsTool).
 		Str("justification", isActionable.Justification).
-		Str("message", userInteraction.Message).
+		Str("history", fmt.Sprintf("%+v", messageHistory)).
 		Msg("checked for actionable")
 
 	if !isActionable.Actionable() {
