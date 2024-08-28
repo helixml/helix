@@ -111,7 +111,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 				// Check if the last interaction is still running
 				lastInteraction, err := data.GetLastAssistantInteraction(session.Interactions)
 				if err != nil {
-					log.Error().Err(err).Msgf("failed to get last system interaction for session: %s", session.ID)
+					log.Error().Err(err).Msgf("failed to get last assistant interaction for session: %s", session.ID)
 					continue
 				}
 
@@ -195,11 +195,11 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 		return nil, fmt.Errorf("failed to get session %s: %w", req.SessionID, err)
 	}
 
-	systemInteraction := &types.Interaction{
+	assistantInteraction := &types.Interaction{
 		ID:       system.GenerateUUID(),
 		Created:  time.Now(),
 		Updated:  time.Now(),
-		Creator:  types.CreatorTypeSystem,
+		Creator:  types.CreatorTypeAssistant,
 		Mode:     req.SessionMode,
 		Message:  "",
 		Files:    []string{},
@@ -209,7 +209,7 @@ func (c *Controller) UpdateSession(ctx context.Context, user *types.User, req ty
 	}
 
 	session.Updated = time.Now()
-	session.Interactions = append(session.Interactions, req.UserInteraction, systemInteraction)
+	session.Interactions = append(session.Interactions, req.UserInteraction, assistantInteraction)
 
 	log.Debug().Msgf("🟢 update session: %+v", session)
 
@@ -246,33 +246,33 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 		return nil, fmt.Errorf("session is currently active")
 	}
 
-	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.Error = ""
-		systemInteraction.Finished = false
+	session, err := data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+		assistantInteraction.Error = ""
+		assistantInteraction.Finished = false
 		// empty out the previous message so model doesn't think it's already finished
-		systemInteraction.Message = ""
+		assistantInteraction.Message = ""
 
-		systemInteraction.State = types.InteractionStateWaiting
+		assistantInteraction.State = types.InteractionStateWaiting
 
 		// if this is a text inference then don't set the progress to 1 because
 		// we don't show progress for text inference
 		if session.Mode == types.SessionModeFinetune || session.Type == types.SessionTypeImage {
-			systemInteraction.Progress = 1
+			assistantInteraction.Progress = 1
 		} else {
-			systemInteraction.Progress = 0
+			assistantInteraction.Progress = 0
 		}
 
 		if session.Mode == types.SessionModeFinetune {
-			if systemInteraction.DataPrepStage == types.TextDataPrepStageExtractText || systemInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
+			if assistantInteraction.DataPrepStage == types.TextDataPrepStageExtractText || assistantInteraction.DataPrepStage == types.TextDataPrepStageGenerateQuestions {
 				// in this case we are restarting the data prep
-				systemInteraction.Status = ""
-			} else if systemInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
+				assistantInteraction.Status = ""
+			} else if assistantInteraction.DataPrepStage == types.TextDataPrepStageFineTune {
 				// in this case we are restarting the fine tuning itself
-				systemInteraction.Status = "restarted: fine tuning on data..."
+				assistantInteraction.Status = "restarted: fine tuning on data..."
 			}
 		}
 
-		return systemInteraction, nil
+		return assistantInteraction, nil
 	})
 
 	if err != nil {
@@ -292,12 +292,12 @@ func (c *Controller) RestartSession(session *types.Session) (*types.Session, err
 }
 
 func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.Session, userInteraction *types.Interaction) (*types.Session, error) {
-	// the system interaction is the task we will run on a GPU and update in place
-	systemInteraction := &types.Interaction{
+	// the assistant interaction is the task we will run on a GPU and update in place
+	assistantInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
-		Creator:        types.CreatorTypeSystem,
+		Creator:        types.CreatorTypeAssistant,
 		Mode:           userInteraction.Mode,
 		Message:        "",
 		Files:          []string{},
@@ -311,7 +311,7 @@ func (c *Controller) AddDocumentsToSession(ctx context.Context, session *types.S
 	// so the user can ask questions
 	session.Mode = types.SessionModeFinetune
 	session.Updated = time.Now()
-	session.Interactions = append(session.Interactions, userInteraction, systemInteraction)
+	session.Interactions = append(session.Interactions, userInteraction, assistantInteraction)
 
 	c.WriteSession(session)
 	go c.SessionRunner(session)
@@ -343,9 +343,9 @@ func (c *Controller) AddDocumentsToInteraction(ctx context.Context, session *typ
 		return nil, err
 	}
 
-	session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.State = types.InteractionStateWaiting
-		return systemInteraction, nil
+	session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+		assistantInteraction.State = types.InteractionStateWaiting
+		return assistantInteraction, nil
 	})
 	if err != nil {
 		return nil, err
@@ -446,15 +446,15 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 
 			// if we are NOT doing fine tuning then we need to mark this as finshed
 			if !session.Metadata.TextFinetuneEnabled {
-				session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-					systemInteraction.Finished = true
-					systemInteraction.Progress = 0
-					systemInteraction.Message = ""
-					systemInteraction.Status = "We have indexed all of your documents now you can ask questions..."
-					systemInteraction.State = types.InteractionStateComplete
-					systemInteraction.DataPrepStage = types.TextDataPrepStageComplete
-					systemInteraction.Files = []string{}
-					return systemInteraction, nil
+				session, err := data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+					assistantInteraction.Finished = true
+					assistantInteraction.Progress = 0
+					assistantInteraction.Message = ""
+					assistantInteraction.Status = "We have indexed all of your documents now you can ask questions..."
+					assistantInteraction.State = types.InteractionStateComplete
+					assistantInteraction.DataPrepStage = types.TextDataPrepStageComplete
+					assistantInteraction.Files = []string{}
+					return assistantInteraction, nil
 				})
 
 				// we need to switch to inference mode now so the user can ask questions
@@ -528,9 +528,9 @@ func (c *Controller) PrepareSession(session *types.Session) (*types.Session, err
 				userInteraction.Message = injectedUserPrompt
 				return userInteraction, nil
 			})
-			session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-				systemInteraction.RagResults = ragResults
-				return systemInteraction, nil
+			session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+				assistantInteraction.RagResults = ragResults
+				return assistantInteraction, nil
 			})
 		}
 	}
@@ -607,7 +607,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 
 	history := data.GetLastInteractions(session, actionContextHistorySize)
 
-	// If history has more than 2 interactions, remove the last 2 as it's the current user and system interaction
+	// If history has more than 2 interactions, remove the last 2 as it's the current user and assistant interaction
 	if len(history) > 2 {
 		history = history[:len(history)-2]
 	}
@@ -617,7 +617,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	// Actionable, converting interaction mode to "action"
 	lastInteraction, err := data.GetLastAssistantInteraction(session.Interactions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
+		return nil, fmt.Errorf("failed to get last assistant interaction: %w", err)
 	}
 
 	var options []tools.Option
@@ -662,15 +662,15 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 }
 
 func (c *Controller) BeginFineTune(session *types.Session) error {
-	session, err := data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.Finished = false
-		systemInteraction.Progress = 1
-		systemInteraction.Message = ""
-		systemInteraction.Status = "fine tuning on data..."
-		systemInteraction.State = types.InteractionStateWaiting
-		systemInteraction.DataPrepStage = types.TextDataPrepStageFineTune
-		systemInteraction.Files = []string{}
-		return systemInteraction, nil
+	session, err := data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+		assistantInteraction.Finished = false
+		assistantInteraction.Progress = 1
+		assistantInteraction.Message = ""
+		assistantInteraction.Status = "fine tuning on data..."
+		assistantInteraction.State = types.InteractionStateWaiting
+		assistantInteraction.DataPrepStage = types.TextDataPrepStageFineTune
+		assistantInteraction.Files = []string{}
+		return assistantInteraction, nil
 	})
 
 	if err != nil {
@@ -768,12 +768,12 @@ func (c *Controller) ErrorSession(session *types.Session, sessionErr error) {
 	if err != nil {
 		return
 	}
-	session, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.State = types.InteractionStateError
-		systemInteraction.Completed = time.Now()
-		systemInteraction.Error = sessionErr.Error()
-		systemInteraction.Finished = true
-		return systemInteraction, nil
+	session, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+		assistantInteraction.State = types.InteractionStateError
+		assistantInteraction.Completed = time.Now()
+		assistantInteraction.Error = sessionErr.Error()
+		assistantInteraction.Finished = true
+		return assistantInteraction, nil
 	})
 	if err != nil {
 		return
@@ -853,7 +853,7 @@ func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *typ
 		return nil, fmt.Errorf("session not found: %s", taskResponse.SessionID)
 	}
 
-	session, err = data.UpdateSystemInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
+	session, err = data.UpdateAssistantInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
 		// mark the interaction as complete if we are a fully finished response
 		if taskResponse.Type == types.WorkerTaskResponseTypeResult {
 			targetInteraction.Finished = true
@@ -985,7 +985,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	systemInteraction, err := data.GetLastAssistantInteraction(newSession.Interactions)
+	assistantInteraction, err := data.GetLastAssistantInteraction(newSession.Interactions)
 	if err != nil {
 		return nil, err
 	}
@@ -1075,8 +1075,8 @@ func (c *Controller) CloneUntilInteraction(
 
 		if interaction.LoraDir != "" {
 			shouldCopyLora := false
-			if interaction.ID == systemInteraction.ID {
-				// we are on the latest system interaction
+			if interaction.ID == assistantInteraction.ID {
+				// we are on the latest assistant interaction
 				// let's check the mode to see if we should bring the lora with us
 				if req.Mode == types.CloneInteractionModeAll {
 					shouldCopyLora = true
@@ -1114,7 +1114,7 @@ func (c *Controller) CloneUntilInteraction(
 				return nil, err
 			}
 			newInteractions = append(newInteractions, newInteraction)
-		} else if interaction.ID == userInteraction.ID || interaction.ID == systemInteraction.ID {
+		} else if interaction.ID == userInteraction.ID || interaction.ID == assistantInteraction.ID {
 			// these are the last 2 interactions of a session being cloned within the same account
 			newInteraction, err := copyInteractionFiles(interaction)
 			if err != nil {
@@ -1156,31 +1156,31 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	newSession, err = data.UpdateSystemInteraction(newSession, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
+	newSession, err = data.UpdateAssistantInteraction(newSession, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
 		// only touch if we are not cloning as is
 		if req.Mode != types.CloneInteractionModeAll {
-			systemInteraction.Created = time.Now()
-			systemInteraction.Updated = time.Now()
-			systemInteraction.Message = ""
-			systemInteraction.Status = ""
-			systemInteraction.Progress = 0
+			assistantInteraction.Created = time.Now()
+			assistantInteraction.Updated = time.Now()
+			assistantInteraction.Message = ""
+			assistantInteraction.Status = ""
+			assistantInteraction.Progress = 0
 		}
 
 		if req.Mode == types.CloneInteractionModeJustData {
 			// remove the fine tune file
-			systemInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
-			systemInteraction.State = types.InteractionStateEditing
-			systemInteraction.Finished = false
+			assistantInteraction.DataPrepStage = types.TextDataPrepStageEditFiles
+			assistantInteraction.State = types.InteractionStateEditing
+			assistantInteraction.Finished = false
 			// remove the metadata that keeps track of processed questions
 			// (because we have deleted the questions file)
-			systemInteraction.DataPrepChunks = map[string][]types.DataPrepChunk{}
+			assistantInteraction.DataPrepChunks = map[string][]types.DataPrepChunk{}
 		} else if req.Mode == types.CloneInteractionModeWithQuestions {
 			// remove the fine tune file
-			systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
-			systemInteraction.State = types.InteractionStateEditing
-			systemInteraction.Finished = false
+			assistantInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
+			assistantInteraction.State = types.InteractionStateEditing
+			assistantInteraction.Finished = false
 		}
-		return systemInteraction, nil
+		return assistantInteraction, nil
 	})
 	if err != nil {
 		return nil, err
