@@ -16,7 +16,7 @@ export const FineTuneImageLabels: FC<{
   files: File[],
   mode?: string, 
   showButton?: boolean,
-  showSystemInteraction?: boolean,
+  showAssistantInteraction?: boolean,
   onChange?: {
     (labels: Record<string, string>): void
   },
@@ -29,7 +29,7 @@ export const FineTuneImageLabels: FC<{
   files,
   mode,
   showButton = false,
-  showSystemInteraction = true,
+  showAssistantInteraction = true,
   onChange,
   onDone,
 }) => {
@@ -37,7 +37,7 @@ export const FineTuneImageLabels: FC<{
 
   return (
     <Box sx={{ mt: 2 }}>
-      {showSystemInteraction && (
+      {showAssistantInteraction && (
         <Box sx={{ mt: 4, mb: 4 }}>
           <InteractionContainer name="System">
             <Box sx={{ mt: 2 }}>

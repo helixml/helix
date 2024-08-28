@@ -302,13 +302,13 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 	var err error
 
-	systemInteraction, err := data.GetSystemInteraction(i.currentSession)
+	assistantInteraction, err := data.GetAssistantInteraction(i.currentSession)
 	if err != nil {
-		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		log.Error().Msgf("error getting assistant interaction: %s", err.Error())
 		return
 	}
 
-	taskResponse.InteractionID = systemInteraction.ID
+	taskResponse.InteractionID = assistantInteraction.ID
 	taskResponse.Owner = i.currentSession.Owner
 	i.lastActivity = time.Now()
 

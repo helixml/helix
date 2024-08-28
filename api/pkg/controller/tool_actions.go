@@ -11,8 +11,8 @@ import (
 
 const actionContextHistorySize = 6
 
-func (c *Controller) runActionInteraction(ctx context.Context, session *types.Session, systemInteraction *types.Interaction) (*types.Session, error) {
-	action, ok := systemInteraction.Metadata["tool_action"]
+func (c *Controller) runActionInteraction(ctx context.Context, session *types.Session, assistantInteraction *types.Interaction) (*types.Session, error) {
+	action, ok := assistantInteraction.Metadata["tool_action"]
 	if !ok {
 		return nil, fmt.Errorf("action not found in interaction metadata")
 	}
@@ -20,7 +20,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 	var tool *types.Tool
 	var err error
 
-	toolID, ok := systemInteraction.Metadata["tool_id"]
+	toolID, ok := assistantInteraction.Metadata["tool_id"]
 	if !ok {
 		return nil, fmt.Errorf("tool ID not found in interaction metadata")
 	}
@@ -79,7 +79,7 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 
 	history := data.GetLastInteractions(session, actionContextHistorySize)
 
-	// If history has more than 2 interactions, remove the last 2 as it's the current user and system interaction
+	// If history has more than 2 interactions, remove the last 2 as it's the current user and assistant interaction
 	if len(history) > 2 {
 		history = history[:len(history)-2]
 	}
@@ -88,25 +88,25 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 
 	message := fmt.Sprintf("%s %s", systemPrompt, userInteraction.Message)
 	log.Info().Str("tool", tool.Name).Str("action", action).Str("message", message).Msg("Running tool action")
-	resp, err := c.ToolsPlanner.RunAction(ctx, session.ID, systemInteraction.ID, tool, messageHistory, message, action)
+	resp, err := c.ToolsPlanner.RunAction(ctx, session.ID, assistantInteraction.ID, tool, messageHistory, message, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
 
-	updated, err = data.UpdateSystemInteraction(session, func(systemInteraction *types.Interaction) (*types.Interaction, error) {
-		systemInteraction.Finished = true
-		systemInteraction.Message = resp.Message
-		systemInteraction.Metadata["raw_message"] = resp.RawMessage
-		systemInteraction.Metadata["error"] = resp.Error
-		systemInteraction.Metadata["tool_id"] = toolID
-		systemInteraction.Metadata["tool_app_id"] = session.ParentApp
-		systemInteraction.Metadata["tool_action"] = action
-		systemInteraction.State = types.InteractionStateComplete
+	updated, err = data.UpdateAssistantInteraction(session, func(assistantInteraction *types.Interaction) (*types.Interaction, error) {
+		assistantInteraction.Finished = true
+		assistantInteraction.Message = resp.Message
+		assistantInteraction.Metadata["raw_message"] = resp.RawMessage
+		assistantInteraction.Metadata["error"] = resp.Error
+		assistantInteraction.Metadata["tool_id"] = toolID
+		assistantInteraction.Metadata["tool_app_id"] = session.ParentApp
+		assistantInteraction.Metadata["tool_action"] = action
+		assistantInteraction.State = types.InteractionStateComplete
 
-		return systemInteraction, nil
+		return assistantInteraction, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to update system interaction: %w", err)
+		return nil, fmt.Errorf("failed to update assistant interaction: %w", err)
 	}
 
 	c.WriteSession(updated)
