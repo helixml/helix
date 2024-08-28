@@ -1,7 +1,11 @@
-// TODO: it sucks that there are constants defined in types
-export type ISessionCreator = 'system' | 'user'
+
+export type ISessionCreator = 'system' | 'user' | 'assistant'
+// SYSTEM means the system prompt, NOT an assistant message (as it previously
+// did). At time of writing, it's unused in the frontend because the frontend
+// doesn't have system prompt support.
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 export const SESSION_CREATOR_USER: ISessionCreator = 'user'
+export const SESSION_CREATOR_ASSISTANT: ISessionCreator = 'assistant'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'

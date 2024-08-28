@@ -40,7 +40,7 @@ export const InteractionInference: FC<{
   isShared?: boolean,
   onRestart?: () => void,
   upgrade?: boolean,
-  isFromSystem?: boolean,
+  isFromAssistant?: boolean,
 }> = ({
   imageURLs = [],
   message,
@@ -50,7 +50,7 @@ export const InteractionInference: FC<{
   isShared,
   onRestart,
   upgrade,
-  isFromSystem,
+  isFromAssistant: isFromAssistant,
 }) => {
   const account = useAccount()
   const router = useRouter()
