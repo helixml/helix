@@ -88,9 +88,9 @@ export const Interaction: FC<{
     }
   }
 
-  const isSystem = interaction?.creator == SESSION_CREATOR_ASSISTANT
-  const useName = isSystem ? 'Helix System' : account.user?.name || 'User'
-  const useBadge = isSystem ? 'AI' : ''
+  const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
+  const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
+  const useBadge = isAssistant ? 'AI' : ''
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -104,7 +104,7 @@ export const Interaction: FC<{
         name={ useName }
         badge={ useBadge }
         buttons={ headerButtons }
-        background={ isSystem }
+        background={ isAssistant }
       >
           {
             showFinetuning && (
