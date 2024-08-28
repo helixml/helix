@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+	oai "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	golden "gotest.tools/v3/golden"
@@ -156,9 +157,12 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
-
-	currentMessage := "Can you please give me the details for pet 55443?"
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 55443?",
+		},
+	}
 
 	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
 	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
@@ -168,7 +172,7 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 	// 		return call, nil
 	// 	})
 
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -198,11 +202,14 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 55443?",
+		},
+	}
 
-	currentMessage := "Can you please give me the details for pet 55443?"
-
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -328,11 +335,14 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What is the weather like in San Francisco?",
+		},
+	}
 
-	currentMessage := "What is the weather like in San Francisco?"
-
-	chatReq, err := suite.strategy.getApiUserPrompt(tool, history, currentMessage, "getProductDetails")
+	chatReq, err := suite.strategy.getApiUserPrompt(tool, history, "getProductDetails")
 	suite.Require().NoError(err)
 
 	suite.Equal("CUSTOM_TEMPLATE_HERE", chatReq.Content)

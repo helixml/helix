@@ -335,6 +335,11 @@ func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequ
 			})
 		case types.CreatorTypeSystem:
 			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: interaction.Message,
+			})
+		case types.CreatorTypeAssistant:
+			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: interaction.Message,
 			})
