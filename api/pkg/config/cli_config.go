@@ -1,8 +1,6 @@
 package config
 
 import (
-	"github.com/rs/zerolog/log"
-
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
 )
@@ -13,13 +11,10 @@ type CliConfig struct {
 }
 
 func LoadCliConfig() (CliConfig, error) {
-	err := godotenv.Load()
-	if err != nil {
-		log.Warn().Msg("Error loading .env file")
-	}
+	_ = godotenv.Load()
 
 	var cfg CliConfig
-	err = envconfig.Process("", &cfg)
+	err := envconfig.Process("", &cfg)
 	if err != nil {
 		return CliConfig{}, err
 	}
