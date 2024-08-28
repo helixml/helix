@@ -271,10 +271,8 @@ OpenAPI schema: {{.Schema}}
 
 Conversation so far:
 {{ range $index, $interaction := .Interactions }}
-{{ $interaction.Role }}: ({{ $interaction.Content }})
+<{{ $interaction.Role }}_message>{{ $interaction.Content }}</{{ $interaction.Role }}_message>
 {{ end }}
-user: ({{ .Message }})
-
 
 Based on the information provided, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
 `
