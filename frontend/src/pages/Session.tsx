@@ -142,6 +142,7 @@ const Session: FC = () => {
         assistant_id: assistantID,
         rag_source_id: ragSourceID,
         model: session.data.model_name,
+        lora_dir: session.data.lora_dir,
         messages: [{
           role: 'user',
           content: {
