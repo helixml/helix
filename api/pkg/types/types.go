@@ -795,9 +795,14 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 				Role:    openai.ChatMessageRoleUser,
 				Content: interaction.Message,
 			})
-		case CreatorTypeSystem:
+		case CreatorTypeAssistant:
 			history = append(history, &ToolHistoryMessage{
 				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		case CreatorTypeSystem:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleSystem,
 				Content: interaction.Message,
 			})
 		case CreatorTypeTool:

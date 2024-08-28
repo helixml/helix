@@ -66,25 +66,14 @@ func (c *Controller) runActionInteraction(ctx context.Context, session *types.Se
 		}
 	}
 
-	userInteraction, err := data.GetLastUserInteraction(session.Interactions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last user interaction: %w", err)
-	}
-
 	var updated *types.Session
 
 	history := data.GetLastInteractions(session, actionContextHistorySize)
 
-	// If history has more than 2 interactions, remove the last 2 as it's the current user and assistant interaction
-	if len(history) > 2 {
-		history = history[:len(history)-2]
-	}
-
 	messageHistory := types.HistoryFromInteractions(history)
 
-	message := userInteraction.Message
-	log.Info().Str("tool", tool.Name).Str("action", action).Str("message", message).Msg("Running tool action")
-	resp, err := c.ToolsPlanner.RunAction(ctx, session.ID, assistantInteraction.ID, tool, messageHistory, message, action)
+	log.Info().Str("tool", tool.Name).Str("action", action).Str("history", fmt.Sprintf("%+v", messageHistory)).Msg("Running tool action")
+	resp, err := c.ToolsPlanner.RunAction(ctx, session.ID, assistantInteraction.ID, tool, messageHistory, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
