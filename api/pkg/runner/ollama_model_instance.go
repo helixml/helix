@@ -444,6 +444,11 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 			})
 		case types.CreatorTypeSystem:
 			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: interaction.Message,
+			})
+		case types.CreatorTypeAssistant:
+			messages = append(messages, openai.ChatCompletionMessage{
 				Role:    openai.ChatMessageRoleAssistant,
 				Content: interaction.Message,
 			})
@@ -464,7 +469,7 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	)
 
 	// If the last interaction has response format, use it
-	last, _ := data.GetLastSystemInteraction(interactions)
+	last, _ := data.GetLastAssistantInteraction(interactions)
 	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
 		responseFormat = &openai.ChatCompletionResponseFormat{
 			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
@@ -587,7 +592,7 @@ func (i *OllamaModelInstance) responseProcessor(
 
 	var err error
 
-	systemInteraction, err := data.GetSystemInteraction(session)
+	systemInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		log.Error().Msgf("error getting system interaction: %s", err.Error())
 		return

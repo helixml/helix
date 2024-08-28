@@ -302,7 +302,7 @@ func (i *AxolotlModelInstance) taskResponseHandler(taskResponse *types.RunnerTas
 
 	var err error
 
-	systemInteraction, err := data.GetSystemInteraction(i.currentSession)
+	systemInteraction, err := data.GetAssistantInteraction(i.currentSession)
 	if err != nil {
 		log.Error().Msgf("error getting system interaction: %s", err.Error())
 		return

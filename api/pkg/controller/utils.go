@@ -355,7 +355,7 @@ func sessionToChatCompletion(session *types.Session) (*openai.ChatCompletionRequ
 	)
 
 	// If the last interaction has response format, use it
-	last, _ := data.GetLastSystemInteraction(interactions)
+	last, _ := data.GetLastAssistantInteraction(interactions)
 	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
 		responseFormat = &openai.ChatCompletionResponseFormat{
 			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,

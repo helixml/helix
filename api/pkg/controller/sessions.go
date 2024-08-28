@@ -29,11 +29,11 @@ import (
 const DEBUG = true
 
 func (c *Controller) StartSession(ctx context.Context, user *types.User, req types.InternalSessionRequest) (*types.Session, error) {
-	systemInteraction := &types.Interaction{
+	assistantInteraction := &types.Interaction{
 		ID:             system.GenerateUUID(),
 		Created:        time.Now(),
 		Updated:        time.Now(),
-		Creator:        types.CreatorTypeSystem,
+		Creator:        types.CreatorTypeAssistant,
 		Mode:           req.Mode,
 		Message:        "",
 		Files:          []string{},
@@ -63,7 +63,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		OwnerType:     req.OwnerType,
 		Created:       time.Now(),
 		Updated:       time.Now(),
-		Interactions:  append(req.UserInteractions, systemInteraction),
+		Interactions:  append(req.UserInteractions, assistantInteraction),
 		Metadata: types.SessionMetadata{
 			Stream:       req.Stream,
 			OriginalMode: req.Mode,
@@ -109,7 +109,7 @@ func (c *Controller) StartSession(ctx context.Context, user *types.User, req typ
 		for _, session := range sessions {
 			if session.Mode == types.SessionModeFinetune {
 				// Check if the last interaction is still running
-				lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+				lastInteraction, err := data.GetLastAssistantInteraction(session.Interactions)
 				if err != nil {
 					log.Error().Err(err).Msgf("failed to get last system interaction for session: %s", session.ID)
 					continue
@@ -375,7 +375,7 @@ func (c *Controller) SessionRunner(sessionData *types.Session) {
 
 	// If last interaction is "action" then we should run the action
 	// and not the model
-	lastInteraction, err := data.GetLastSystemInteraction(sessionData.Interactions)
+	lastInteraction, err := data.GetLastAssistantInteraction(sessionData.Interactions)
 	if err == nil && lastInteraction.Mode == types.SessionModeAction {
 		_, err := c.runActionInteraction(context.Background(), sessionData, lastInteraction)
 		if err != nil {
@@ -615,7 +615,7 @@ func (c *Controller) checkForActions(session *types.Session) (*types.Session, er
 	messageHistory := types.HistoryFromInteractions(history)
 
 	// Actionable, converting interaction mode to "action"
-	lastInteraction, err := data.GetLastSystemInteraction(session.Interactions)
+	lastInteraction, err := data.GetLastAssistantInteraction(session.Interactions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last system interaction: %w", err)
 	}
@@ -985,7 +985,7 @@ func (c *Controller) CloneUntilInteraction(
 		return nil, err
 	}
 
-	systemInteraction, err := data.GetLastSystemInteraction(newSession.Interactions)
+	systemInteraction, err := data.GetLastAssistantInteraction(newSession.Interactions)
 	if err != nil {
 		return nil, err
 	}
