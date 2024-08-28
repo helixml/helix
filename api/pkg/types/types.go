@@ -152,6 +152,10 @@ type SessionRAGQuery struct {
 	MaxResults        int     `json:"max_results"`
 }
 
+type DeleteIndexRequest struct {
+	DataEntityID string `json:"data_entity_id"`
+}
+
 // the thing we load from llamaindex when we send the user prompt
 // there and it does a lookup
 type SessionRAGResult struct {
