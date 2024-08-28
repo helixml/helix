@@ -123,7 +123,7 @@ func (c *Controller) loadSessionQueues(ctx context.Context) error {
 		}
 
 		latest := interactions[len(interactions)-1]
-		if latest.Creator == types.CreatorTypeSystem {
+		if latest.Creator == types.CreatorTypeAssistant {
 			// we've already given a response, don't need to do anything
 			continue
 		}
@@ -189,7 +189,7 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 
 // TODO: remove
 func (c *Controller) addSchedulingDecision(filter types.SessionFilter, runnerID string, session *types.Session) {
-	systemInteraction, err := data.GetSystemInteraction(session)
+	systemInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		log.Error().Msgf("error adding scheduling decision: %s", err)
 		return

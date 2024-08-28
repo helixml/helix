@@ -105,34 +105,24 @@ func GetUserInteraction(interactions []*types.Interaction) (*types.Interaction, 
 	return GetLastUserInteraction(interactions)
 }
 
-func GetLastSystemInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+func GetLastAssistantInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
-		if interaction.Creator == types.CreatorTypeSystem {
+		if interaction.Creator == types.CreatorTypeAssistant {
 			return interaction, nil
 		}
 	}
 	return nil, fmt.Errorf("no system interaction found")
 }
 
-func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
-	return GetLastSystemInteraction(session.Interactions)
+func GetAssistantInteraction(session *types.Session) (*types.Interaction, error) {
+	return GetLastAssistantInteraction(session.Interactions)
 }
 
 func FilterUserInteractions(interactions []*types.Interaction) []*types.Interaction {
 	filtered := []*types.Interaction{}
 	for _, interaction := range interactions {
 		if interaction.Creator == types.CreatorTypeUser {
-			filtered = append(filtered, interaction)
-		}
-	}
-	return filtered
-}
-
-func FilterSystemInteractions(interactions []types.Interaction) []types.Interaction {
-	filtered := []types.Interaction{}
-	for _, interaction := range interactions {
-		if interaction.Creator == types.CreatorTypeSystem {
 			filtered = append(filtered, interaction)
 		}
 	}
@@ -217,7 +207,7 @@ func UpdateUserInteraction(session *types.Session, updater InteractionUpdater) (
 }
 
 func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
-	targetInteraction, err := GetSystemInteraction(session)
+	targetInteraction, err := GetAssistantInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +219,7 @@ func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater)
 }
 
 func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
-	systemInteraction, err := GetSystemInteraction(session)
+	systemInteraction, err := GetAssistantInteraction(session)
 	if err != nil {
 		return nil, err
 	}
