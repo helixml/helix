@@ -35,14 +35,14 @@ export const FineTuneCloneInteraction: FC<{
   type: ISessionType,
   sessionID: string,
   userInteractionID: string,
-  systemInteractionID: string,
+  assistantInteractionID: string,
   onClone: (mode: ICloneInteractionMode, interactionID: string) => Promise<boolean>,
   onAddDocuments?: () => void,
 }> = ({
   type,
   sessionID,
   userInteractionID,
-  systemInteractionID,
+  assistantInteractionID,
   onClone,
   onAddDocuments,
 }) => {
@@ -64,14 +64,14 @@ export const FineTuneCloneInteraction: FC<{
   };
 
   const handleCloneSelectedMode = useCallback(async () => {
-    if (selectedCloneMode && systemInteractionID) {
-      const result = await onClone(selectedCloneMode, systemInteractionID);
+    if (selectedCloneMode && assistantInteractionID) {
+      const result = await onClone(selectedCloneMode, assistantInteractionID);
       if (result) {
         setCloneMode(false); // Close the clone mode if successful
         setSelectedCloneMode(null); // Reset the selected clone mode
       }
     }
-  }, [selectedCloneMode, systemInteractionID, onClone]);
+  }, [selectedCloneMode, assistantInteractionID, onClone]);
 
   useEffect(() => {
     if (!viewMode) {

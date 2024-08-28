@@ -592,15 +592,15 @@ func (i *OllamaModelInstance) responseProcessor(
 
 	var err error
 
-	systemInteraction, err := data.GetAssistantInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
-		log.Error().Msgf("error getting system interaction: %s", err.Error())
+		log.Error().Msgf("error getting assistant interaction: %s", err.Error())
 		return
 	}
 
 	resp := &types.RunnerTaskResponse{
 		SessionID:     session.ID,
-		InteractionID: systemInteraction.ID,
+		InteractionID: assistantInteraction.ID,
 		Owner:         session.Owner,
 		Done:          done,
 		Message:       content,

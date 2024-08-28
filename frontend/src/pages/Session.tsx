@@ -55,7 +55,7 @@ import {
 } from '../types'
 
 import {
-  getSystemInteraction,
+  getAssistantInteraction,
 } from '../utils/session'
 
 const Session: FC = () => {
@@ -277,7 +277,7 @@ const Session: FC = () => {
       let cloneInteractionID = ''
       let cloneInteractionMode: ICloneInteractionMode = 'all'
       if(shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
-        const interaction = getSystemInteraction(session.data)
+        const interaction = getAssistantInteraction(session.data)
         if(!interaction) return false
         cloneInteractionID = interaction.id
       } else if(shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
@@ -482,7 +482,7 @@ const Session: FC = () => {
   // then keep reloading it until it has finished
   useEffect(() => {
     if(!session.data) return
-    const systemInteraction = getSystemInteraction(session.data)
+    const systemInteraction = getAssistantInteraction(session.data)
     if(!systemInteraction) return
     if(systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
 
