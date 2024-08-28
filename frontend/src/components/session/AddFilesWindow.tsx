@@ -106,7 +106,7 @@ export const AddFilesWindow: FC<{
           session.type == SESSION_TYPE_IMAGE && inputs.fineTuneStep == 0 && (
             <FineTuneImageInputs
               initialFiles={ inputs.finetuneFiles.map(f => f.file) }
-              // showSystemInteraction={ false }
+              // showAssistantInteraction={ false }
               onChange={ (files) => {
                 // TODO: sort this
                 //inputs.setFinetuneFiles(files)
@@ -119,7 +119,7 @@ export const AddFilesWindow: FC<{
             <FineTuneTextInputs
               initialCounter={ inputs.manualTextFileCounter }
               initialFiles={ inputs.finetuneFiles.map(f => f.file) }
-              showSystemInteraction={ false }
+              showAssistantInteraction={ false }
               onChange={ (counter, files) => {
                 // TODO: sort this
                 // inputs.setManualTextFileCounter(counter)
@@ -133,7 +133,7 @@ export const AddFilesWindow: FC<{
             <FineTuneImageLabels
               showImageLabelErrors={ inputs.showImageLabelErrors }
               initialLabels={ inputs.labels }
-              showSystemInteraction={ false }
+              showAssistantInteraction={ false }
               files={ inputs.finetuneFiles.map(f => f.file) }
               onChange={ (labels) => {
                 inputs.setLabels(labels)
