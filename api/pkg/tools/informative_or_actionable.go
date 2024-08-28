@@ -82,9 +82,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	var messages []openai.ChatCompletionMessage
-
-	messages = append(messages, systemPrompt)
+	messages := []openai.ChatCompletionMessage{systemPrompt}
 
 	for _, msg := range history {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -95,6 +93,10 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	// Adding current message
 	messages = append(messages,
+		openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: fmt.Sprintf("<user_message>\n\n%s\n\n</user_message>", currentMessage),
+		},
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
 			Content: "Return the corresponding json for the last user input",
