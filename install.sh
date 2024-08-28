@@ -1,49 +1,59 @@
 #!/bin/bash
 
-# To install, run:
-# curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash
+# Install:
+# curl -O install-helix.sh https://get.helix.ml
+# chmod +x install-helix.sh
+# ./install-helix.sh --help
 #
 # Examples:
 #
-# 1. Install just the CLI:
-#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane false --runner false
+# 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
+#    ./install-helix.sh
 #
-# 2. Install CLI and controlplane with external TogetherAI token:
-#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner false --togetherai-token YOUR_TOGETHERAI_TOKEN
+# 2. Install just the CLI:
+#    ./install-helix.sh --cli
 #
-# 3. Install CLI and controlplane (to install runner separately):
-#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner false
+# 3. Install CLI and controlplane with external TogetherAI token:
+#    ./install-helix.sh --cli --controlplane --togetherai-token YOUR_TOGETHERAI_TOKEN
 #
-# 4. Install CLI, controlplane, and runner on a node with a GPU:
-#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli true --controlplane true --runner true
+# 4. Install CLI and controlplane (to install runner separately):
+#    ./install-helix.sh --cli --controlplane
 #
-# 5. Install just the runner, pointing to a controlplane with a DNS name:
-#    curl -fsSL https://raw.githubusercontent.com/helixml/helix/main/install.sh | sudo bash -s -- --cli false --controlplane false --runner true --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+# 5. Install CLI, controlplane, and runner on a node with a GPU:
+#    ./install-helix.sh --cli --controlplane --runner
+#
+# 6. Install just the runner, pointing to a controlplane with a DNS name:
+#    ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
 
 set -euo pipefail
 
 # Default values
-CLI=true
-CONTROLPLANE=true
+AUTO=true
+CLI=false
+CONTROLPLANE=false
 RUNNER=false
 LARGE=false
 API_HOST=""
+RUNNER_TOKEN=""
 TOGETHERAI_TOKEN=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --cli)
-            CLI=$2
-            shift 2
+            CLI=true
+            AUTO=false
+            shift
             ;;
         --controlplane)
-            CONTROLPLANE=$2
-            shift 2
+            CONTROLPLANE=true
+            AUTO=false
+            shift
             ;;
         --runner)
-            RUNNER=$2
-            shift 2
+            RUNNER=true
+            AUTO=false
+            shift
             ;;
         --large)
             LARGE=true
@@ -68,6 +78,27 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Adjust default values based on provided arguments and AUTO mode
+if [ "$AUTO" = true ]; then
+    CLI=true
+    CONTROLPLANE=true
+    if command -v nvidia-smi &> /dev/null; then
+        RUNNER=true
+    fi
+    echo "Auto-install mode detected. Installing CLI and Control Plane."
+    if command -v nvidia-smi &> /dev/null; then
+        echo "NVIDIA GPU detected. Runner will be installed."
+    else
+        echo "No NVIDIA GPU detected. Runner will not be installed. See command "
+        echo "at the end to install runner separately on a GPU node."
+    fi
+fi
+
+if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
+    echo "Error: When installing only the runner, you must specify --api-host"
+    exit 1
+fi
+
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -86,7 +117,7 @@ BINARY_NAME="helix-${OS}-${ARCH}"
 # Create installation directory
 sudo mkdir -p /opt/HelixML/data/helix-{postgres,filestore}
 
-# Install CLI if requested
+# Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
     echo "Downloading Helix CLI..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
@@ -179,7 +210,7 @@ install_nvidia_docker() {
     fi
 }
 
-# Install controlplane if requested
+# Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
     echo "Downloading docker-compose.yaml..."
@@ -202,7 +233,7 @@ if [ "$CONTROLPLANE" = true ]; then
 # Set passwords
 KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
 POSTGRES_ADMIN_PASSWORD=$(generate_password)
-RUNNER_TOKEN=$(generate_password)
+RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 
 # URLs
 KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
@@ -252,13 +283,14 @@ EOF
     echo "You can now cd /opt/HelixML and run 'docker compose up -d' to start Helix"
 fi
 
-# Install runner if requested
+# Install runner if requested or in AUTO mode with GPU
 if [ "$RUNNER" = true ]; then
     install_docker
     install_nvidia_docker
     # Check for NVIDIA GPU
     if ! command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU not detected. Skipping runner installation. Set up a runner separately, per https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner"
+        echo "NVIDIA GPU not detected. Skipping runner installation."
+        echo "Set up a runner separately, per https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner"
         exit 1
     fi
 
@@ -276,7 +308,9 @@ if [ "$RUNNER" = true ]; then
 
     # Determine API host if not set
     if [ -z "$API_HOST" ]; then
-        if grep -qi microsoft /proc/version; then
+        if [ "$CONTROLPLANE" = true ]; then
+            API_HOST="http://localhost:8080"
+        elif grep -qi microsoft /proc/version; then
             # Running in WSL2
             API_HOST="http://host.docker.internal:8080"
         else
@@ -289,14 +323,14 @@ if [ "$RUNNER" = true ]; then
     fi
 
     # Determine runner token
-    if [ -f "/opt/HelixML/.env" ]; then
-        RUNNER_TOKEN_FROM_ENV=$(grep RUNNER_TOKEN /opt/HelixML/.env | cut -d '=' -f2)
-    elif [ -z "$RUNNER_TOKEN" ]; then
-        echo "Error: RUNNER_TOKEN not found in .env file and --runner-token not provided."
-        echo "Please provide the runner token using the --runner-token argument."
-        exit 1
-    else
-        RUNNER_TOKEN_FROM_ENV="$RUNNER_TOKEN"
+    if [ -z "$RUNNER_TOKEN" ]; then
+        if [ -f "/opt/HelixML/.env" ]; then
+            RUNNER_TOKEN=$(grep RUNNER_TOKEN /opt/HelixML/.env | cut -d '=' -f2)
+        else
+            echo "Error: RUNNER_TOKEN not found in .env file and --runner-token not provided."
+            echo "Please provide the runner token using the --runner-token argument."
+            exit 1
+        fi
     fi
 
     # Create runner.sh
@@ -308,7 +342,7 @@ RUNNER_TAG="${RUNNER_TAG}"
 API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
-RUNNER_TOKEN="${RUNNER_TOKEN_FROM_ENV}"
+RUNNER_TOKEN="${RUNNER_TOKEN}"
 
 # Set warmup models parameter
 if [ -n "\$WARMUP_MODELS" ]; then
@@ -333,6 +367,7 @@ EOF
 
     sudo chmod +x /opt/HelixML/runner.sh
     echo "Runner script has been created at /opt/HelixML/runner.sh"
+    echo "To start the runner, run: sudo /opt/HelixML/runner.sh"
 fi
 
 echo "Installation complete."
