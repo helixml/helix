@@ -279,7 +279,7 @@ Examples:
 }
 ` + "```" + `
 
-**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags (` + "```" + `json at the start and ` + "```" + `at the end), for example:
 
 ` + "```" + `json
 {
