@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*RunActionResponse, error) {
+func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*RunActionResponse, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
@@ -23,10 +23,10 @@ func (c *ChainStrategy) interpretResponse(ctx context.Context, sessionID, intera
 		return c.handleErrorResponse(ctx, sessionID, interactionID, tool, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, currentMessage, resp.StatusCode, bts)
+	return c.handleSuccessResponse(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, _ int, body []byte) (*RunActionResponse, error) {
+func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, _ int, body []byte) (*RunActionResponse, error) {
 	systemPrompt := successResponsePrompt
 	if tool.Config.API.ResponseSuccessTemplate != "" {
 		systemPrompt = tool.Config.API.ResponseSuccessTemplate
@@ -37,11 +37,22 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 			Role:    openai.ChatMessageRoleSystem,
 			Content: systemPrompt,
 		},
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("%s\nInput: %s", currentMessage, string(body)),
-		},
 	}
+
+	// Strip system prompts from history because we're adding our own system prompt
+	for _, msg := range history {
+		if msg.Role != openai.ChatMessageRoleSystem {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: fmt.Sprintf("API response: %s", string(body)),
+	})
 
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
@@ -74,6 +85,7 @@ func (c *ChainStrategy) handleSuccessResponse(ctx context.Context, sessionID, in
 	}, nil
 }
 
+// TODO: might get better explanations if we include the history
 func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, interactionID string, tool *types.Tool, statusCode int, body []byte) (*RunActionResponse, error) {
 	systemPrompt := errorResponsePrompt
 	if tool.Config.API.ResponseErrorTemplate != "" {
@@ -122,35 +134,45 @@ func (c *ChainStrategy) handleErrorResponse(ctx context.Context, sessionID, inte
 	}, nil
 }
 
-func (c *ChainStrategy) interpretResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, resp *http.Response) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) interpretResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, resp *http.Response) (*openai.ChatCompletionStream, error) {
 	bts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, currentMessage, resp.StatusCode, bts)
+		return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
 	}
 
-	return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, currentMessage, resp.StatusCode, bts)
+	return c.handleSuccessResponseStream(ctx, sessionID, interactionID, tool, history, resp.StatusCode, bts)
 }
 
-func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, currentMessage string, _ int, body []byte) (*openai.ChatCompletionStream, error) {
+func (c *ChainStrategy) handleSuccessResponseStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, _ int, body []byte) (*openai.ChatCompletionStream, error) {
 	systemPrompt := successResponsePrompt
 	if tool.Config.API.ResponseSuccessTemplate != "" {
 		systemPrompt = tool.Config.API.ResponseSuccessTemplate
 	}
-
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
 			Content: systemPrompt,
 		},
-		{
-			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("%s\nInput: %s", currentMessage, string(body)),
-		},
 	}
+
+	// Strip system prompts from history because we're adding our own system prompt
+	for _, msg := range history {
+		if msg.Role != openai.ChatMessageRoleSystem {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: fmt.Sprintf("API response: %s", string(body)),
+	})
 
 	req := openai.ChatCompletionRequest{
 		Stream:   true,
@@ -227,4 +249,4 @@ const successResponsePrompt = `Always assist with care, respect, and truth. Resp
 
 const errorResponsePrompt = `As an ai chat assistant, your job is to help the user understand and resolve API error messages.
 When offering solutions, You will clarify without going into unnecessary detail. You must respond in less than 100 words. 
-You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/docs/tools (format as markdown)`
+You should commence by saying "An error occurred while trying to process your request ..." also, if you think it's auth error, ask the user to read this doc https://docs.helix.ml/helix/develop/helix-tools/ (format as markdown)`

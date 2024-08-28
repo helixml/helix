@@ -144,10 +144,9 @@ func (c *Controller) evaluateToolUsage(ctx context.Context, user *types.User, re
 		return nil, false, nil
 	}
 
-	lastMessage := getLastMessage(req)
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.Api)
+	resp, err := c.ToolsPlanner.RunAction(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
@@ -178,10 +177,9 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 		return nil, false, nil
 	}
 
-	lastMessage := getLastMessage(req)
 	history := types.HistoryFromChatCompletionRequest(req)
 
-	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, lastMessage, isActionable.Api)
+	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
@@ -205,9 +203,6 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		return nil, nil, false, nil
 	}
 
-	// Get last message from the chat completion messages
-	lastMessage := getLastMessage(req)
-
 	var options []tools.Option
 
 	// If assistant has configured an actionable template, use it
@@ -222,7 +217,7 @@ func (c *Controller) selectAndConfigureTool(ctx context.Context, user *types.Use
 		vals = &oai.ContextValues{}
 	}
 
-	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, lastMessage, options...)
+	isActionable, err := c.ToolsPlanner.IsActionable(ctx, vals.SessionID, vals.InteractionID, assistant.Tools, history, options...)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to evaluate if the message is actionable, skipping to general knowledge")
 		return nil, nil, false, fmt.Errorf("failed to evaluate if the message is actionable: %w", err)

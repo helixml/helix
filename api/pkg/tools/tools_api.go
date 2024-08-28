@@ -98,13 +98,13 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	userPrompt, err := c.getApiUserPrompt(tool, history, currentMessage, action)
+	userPrompt, err := c.getApiUserPrompt(tool, history, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare user prompt: %w", err)
 	}
@@ -178,7 +178,7 @@ func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletion
 	}, nil
 }
 
-func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.ToolHistoryMessage, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
 	apiUserPromptTemplate := apiUserPrompt
 
@@ -195,6 +195,11 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Tool
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
+
+	// for preparing the API request, we ONLY use the last message for now (but
+	// we might want to revisit this, because it could make sense to fill in api
+	// params from previous messages)
+	currentMessage := history[len(history)-1].Content
 
 	// Render template
 	var sb strings.Builder
