@@ -593,8 +593,8 @@ type RunnerProcessConfig struct {
 
 // a session will run "tasks" on runners
 // task's job is to take the most recent user interaction
-// and add a response to it in the form of a system interaction
-// the api controller will have already appended the system interaction
+// and add a response to it in the form of a assistant interaction
+// the api controller will have already appended the assistant interaction
 // to the very end of the Session.Interactions list
 // our job is to fill in the Message and/or Files field of that interaction
 type RunnerTask struct {
@@ -614,7 +614,7 @@ type RunnerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	// this should be the latest system interaction
+	// this should be the latest assistant interaction
 	// it is filled in by the model instance
 	// based on currentSession
 	InteractionID string `json:"interaction_id"`
