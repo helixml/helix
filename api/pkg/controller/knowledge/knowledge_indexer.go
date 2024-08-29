@@ -100,6 +100,8 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		Msg("data indexed")
 
 	k.State = types.KnowledgeStateReady
+	k.Size = getSize(data)
+
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
 		return fmt.Errorf("failed to update knowledge, error: %w", err)
@@ -110,6 +112,14 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 		Msg("knowledge indexed")
 
 	return nil
+}
+
+func getSize(data []*indexerData) int64 {
+	size := int64(0)
+	for _, d := range data {
+		size += int64(len(d.Data))
+	}
+	return size
 }
 
 func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
