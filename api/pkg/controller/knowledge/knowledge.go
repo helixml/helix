@@ -7,13 +7,14 @@ import (
 	"sync"
 	"time"
 
+	gocron "github.com/go-co-op/gocron/v2"
+	"github.com/rs/zerolog/log"
+
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
-
-	"github.com/rs/zerolog/log"
 )
 
 type Reconciler struct {
@@ -23,20 +24,27 @@ type Reconciler struct {
 	httpClient   *http.Client
 	ragClient    rag.RAG                                   // Default server RAG client
 	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
+	cron         gocron.Scheduler
 	wg           sync.WaitGroup
 }
 
-func New(config *config.ServerConfig, store store.Store, extractor extract.Extractor, ragClient rag.RAG) *Reconciler {
+func New(config *config.ServerConfig, store store.Store, extractor extract.Extractor, ragClient rag.RAG) (*Reconciler, error) {
+	s, err := gocron.NewScheduler()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scheduler: %w", err)
+	}
+
 	return &Reconciler{
 		config:     config,
 		store:      store,
+		cron:       s,
 		extractor:  extractor,
 		httpClient: http.DefaultClient,
 		ragClient:  ragClient,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
-	}
+	}, nil
 }
 
 func (r *Reconciler) Start(ctx context.Context) error {
