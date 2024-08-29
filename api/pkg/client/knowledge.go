@@ -83,7 +83,7 @@ func (c *HelixClient) DeleteKnowledge(id string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete app, status code: %d", resp.StatusCode)
+		return fmt.Errorf("failed to delete knowledge, status code: %d", resp.StatusCode)
 	}
 
 	return nil
@@ -104,7 +104,7 @@ func (c *HelixClient) RefreshKnowledge(id string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete app, status code: %d", resp.StatusCode)
+		return fmt.Errorf("failed to refresh knowledge, status code: %d", resp.StatusCode)
 	}
 
 	return nil
