@@ -155,7 +155,7 @@ func (c *ChainStrategy) prepareSuccessMessages(tool *types.Tool, history []*type
 		},
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
-			Content: "Now present the response in a non-tech way. If the api response is empty, say that there's nothing of that type available.\n\n" + systemPrompt,
+			Content: "Now present the response in a non-tech way. If the API response is empty, say that there's nothing of that type available.\n\n" + systemPrompt,
 		},
 	)
 
