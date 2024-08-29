@@ -71,7 +71,6 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
 			DataEntityID: existing.GetDataEntityID(),
 		})
-		// Not fatal, just warn. We can still remove the knowledge from the DB.
 		if err != nil {
 			log.Warn().
 				Err(err).
