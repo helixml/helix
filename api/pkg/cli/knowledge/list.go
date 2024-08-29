@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
@@ -34,7 +35,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh Enabled", "Version"}
+		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh Enabled", "Version", "Size"}
 
 		table.SetHeader(header)
 
@@ -81,6 +82,7 @@ var listCmd = &cobra.Command{
 				stateStr,
 				strconv.FormatBool(k.RefreshEnabled),
 				k.Version,
+				humanize.Bytes(uint64(k.Size)),
 			}
 
 			table.Append(row)

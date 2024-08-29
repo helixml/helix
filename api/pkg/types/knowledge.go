@@ -71,6 +71,9 @@ type Knowledge struct {
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
 	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
+
+	// Size of the knowledge in bytes
+	Size int64 `json:"size"`
 }
 
 func (k *Knowledge) GetDataEntityID() string {
