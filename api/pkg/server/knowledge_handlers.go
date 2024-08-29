@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) ([]*types.Knowledge, *system.HTTPError) {
@@ -60,6 +61,24 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 
 	if existing.Owner != user.ID {
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
+	}
+
+	// Get rag client
+	ragClient, err := s.Controller.GetRagClient(r.Context(), existing)
+	if err != nil {
+		log.Error().Err(err).Msg("error getting rag client")
+	} else {
+		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
+			DataEntityID: existing.GetDataEntityID(),
+		})
+		// Not fatal, just warn. We can still remove the knowledge from the DB.
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", existing.ID).
+				Str("data_entity_id", existing.GetDataEntityID()).
+				Msg("error deleting knowledge")
+		}
 	}
 
 	err = s.Store.DeleteKnowledge(r.Context(), id)
