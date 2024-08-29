@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -53,6 +54,16 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		r.runIndexer(ctx)
 	}()
 
+	wg.Add(1)
+	go func() {
+		r.startCron(ctx)
+	}()
+
+	wg.Add(1)
+	go func() {
+		r.runCronManager(ctx)
+	}()
+
 	wg.Wait()
 
 	return nil
@@ -67,6 +78,22 @@ func (r *Reconciler) runIndexer(ctx context.Context) {
 			err := r.index(ctx)
 			if err != nil {
 				log.Warn().Err(err).Msg("failed to index knowledge")
+			}
+		}
+	}
+}
+
+// runCronManager is responsible for reconciling the cron jobs in the database
+// with the actual cron jobs that are running.
+func (r *Reconciler) runCronManager(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+			err := r.reconcileCronJobs(ctx)
+			if err != nil {
+				log.Warn().Err(err).Msg("failed to reconcile cron jobs")
 			}
 		}
 	}
