@@ -167,6 +167,9 @@ type RAG struct {
 		RAGIndexingURL string `envconfig:"RAG_INDEX_URL" default:"http://llamaindex:5000/api/v1/rag/chunk" description:"The URL to index text with RAG."`
 		// the URL we can post a prompt to to match RAG records
 		RAGQueryURL string `envconfig:"RAG_QUERY_URL" default:"http://llamaindex:5000/api/v1/rag/query" description:"The URL to query RAG records."`
+		// the URL we can post a delete request to for RAG records,
+		// this is a prefix, full path is <RAGDeleteURL>/<data_entity_id>
+		RAGDeleteURL string `envconfig:"RAG_DELETE_URL" default:"http://llamaindex:5000/api/v1/rag/delete" description:"The URL to delete RAG records."`
 	}
 }
 
