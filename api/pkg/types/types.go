@@ -105,8 +105,9 @@ type RAGSettings struct {
 	PromptTemplate     string           `json:"prompt_template" yaml:"prompt_template"`         // the prompt template to use for the RAG query
 
 	// RAG endpoint configuration if used with a custom RAG service
-	IndexURL string `json:"index_url" yaml:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
-	QueryURL string `json:"query_url" yaml:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
+	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
 }
 
 func (m RAGSettings) Value() (driver.Value, error) {
