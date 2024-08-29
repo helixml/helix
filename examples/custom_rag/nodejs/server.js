@@ -29,6 +29,7 @@ app.post('/api/index', async (req, res) => {
 
 // Delete the indexed data for this data entity id
 app.delete('/api/index/:data_entity_id', async (req, res) => {
+  console.log("deleting data_entity_id: " + req.params.data_entity_id);
   try {
     const { data_entity_id } = req.params;
     delete data[data_entity_id];
@@ -39,7 +40,7 @@ app.delete('/api/index/:data_entity_id', async (req, res) => {
 });
 
 // Query the indexed data based on the data entity id and prompt
-app.post('/api/index/query', async (req, res) => {
+app.post('/api/index/query', async (req, res) => {  
   try {
     const { prompt, data_entity_id, distance_threshold, distance_function, max_results } = req.body;
 
@@ -49,6 +50,8 @@ app.post('/api/index/query', async (req, res) => {
     if (!data_entity_id || data_entity_id.length === 0) {
       throw new Error('missing data_entity_id');
     }
+
+    console.log("querying data for data_entity_id: " + data_entity_id);
 
     // Implement the logic to query the data here
     const content = data[data_entity_id];
