@@ -32,10 +32,11 @@ type Llamaindex struct {
 	httpClient *http.Client
 }
 
-func NewLlamaindex(indexURL, queryURL string) *Llamaindex {
+func NewLlamaindex(settings *types.RAGSettings) *Llamaindex {
 	return &Llamaindex{
-		indexURL:   indexURL,
-		queryURL:   queryURL,
+		indexURL:   settings.IndexURL,
+		queryURL:   settings.QueryURL,
+		deleteURL:  settings.DeleteURL,
 		httpClient: http.DefaultClient,
 	}
 }
