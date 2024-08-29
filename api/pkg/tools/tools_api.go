@@ -276,7 +276,7 @@ OpenAPI schema:
 ===END OPENAPI SCHEMA===
 
 Based on conversation so far, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out.
-ONLY use search parameters from the user messages above - do NOT use search parameters provided in the system prompt.
+ONLY use search parameters from the user messages above - do NOT use search parameters provided in the examples.
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
