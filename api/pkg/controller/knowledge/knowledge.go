@@ -20,8 +20,8 @@ type Reconciler struct {
 	store        store.Store
 	extractor    extract.Extractor // Unstructured.io or equivalent
 	httpClient   *http.Client
-	ragClient    rag.RAG                                 // Default server RAG client
-	newRagClient func(indexURL, queryURL string) rag.RAG // Custom RAG server client constructor
+	ragClient    rag.RAG                                   // Default server RAG client
+	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
 	wg           sync.WaitGroup
 }
 
@@ -32,8 +32,8 @@ func New(config *config.ServerConfig, store store.Store, extractor extract.Extra
 		extractor:  extractor,
 		httpClient: http.DefaultClient,
 		ragClient:  ragClient,
-		newRagClient: func(indexURL, queryURL string) rag.RAG {
-			return rag.NewLlamaindex(indexURL, queryURL)
+		newRagClient: func(settings *types.RAGSettings) rag.RAG {
+			return rag.NewLlamaindex(settings)
 		},
 	}
 }

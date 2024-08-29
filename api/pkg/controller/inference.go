@@ -357,14 +357,9 @@ func (c *Controller) evaluateKnowledge(ctx context.Context, user *types.User, re
 
 			usedKnowledge = knowledge
 		default:
-			// Other sources by default should be indexed and therefore can be
-			// queried for the RAG service
-			var ragClient rag.RAG
-
-			if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
-				ragClient = c.newRagClient(knowledge.RAGSettings.IndexURL, knowledge.RAGSettings.QueryURL)
-			} else {
-				ragClient = c.Options.RAG
+			ragClient, err := c.GetRagClient(ctx, knowledge)
+			if err != nil {
+				return nil, nil, fmt.Errorf("error getting RAG client: %w", err)
 			}
 
 			ragResults, err := ragClient.Query(ctx, &types.SessionRAGQuery{
@@ -450,4 +445,12 @@ func setSystemPrompt(req *openai.ChatCompletionRequest, systemPrompt string) ope
 	}
 
 	return *req
+}
+
+func (c *Controller) GetRagClient(ctx context.Context, knowledge *types.Knowledge) (rag.RAG, error) {
+	if knowledge.RAGSettings.IndexURL != "" && knowledge.RAGSettings.QueryURL != "" {
+		return rag.NewLlamaindex(&knowledge.RAGSettings), nil
+	}
+
+	return c.Options.RAG, nil
 }
