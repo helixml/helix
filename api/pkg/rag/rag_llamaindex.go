@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -168,7 +169,13 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 }
 
 func (l *Llamaindex) Delete(ctx context.Context, r *types.DeleteIndexRequest) error {
-	deleteURL := l.deleteURL + "/" + r.DataEntityID
+	var deleteURL string
+
+	if strings.HasSuffix(l.deleteURL, "/") {
+		deleteURL = l.deleteURL + r.DataEntityID
+	} else {
+		deleteURL = l.deleteURL + "/" + r.DataEntityID
+	}
 
 	logger := log.With().
 		Str("llamaindex_delete_url", deleteURL).
