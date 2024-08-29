@@ -1,9 +1,7 @@
 #!/bin/bash
 
 # Install:
-# curl -O install-helix.sh https://get.helix.ml
-# chmod +x install-helix.sh
-# ./install-helix.sh --help
+# curl -LO https://get.helix.ml/install-helix.sh && chmod +x install-helix.sh
 #
 # Examples:
 #
@@ -109,13 +107,24 @@ case $ARCH in
 esac
 
 # Determine latest release
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
 
 # Set binary name
 BINARY_NAME="helix-${OS}-${ARCH}"
 
+# Set installation directory
+if [ "$OS" = "linux" ]; then
+    INSTALL_DIR="/opt/HelixML"
+elif [ "$OS" = "darwin" ]; then
+    INSTALL_DIR="$HOME/HelixML"
+fi
+
 # Create installation directory
-sudo mkdir -p /opt/HelixML/data/helix-{postgres,filestore}
+sudo mkdir -p $INSTALL_DIR
+# Change the owner of the installation directory to the current user
+sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
+mkdir -p $INSTALL_DIR/data/helix-{postgres,filestore,pgvector}
+mkdir -p $INSTALL_DIR/scripts/postgres/
 
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
@@ -214,11 +223,35 @@ install_nvidia_docker() {
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
     echo "Downloading docker-compose.yaml..."
-    sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o /opt/HelixML/docker-compose.yaml
-    echo "docker-compose.yaml has been downloaded to /opt/HelixML/docker-compose.yaml"
+    sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
+    echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
+
+    # Create database creation script
+    cat << EOF > "$INSTALL_DIR/scripts/postgres/postgres-db.sh"
+#!/bin/bash
+
+set -e
+set -u
+
+function create_user_and_database() {
+	local database=\$1
+	echo "  Creating database '\$database'"
+	psql -v ON_ERROR_STOP=1 --username "\$POSTGRES_USER" <<-EOSQL
+	    CREATE DATABASE \$database;
+EOSQL
+}
+
+if [ -n "\$POSTGRES_DATABASES" ]; then
+	echo "Database creation requested: \$POSTGRES_DATABASES"
+	for db in $(echo \$POSTGRES_DATABASES | tr ',' ' '); do
+		create_user_and_database \$db
+	done
+	echo "databases created"
+fi
+EOF
 
     # Create .env file
-    ENV_FILE="/opt/HelixML/.env"
+    ENV_FILE="$INSTALL_DIR/.env"
     echo "Creating .env file..."
     
     # Set domain
@@ -240,8 +273,11 @@ KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
 SERVER_URL=${DOMAIN}
 
 # Storage
-POSTGRES_DATA=/opt/HelixML/data/helix-postgres
-FILESTORE_DATA=/opt/HelixML/data/helix-filestore
+# Uncomment the lines below if you want to persist direct to disk. You may need to set up the
+# directory user and group on the filesystem and in the docker-compose.yaml file.
+#POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
+#FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
+#PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
 
 # Optional integrations:
 
@@ -253,11 +289,6 @@ EOF
         cat << EOF >> "$ENV_FILE"
 INFERENCE_PROVIDER=togetherai
 TOGETHER_API_KEY=$TOGETHERAI_TOKEN
-EOF
-    else
-        cat << EOF >> "$ENV_FILE"
-#INFERENCE_PROVIDER=togetherai
-#TOGETHER_API_KEY=xxx
 EOF
     fi
 
@@ -280,7 +311,7 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo "You can now cd /opt/HelixML and run 'docker compose up -d' to start Helix"
+    echo "You can now cd $INSTALL_DIR and run 'docker compose up -d' to start Helix"
 fi
 
 # Install runner if requested or in AUTO mode with GPU
@@ -306,26 +337,10 @@ if [ "$RUNNER" = true ]; then
         WARMUP_MODELS="llama3:instruct,phi3:instruct"
     fi
 
-    # Determine API host if not set
-    if [ -z "$API_HOST" ]; then
-        if [ "$CONTROLPLANE" = true ]; then
-            API_HOST="http://localhost:8080"
-        elif grep -qi microsoft /proc/version; then
-            # Running in WSL2
-            API_HOST="http://host.docker.internal:8080"
-        else
-            case "$(uname -s)" in
-                Linux*)     API_HOST="http://172.17.0.1:8080" ;;
-                Darwin*)    API_HOST="http://host.docker.internal:8080" ;;
-                *)          echo "Unsupported operating system. Please specify --api-host manually."; exit 1 ;;
-            esac
-        fi
-    fi
-
     # Determine runner token
     if [ -z "$RUNNER_TOKEN" ]; then
-        if [ -f "/opt/HelixML/.env" ]; then
-            RUNNER_TOKEN=$(grep RUNNER_TOKEN /opt/HelixML/.env | cut -d '=' -f2)
+        if [ -f "$INSTALL_DIR/.env" ]; then
+            RUNNER_TOKEN=$(grep RUNNER_TOKEN $INSTALL_DIR/.env | cut -d '=' -f2)
         else
             echo "Error: RUNNER_TOKEN not found in .env file and --runner-token not provided."
             echo "Please provide the runner token using the --runner-token argument."
@@ -334,12 +349,12 @@ if [ "$RUNNER" = true ]; then
     fi
 
     # Create runner.sh
-    cat << EOF > /opt/HelixML/runner.sh
+    cat << EOF > $INSTALL_DIR/runner.sh
 #!/bin/bash
 
 # Configuration variables
 RUNNER_TAG="${RUNNER_TAG}"
-API_HOST="${API_HOST}"
+api_host="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
@@ -351,23 +366,30 @@ else
     WARMUP_MODELS_PARAM=""
 fi
 
+# Check if api-1 container is running
+if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
+    api_host="http://api:80"
+    echo "Detected controlplane container running. Setting API_HOST to \${api_host}"
+fi
+
 # Run the docker container
 sudo docker run --privileged --gpus all --shm-size=10g \\
     --restart=always -d \\
     --name helix-runner --ipc=host --ulimit memlock=-1 \\
     --ulimit stack=67108864 \\
+    --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${WARMUP_MODELS_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
-    --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
+    --api-host \${api_host} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
     --memory \${GPU_MEMORY}GB \\
     --allow-multiple-copies
 EOF
 
-    sudo chmod +x /opt/HelixML/runner.sh
-    echo "Runner script has been created at /opt/HelixML/runner.sh"
-    echo "To start the runner, run: sudo /opt/HelixML/runner.sh"
+    sudo chmod +x $INSTALL_DIR/runner.sh
+    echo "Runner script has been created at $INSTALL_DIR/runner.sh"
+    echo "To start the runner, run: sudo $INSTALL_DIR/runner.sh"
 fi
 
 echo "Installation complete."
