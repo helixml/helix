@@ -222,3 +222,6 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
 
+networks:
+  default:
+    name: helix_default
