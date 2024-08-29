@@ -335,14 +335,7 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{
-		{
-			Role:    oai.ChatMessageRoleUser,
-			Content: "What is the weather like in San Francisco?",
-		},
-	}
-
-	chatReq, err := suite.strategy.getApiUserPrompt(tool, history, "getProductDetails")
+	chatReq, err := suite.strategy.getApiUserPrompt(tool, "getProductDetails")
 	suite.Require().NoError(err)
 
 	suite.Equal("CUSTOM_TEMPLATE_HERE", chatReq.Content)
