@@ -9,11 +9,11 @@ assistants:
   - name: cars
     rag_settings:
       disable_chunking: true # Pass the entire document to the RAG server
-      index_url: http://1rvyoove1fvtgxtm3t38yf.webrelay.io/api/index
-      query_url: http://1rvyoove1fvtgxtm3t38yf.webrelay.io/api/index/query
+      index_url: http://ra0zletgpvbpvtxrssssxq.webrelay.io/api/index
+      query_url: http://ra0zletgpvbpvtxrssssxq.webrelay.io/api/index/query
       # Optional endpoint such as DELETE /api/index/<data_entity_id> 
       # that Helix will call when the knowledge is deleted to delete the indexed data
-      delete_url: http://1rvyoove1fvtgxtm3t38yf.webrelay.io/api/index/
+      delete_url: http://ra0zletgpvbpvtxrssssxq.webrelay.io/api/index
     source:
       web:
         urls:
