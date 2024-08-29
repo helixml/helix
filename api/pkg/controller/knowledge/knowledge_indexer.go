@@ -121,7 +121,7 @@ func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
 			Str("query_url", k.RAGSettings.QueryURL).
 			Msg("using custom RAG server")
 
-		return r.newRagClient(k.RAGSettings.IndexURL, k.RAGSettings.QueryURL)
+		return r.newRagClient(&k.RAGSettings)
 	}
 	return r.ragClient
 }

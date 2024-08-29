@@ -236,7 +236,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
-	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
+	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
+		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
+		QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
+		DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
+	})
 
 	var appController *controller.Controller
 

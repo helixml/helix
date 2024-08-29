@@ -12,7 +12,7 @@ func Validate(k *types.AssistantKnowledge) error {
 			return fmt.Errorf("at least one url is required")
 		}
 
-		if k.Source.Web.Crawler.Firecrawl != nil {
+		if k.Source.Web.Crawler != nil && k.Source.Web.Crawler.Firecrawl != nil {
 			if k.Source.Web.Crawler.Firecrawl.APIKey == "" {
 				return fmt.Errorf("firecrawl api key is required")
 			}
