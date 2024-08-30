@@ -35,7 +35,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh Enabled", "Version", "Size"}
+		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh", "Schedule", "Version", "Size"}
 
 		table.SetHeader(header)
 
@@ -81,6 +81,7 @@ var listCmd = &cobra.Command{
 				sourceStr,
 				stateStr,
 				strconv.FormatBool(k.RefreshEnabled),
+				k.RefreshSchedule,
 				k.Version,
 				humanize.Bytes(uint64(k.Size)),
 			}
