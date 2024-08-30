@@ -95,6 +95,7 @@ func (s *PostgresStore) autoMigrate() error {
 		&types.APIKey{},
 		&types.Tool{},
 		&types.Knowledge{},
+		&types.KnowledgeVersion{},
 		&types.SessionToolBinding{},
 		&types.DataEntity{},
 		&types.ScriptRun{},
