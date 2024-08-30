@@ -3,7 +3,6 @@ package helix
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,12 +12,14 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
@@ -223,39 +224,23 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
-	var controllerOpenAIClient openai.Client
-
-	switch cfg.Inference.Provider {
-	case config.ProviderOpenAI:
-		if cfg.Providers.OpenAI.APIKey == "" {
-			return errors.New("OpenAI API key (OPENAI_API_KEY) is required")
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.OpenAI.BaseURL).
-			Msg("using OpenAI provider for controller inference")
-
-		controllerOpenAIClient = openai.New(
-			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL)
-	case config.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey == "" {
-			return errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
-			Msg("using TogetherAI provider for controller inference")
-
-		controllerOpenAIClient = openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL)
-	case config.ProviderHelix:
-		// Using helix infernece server (runners need to be connected)
-		log.Info().Msg("using Helix provider for inference")
-
-		controllerOpenAIClient = helixInference
+	controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
+	if err != nil {
+		return err
 	}
 
-	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
+	logStores := []logger.LogStore{
+		store,
+		// TODO: bigquery
+	}
+
+	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
+
+	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
+		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
+		QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
+		DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
+	})
 
 	var appController *controller.Controller
 
@@ -282,7 +267,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return err
 	}
 
-	go appController.StartLooping()
+	go appController.Start(ctx)
+
+	knowledgeReconciler := knowledge.New(cfg, store, textExtractor, llamaindexRAG)
+
+	go knowledgeReconciler.Start(ctx)
 
 	trigger := trigger.NewTriggerManager(cfg, store, appController)
 	// Start integrations

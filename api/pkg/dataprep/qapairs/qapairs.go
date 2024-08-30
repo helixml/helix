@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"text/template"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
 	ext_openai "github.com/lukemarsden/go-openai2"
@@ -114,7 +114,7 @@ func FindPrompt(name string) (Prompt, error) {
 	return Prompt{}, fmt.Errorf("could not find prompt with name %s", name)
 }
 
-func Run(client openai.Client, model string, promptFilter, textFilter []string) error {
+func Run(client openai.Client, ownerID, sessionID, model string, promptFilter, textFilter []string) error {
 	var config Config
 	err := yaml.Unmarshal([]byte(qapairConfig), &config)
 	if err != nil {
@@ -154,7 +154,7 @@ func Run(client openai.Client, model string, promptFilter, textFilter []string) 
 	for _, prompt := range filteredPrompts {
 		for _, text := range filteredTexts {
 			fmt.Printf("Running helix qapairs --target=\"%s\" --prompt=\"%s\" --text=\"%s\"\n", model, prompt.Name, text.Name)
-			resp, err := Query(client, model, prompt, text, "", "", 0)
+			resp, err := Query(client, ownerID, sessionID, model, prompt, text, "", "", 0)
 			if err != nil {
 				return fmt.Errorf("error querying model: %v", err)
 			}
@@ -176,7 +176,7 @@ type TemplateData struct {
 	DocumentChunk   string
 }
 
-func Query(client openai.Client, model string, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
+func Query(client openai.Client, ownerID, sessionID, model string, prompt Prompt, text Text, documentID, documentGroupID string, numQuestions int) ([]types.DataPrepTextQuestionRaw, error) {
 	// Perform the query for the given target and prompt
 	var (
 		contents string
@@ -233,10 +233,10 @@ func Query(client openai.Client, model string, prompt Prompt, text Text, documen
 	startTime := time.Now()
 	debug := fmt.Sprintf("prompt %s", prompt.Name)
 	// try not enforcing json schema initially, only retry if we fail to parse
-	resp, err := chatWithModel(client, model, systemPrompt, userPrompt, debug, nil)
+	resp, err := chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, nil)
 	if err != nil {
 		log.Warn().Msgf("ChatCompletion error non-JSON mode, trying again (%s): %v\n", debug, err)
-		resp, err = chatWithModel(client, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
+		resp, err = chatWithModel(client, ownerID, sessionID, model, systemPrompt, userPrompt, debug, prompt.JsonSchema)
 		if err != nil {
 			log.Warn().Msgf("ChatCompletion error JSON mode, giving up, but not propagating the error further for now. (%s): %v\n", debug, err)
 			latency := time.Since(startTime).Milliseconds()
@@ -295,7 +295,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(client openai.Client, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
 	req := ext_openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []ext_openai.ChatCompletionMessage{
@@ -317,7 +317,13 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 		}
 	}
 
-	resp, err := client.CreateChatCompletion(context.Background(), req)
+	ctx := openai.SetContextValues(context.Background(), &openai.ContextValues{
+		OwnerID:       ownerID,
+		SessionID:     sessionID,
+		InteractionID: "n/a",
+	})
+
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("ChatCompletion error (%s): %v", debug, err)
 	}
@@ -327,17 +333,7 @@ func chatWithModel(client openai.Client, model, system, user, debug string, json
 	log.Printf("XXX Raw response (%s) to %s json=%t: %s\n", resp.ID, debug, jsonSchema != nil, answer)
 
 	if jsonSchema == nil {
-		if strings.Contains(answer, "```json") {
-			answer = strings.Split(answer, "```json")[1]
-		}
-		// sometimes LLMs in their wisdom puts a message after the enclosing ```json``` block
-		parts := strings.Split(answer, "```")
-		answer = parts[0]
-
-		// LLMs are sometimes bad at correct JSON escaping, trying to escape
-		// characters like _ that don't need to be escaped. Just remove all
-		// backslashes for now... unless we're sure the model generated valid JSON
-		answer = strings.Replace(answer, "\\", "", -1)
+		answer = tools.AttemptFixJSON(answer)
 	}
 
 	return TryVariousJSONFormats(answer, fmt.Sprintf("%s respID=%s", debug, resp.ID))

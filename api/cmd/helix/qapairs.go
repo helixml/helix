@@ -5,6 +5,8 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
+	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/spf13/cobra"
 )
 
@@ -21,17 +23,22 @@ func newQapairCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to load server config: %v", err)
 			}
-
-			client, err := qapairs.NewClient(&serverConfig, nil, nil)
+			ps, err := pubsub.New(serverConfig.PubSub.StoreDir)
 			if err != nil {
-				return fmt.Errorf("failed to create client: %v", err)
+				return err
+			}
+			helixInference := openai.NewInternalHelixServer(&serverConfig, ps)
+
+			client, err := createOpenAIClient(&serverConfig, helixInference)
+			if err != nil {
+				return err
 			}
 
 			if qaPairGenModel != "" {
 				serverConfig.FineTuning.QAPairGenModel = qaPairGenModel
 			}
 
-			return qapairs.Run(client, serverConfig.FineTuning.QAPairGenModel, prompt, theText)
+			return qapairs.Run(client, "n/a", "n/a", serverConfig.FineTuning.QAPairGenModel, prompt, theText)
 		},
 	}
 

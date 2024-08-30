@@ -83,7 +83,7 @@ const FineTuneImageInputs: FC<FineTuneImageInputsProps> = ({
   </Typography>
 }
     {/* {
-      showSystemInteraction && (
+      showAssistantInteraction && (
         <Box
           sx={{
             mt: 4,

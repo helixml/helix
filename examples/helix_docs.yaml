@@ -1,0 +1,28 @@
+name: helix-docs
+description: |
+  A simple app that demonstrates how to setup Helix with knowledge from the Helix docs
+assistants:
+- name: Helix 
+  model: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+  system_prompt: |
+    You are an expert at answering questions about the website https://docs.helix.ml/ and how to
+    run the Helix platform. Make sure your answers are very detailed and comprehensive. Use 
+    as much background knowledge as possible to answer the question and provide creative ways 
+    to resolve the question.
+  knowledge:
+  - name: helix-docs
+    rag_settings:
+      results_count: 8
+      chunk_size: 2048
+    source:      
+      web:        
+        urls:
+        - https://docs.helix.ml/helix/
+        excludes:
+        - searchbot/*
+        crawler:
+          enabled: true
+
+triggers:
+- discord:
+    server_name: "HelixML"

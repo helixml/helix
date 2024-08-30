@@ -17,6 +17,7 @@ func init() {
 	applyCmd.Flags().StringP("filename", "f", "", "Filename to apply")
 	applyCmd.Flags().Bool("shared", false, "Shared application")
 	applyCmd.Flags().Bool("global", false, "Global application")
+	applyCmd.Flags().Bool("refresh-knowledge", false, "Refresh knowledge, re-index all knowledge for the app")
 }
 
 func NewApplyCmd() *cobra.Command {
@@ -24,7 +25,8 @@ func NewApplyCmd() *cobra.Command {
 }
 
 type applyOptions struct {
-	filename string
+	filename         string
+	refreshKnowledge bool
 }
 
 // applyCmd represents the apply command
@@ -52,6 +54,11 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 
+		refreshKnowledge, err := cmd.Flags().GetBool("refresh-knowledge")
+		if err != nil {
+			return err
+		}
+
 		localApp, err := apps.NewLocalApp(filename)
 		if err != nil {
 			return err
@@ -71,8 +78,31 @@ var applyCmd = &cobra.Command{
 
 		for _, existingApp := range existingApps {
 			if existingApp.Config.Helix.Name == appConfig.Name {
-				log.Info().Msgf("Existing app (%s) found, updating...", appConfig.Name)
-				return updateApp(apiClient, existingApp, appConfig, shared, global)
+				log.Debug().Msgf("Existing app (%s) found, updating...", appConfig.Name)
+				err = updateApp(apiClient, existingApp, appConfig, shared, global)
+				if err != nil {
+					return err
+				}
+
+				if refreshKnowledge {
+					knowledgeFilter := &client.KnowledgeFilter{
+						AppID: existingApp.ID,
+					}
+
+					knowledge, err := apiClient.ListKnowledge(knowledgeFilter)
+					if err != nil {
+						return err
+					}
+
+					for _, knowledge := range knowledge {
+						err = apiClient.RefreshKnowledge(knowledge.ID)
+						if err != nil {
+							return fmt.Errorf("failed to refresh knowledge %s (%s): %w", knowledge.ID, knowledge.Name, err)
+						}
+					}
+				}
+
+				return nil
 			}
 		}
 
@@ -90,7 +120,7 @@ func updateApp(apiClient client.Client, app *types.App, appConfig *types.AppHeli
 		return err
 	}
 
-	log.Info().Msgf("Updated app %s", app.ID)
+	fmt.Printf("%s\n", app.ID)
 
 	return nil
 }
@@ -111,7 +141,7 @@ func createApp(apiClient client.Client, appConfig *types.AppHelixConfig, shared,
 		return err
 	}
 
-	log.Info().Msgf("Created app %s", app.ID)
+	fmt.Printf("%s\n", app.ID)
 
 	return nil
 }

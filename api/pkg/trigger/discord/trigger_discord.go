@@ -296,7 +296,7 @@ func (d *Discord) startChat(ctx context.Context, app *types.App, s *discordgo.Se
 
 	messages = append(messages, userMessage)
 
-	resp, err := d.controller.ChatCompletion(
+	resp, _, err := d.controller.ChatCompletion(
 		ctx,
 		&types.User{},
 		openai.ChatCompletionRequest{
@@ -333,7 +333,7 @@ func (d *Discord) getThreadName(ctx context.Context, m *discordgo.MessageCreate)
 		Stream: false,
 	}
 
-	resp, err := d.controller.ChatCompletion(
+	resp, _, err := d.controller.ChatCompletion(
 		ctx,
 		&types.User{},
 		req,

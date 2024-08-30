@@ -1,32 +1,64 @@
 package openai
 
-import "context"
+import (
+	"context"
 
-type contextValues struct {
-	OwnerID       string
-	SessionID     string
-	InteractionID string
+	"github.com/helixml/helix/api/pkg/types"
+)
+
+const (
+	contextValuesKey = "contextValues"
+	stepKey          = "step"
+)
+
+type Step struct {
+	Step types.LLMCallStep
 }
 
-const contextValuesKey = "contextValues"
-
-func SetContextValues(ctx context.Context, ownerID, sessionID, interactionID string) context.Context {
-	return context.WithValue(ctx, contextValuesKey, contextValues{
-		OwnerID:       ownerID,
-		SessionID:     sessionID,
-		InteractionID: interactionID,
-	})
+type ContextValues struct {
+	OwnerID         string
+	SessionID       string
+	InteractionID   string
+	OriginalRequest []byte
 }
 
-func GetContextValues(ctx context.Context) (ownerID, sessionID, interactionID string) {
+func SetContextValues(ctx context.Context, vals *ContextValues) context.Context {
+	// Check if the context already has values, if it does,
+	// preserve the OriginalRequest
+	existingValues, ok := GetContextValues(ctx)
+	if ok {
+		vals.OriginalRequest = existingValues.OriginalRequest
+	}
+
+	return context.WithValue(ctx, contextValuesKey, vals)
+}
+
+func GetContextValues(ctx context.Context) (*ContextValues, bool) {
 	if ctx == nil {
-		return "", "", ""
+		return nil, false
 	}
 
-	values, ok := ctx.Value(contextValuesKey).(contextValues)
+	values, ok := ctx.Value(contextValuesKey).(*ContextValues)
 	if !ok {
-		return "", "", ""
+		return nil, false
 	}
 
-	return values.OwnerID, values.SessionID, values.InteractionID
+	return values, true
+}
+
+func SetStep(ctx context.Context, step *Step) context.Context {
+	return context.WithValue(ctx, stepKey, step)
+}
+
+func GetStep(ctx context.Context) (*Step, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+
+	step, ok := ctx.Value(stepKey).(*Step)
+	if !ok {
+		return nil, false
+	}
+
+	return step, true
 }

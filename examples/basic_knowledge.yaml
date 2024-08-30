@@ -1,0 +1,13 @@
+name: basic-knowledge
+description: |
+  A simple app that demonstrates how to provide knowledge to a Helix app
+assistants:
+- name: Helix
+  description: Know
+  knowledge:
+  - name: cars
+    source:
+      content: |        
+        Karolis has a green car
+        Luke has a blue car
+        Kai has a red car

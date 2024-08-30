@@ -1,13 +1,12 @@
-import React, { FC, ReactNode, useRef, useEffect } from 'react'
-import TextField from '@mui/material/TextField'
-import InputAdornment from '@mui/material/InputAdornment'
-import IconButton from '@mui/material/IconButton'
-
 import SendIcon from '@mui/icons-material/Send'
-
-import useLightTheme from '../../hooks/useLightTheme'
+import IconButton from '@mui/material/IconButton'
+import InputAdornment from '@mui/material/InputAdornment'
+import TextField from '@mui/material/TextField'
+import React, { FC, ReactNode, useEffect, useRef } from 'react'
 import useEnterPress from '../../hooks/useEnterPress'
 import useIsBigScreen from '../../hooks/useIsBigScreen'
+import useLightTheme from '../../hooks/useLightTheme'
+import LoadingSpinner from '../widgets/LoadingSpinner'
 
 import {
   ISessionType,
@@ -19,6 +18,7 @@ const InferenceTextField: FC<{
   type: ISessionType,
   value: string,
   disabled?: boolean,
+  loading?: boolean,
   // changing this string will re-focus the text field
   // e.g. when the assistant changes
   focus?: string,
@@ -30,76 +30,83 @@ const InferenceTextField: FC<{
   type,
   value,
   disabled = false,
+  loading = false,
   focus = '',
   startAdornment,
   promptLabel,
   onUpdate,
   onInference,
 }) => {
-  const lightTheme = useLightTheme()
-  const isBigScreen = useIsBigScreen()
-  const textFieldRef = useRef<HTMLTextAreaElement>()
-  const handleKeyDown = useEnterPress({
-    value,
-    updateHandler: onUpdate,
-    triggerHandler: onInference,
-  })
-  
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    onUpdate(event.target.value)
-  }
+    const lightTheme = useLightTheme()
+    const isBigScreen = useIsBigScreen()
+    const textFieldRef = useRef<HTMLTextAreaElement>()
+    const handleKeyDown = useEnterPress({
+      value,
+      updateHandler: onUpdate,
+      triggerHandler: onInference,
+    })
 
-  const usePromptLabel = promptLabel || PROMPT_LABELS[type]
-
-  useEffect(() => {
-    if (textFieldRef.current && !textFieldRef.current?.matches(':focus')) {
-      textFieldRef.current.focus()
+    const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      onUpdate(event.target.value)
     }
-  }, [
-    value,
-    focus,
-  ])
 
-  return (
-    <TextField
-      id="textEntry"
-      fullWidth
-      inputRef={ textFieldRef }
-      autoFocus
-      label={ isBigScreen ? `${usePromptLabel} (shift+enter to add a newline)` : '' }
-      value={ value }
-      disabled={ disabled }
-      onChange={ handleInputChange }
-      name="ai_submit"
-      multiline={ true }
-      onKeyDown={ handleKeyDown }
-      InputProps={{
-        sx: {
-          backgroundColor: lightTheme.backgroundColor,
-        },
-        startAdornment: startAdornment ? (
-          <InputAdornment position="start">
-            { startAdornment }
-          </InputAdornment>
-        ) : null,
-        endAdornment: (
-          <InputAdornment position="end">
-            <IconButton
-              id="sendButton"
-              aria-label="send"
-              disabled={ disabled }
-              onClick={ onInference }
-              sx={{
-                color: lightTheme.icon,
-              }}
-            >
-              <SendIcon />
-            </IconButton>
-          </InputAdornment>
-        ),
-      }}
-    />
-  )
-}
+    const usePromptLabel = promptLabel || PROMPT_LABELS[type]
+
+    useEffect(() => {
+      if (textFieldRef.current && !textFieldRef.current?.matches(':focus')) {
+        textFieldRef.current.focus()
+      }
+    }, [
+      value,
+      focus,
+    ])
+
+    return (
+      <TextField
+        id="textEntry"
+        fullWidth
+        inputRef={textFieldRef}
+        autoFocus
+        label={isBigScreen ? `${usePromptLabel} (shift+enter to add a newline)` : ''}
+        value={value}
+        disabled={disabled}
+        onChange={handleInputChange}
+        name="ai_submit"
+        multiline={true}
+        onKeyDown={handleKeyDown}
+        InputProps={{
+          sx: {
+            backgroundColor: lightTheme.backgroundColor,
+          },
+          startAdornment: startAdornment ? (
+            <InputAdornment position="start">
+              {startAdornment}
+            </InputAdornment>
+          ) : null,
+          endAdornment: (
+            <InputAdornment position="end">
+              {
+                loading ? (
+                  <LoadingSpinner />
+                ) : (
+                  <IconButton
+                    id="sendButton"
+                    aria-label="send"
+                    disabled={disabled}
+                    onClick={onInference}
+                    sx={{
+                      color: lightTheme.icon,
+                    }}
+                  >
+                    <SendIcon />
+                  </IconButton>
+                )
+              }
+            </InputAdornment>
+          ),
+        }}
+      />
+    )
+  }
 
 export default InferenceTextField

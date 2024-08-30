@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -39,6 +41,34 @@ func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
 	}
 
 	return apps, nil
+}
+
+func (c *HelixClient) GetApp(appID string) (*types.App, error) {
+	req, err := http.NewRequest(http.MethodGet, c.url+"/apps/"+appID, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bts, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var app types.App
+	err = json.Unmarshal(bts, &app)
+	if err != nil {
+		return nil, err
+	}
+
+	return &app, nil
 }
 
 func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
@@ -116,8 +146,10 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 	return &updatedApp, nil
 }
 
-func (c *HelixClient) DeleteApp(appID string) error {
-	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID, nil)
+func (c *HelixClient) DeleteApp(appID string, deleteKnowledge bool) error {
+	query := url.Values{}
+	query.Add("knowledge", strconv.FormatBool(deleteKnowledge))
+	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID+"?"+query.Encode(), nil)
 	if err != nil {
 		return err
 	}

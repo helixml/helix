@@ -1,14 +1,12 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 
-	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
 
@@ -27,13 +25,6 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		called = true
 	}))
 	defer ts.Close()
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-
-			return call, nil
-		}).Times(2)
 
 	getPetDetailsAPI := &types.Tool{
 		Name:        "getPetDetail",
@@ -67,11 +58,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 99944?",
+		},
+	}
 
-	currentMessage := "Can you please give me the details for pet 99944?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -80,7 +74,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_showPetById() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }
 
@@ -137,22 +131,6 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 	}))
 	defer ts.Close()
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
-			return call, nil
-		})
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepInterpretResponse, call.Step)
-
-			return call, nil
-		})
-
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
 
@@ -179,11 +157,14 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "What's the weather like in London?",
+		},
+	}
 
-	currentMessage := "What's the weather like in London?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -192,7 +173,7 @@ func (suite *ActionTestSuite) TestAction_runApiAction_getWeather() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[0].Content)
 	fmt.Println("A:", resp.Message)
 }
 
@@ -212,11 +193,11 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 	}))
 	defer ts.Close()
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			return call, nil
-		}).Times(2)
+	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	// 		suite.Equal("session-123", call.SessionID)
+	// 		return call, nil
+	// 	}).Times(2)
 
 	weatherSpec, err := os.ReadFile("./testdata/weather.yaml")
 	suite.NoError(err)
@@ -253,11 +234,13 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 			Role:    openai.ChatMessageRoleAssistant,
 			Content: "The capital of the United Kingdom is London.",
 		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "What's the weather like there?",
+		},
 	}
 
-	currentMessage := "What's the weather like there?"
-
-	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, currentMessage, "CurrentWeatherData")
+	resp, err := suite.strategy.RunAction(suite.ctx, "session-123", "i-123", getWeatherAPI, history, "CurrentWeatherData")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -266,6 +249,6 @@ func (suite *ActionTestSuite) TestAction_runApiAction_history_getWeather() {
 
 	suite.True(called, "expected to call the API")
 
-	fmt.Println("U:", currentMessage)
+	fmt.Println("U:", history[2].Content)
 	fmt.Println("A:", resp.Message)
 }

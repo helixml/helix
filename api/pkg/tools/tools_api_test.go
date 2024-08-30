@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/golang/mock/gomock"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
+	oai "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	golden "gotest.tools/v3/golden"
@@ -158,19 +157,22 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Path_SinglePara
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 55443?",
+		},
+	}
 
-	currentMessage := "Can you please give me the details for pet 55443?"
+	// suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
+	// 	func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
+	// 		suite.Equal("session-123", call.SessionID)
+	// 		suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
+	// 		return call, nil
+	// 	})
 
-			return call, nil
-		})
-
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -200,19 +202,14 @@ func (suite *ActionTestSuite) TestAction_getAPIRequestParameters_Body_SingleItem
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "Can you please give me the details for pet 55443?",
+		},
+	}
 
-	currentMessage := "Can you please give me the details for pet 55443?"
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepPrepareAPIRequest, call.Step)
-
-			return call, nil
-		})
-
-	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, currentMessage, "showPetById")
+	resp, err := suite.strategy.getAPIRequestParameters(suite.ctx, "session-123", "i-123", getPetDetailsAPI, history, "showPetById")
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -338,11 +335,7 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
-
-	currentMessage := "What is the weather like in San Francisco?"
-
-	chatReq, err := suite.strategy.getApiUserPrompt(tool, history, currentMessage, "getProductDetails")
+	chatReq, err := suite.strategy.getApiUserPrompt(tool, "getProductDetails")
 	suite.Require().NoError(err)
 
 	suite.Equal("CUSTOM_TEMPLATE_HERE", chatReq.Content)
@@ -643,6 +636,15 @@ func Test_unmarshalParams(t *testing.T) {
 			name: "``` in json",
 			args: args{
 				data: "```json{\"id\": 1000}```blah blah blah I am very smart LLM",
+			},
+			want: map[string]string{
+				"id": "1000",
+			},
+		},
+		{
+			name: "``` in json variant",
+			args: args{
+				data: "```\n{\"id\": 1000}```blah blah blah I am very stupid LLM that cannot follow instructions about backticks",
 			},
 			want: map[string]string{
 				"id": "1000",

@@ -27,12 +27,12 @@ import {
   ICloneInteractionMode,
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
-  SESSION_CREATOR_SYSTEM,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
   TEXT_DATA_PREP_STAGE_NONE,
   TEXT_DATA_PREP_STAGE_EDIT_FILES,
   TEXT_DATA_PREP_STAGE_EDIT_QUESTIONS,
+  SESSION_CREATOR_ASSISTANT,
 } from '../../types'
 
 import {
@@ -76,7 +76,7 @@ export const InteractionFinetune: FC<{
   const api = useApi()
   const snackbar = useSnackbar()
 
-  const isSystemInteraction = interaction.creator == SESSION_CREATOR_SYSTEM
+  const isAssistantInteraction = interaction.creator == SESSION_CREATOR_ASSISTANT
   const isUserInteraction = interaction.creator == SESSION_CREATOR_USER
   const isImageFinetune = isUserInteraction && session.type == SESSION_TYPE_IMAGE
   const isTextFinetune = isUserInteraction && session.type == SESSION_TYPE_TEXT
@@ -90,7 +90,7 @@ export const InteractionFinetune: FC<{
     interaction,
   ])
 
-  // in the case where we are a system interaction that is showing buttons
+  // in the case where we are a assistant interaction that is showing buttons
   // to edit the dataset in the previous user interaction
   // we need to know what that previous user interaction was
   const userFilesInteractionID = useMemo(() => {
@@ -296,11 +296,11 @@ export const InteractionFinetune: FC<{
         )
       }
       {
-        isSystemInteraction && hasFineTuned && onClone && (
+        isAssistantInteraction && hasFineTuned && onClone && (
           <FineTuneCloneInteraction
             type={ session.type }
             sessionID={ session.id }
-            systemInteractionID={ interaction.id }
+            assistantInteractionID={ interaction.id }
             userInteractionID={ userFilesInteractionID }
             onClone={ onClone }
             onAddDocuments={ onAddDocuments }

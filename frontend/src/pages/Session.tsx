@@ -55,7 +55,7 @@ import {
 } from '../types'
 
 import {
-  getSystemInteraction,
+  getAssistantInteraction,
 } from '../utils/session'
 
 const Session: FC = () => {
@@ -123,8 +123,11 @@ const Session: FC = () => {
       const urlParams = new URLSearchParams(window.location.search)
       const appID = urlParams.get('app_id') || ''
       let assistantID = urlParams.get('assistant_id') || ''
-      const ragSourceID = urlParams.get('rag_source_id') || ''
+      let ragSourceID = urlParams.get('rag_source_id') || ''
 
+      if (ragSourceID === '') {
+        ragSourceID = session.data.config.rag_source_data_entity_id
+      }
       // if we have an app but no assistant ID let's default to the first one
       if(appID && !assistantID) {
         assistantID = '0'
@@ -137,7 +140,9 @@ const Session: FC = () => {
         legacy: true,
         app_id: appID,
         assistant_id: assistantID,
-        rag_source_id: ragSourceID,        
+        rag_source_id: ragSourceID,
+        model: session.data.model_name,
+        lora_dir: session.data.lora_dir,
         messages: [{
           role: 'user',
           content: {
@@ -148,11 +153,14 @@ const Session: FC = () => {
           },
         }]
       }
+
+      console.log(session)
   
       newSession = await api.post('/api/v1/sessions/chat', sessionChatRequest)
     } else {
       const formData = new FormData()
       formData.set('input', prompt)
+      formData.set('model_name', session.data.model_name)
 
       newSession = await api.put(`/api/v1/sessions/${session.data?.id}`, formData)
     }
@@ -269,7 +277,7 @@ const Session: FC = () => {
       let cloneInteractionID = ''
       let cloneInteractionMode: ICloneInteractionMode = 'all'
       if(shareInstructions.addDocumentsMode || shareInstructions.inferencePrompt) {
-        const interaction = getSystemInteraction(session.data)
+        const interaction = getAssistantInteraction(session.data)
         if(!interaction) return false
         cloneInteractionID = interaction.id
       } else if(shareInstructions.cloneMode && shareInstructions.cloneInteractionID) {
@@ -474,7 +482,7 @@ const Session: FC = () => {
   // then keep reloading it until it has finished
   useEffect(() => {
     if(!session.data) return
-    const systemInteraction = getSystemInteraction(session.data)
+    const systemInteraction = getAssistantInteraction(session.data)
     if(!systemInteraction) return
     if(systemInteraction.state == INTERACTION_STATE_COMPLETE || systemInteraction.state == INTERACTION_STATE_ERROR) return
 

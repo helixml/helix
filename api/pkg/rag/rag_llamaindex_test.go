@@ -15,11 +15,16 @@ import (
 func TestRAG(t *testing.T) {
 	indexURL := os.Getenv("RAG_INDEX_URL")
 	queryURL := os.Getenv("RAG_QUERY_URL")
-	if indexURL == "" || queryURL == "" {
-		t.Skip("RAG_INDEX_URL or RAG_QUERY_URL not set, skipping unit tests")
+	deleteURL := os.Getenv("RAG_DELETE_URL")
+	if indexURL == "" || queryURL == "" || deleteURL == "" {
+		t.Skip("RAG_INDEX_URL or RAG_QUERY_URL or RAG_DELETE_URL not set, skipping unit tests")
 	}
 
-	indexer := NewLlamaindex(indexURL, queryURL)
+	indexer := NewLlamaindex(&types.RAGSettings{
+		IndexURL:  indexURL,
+		QueryURL:  queryURL,
+		DeleteURL: deleteURL,
+	})
 
 	ctx := context.Background()
 

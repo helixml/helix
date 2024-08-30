@@ -11,13 +11,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-type Module struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Cost     int    `json:"cost"`
-	Template string `json:"template"`
-}
-
 type Interaction struct {
 	ID        string      `json:"id"`
 	Created   time.Time   `json:"created"`
@@ -77,7 +70,7 @@ const (
 )
 
 type ResponseFormat struct {
-	Type   ResponseFormatType
+	Type   ResponseFormatType     `json:"type"`
 	Schema map[string]interface{} `json:"schema"`
 }
 
@@ -92,17 +85,57 @@ type SessionOrigin struct {
 	ClonedInteractionID string            `json:"cloned_interaction_id"`
 }
 
-type SessionRAGSettings struct {
-	DistanceFunction string  `json:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
-	Threshold        float64 `json:"threshold"`         // this is the threshold for a "good" answer - will default to 0.2
-	ResultsCount     int     `json:"results_count"`     // this is the max number of results to return - will default to 3
-	ChunkSize        int     `json:"chunk_size"`        // the size of each text chunk - will default to 512 bytes
-	ChunkOverflow    int     `json:"chunk_overflow"`    // the amount of overlap between chunks - will default to 32 bytes
+type TextSplitterType string
+
+const (
+	TextSplitterTypeMarkdown TextSplitterType = "markdown"
+	TextSplitterTypeText     TextSplitterType = "text"
+)
+
+type RAGSettings struct {
+	DistanceFunction string  `json:"distance_function" yaml:"distance_function"` // this is one of l2, inner_product or cosine - will default to cosine
+	Threshold        float64 `json:"threshold" yaml:"threshold"`                 // this is the threshold for a "good" answer - will default to 0.2
+	ResultsCount     int     `json:"results_count" yaml:"results_count"`         // this is the max number of results to return - will default to 3
+
+	TextSplitter       TextSplitterType `json:"text_splitter" yaml:"text_splitter"`             // Markdown if empty or 'text'
+	ChunkSize          int              `json:"chunk_size" yaml:"chunk_size"`                   // the size of each text chunk - will default to 2000 bytes
+	ChunkOverflow      int              `json:"chunk_overflow" yaml:"chunk_overflow"`           // the amount of overlap between chunks - will default to 32 bytes
+	DisableChunking    bool             `json:"disable_chunking" yaml:"disable_chunking"`       // if true, we will not chunk the text and send the entire file to the RAG indexing endpoint
+	DisableDownloading bool             `json:"disable_downloading" yaml:"disable_downloading"` // if true, we will not download the file and send the URL to the RAG indexing endpoint
+	PromptTemplate     string           `json:"prompt_template" yaml:"prompt_template"`         // the prompt template to use for the RAG query
+
+	// RAG endpoint configuration if used with a custom RAG service
+	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
+	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
+}
+
+func (m RAGSettings) Value() (driver.Value, error) {
+	j, err := json.Marshal(m)
+	return j, err
+}
+
+func (t *RAGSettings) Scan(src interface{}) error {
+	source, ok := src.([]byte)
+	if !ok {
+		return errors.New("type assertion .([]byte) failed.")
+	}
+	var result RAGSettings
+	if err := json.Unmarshal(source, &result); err != nil {
+		return err
+	}
+	*t = result
+	return nil
+}
+
+func (RAGSettings) GormDataType() string {
+	return "json"
 }
 
 // the data we send off to llamaindex to be indexed in the db
 type SessionRAGIndexChunk struct {
 	DataEntityID    string `json:"data_entity_id"`
+	Source          string `json:"source"`
 	Filename        string `json:"filename"`
 	DocumentID      string `json:"document_id"`
 	DocumentGroupID string `json:"document_group_id"`
@@ -120,6 +153,10 @@ type SessionRAGQuery struct {
 	MaxResults        int     `json:"max_results"`
 }
 
+type DeleteIndexRequest struct {
+	DataEntityID string `json:"data_entity_id"`
+}
+
 // the thing we load from llamaindex when we send the user prompt
 // there and it does a lookup
 type SessionRAGResult struct {
@@ -129,6 +166,7 @@ type SessionRAGResult struct {
 	DocumentID      string  `json:"document_id"`
 	DocumentGroupID string  `json:"document_group_id"`
 	Filename        string  `json:"filename"`
+	Source          string  `json:"source"`
 	ContentOffset   int     `json:"content_offset"`
 	Content         string  `json:"content"`
 	Distance        float64 `json:"distance"`
@@ -162,10 +200,10 @@ type SessionMetadata struct {
 	// we might choose to not use them (this will help our eval framework know what works the best)
 	// we well as activate RAG - we also get to control some properties, e.g. which distance function to use,
 	// and what the threshold for a "good" answer is
-	RagEnabled          bool               `json:"rag_enabled"`           // without any user input, this will default to true
-	TextFinetuneEnabled bool               `json:"text_finetune_enabled"` // without any user input, this will default to true
-	RagSettings         SessionRAGSettings `json:"rag_settings"`
-	ActiveTools         []string           `json:"active_tools"`
+	RagEnabled          bool        `json:"rag_enabled"`           // without any user input, this will default to true
+	TextFinetuneEnabled bool        `json:"text_finetune_enabled"` // without any user input, this will default to true
+	RagSettings         RAGSettings `json:"rag_settings"`
+	ActiveTools         []string    `json:"active_tools"`
 	// when we do fine tuning or RAG, we need to know which data entity we used
 	UploadedDataID string `json:"uploaded_data_entity_id"`
 	// the RAG source data entity we produced from this session
@@ -231,7 +269,9 @@ type SessionLearnRequest struct {
 	// You must provide a data entity ID for the uploaded documents if yes
 	TextFinetuneEnabled bool `json:"text_finetune_enabled"`
 	// The settings we use for the RAG source
-	RagSettings SessionRAGSettings `json:"rag_settings"`
+	RagSettings RAGSettings `json:"rag_settings"`
+	// When doing RAG, allow the resulting inference session model to be specified
+	DefaultRAGModel string `json:"default_rag_model"`
 }
 
 type Message struct {
@@ -287,7 +327,7 @@ type InternalSessionRequest struct {
 	ManuallyReviewQuestions bool
 	RAGEnabled              bool
 	TextFinetuneEnabled     bool
-	RAGSettings             SessionRAGSettings
+	RAGSettings             RAGSettings
 	ActiveTools             []string
 	ResponseFormat          ResponseFormat
 	UploadedDataID          string
@@ -554,8 +594,8 @@ type RunnerProcessConfig struct {
 
 // a session will run "tasks" on runners
 // task's job is to take the most recent user interaction
-// and add a response to it in the form of a system interaction
-// the api controller will have already appended the system interaction
+// and add a response to it in the form of a assistant interaction
+// the api controller will have already appended the assistant interaction
 // to the very end of the Session.Interactions list
 // our job is to fill in the Message and/or Files field of that interaction
 type RunnerTask struct {
@@ -575,7 +615,7 @@ type RunnerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	// this should be the latest system interaction
+	// this should be the latest assistant interaction
 	// it is filled in by the model instance
 	// based on currentSession
 	InteractionID string `json:"interaction_id"`
@@ -731,16 +771,18 @@ type ToolHistoryMessage struct {
 func HistoryFromChatCompletionRequest(req openai.ChatCompletionRequest) []*ToolHistoryMessage {
 	var history []*ToolHistoryMessage
 
-	// If it's just one message, return an empty history
-	if len(req.Messages) <= 1 {
-		return history
-	}
-
 	// Copy the messages from the request into history messages
-	// Remove the last message, as it's the one we're currently processing
-	for _, message := range req.Messages[:len(req.Messages)-1] {
+	for _, message := range req.Messages {
+		if message.Content == "" {
+			continue
+		}
+		if message.Role == openai.ChatMessageRoleSystem {
+			// it is a VERY bad idea to include >1 system message when talking to an LLM
+			// https://x.com/lmarsden/status/1826406206996693431
+			continue
+		}
 		history = append(history, &ToolHistoryMessage{
-			Role:    openai.ChatMessageRoleUser,
+			Role:    string(message.Role),
 			Content: message.Content,
 		})
 	}
@@ -758,9 +800,14 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 				Role:    openai.ChatMessageRoleUser,
 				Content: interaction.Message,
 			})
-		case CreatorTypeSystem:
+		case CreatorTypeAssistant:
 			history = append(history, &ToolHistoryMessage{
 				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		case CreatorTypeSystem:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleSystem,
 				Content: interaction.Message,
 			})
 		case CreatorTypeTool:
@@ -772,6 +819,16 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 	}
 
 	return history
+}
+
+// Add this struct to the existing types.go file
+
+type PaginatedLLMCalls struct {
+	Calls      []*LLMCall `json:"calls"`
+	Page       int        `json:"page"`
+	PageSize   int        `json:"pageSize"`
+	TotalCount int64      `json:"totalCount"`
+	TotalPages int        `json:"totalPages"`
 }
 
 type ToolType string
@@ -906,6 +963,9 @@ type AssistantConfig struct {
 
 	// the data entity ID that we have created for the lora fine tune
 	LoraID string `json:"lora_id" yaml:"lora_id"`
+
+	// Knowledge available to the assistant
+	Knowledge []*AssistantKnowledge `json:"knowledge" yaml:"knowledge"`
 
 	// Template for determining if the request is actionable or informative
 	IsActionableTemplate string `json:"is_actionable_template" yaml:"is_actionable_template"`
@@ -1117,8 +1177,8 @@ func (GptScriptResponse) GormDataType() string {
 }
 
 type DataEntityConfig struct {
-	FilestorePath string             `json:"filestore_path"`
-	RAGSettings   SessionRAGSettings `json:"rag_settings"`
+	FilestorePath string      `json:"filestore_path"`
+	RAGSettings   RAGSettings `json:"rag_settings"`
 }
 
 func (m DataEntityConfig) Value() (driver.Value, error) {
@@ -1293,6 +1353,7 @@ type RunnerLLMInferenceResponse struct {
 type LLMCallStep string
 
 const (
+	LLMCallStepDefault           LLMCallStep = "default"
 	LLMCallStepIsActionable      LLMCallStep = "is_actionable"
 	LLMCallStepPrepareAPIRequest LLMCallStep = "prepare_api_request"
 	LLMCallStepInterpretResponse LLMCallStep = "interpret_response"
@@ -1302,6 +1363,7 @@ const (
 // done by helix to LLM providers such as openai, togetherai or helix itself
 type LLMCall struct {
 	ID               string         `json:"id" gorm:"primaryKey"`
+	UserID           string         `json:"user_id" gorm:"index"`
 	Created          time.Time      `json:"created"`
 	Updated          time.Time      `json:"updated"`
 	SessionID        string         `json:"session_id" gorm:"index"`
@@ -1309,6 +1371,7 @@ type LLMCall struct {
 	Model            string         `json:"model"`
 	Provider         string         `json:"provider"`
 	Step             LLMCallStep    `json:"step" gorm:"index"`
+	OriginalRequest  datatypes.JSON `json:"original_request" gorm:"type:jsonb"`
 	Request          datatypes.JSON `json:"request" gorm:"type:jsonb"`
 	Response         datatypes.JSON `json:"response" gorm:"type:jsonb"`
 	DurationMs       int64          `json:"duration_ms"`

@@ -26,9 +26,10 @@ func init() {
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List helix apps",
-	Long:  ``,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List helix apps",
+	Long:    ``,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		apiClient, err := client.NewClientFromEnv()
 		if err != nil {
@@ -42,7 +43,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Source", "Created At", "Updated At"}
+		header := []string{"ID", "Name", "Created", "Source"}
 
 		table.SetHeader(header)
 
@@ -62,9 +63,8 @@ var listCmd = &cobra.Command{
 			row := []string{
 				app.ID,
 				app.Config.Helix.Name,
-				string(app.AppSource),
 				app.Created.Format(time.DateTime),
-				app.Updated.Format(time.DateTime),
+				string(app.AppSource),
 			}
 
 			table.Append(row)

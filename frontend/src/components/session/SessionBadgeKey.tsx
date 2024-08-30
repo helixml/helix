@@ -6,15 +6,9 @@ import SessionBadge from './SessionBadge'
 import {
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  MODEL_NAME_SDXL,
-  MODEL_NAME_MISTRAL,
 } from '../../types'
 
-export const SessionBadgeKey: FC<{
-  
-}> = ({
-  
-}) => {
+export const SessionBadgeKey: FC = () => {
   return (
     <Box
       sx={{
@@ -24,7 +18,7 @@ export const SessionBadgeKey: FC<{
       }}
     >
       <SessionBadge
-        modelName={ MODEL_NAME_SDXL }
+        modelName="image"
         mode={ SESSION_MODE_INFERENCE }
       />
       <Typography
@@ -33,11 +27,11 @@ export const SessionBadgeKey: FC<{
           mr: 2,
         }}
       >
-        SDXL Inference
+        Image Inference
       </Typography>
 
       <SessionBadge
-        modelName={ MODEL_NAME_SDXL }
+        modelName="image"
         mode={ SESSION_MODE_FINETUNE }
       />
       <Typography
@@ -46,11 +40,11 @@ export const SessionBadgeKey: FC<{
           mr: 2,
         }}
       >
-        SDXL Finetune
+        Image Finetune
       </Typography>
 
       <SessionBadge
-        modelName={ MODEL_NAME_MISTRAL }
+        modelName="text"
         mode={ SESSION_MODE_INFERENCE }
       />
       <Typography
@@ -59,11 +53,11 @@ export const SessionBadgeKey: FC<{
           mr: 2,
         }}
       >
-        Mistral Inference
+        Text Inference
       </Typography>
 
       <SessionBadge
-        modelName={ MODEL_NAME_MISTRAL }
+        modelName="text"
         mode={ SESSION_MODE_FINETUNE }
       />
       <Typography
@@ -72,7 +66,7 @@ export const SessionBadgeKey: FC<{
           mr: 2,
         }}
       >
-        Mistral Finetune
+        Text Finetune
       </Typography>
 
     </Box>

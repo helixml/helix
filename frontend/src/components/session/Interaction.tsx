@@ -13,7 +13,7 @@ import {
   SESSION_TYPE_IMAGE,
   SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  SESSION_CREATOR_SYSTEM,
+  SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
   ISession,
   IInteraction,
@@ -55,7 +55,7 @@ export const Interaction: FC<{
   let displayMessage: string = ''
   let imageURLs: string[] = []
 
-  let isLoading = interaction?.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+  let isLoading = interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
 
   let useMessageText = ''
 
@@ -88,9 +88,9 @@ export const Interaction: FC<{
     }
   }
 
-  const isSystem = interaction?.creator == SESSION_CREATOR_SYSTEM
-  const useName = isSystem ? 'Helix System' : account.user?.name || 'User'
-  const useBadge = isSystem ? 'AI' : ''
+  const isAssistant = interaction?.creator == SESSION_CREATOR_ASSISTANT
+  const useName = isAssistant ? 'Helix' : account.user?.name || 'User'
+  const useBadge = isAssistant ? 'AI' : ''
 
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
@@ -104,7 +104,7 @@ export const Interaction: FC<{
         name={ useName }
         badge={ useBadge }
         buttons={ headerButtons }
-        background={ isSystem }
+        background={ isAssistant }
       >
           {
             showFinetuning && (
@@ -130,7 +130,7 @@ export const Interaction: FC<{
             isShared={ session.config.shared }
             onRestart={ onRestart }
             upgrade={ interaction.data_prep_limited }
-            isFromSystem={interaction?.creator == SESSION_CREATOR_SYSTEM}
+            isFromAssistant={interaction?.creator == SESSION_CREATOR_ASSISTANT}
           />
           
           {

@@ -10,10 +10,10 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/freeport"
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -34,7 +34,8 @@ type InferenceModelInstanceConfig struct {
 }
 
 var (
-	_ ModelInstance = &OllamaInferenceModelInstance{}
+	ollamaCommander Commander     = &RealCommander{}
+	_               ModelInstance = &OllamaInferenceModelInstance{}
 )
 
 func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelInstanceConfig, request *types.RunnerLLMInferenceRequest) (*OllamaInferenceModelInstance, error) {
@@ -60,6 +61,8 @@ func NewOllamaInferenceModelInstance(ctx context.Context, cfg *InferenceModelIns
 		runnerOptions:   cfg.RunnerOptions,
 		jobHistory:      []*types.SessionSummary{},
 		lastActivity:    time.Now(),
+		commander:       ollamaCommander,
+		freePortFinder:  freePortFinder,
 	}
 
 	// Enqueue the first request
@@ -81,6 +84,9 @@ type OllamaInferenceModelInstance struct {
 	finishCh chan bool
 
 	workCh chan *types.RunnerLLMInferenceRequest
+
+	inUse    atomic.Bool // If we are currently processing a request
+	fetching atomic.Bool // If we are fetching the next request
 
 	// client is the model client
 	client *openai.Client
@@ -114,20 +120,26 @@ type OllamaInferenceModelInstance struct {
 
 	// a history of the session IDs
 	jobHistory []*types.SessionSummary
+
+	// Interface to run commands
+	commander Commander
+
+	// Interface to find free ports
+	freePortFinder FreePortFinder
 }
 
 // Warmup starts Ollama server and pulls the models
-func (i *OllamaInferenceModelInstance) Warmup(ctx context.Context) error {
-	err := i.startOllamaServer(ctx)
+func (i *OllamaInferenceModelInstance) Warmup(_ context.Context) error {
+	err := i.startOllamaServer(i.ctx)
 	if err != nil {
 		return err
 	}
 
-	return i.warmup(ctx)
+	return i.warmup(i.ctx)
 }
 
-func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
-	err := i.startOllamaServer(ctx)
+func (i *OllamaInferenceModelInstance) Start(_ context.Context) error {
+	err := i.startOllamaServer(i.ctx)
 	if err != nil {
 		return err
 	}
@@ -150,6 +162,12 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 
 				err := i.processInteraction(req)
 				if err != nil {
+					// If context is cancelled, no error
+					if i.ctx.Err() != nil {
+						log.Error().Msg("context cancelled, exiting")
+						return
+					}
+
 					log.Error().
 						Str("session_id", req.SessionID).
 						Err(err).
@@ -169,7 +187,7 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 				i.currentRequest = nil
 			default:
 				// Get next chat request
-				req, err := i.getNextRequest()
+				req, err := i.fetchNextRequest()
 				if err != nil {
 					log.Error().Err(err).Msg("error getting next request")
 					time.Sleep(300 * time.Millisecond)
@@ -192,7 +210,14 @@ func (i *OllamaInferenceModelInstance) Start(ctx context.Context) error {
 	return nil
 }
 
-func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
+func (i *OllamaInferenceModelInstance) fetchNextRequest() (*types.RunnerLLMInferenceRequest, error) {
+	i.fetching.Store(true)
+	defer i.fetching.Store(false)
+
+	return i.getNextRequest()
+}
+
+func (i *OllamaInferenceModelInstance) warmup(_ context.Context) error {
 	var err error
 	var wg sync.WaitGroup
 
@@ -228,14 +253,14 @@ func (i *OllamaInferenceModelInstance) warmup(ctx context.Context) error {
 	return nil
 }
 
-func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) error {
-	ollamaPath, err := exec.LookPath("ollama")
+func (i *OllamaInferenceModelInstance) startOllamaServer(_ context.Context) error {
+	ollamaPath, err := i.commander.LookPath("ollama")
 	if err != nil {
 		return fmt.Errorf("ollama not found in PATH")
 	}
 
 	// Get random free port
-	port, err := freeport.GetFreePort()
+	port, err := i.freePortFinder.GetFreePort()
 	if err != nil {
 		return fmt.Errorf("error getting free port: %s", err.Error())
 	}
@@ -245,7 +270,7 @@ func (i *OllamaInferenceModelInstance) startOllamaServer(ctx context.Context) er
 
 	i.client = openai.NewClientWithConfig(config)
 
-	cmd := exec.CommandContext(i.ctx, ollamaPath, "serve")
+	cmd := i.commander.CommandContext(i.ctx, ollamaPath, "serve")
 	// Getting base env (HOME, etc)
 	cmd.Env = append(cmd.Env,
 		os.Environ()...,
@@ -343,6 +368,7 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	if i.currentCommand == nil {
 		return fmt.Errorf("no Ollama process to stop")
 	}
+
 	log.Info().Msgf("🟢 stop Ollama model instance tree")
 	if err := killProcessTree(i.currentCommand.Process.Pid); err != nil {
 		log.Error().Msgf("error stopping Ollama model process: %s", err.Error())
@@ -350,6 +376,11 @@ func (i *OllamaInferenceModelInstance) Stop() error {
 	}
 	log.Info().Msgf("🟢 stopped Ollama instance")
 	close(i.workCh)
+	// It is very important that we cancel the context only after we've
+	// gracefully shut down the child processes in killProcessTree() above.
+	// Otherwise we will leave child processes of ollama using GPU memory
+	// forever, not discoverable via parent pid thereby permanently making this
+	// runner mysteriously terribly slow.
 	i.cancel()
 
 	return nil
@@ -367,6 +398,17 @@ func (i *OllamaInferenceModelInstance) Filter() types.SessionFilter {
 }
 
 func (i *OllamaInferenceModelInstance) Stale() bool {
+	// If in use, we don't want to mark it as stale
+	if i.inUse.Load() {
+		return false
+	}
+
+	// If we are fetching the next request, we don't want to mark it as stale
+	// as we might be getting the request
+	if i.fetching.Load() {
+		return false
+	}
+
 	return time.Since(i.lastActivity) > i.runnerOptions.Config.Runtimes.Ollama.InstanceTTL
 }
 
@@ -426,6 +468,9 @@ func (i *OllamaInferenceModelInstance) GetState() (*types.ModelInstanceState, er
 }
 
 func (i *OllamaInferenceModelInstance) processInteraction(inferenceReq *types.RunnerLLMInferenceRequest) error {
+	i.inUse.Store(true)
+	defer i.inUse.Store(false)
+
 	switch {
 	case inferenceReq.Request.Stream:
 		stream, err := i.client.CreateChatCompletionStream(context.Background(), *inferenceReq.Request)
