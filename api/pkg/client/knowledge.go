@@ -1,9 +1,7 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -18,26 +16,10 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 	if f.AppID != "" {
 		url += "?app_id=" + f.AppID
 	}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bts, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
 
 	var knowledge []*types.Knowledge
-	err = json.Unmarshal(bts, &knowledge)
+
+	err := c.makeRequest(http.MethodGet, "/knowledge", nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
@@ -46,21 +28,10 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 }
 
 func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url+"/knowledge/"+id, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	url := c.url + "/knowledge/" + id
 
 	var knowledge *types.Knowledge
-	err = json.NewDecoder(resp.Body).Decode(&knowledge)
+	err := c.makeRequest(http.MethodGet, url, nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
@@ -69,43 +40,32 @@ func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
 }
 
 func (c *HelixClient) DeleteKnowledge(id string) error {
-	req, err := http.NewRequest(http.MethodDelete, c.url+"/knowledge/"+id, nil)
+	err := c.makeRequest(http.MethodDelete, "/knowledge/"+id, nil, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to delete knowledge, %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	return nil
+}
 
-	resp, err := c.httpClient.Do(req)
+func (c *HelixClient) RefreshKnowledge(id string) error {
+	err := c.makeRequest(http.MethodPost, "/knowledge/"+id+"/refresh", nil, nil)
 	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete knowledge, status code: %d", resp.StatusCode)
+		return fmt.Errorf("failed to refresh knowledge, %w", err)
 	}
 
 	return nil
 }
 
-func (c *HelixClient) RefreshKnowledge(id string) error {
-	req, err := http.NewRequest(http.MethodPost, c.url+"/knowledge/"+id+"/refresh", nil)
+type KnowledgeVersionsFilter struct {
+	KnowledgeID string
+}
+
+func (c *HelixClient) ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error) {
+	var knowledge []*types.KnowledgeVersion
+	err := c.makeRequest(http.MethodGet, fmt.Sprintf("/knowledge/%s/versions", f.KnowledgeID), nil, &knowledge)
 	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh knowledge, status code: %d", resp.StatusCode)
+		return nil, err
 	}
 
-	return nil
+	return knowledge, nil
 }
