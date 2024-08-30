@@ -47,6 +47,32 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 	return existing, nil
 }
 
+func (s *HelixAPIServer) listKnowledgeVersions(_ http.ResponseWriter, r *http.Request) ([]*types.KnowledgeVersion, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	existing, err := s.Store.GetKnowledge(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if existing.Owner != user.ID {
+		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
+	}
+
+	versions, err := s.Store.ListKnowledgeVersions(r.Context(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return versions, nil
+}
+
 func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
