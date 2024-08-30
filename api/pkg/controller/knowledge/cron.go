@@ -115,6 +115,44 @@ func (r *Reconciler) getCronTask(ctx context.Context, knowledgeID string) gocron
 	return gocron.NewTask(func() {
 		// TODO:
 		fmt.Println(time.Now().Format("2006-01-02 15:04:05") + " running job for knowledge " + knowledgeID)
+
+		knowledge, err := r.store.GetKnowledge(ctx, knowledgeID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("knowledge_id", knowledgeID).
+				Msg("failed to get knowledge")
+			return
+		}
+
+		// If knowledge is indexing or pending, skip it
+		if knowledge.State == types.KnowledgeStateIndexing || knowledge.State == types.KnowledgeStatePending {
+			return
+		}
+
+		// If knowledge is ready, run the indexing
+		if knowledge.State == types.KnowledgeStateReady {
+			err := r.indexKnowledge(ctx, knowledge, knowledge.Version)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("knowledge_id", knowledgeID).
+					Msg("failed to index knowledge")
+
+				knowledge.State = types.KnowledgeStateError
+				knowledge.Message = err.Error()
+				_, _ = r.store.UpdateKnowledge(ctx, knowledge)
+
+				// Create a failed version too just for logs
+				_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+					KnowledgeID: knowledge.ID,
+					Version:     knowledge.Version,
+					Size:        knowledge.Size,
+					State:       types.KnowledgeStateError,
+					Message:     err.Error(),
+				})
+			}
+		}
 	})
 }
 
