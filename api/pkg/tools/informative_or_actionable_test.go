@@ -10,10 +10,11 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 
-	"github.com/golang/mock/gomock"
 	"github.com/kelseyhightower/envconfig"
+	oai "github.com/lukemarsden/go-openai2"
 	openai_ext "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/mock/gomock"
 )
 
 func TestActionTestSuite(t *testing.T) {
@@ -22,11 +23,12 @@ func TestActionTestSuite(t *testing.T) {
 
 type ActionTestSuite struct {
 	suite.Suite
-	ctrl     *gomock.Controller
-	executor *gptscript.MockExecutor
-	store    *store.MockStore
-	ctx      context.Context
-	strategy *ChainStrategy
+	ctrl      *gomock.Controller
+	executor  *gptscript.MockExecutor
+	apiClient *openai.MockClient
+	store     *store.MockStore
+	ctx       context.Context
+	strategy  *ChainStrategy
 }
 
 func (suite *ActionTestSuite) SetupTest() {
@@ -41,7 +43,18 @@ func (suite *ActionTestSuite) SetupTest() {
 	err := envconfig.Process("", &cfg)
 	suite.NoError(err)
 
-	strategy, err := NewChainStrategy(&cfg, nil, suite.store, suite.executor, nil)
+	var apiClient openai.Client
+
+	if cfg.Providers.TogetherAI.APIKey != "" {
+		apiClient = openai.New(
+			cfg.Providers.TogetherAI.APIKey,
+			cfg.Providers.TogetherAI.BaseURL)
+		cfg.Tools.Model = "meta-llama/Llama-3-8b-chat-hf"
+	} else {
+		apiClient = openai.NewMockClient(suite.ctrl)
+	}
+
+	strategy, err := NewChainStrategy(&cfg, suite.store, suite.executor, apiClient)
 	suite.NoError(err)
 
 	suite.strategy = strategy
@@ -79,19 +92,14 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What is the weather like in San Francisco?",
+		},
+	}
 
-	currentMessage := "What is the weather like in San Francisco?"
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		})
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -126,14 +134,6 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		},
 	}, nil)
 
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		}).Times(2)
-
 	tools := []*types.Tool{
 		{
 			Name:     "weatherAPI",
@@ -165,11 +165,14 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What is the weather like in San Francisco?",
+		},
+	}
 
-	currentMessage := "What is the weather like in San Francisco?"
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -210,19 +213,14 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What's the reason why oceans have less fish??",
+		},
+	}
 
-	currentMessage := "What's the reason why oceans have less fish??"
-
-	suite.store.EXPECT().CreateLLMCall(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error) {
-			suite.Equal("session-123", call.SessionID)
-			suite.Equal(types.LLMCallStepIsActionable, call.Step)
-
-			return call, nil
-		})
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()

@@ -233,19 +233,6 @@
                       }
 
                       {
-                        account.serverConfig.tools_enabled && (
-                          <MenuItem onClick={ () => {
-                            navigateTo('tools')
-                          }}>
-                            <ListItemIcon>
-                              <ConstructionIcon fontSize="small" />
-                            </ListItemIcon> 
-                            Tools
-                          </MenuItem>
-                        )
-                      }
-
-                      {
                         account.serverConfig.apps_enabled && (
                           <MenuItem onClick={ () => {
                             navigateTo('apps')
@@ -264,7 +251,7 @@
                         <ListItemIcon>
                           <AccountBoxIcon fontSize="small" />
                         </ListItemIcon> 
-                        My account
+                        Account &amp; API
                       </MenuItem>
 
                       <MenuItem onClick={ () => {

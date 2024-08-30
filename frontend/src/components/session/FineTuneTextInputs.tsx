@@ -54,7 +54,7 @@ export const FineTuneTextInputs: FC<{
   initialFiles?: File[],
   showButton?: boolean,
   hideTextField?: boolean,
-  showSystemInteraction?: boolean,
+  showAssistantInteraction?: boolean,
   onChange?: {
     (counter: number, files: File[]): void
   },
@@ -65,7 +65,7 @@ export const FineTuneTextInputs: FC<{
   initialCounter,
   initialFiles,
   showButton = false,
-  showSystemInteraction = true,
+  showAssistantInteraction = true,
   onChange,
   onDone,
 }) => {
@@ -186,7 +186,7 @@ export const FineTuneTextInputs: FC<{
         overflow: 'hidden',
       }}
     >
-      {showSystemInteraction && (
+      {showAssistantInteraction && (
         <Box
           sx={{
             mt: 1,

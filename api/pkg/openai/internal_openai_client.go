@@ -147,6 +147,8 @@ func (c *InternalHelixClient) startSession(ctx context.Context, req *openai.Chat
 			creator = types.CreatorTypeUser
 		case "system":
 			creator = types.CreatorTypeSystem
+		case "assistant":
+			creator = types.CreatorTypeAssistant
 		}
 
 		interaction := &types.Interaction{

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
@@ -16,6 +17,8 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/lukemarsden/go-openai2"
+	"gorm.io/datatypes"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,9 +32,15 @@ import (
 // @Router /api/v1/sessions/chat [post]
 // @Security BearerAuth
 func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(req.Body, 10*MEGABYTE))
+	if err != nil {
+		log.Error().Err(err).Msg("error reading body")
+		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	var startReq types.SessionChatRequest
-	err := json.NewDecoder(io.LimitReader(req.Body, 10*MEGABYTE)).Decode(&startReq)
+	err = json.Unmarshal(body, &startReq)
 	if err != nil {
 		http.Error(rw, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -50,6 +59,33 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		startReq.AssistantID = assistantID
 	}
 
+	// if the app specifies a model, override startReq.Model so that we display
+	// the correct model in the UI (and some things may rely on it)
+	if startReq.AppID != "" {
+		// load the app
+		app, err := s.Store.GetApp(req.Context(), startReq.AppID)
+		if err != nil {
+			log.Error().Err(err).Str("app_id", startReq.AppID).Msg("Failed to load app")
+			http.Error(rw, "Failed to load app: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If an AssistantID is specified, get the correct assistant from the app
+		if startReq.AssistantID != "" {
+			var assistant *types.AssistantConfig
+			assistantID := startReq.AssistantID
+			if assistantID == "" {
+				assistantID = "0"
+			}
+			assistant = data.GetAssistant(app, assistantID)
+
+			// Update the model if the assistant has one
+			if assistant.Model != "" {
+				startReq.Model = assistant.Model
+			}
+		}
+	}
+
 	if len(startReq.Messages) == 0 {
 		http.Error(rw, "messages must not be empty", http.StatusBadRequest)
 		return
@@ -65,7 +101,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	user := getRequestUser(req)
 
 	// For finetunes, legacy route
-	if startReq.LoraDir != "" {
+	if startReq.LoraDir != "" || startReq.Type == types.SessionTypeImage {
 		s.startChatSessionLegacyHandler(req.Context(), user, &startReq, req, rw)
 		return
 	}
@@ -105,6 +141,10 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		if session.Owner != user.ID {
 			http.Error(rw, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
+		}
+		// If the session has an AppID, use it as the next interaction
+		if session.ParentApp != "" {
+			startReq.AppID = session.ParentApp
 		}
 	} else {
 		// Create session
@@ -153,7 +193,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			ID:       system.GenerateUUID(),
 			Created:  time.Now(),
 			Updated:  time.Now(),
-			Creator:  types.CreatorTypeSystem,
+			Creator:  types.CreatorTypeAssistant,
 			Mode:     types.SessionModeInference,
 			Message:  "",
 			State:    types.InteractionStateWaiting,
@@ -170,7 +210,12 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 		return
 	}
 
-	ctx = oai.SetContextValues(context.Background(), user.ID, session.ID, session.Interactions[0].ID)
+	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+		OwnerID:         user.ID,
+		SessionID:       session.ID,
+		InteractionID:   session.Interactions[0].ID,
+		OriginalRequest: body,
+	})
 
 	var (
 		chatCompletionRequest = openai.ChatCompletionRequest{
@@ -200,24 +245,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 
 	// TODO: remove once frontend is removed
 	if startReq.Legacy {
-		stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		go func() {
-			s.legacyStreamUpdates(user, session, stream)
-		}()
-
-		sessionDataJSON, err := json.Marshal(session)
-		if err != nil {
-			http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		rw.Header().Set("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusOK)
-		rw.Write(sessionDataJSON)
+		s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
 		return
 	}
 	// End of TODO
@@ -237,25 +265,124 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 	return
 }
 
+func (s *HelixAPIServer) restartChatSessionHandler(rw http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+	user := getRequestUser(req)
+	session_id := mux.Vars(req)["id"]
+	session, err := s.Store.GetSession(ctx, session_id)
+	if err != nil {
+		http.Error(rw, fmt.Sprintf("failed to get session %s, error: %s", session_id, err), http.StatusInternalServerError)
+		return
+	}
+
+	modelName, e := types.ProcessModelName(string(s.Cfg.Inference.Provider), session.ModelName.String(), types.SessionModeInference, types.SessionTypeText, false, false)
+	if e != nil {
+		http.Error(rw, "invalid model name: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if modelName.String() != session.ModelName.String() {
+		session.ModelName = modelName
+	}
+
+	// Restart the previous interaction
+	if len(session.Interactions) > 0 {
+		lastInteraction := session.Interactions[len(session.Interactions)-1]
+		lastInteraction.State = types.InteractionStateWaiting
+		lastInteraction.Completed = time.Time{}
+		lastInteraction.Finished = false
+		lastInteraction.Error = ""
+		lastInteraction.Message = ""
+	}
+
+	// Update the session
+	err = s.Controller.WriteSession(session)
+	if err != nil {
+		http.Error(rw, "failed to write session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert interactions (except the last one) to messages
+	var (
+		chatCompletionRequest = openai.ChatCompletionRequest{
+			Model: modelName.String(),
+		}
+
+		options = &controller.ChatCompletionOptions{
+			AppID:       session.ParentApp,
+			AssistantID: session.Metadata.AssistantID,
+			RAGSourceID: session.Metadata.RAGSourceID,
+			QueryParams: session.Metadata.AppQueryParams,
+		}
+	)
+	for _, interaction := range session.Interactions[:len(session.Interactions)-1] {
+		chatCompletionRequest.Messages = append(chatCompletionRequest.Messages, openai.ChatCompletionMessage{
+			Role:    string(interaction.Creator),
+			Content: interaction.Message,
+		})
+	}
+
+	// Set required context values
+	ctx = oai.SetContextValues(context.Background(), &oai.ContextValues{
+		OwnerID:       user.ID,
+		SessionID:     session.ID,
+		InteractionID: session.Interactions[len(session.Interactions)-1].ID,
+	})
+
+	// TODO: This uses the "old style" frontend websocket stream, copied from startChatSessionHandler
+	s.legacyChatCompletionStream(ctx, user, session, chatCompletionRequest, options, rw)
+}
+
+func (s *HelixAPIServer) legacyChatCompletionStream(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) {
+	stream, updatedReq, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	if err != nil {
+		http.Error(rw, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	go func() {
+		// we log the updated request here because the controller mutates it
+		// when doing e.g. tools calls and RAG
+		s.legacyStreamUpdates(user, session, stream, updatedReq)
+	}()
+
+	sessionDataJSON, err := json.Marshal(session)
+	if err != nil {
+		http.Error(rw, "failed to marshal session data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
+	rw.Write(sessionDataJSON)
+}
+
 func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
 	// Ensure request is not streaming
 	chatCompletionRequest.Stream = false
+
 	// Call the LLM
-	chatCompletionResponse, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
+	chatCompletionResponse, _, err := s.Controller.ChatCompletion(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		// Update the session with the response
 		session.Interactions[len(session.Interactions)-1].Error = err.Error()
 		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateError
-	} else {
-		if len(chatCompletionResponse.Choices) == 0 {
-			return errors.New("no data in the LLM response")
+		writeErr := s.Controller.WriteSession(session)
+		if writeErr != nil {
+			return fmt.Errorf("error writing session: %w", writeErr)
 		}
-		// Update the session with the response
-		session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
-		session.Interactions[len(session.Interactions)-1].Completed = time.Now()
-		session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
-		session.Interactions[len(session.Interactions)-1].Finished = true
+
+		http.Error(rw, fmt.Sprintf("error running LLM: %s", err.Error()), http.StatusInternalServerError)
+		return nil
 	}
+
+	if len(chatCompletionResponse.Choices) == 0 {
+		return errors.New("no data in the LLM response")
+	}
+
+	// Update the session with the response
+	session.Interactions[len(session.Interactions)-1].Message = chatCompletionResponse.Choices[0].Message.Content
+	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
+	session.Interactions[len(session.Interactions)-1].State = types.InteractionStateComplete
+	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	err = s.Controller.WriteSession(session)
 	if err != nil {
@@ -275,10 +402,10 @@ func (s *HelixAPIServer) handleBlockingSession(ctx context.Context, user *types.
 }
 
 func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types.User, session *types.Session, chatCompletionRequest openai.ChatCompletionRequest, options *controller.ChatCompletionOptions, rw http.ResponseWriter) error {
-	// Ensure request is not streaming
+	// Ensure request is streaming
 	chatCompletionRequest.Stream = true
 	// Call the LLM
-	stream, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
+	stream, _, err := s.Controller.ChatCompletionStream(ctx, user, chatCompletionRequest, options)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return nil
@@ -303,8 +430,9 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 		}
 
 		// Accumulate the response
-		fullResponse += response.Choices[0].Delta.Content
-
+		if len(response.Choices) > 0 {
+			fullResponse += response.Choices[0].Delta.Content
+		}
 		// Update the response with the interaction ID
 		response.ID = session.ID
 
@@ -329,13 +457,15 @@ func (s *HelixAPIServer) handleStreamingSession(ctx context.Context, user *types
 
 // legacyStreamUpdates writes the event to pubsub so user's browser can pick them
 // up and update the session in the UI
-func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream) {
+func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Session, stream *openai.ChatCompletionStream, chatCompletionRequest *openai.ChatCompletionRequest) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	interactionID := session.Interactions[len(session.Interactions)-1].ID
 
 	var responseMessage string
+
+	started := time.Now()
 
 	for {
 		response, err := stream.Recv()
@@ -400,6 +530,12 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 		log.Error().Err(err).Msg("failed to publish message")
 	}
 
+	// Log the full LLM call after the stream is complete
+	s.logLegacyLLMCall(user.ID, session.ID, session.Interactions[len(session.Interactions)-1].ID, types.LLMCallStepDefault, chatCompletionRequest, &openai.ChatCompletionResponse{
+		ID:      session.ID,
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: responseMessage}}},
+	}, time.Since(started).Milliseconds(), chatCompletionRequest.Model, string(s.Cfg.Inference.Provider))
+
 	// Update last interaction
 	session.Interactions[len(session.Interactions)-1].Message = responseMessage
 	session.Interactions[len(session.Interactions)-1].Completed = time.Now()
@@ -407,4 +543,27 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 	session.Interactions[len(session.Interactions)-1].Finished = true
 
 	s.Controller.WriteSession(session)
+}
+
+func (s *HelixAPIServer) logLegacyLLMCall(userID, sessionID, interactionID string, step types.LLMCallStep, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64, model string, provider string) {
+	// Convert request and response to JSON strings
+	reqJSON, _ := json.Marshal(req)
+	respJSON, _ := json.Marshal(resp)
+
+	llmCall := &types.LLMCall{
+		UserID:        userID,
+		SessionID:     sessionID,
+		InteractionID: interactionID,
+		Step:          step,
+		Request:       datatypes.JSON(reqJSON),
+		Response:      datatypes.JSON(respJSON),
+		DurationMs:    durationMs,
+		Model:         model,
+		Provider:      provider,
+	}
+
+	_, err := s.Store.CreateLLMCall(context.Background(), llmCall)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to log LLM call")
+	}
 }

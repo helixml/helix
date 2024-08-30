@@ -98,12 +98,21 @@ type Store interface {
 	ListDataEntities(ctx context.Context, q *ListDataEntitiesQuery) ([]*types.DataEntity, error)
 	DeleteDataEntity(ctx context.Context, id string) error
 
+	// Knowledge
+	CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
+	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
+	LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error)
+	UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
+	ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error)
+	DeleteKnowledge(ctx context.Context, id string) error
+
 	// GPTScript runs history table
 	CreateScriptRun(ctx context.Context, task *types.ScriptRun) (*types.ScriptRun, error)
 	ListScriptRuns(ctx context.Context, q *types.GptScriptRunsQuery) ([]*types.ScriptRun, error)
 	DeleteScriptRun(ctx context.Context, id string) error
 
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
+	ListLLMCalls(ctx context.Context, page, pageSize int) ([]*types.LLMCall, int64, error)
 }
 
 var ErrNotFound = errors.New("not found")

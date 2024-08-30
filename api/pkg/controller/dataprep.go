@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/data"
-	"github.com/helixml/helix/api/pkg/dataprep/qapairs"
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/prompts"
@@ -103,7 +102,7 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 		return nil, 0, err
 	}
 
-	systemInteraction, err := data.GetSystemInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -121,11 +120,11 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("downloading and extracting text from %d files", len(filesToConvert))
-	systemInteraction.Status = initialMessage
-	systemInteraction.Progress = 1
-	systemInteraction.DataPrepStage = types.TextDataPrepStageExtractText
-	systemInteraction.State = types.InteractionStateWaiting
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = initialMessage
+	assistantInteraction.Progress = 1
+	assistantInteraction.DataPrepStage = types.TextDataPrepStageExtractText
+	assistantInteraction.State = types.InteractionStateWaiting
+	session = c.WriteInteraction(session, assistantInteraction)
 
 	c.BroadcastProgress(session, 1, initialMessage)
 
@@ -186,9 +185,9 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 			percentConverted := int(float64(completedCounter) / float64(len(filesToConvert)) * 100)
 			message := fmt.Sprintf("extracted text from %s - %d of %d files extracted", path.Base(file), completedCounter, len(filesToConvert))
 			c.BroadcastProgress(session, percentConverted, message)
-			systemInteraction.Status = message
-			systemInteraction.Progress = percentConverted
-			session = c.WriteInteraction(session, systemInteraction)
+			assistantInteraction.Status = message
+			assistantInteraction.Progress = percentConverted
+			session = c.WriteInteraction(session, assistantInteraction)
 
 			runningFileList = injectFileToList(runningFileList, originalFile, newFilepath)
 			userInteraction.Files = runningFileList
@@ -211,8 +210,8 @@ func (c *Controller) convertDocumentsToText(session *types.Session) (*types.Sess
 	// userInteraction.State = types.InteractionStateComplete
 	session = c.WriteInteraction(session, userInteraction)
 
-	systemInteraction.Status = finishedMessage
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = finishedMessage
+	session = c.WriteInteraction(session, assistantInteraction)
 
 	// for cases where the text conversion is very fast, give the UI a chance to display the text stage
 	time.Sleep(1 * time.Second)
@@ -242,13 +241,8 @@ func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, er
 }
 
 func (c *Controller) getDataPrepFactory() (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
-	client, err := qapairs.NewClient(c.Options.Config, c.Options.PubSub, c)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initialize qapairs client: %s", err.Error())
-	}
-
 	questionGenerator := text.NewDynamicDataPrep(
-		client,
+		c.openAIClient,
 		c.Options.Config.FineTuning.QAPairGenModel,
 	)
 
@@ -270,7 +264,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
-	systemInteraction, err := data.GetSystemInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -305,16 +299,18 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 		return nil, err
 	}
 
+	log.Debug().Int("beforechunks", len(splitter.Chunks)).Msg("PHIL")
 	// Some qapair generators expand each chunk into N chunks so they can be run
 	// by our outer concurrency manager
 	allChunks, err := dataprep.ExpandChunks(splitter.Chunks)
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Int("afterChunks", len(allChunks)).Msg("PHIL")
 
 	chunksToProcess := []*text.DataPrepTextSplitterChunk{}
 	for _, chunk := range allChunks {
-		if !hasProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
+		if !hasProcessedQAChunk(assistantInteraction, chunk.Filename, chunk.Index, chunk.PromptName) {
 			chunksToProcess = append(chunksToProcess, chunk)
 		}
 	}
@@ -323,6 +319,7 @@ func (c *Controller) getQAChunksToProcess(session *types.Session, dataprep text.
 }
 
 func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.DataPrepTextSplitterChunk, error) {
+	log.Debug().Msg("PHIL getRagChunksToProcess")
 	filesToConvert, err := c.getTextFilesToConvert(session)
 	if err != nil {
 		return nil, err
@@ -343,6 +340,9 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 		newMeta.DocumentIDs = map[string]string{}
 	}
 
+	log.Debug().
+		Interface("filesToConvert", filesToConvert).
+		Msg("PHIL Files to convert for RAG processing")
 	for _, file := range filesToConvert {
 		fileContent, err := getFileContent(c.Ctx, c.Options.Filestore, file)
 		if err != nil {
@@ -364,7 +364,7 @@ func (c *Controller) getRagChunksToProcess(session *types.Session) ([]*text.Data
 }
 
 func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, int, error) {
-	systemInteraction, err := data.GetSystemInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -399,10 +399,10 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("indexing %d text chunks into vector database", len(chunksToProcess))
-	systemInteraction.Status = initialMessage
-	systemInteraction.Progress = 1
-	systemInteraction.DataPrepStage = types.TextDataPrepStageIndexRag
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = initialMessage
+	assistantInteraction.Progress = 1
+	assistantInteraction.DataPrepStage = types.TextDataPrepStageIndexRag
+	session = c.WriteInteraction(session, assistantInteraction)
 	c.BroadcastProgress(session, 1, initialMessage)
 
 	var completedCounter int64
@@ -429,9 +429,9 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 		percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
 		message := fmt.Sprintf("%d total, %d indexed and %d errors", len(chunksToProcess), completedCounter, errorCounter)
 		c.BroadcastProgress(session, percentConverted, message)
-		systemInteraction.Status = message
-		systemInteraction.Progress = percentConverted
-		session = c.WriteInteraction(session, systemInteraction)
+		assistantInteraction.Status = message
+		assistantInteraction.Progress = percentConverted
+		session = c.WriteInteraction(session, assistantInteraction)
 
 		if convertError != nil {
 			log.Error().
@@ -449,10 +449,10 @@ func (c *Controller) indexChunksForRag(session *types.Session) (*types.Session, 
 
 	c.BroadcastProgress(session, 100, finishedMessage)
 
-	systemInteraction.Status = finishedMessage
-	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
-	systemInteraction.Progress = 0
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = finishedMessage
+	assistantInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
+	assistantInteraction.Progress = 0
+	session = c.WriteInteraction(session, assistantInteraction)
 
 	return session, len(chunksToProcess), nil
 }
@@ -480,7 +480,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		return nil, 0, err
 	}
 
-	systemInteraction, err := data.GetSystemInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -494,12 +494,16 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 	if err != nil {
 		return nil, 0, err
 	}
+	log.Debug().
+		Int("chunksToProcess", len(chunksToProcess)).
+		Str("sessionID", session.ID).
+		Msg("PHIL Retrieved chunks to process for QA conversion")
 
 	if len(chunksToProcess) == 0 {
 		return session, 0, nil
 	}
 
-	systemInteraction.DataPrepTotalChunks = len(chunksToProcess)
+	assistantInteraction.DataPrepTotalChunks = len(chunksToProcess)
 
 	// get the progress bar to display
 	initialMessage := fmt.Sprintf("converting %d text chunks to question answer pairs", len(chunksToProcess))
@@ -521,15 +525,15 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					msg := fmt.Sprintf("Sorry, too much data to process on the premium tier 😅 (%d chunks), speak with us to process more text",
 						len(chunksToProcess))
 
-					systemInteraction.Status = msg
-					systemInteraction.Progress = 0
-					systemInteraction.State = types.InteractionStateError
-					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+					assistantInteraction.Status = msg
+					assistantInteraction.Progress = 0
+					assistantInteraction.State = types.InteractionStateError
+					assistantInteraction.DataPrepStage = types.TextDataPrepStageNone
 
-					systemInteraction.DataPrepLimited = true
-					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+					assistantInteraction.DataPrepLimited = true
+					assistantInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
 
-					session = c.WriteInteraction(session, systemInteraction)
+					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
 					return session, 0, fmt.Errorf(msg)
@@ -545,8 +549,8 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks]
 
 				// Marking the session as limited
-				systemInteraction.DataPrepLimited = true
-				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks
+				assistantInteraction.DataPrepLimited = true
+				assistantInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Pro.MaxChunks
 			}
 		} else {
 			// Free tier
@@ -556,15 +560,15 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 					msg := fmt.Sprintf("Sorry, too much data to process on the free tier 😅 (resulted in %d chunks while the limit is %d), upgrade your plan to process more text",
 						len(chunksToProcess), c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks)
 
-					systemInteraction.Status = msg
-					systemInteraction.Progress = 0
-					systemInteraction.State = types.InteractionStateError
-					systemInteraction.DataPrepStage = types.TextDataPrepStageNone
+					assistantInteraction.Status = msg
+					assistantInteraction.Progress = 0
+					assistantInteraction.State = types.InteractionStateError
+					assistantInteraction.DataPrepStage = types.TextDataPrepStageNone
 
-					systemInteraction.DataPrepLimited = true
-					systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+					assistantInteraction.DataPrepLimited = true
+					assistantInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
 
-					session = c.WriteInteraction(session, systemInteraction)
+					session = c.WriteInteraction(session, assistantInteraction)
 					c.BroadcastProgress(session, 1, initialMessage)
 
 					return session, 0, fmt.Errorf(msg)
@@ -579,28 +583,28 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 				// Cut the chunks to the free tier limit
 				chunksToProcess = chunksToProcess[:c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks]
 				// Marking the session as limited
-				systemInteraction.DataPrepLimited = true
-				systemInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
+				assistantInteraction.DataPrepLimited = true
+				assistantInteraction.DataPrepLimit = c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks
 			}
 		}
 	}
 
-	if systemInteraction.DataPrepLimited {
+	if assistantInteraction.DataPrepLimited {
 		log.Info().
 			Str("user_id", session.Owner).
 			Str("session_id", session.ID).
-			Int("limit", systemInteraction.DataPrepLimit).
-			Int("total_chunks", systemInteraction.DataPrepTotalChunks).
+			Int("limit", assistantInteraction.DataPrepLimit).
+			Int("total_chunks", assistantInteraction.DataPrepTotalChunks).
 			Msgf("chunks have been reduced to the tier limit of %d, total chunks before: %d",
 				c.Options.Config.SubscriptionQuotas.Finetuning.Free.MaxChunks,
 				len(chunksToProcess),
 			)
 	}
 
-	systemInteraction.Status = initialMessage
-	systemInteraction.Progress = 1
-	systemInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = initialMessage
+	assistantInteraction.Progress = 1
+	assistantInteraction.DataPrepStage = types.TextDataPrepStageGenerateQuestions
+	session = c.WriteInteraction(session, assistantInteraction)
 	c.BroadcastProgress(session, 1, initialMessage)
 
 	var completedCounter int64
@@ -616,7 +620,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 		dataprep.GetConcurrency(),
 		func(chunk *text.DataPrepTextSplitterChunk, i int) error {
 			log.Info().Msgf("🔵 question conversion start %d of %d", i+1, len(chunksToProcess))
-			questions, convertError := dataprep.ConvertChunk(chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
+			questions, convertError := dataprep.ConvertChunk(session.Owner, session.ID, chunk.Text, chunk.Index, chunk.DocumentID, chunk.DocumentGroupID, chunk.PromptName)
 
 			// if this is set then we have a non GPT error and should just stop what we are doing
 			if outerError != nil {
@@ -654,7 +658,7 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 				// this marks the QA chunk as "done" - even with an error
 				// we then give the user the choice to try again, abort or ignore the errors
-				systemInteraction = updateProcessedQAChunk(systemInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
+				assistantInteraction = updateProcessedQAChunk(assistantInteraction, chunk.Filename, chunk.Index, chunk.PromptName, len(questions), convertError)
 
 				return nil
 			}()
@@ -668,9 +672,9 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 			percentConverted := int((float64(completedCounter) + float64(errorCounter)) / float64(len(chunksToProcess)) * 100)
 			message := fmt.Sprintf("%d total, %d converted and %d errors", len(chunksToProcess), completedCounter, errorCounter)
 			c.BroadcastProgress(session, percentConverted, message)
-			systemInteraction.Status = message
-			systemInteraction.Progress = percentConverted
-			session = c.WriteInteraction(session, systemInteraction)
+			assistantInteraction.Status = message
+			assistantInteraction.Progress = percentConverted
+			session = c.WriteInteraction(session, assistantInteraction)
 
 			if convertError != nil {
 				log.Error().Msgf("🔴 question conversion error %s", convertError.Error())
@@ -692,11 +696,11 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 
 	c.BroadcastProgress(session, 100, finishedMessage)
 
-	systemInteraction.Status = finishedMessage
-	systemInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
-	systemInteraction.Progress = 0
-	systemInteraction.State = types.InteractionStateEditing
-	session = c.WriteInteraction(session, systemInteraction)
+	assistantInteraction.Status = finishedMessage
+	assistantInteraction.DataPrepStage = types.TextDataPrepStageEditQuestions
+	assistantInteraction.Progress = 0
+	assistantInteraction.State = types.InteractionStateEditing
+	session = c.WriteInteraction(session, assistantInteraction)
 
 	docIDs := []string{}
 	// TODO: remove duplication wrt splitter
@@ -720,9 +724,9 @@ func (c *Controller) convertChunksToQuestions(session *types.Session) (*types.Se
 }
 
 func (c *Controller) convertChunksToQuestionsErrorCount(session *types.Session) (int, error) {
-	systemInteraction, err := data.GetSystemInteraction(session)
+	assistantInteraction, err := data.GetAssistantInteraction(session)
 	if err != nil {
 		return 0, err
 	}
-	return getQAChunkErrors(systemInteraction), nil
+	return getQAChunkErrors(assistantInteraction), nil
 }

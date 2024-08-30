@@ -1,6 +1,7 @@
 version: '3'
 services:
-  runner:    
+  runner:
+    restart: always
     build:
       context: .
       dockerfile: Dockerfile.runner    

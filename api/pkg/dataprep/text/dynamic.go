@@ -48,7 +48,7 @@ func (d *DynamicDataPrep) ExpandChunks(chunks []*DataPrepTextSplitterChunk) (
 }
 
 func (d *DynamicDataPrep) ConvertChunk(
-	chunk string, index int, documentID, documentGroupID, promptName string,
+	ownerID, sessionID, chunk string, index int, documentID, documentGroupID, promptName string,
 ) ([]types.DataPrepTextQuestion, error) {
 	prompt, err := qapairs.FindPrompt(promptName)
 	if err != nil {
@@ -59,7 +59,7 @@ func (d *DynamicDataPrep) ConvertChunk(
 		Name:     "user-provided",
 		Contents: chunk,
 	}
-	resRaw, err := qapairs.Query(d.client, d.model, prompt, text, documentID, documentGroupID, 0)
+	resRaw, err := qapairs.Query(d.client, ownerID, sessionID, d.model, prompt, text, documentID, documentGroupID, 0)
 	if err != nil {
 		return nil, err
 	}

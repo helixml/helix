@@ -1,7 +1,11 @@
-// TODO: it sucks that there are constants defined in types
-export type ISessionCreator = 'system' | 'user'
+
+export type ISessionCreator = 'system' | 'user' | 'assistant'
+// SYSTEM means the system prompt, NOT an assistant message (as it previously
+// did). At time of writing, it's unused in the frontend because the frontend
+// doesn't have system prompt support.
 export const SESSION_CREATOR_SYSTEM: ISessionCreator = 'system'
 export const SESSION_CREATOR_USER: ISessionCreator = 'user'
+export const SESSION_CREATOR_ASSISTANT: ISessionCreator = 'assistant'
 
 export type ISessionMode = 'inference' | 'finetune'
 export const SESSION_MODE_INFERENCE: ISessionMode = 'inference'
@@ -35,14 +39,7 @@ export const CLONE_INTERACTION_MODE_JUST_DATA: ICloneInteractionMode = 'just_dat
 export const CLONE_INTERACTION_MODE_WITH_QUESTIONS: ICloneInteractionMode = 'with_questions'
 export const CLONE_INTERACTION_MODE_ALL: ICloneInteractionMode = 'all'
 
-export type IModelName = 'mistralai/Mistral-7B-Instruct-v0.1' | 'stabilityai/stable-diffusion-xl-base-1.0' | 'mistral:7b-instruct' | 'mixtral:instruct' | 'llama3:instruct' | 'llama3:70b' | 'phi3:instruct'
-export const MODEL_NAME_MISTRAL: IModelName = 'mistralai/Mistral-7B-Instruct-v0.1'
-export const MODEL_NAME_SDXL: IModelName = 'stabilityai/stable-diffusion-xl-base-1.0'
-export const MODEL_NAME_OLLAMA_MISTRAL: IModelName = 'mistral:7b-instruct'
-export const MODEL_NAME_OLLAMA_LLAMA3_8B: IModelName = 'llama3:instruct'
-export const MODEL_NAME_OLLAMA_LLAMA3_70B: IModelName = 'llama3:70b'
-export const MODEL_NAME_OLLAMA_MIXTRAL: IModelName = 'mixtral:instruct'
-export const MODEL_NAME_OLLAMA_PHI3: IModelName = 'phi3:instruct'
+export type IModelName = string
 
 export type ITextDataPrepStage = '' | 'edit_files' | 'extract_text' | 'index_rag' | 'generate_questions' | 'edit_questions' | 'finetune' | 'complete'
 export const TEXT_DATA_PREP_STAGE_NONE: ITextDataPrepStage = ''
@@ -90,6 +87,14 @@ export interface IUserConfig {
   stripe_customer_id?: string,
   stripe_subscription_id?: string,
 }
+
+export interface IHelixModel {
+  id: string;
+  name: string;
+  description: string;
+  hide?: boolean;
+}
+
 
 export type IOwnerType = 'user' | 'system' | 'org'
 
@@ -212,6 +217,7 @@ export interface ISessionConfig {
   eval_automatic_score: string,
   eval_automatic_reason: string,
   eval_original_user_prompts: string[],
+  rag_source_data_entity_id: string,
 }
 
 export interface ISession {
@@ -744,4 +750,30 @@ export interface IApiOptions {
   snackbar?: boolean;
   errorCapture?: (error: any) => void;
   signal?: AbortSignal;
+}
+
+export interface LLMCall {
+  id: string;
+  created: string;
+  updated: string;
+  session_id: string;
+  interaction_id: string;
+  model: string;
+  provider: string;
+  step: string;
+  request: any;
+  response: any;
+  original_request: any;
+  duration_ms: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface PaginatedLLMCalls {
+  calls: LLMCall[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 }

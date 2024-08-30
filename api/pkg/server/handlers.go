@@ -3,6 +3,7 @@ package server
 import (
 	"archive/tar"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,7 +121,7 @@ func (apiServer *HelixAPIServer) getSessions(res http.ResponseWriter, req *http.
 	}, nil
 }
 
-func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.SessionRAGSettings, error) {
+func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*types.RAGSettings, error) {
 	var err error
 	ragDistanceFunction := req.FormValue("rag_distance_function")
 	if ragDistanceFunction == "" {
@@ -163,7 +164,7 @@ func (apiServer *HelixAPIServer) getSessionRagSettings(req *http.Request) (*type
 		}
 	}
 
-	settings := &types.SessionRAGSettings{
+	settings := &types.RAGSettings{
 		DistanceFunction: ragDistanceFunction,
 		Threshold:        ragThreshold,
 		ResultsCount:     ragResultsCount,
@@ -646,6 +647,11 @@ func (apiServer *HelixAPIServer) restartSession(res http.ResponseWriter, req *ht
 	if err != nil {
 		return nil, err
 	}
+	// If it is a text inference session, then restart using the "new" openai controllers
+	if session.Metadata.OriginalMode != types.SessionModeFinetune && session.Type == types.SessionTypeText && session.Mode == types.SessionModeInference {
+		apiServer.restartChatSessionHandler(res, req)
+		return session, nil
+	}
 	return system.DefaultController(apiServer.Controller.RestartSession(session))
 }
 
@@ -855,11 +861,34 @@ func (apiServer *HelixAPIServer) createAPIKey(res http.ResponseWriter, req *http
 		newAPIKey.Name = name
 		newAPIKey.Type = types.APIKeyType_API
 	} else {
-		// otherwise assume there is a key on the body
-		err := json.NewDecoder(req.Body).Decode(newAPIKey)
+		// For now we need to manually unmarshal the body because of the sql.NullString
+		body, err := io.ReadAll(req.Body)
 		if err != nil {
 			return "", err
 		}
+		var objmap map[string]json.RawMessage
+		err = json.Unmarshal(body, &objmap)
+		if err != nil {
+			return "", err
+		}
+		var nameStr string
+		err = json.Unmarshal(objmap["name"], &nameStr)
+		if err != nil {
+			return "", err
+		}
+		var typeStr string
+		err = json.Unmarshal(objmap["type"], &typeStr)
+		if err != nil {
+			return "", err
+		}
+		var apiKeyStr string
+		err = json.Unmarshal(objmap["app_id"], &apiKeyStr)
+		if err != nil {
+			return "", err
+		}
+		newAPIKey.Name = nameStr
+		newAPIKey.Type = types.APIKeyType(typeStr)
+		newAPIKey.AppID = &sql.NullString{String: apiKeyStr, Valid: true}
 	}
 
 	createdKey, err := apiServer.Controller.CreateAPIKey(ctx, user, newAPIKey)

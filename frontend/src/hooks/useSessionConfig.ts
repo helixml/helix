@@ -26,9 +26,9 @@ export const useSessionConfig = () => {
   const [activeToolIDs, setActiveToolIDs] = useState<string[]>([])
   const [ragEnabled, setRagEnabled] = useState(false)
   const [ragDistanceFunction, setRagDistanceFunction] = useState<'l2' | 'inner_product' | 'cosine'>('cosine')
-  const [ragThreshold, setRagThreshold] = useState(0.2)
+  const [ragThreshold, setRagThreshold] = useState(0.4)
   const [ragResultsCount, setRagResultsCount] = useState(3)
-  const [ragChunkSize, setRagChunkSize] = useState(1024)
+  const [ragChunkSize, setRagChunkSize] = useState(2048)
   const [ragChunkOverflow, setRagChunkOverflow] = useState(20)
 
   const setFormData = useCallback((formData: FormData) => {

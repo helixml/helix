@@ -31,6 +31,17 @@ def rag_insert_chunk():
   pprint.pprint(result)
   return jsonify(result), 200
 
+@app.route('/api/v1/rag/<id>', methods=['DELETE'])
+def delete_rag_data(id):
+    if not id:
+        return jsonify({"error": "Missing data entity id"}), 400
+    
+    try:
+        deleted_count = sql.deleteDataByEntityId(id)
+        return jsonify({"message": f"Successfully deleted {deleted_count} rows for data entity id: {id}"}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to delete data: {str(e)}"}), 500
+
 # curl -X POST -H "Content-Type: application/json" -d '{
 #   "data_entity_id": "123",
 #   "prompt": "hello world",

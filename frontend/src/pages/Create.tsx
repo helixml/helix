@@ -1,57 +1,50 @@
-import React, { FC, useState, useEffect } from 'react'
-import { SxProps } from '@mui/material/styles'
-import Box from '@mui/material/Box'
-import Typography from '@mui/material/Typography'
-import Link from '@mui/material/Link'
-import Button from '@mui/material/Button'
 import Avatar from '@mui/material/Avatar'
-
-import Page from '../components/system/Page'
-import Toolbar from '../components/create/Toolbar'
-import ConfigWindow from '../components/create/ConfigWindow'
-
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import Link from '@mui/material/Link'
+import { SxProps } from '@mui/material/styles'
+import Typography from '@mui/material/Typography'
+import { FC, useEffect, useState } from 'react'
+import AssistantPicker from '../components/appstore/AssistantPicker'
+import AppCreateHeader from '../components/appstore/CreateHeader'
 import CenterMessage from '../components/create/CenterMessage'
+import ConfigWindow from '../components/create/ConfigWindow'
 import ExamplePrompts from '../components/create/ExamplePrompts'
 import InferenceTextField from '../components/create/InferenceTextField'
-import Disclaimer from '../components/widgets/Disclaimer'
-import Row from '../components/widgets/Row'
-import Cell from '../components/widgets/Cell'
-
+import SessionTypeButton from '../components/create/SessionTypeButton'
+import SessionTypeTabs from '../components/create/SessionTypeTabs'
+import Toolbar from '../components/create/Toolbar'
 import AddDocumentsForm from '../components/finetune/AddDocumentsForm'
 import AddImagesForm from '../components/finetune/AddImagesForm'
-import LabelImagesForm from '../components/finetune/LabelImagesForm'
 import FileDrawer from '../components/finetune/FileDrawer'
+import LabelImagesForm from '../components/finetune/LabelImagesForm'
+import Page from '../components/system/Page'
+import Cell from '../components/widgets/Cell'
+import Disclaimer from '../components/widgets/Disclaimer'
+import Row from '../components/widgets/Row'
 import UploadingOverlay from '../components/widgets/UploadingOverlay'
-
-import SessionTypeTabs from '../components/create/SessionTypeTabs'
-import SessionTypeButton from '../components/create/SessionTypeButton'
-
-import AppCreateHeader from '../components/appstore/CreateHeader'
-import AssistantPicker from '../components/appstore/AssistantPicker'
-
-import useRouter from '../hooks/useRouter'
-import useLightTheme from '../hooks/useLightTheme'
-import useCreateInputs from '../hooks/useCreateInputs'
-import useSnackbar from '../hooks/useSnackbar'
 import useAccount from '../hooks/useAccount'
 import useApi from '../hooks/useApi'
-import useTracking from '../hooks/useTracking'
-import useSessions from '../hooks/useSessions'
-import useIsBigScreen from '../hooks/useIsBigScreen'
 import useApps from '../hooks/useApps'
+import useCreateInputs from '../hooks/useCreateInputs'
+import useIsBigScreen from '../hooks/useIsBigScreen'
+import useLightTheme from '../hooks/useLightTheme'
+import useRouter from '../hooks/useRouter'
+import useSessions from '../hooks/useSessions'
+import useSnackbar from '../hooks/useSnackbar'
+import useTracking from '../hooks/useTracking'
 
 import {
   IDataEntity,
   ISessionMode,
   ISessionType,
-  SESSION_MODE_INFERENCE,
   SESSION_MODE_FINETUNE,
-  SESSION_TYPE_TEXT,
+  SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
+  SESSION_TYPE_TEXT,
 } from '../types'
 
 import {
-  HELIX_DEFAULT_TEXT_MODEL,
   COLORS,
 } from '../config'
 
@@ -60,9 +53,9 @@ import {
 } from '../utils/session'
 
 import {
+  getAssistant,
   getAssistantAvatar,
   getAssistantName,
-  getAssistant,
 } from '../utils/apps'
 
 const PADDING_X_LARGE = 6
@@ -80,14 +73,16 @@ const Create: FC = () => {
   const isBigScreen = useIsBigScreen()
   const apps = useApps()
 
-  const [ showConfigWindow, setShowConfigWindow ] = useState(false)
-  const [ showFileDrawer, setShowFileDrawer ] = useState(false)
-  const [ showImageLabelsEmptyError, setShowImageLabelsEmptyError ] = useState(false)
+  const [showConfigWindow, setShowConfigWindow] = useState(false)
+  const [showFileDrawer, setShowFileDrawer] = useState(false)
+  const [showImageLabelsEmptyError, setShowImageLabelsEmptyError] = useState(false)
+  const [focusInput, setFocusInput] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const mode = (router.params.mode as ISessionMode) || SESSION_MODE_INFERENCE
   const type = (router.params.type as ISessionType) || SESSION_TYPE_TEXT
-  const appID = router.params.app_id || '' 
-  const model = router.params.model || HELIX_DEFAULT_TEXT_MODEL
+  const appID = router.params.app_id || ''
+  const model = router.params.model || ''
 
   const activeAssistantID = router.params.assistant_id || '0'
   const activeAssistant = apps.app && getAssistant(apps.app, activeAssistantID)
@@ -109,7 +104,7 @@ const Create: FC = () => {
 
   // we are about to do a funetune, check if the user is logged in
   const checkLoginStatus = (): boolean => {
-    if(!account.user) {
+    if (!account.user) {
       inputs.serializePage()
       account.setShowLoginWindow(true)
       return false
@@ -118,17 +113,19 @@ const Create: FC = () => {
   }
 
   const onInference = async () => {
-    if(!checkLoginStatus()) return
+    if (!checkLoginStatus()) return
     const sessionChatRequest = inputs.getSessionChatRequest(type, model)
+    setLoading(true)
     const session = await api.post('/api/v1/sessions/chat', sessionChatRequest)
 
-    if(!session) return
+    if (!session) return
     tracking.emitEvent({
       name: 'inference',
       session,
     })
     await sessions.loadSessions()
-    router.navigate('session', {session_id: session.id})
+    router.navigate('session', { session_id: session.id })
+    setLoading(false)
   }
 
   const onStartFinetune = async (eventName: string) => {
@@ -143,7 +140,7 @@ const Create: FC = () => {
         onUploadProgress: inputs.uploadProgressHandler,
       })
 
-      if(!dataEntity) {
+      if (!dataEntity) {
         snackbar.error('Failed to upload data entity')
         throw new Error('Failed to upload data entity')
       }
@@ -153,7 +150,7 @@ const Create: FC = () => {
         onUploadProgress: inputs.uploadProgressHandler,
       })
       inputs.setUploadProgress(undefined)
-      if(!session) {
+      if (!session) {
         snackbar.error('Failed to get new session')
         throw new Error('Failed to get new session')
       }
@@ -162,15 +159,15 @@ const Create: FC = () => {
         session,
       })
       await sessions.loadSessions()
-      router.navigate('session', {session_id: session.id})
+      router.navigate('session', { session_id: session.id })
 
-    } catch(e) {
+    } catch (e) {
       inputs.setUploadProgress(undefined)
     }
   }
 
   const onStartTextFinetune = async () => {
-    if(!checkLoginStatus()) return
+    if (!checkLoginStatus()) return
     await onStartFinetune('finetune:text')
   }
 
@@ -178,15 +175,15 @@ const Create: FC = () => {
     const emptyLabel = inputs.finetuneFiles.find(file => {
       return inputs.labels[file.file.name] ? false : true
     })
-    if(emptyLabel) {
+    if (emptyLabel) {
       setShowImageLabelsEmptyError(true)
       snackbar.error('Please label all images before continuing')
       return
     } else {
       setShowImageLabelsEmptyError(false)
     }
-    
-    if(!checkLoginStatus()) return
+
+    if (!checkLoginStatus()) return
     await onStartFinetune('finetune:image')
   }
 
@@ -216,8 +213,8 @@ const Create: FC = () => {
   ])
 
   useEffect(() => {
-    if(!account.user) return
-    if(!appID) return
+    if (!account.user) return
+    if (!appID) return
     apps.loadApp(appID)
     return () => apps.setApp(undefined)
   }, [
@@ -239,20 +236,24 @@ const Create: FC = () => {
 
   const topbar = (
     <Toolbar
-      mode={ mode }
-      type={ type }
-      model={ model }
-      app={ apps.app }
-      onOpenConfig={ () => setShowConfigWindow(true) }
-      onSetMode={ mode => {
+      mode={mode}
+      type={type}
+      model={model}
+      app={apps.app}
+      onOpenConfig={() => setShowConfigWindow(true)}
+      onSetMode={mode => {
         if (mode == "finetune") {
           // default rag true in case user clicks on the toggle
-          router.setParams({mode: mode, rag: "true"})
+          router.setParams({ mode: mode, rag: "true" })
         } else {
-          router.setParams({mode})
+          router.setParams({ mode })
         }
-      } }
-      onSetModel={ model => router.setParams({model}) }
+      }}
+      onSetModel={model => {
+        router.setParams({ model })
+        // Trigger focus on the text box after setting the model
+        setFocusInput(true)
+      }}
     />
   )
 
@@ -269,15 +270,16 @@ const Create: FC = () => {
     >
       <Box sx={{ mb: 1 }}>
         <InferenceTextField
-          type={ type }
-          focus={ activeAssistantID }
-          value={ inputs.inputValue }
-          disabled={ mode == SESSION_MODE_FINETUNE }
-          startAdornment={ isBigScreen && (
+          loading={loading}
+          type={type}
+          focus={focusInput ? 'true' : activeAssistantID}
+          value={inputs.inputValue}
+          disabled={mode == SESSION_MODE_FINETUNE}
+          startAdornment={isBigScreen && (
             activeAssistant ? (
               activeAssistantAvatar ? (
                 <Avatar
-                  src={ activeAssistantAvatar }
+                  src={activeAssistantAvatar}
                   sx={{
                     width: '30px',
                     height: '30px',
@@ -286,14 +288,14 @@ const Create: FC = () => {
               ) : null
             ) : (
               <SessionTypeButton
-                type={ type }
-                onSetType={ type => router.setParams({type}) }
+                type={type}
+                onSetType={type => router.setParams({ type })}
               />
             )
           )}
-          promptLabel={ activeAssistant ? `Chat with ${activeAssistantName || ''}` : undefined }
-          onUpdate={ inputs.setInputValue }
-          onInference={ onInference }
+          promptLabel={activeAssistant ? `Chat with ${activeAssistantName || ''}` : undefined}
+          onUpdate={inputs.setInputValue}
+          onInference={onInference}
         />
       </Box>
       <Box sx={{ mb: 1 }}>
@@ -312,7 +314,7 @@ const Create: FC = () => {
         backgroundColor: 'rgba(0,0,0,0.5)',
       }}
     >
-      <Row sx={{height:'100%'}}>
+      <Row sx={{ height: '100%' }}>
         <Cell>
           {
             type == SESSION_TYPE_IMAGE && imageFineTuneStep == 'label' ? (
@@ -352,11 +354,11 @@ const Create: FC = () => {
             }}
             variant="contained"
             onClick={() => {
-              if(type == SESSION_TYPE_TEXT) {
+              if (type == SESSION_TYPE_TEXT) {
                 onStartTextFinetune()
               } else if (type == SESSION_TYPE_IMAGE) {
-                if(imageFineTuneStep == 'upload') {
-                  router.setParams({imageFineTuneStep: 'label'})
+                if (imageFineTuneStep == 'upload') {
+                  router.setParams({ imageFineTuneStep: 'label' })
                 } else {
                   onStartImageFunetune()
                 }
@@ -380,8 +382,8 @@ const Create: FC = () => {
       }}
     >
       <AddDocumentsForm
-        files={ inputs.finetuneFiles }
-        onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+        files={inputs.finetuneFiles}
+        onAddFiles={newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles))}
       />
     </Box>
   )
@@ -394,8 +396,8 @@ const Create: FC = () => {
       }}
     >
       <AddImagesForm
-        files={ inputs.finetuneFiles }
-        onAddFiles={ newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles)) }
+        files={inputs.finetuneFiles}
+        onAddFiles={newFiles => inputs.setFinetuneFiles(files => files.concat(newFiles))}
       />
     </Box>
   )
@@ -408,10 +410,10 @@ const Create: FC = () => {
       }}
     >
       <LabelImagesForm
-        files={ inputs.finetuneFiles }
-        labels={ inputs.labels }
-        showEmptyErrors={ showImageLabelsEmptyError }
-        onSetLabels={ inputs.setLabels }
+        files={inputs.finetuneFiles}
+        labels={inputs.labels}
+        showEmptyErrors={showImageLabelsEmptyError}
+        onSetLabels={inputs.setLabels}
       />
     </Box>
   )
@@ -428,8 +430,8 @@ const Create: FC = () => {
         }}
       >
         <CenterMessage
-          type={ type }
-          onSetType={ type => router.setParams({type}) }
+          type={type}
+          onSetType={type => router.setParams({ type })}
         />
       </Cell>
       <Cell grow />
@@ -441,8 +443,8 @@ const Create: FC = () => {
         }}
       >
         <ExamplePrompts
-          type={ type }
-          onChange={ (prompt) => {
+          type={type}
+          onChange={(prompt) => {
             inputs.setInputValue(prompt)
           }}
         />
@@ -464,7 +466,7 @@ const Create: FC = () => {
         }}
       >
         <AppCreateHeader
-          app={ apps.app }      
+          app={apps.app}
         />
       </Cell>
       <Cell
@@ -476,14 +478,14 @@ const Create: FC = () => {
         }}
       >
         <AssistantPicker
-          app={ apps.app }
-          activeAssistantID={ activeAssistantID }
-          onClick={ (index) => {
-            router.setParams({assistant_id: index.toString()})
+          app={apps.app}
+          activeAssistantID={activeAssistantID}
+          onClick={(index) => {
+            router.setParams({ assistant_id: index.toString() })
           }}
         />
       </Cell>
-    </Row> 
+    </Row>
   )
 
   const inferenceHeader = apps.app ? inferenceHeaderApp : inferenceHeaderNormal
@@ -496,6 +498,13 @@ const Create: FC = () => {
     backgroundRepeat: 'no-repeat',
   }
 
+  // Reset focusInput after it's been used
+  useEffect(() => {
+    if (focusInput) {
+      setFocusInput(false)
+    }
+  }, [focusInput])
+
   return (
     <Page
       breadcrumbs={
@@ -507,10 +516,10 @@ const Create: FC = () => {
           app: apps.app,
         })
       }
-      topbarContent={ topbar }
-      footerContent={ mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter }
-      px={ PADDING_X }
-      sx={ pageSX }
+      topbarContent={topbar}
+      footerContent={mode == SESSION_MODE_INFERENCE ? inferenceFooter : finetuneFooter}
+      px={PADDING_X}
+      sx={pageSX}
     >
       {
         mode == SESSION_MODE_FINETUNE && (
@@ -521,8 +530,8 @@ const Create: FC = () => {
             }}
           >
             <SessionTypeTabs
-              type={ type }
-              onSetType={ type => router.setParams({type}) }
+              type={type}
+              onSetType={type => router.setParams({ type })}
             />
           </Box>
         )
@@ -543,15 +552,15 @@ const Create: FC = () => {
       {
         finetuneLabelImagesForm
       }
-      
+
       {
         showConfigWindow && (
           <ConfigWindow
-            mode={ mode }
-            type={ type }
-            sessionConfig={ inputs.sessionConfig }
-            onSetSessionConfig={ inputs.setSessionConfig }
-            onClose={ () => setShowConfigWindow(false) }
+            mode={mode}
+            type={type}
+            sessionConfig={inputs.sessionConfig}
+            onSetSessionConfig={inputs.setSessionConfig}
+            onClose={() => setShowConfigWindow(false)}
           />
         )
       }
@@ -560,9 +569,9 @@ const Create: FC = () => {
         showFileDrawer && (
           <FileDrawer
             open
-            files={ inputs.finetuneFiles }
-            onUpdate={ inputs.setFinetuneFiles }
-            onClose={ () => setShowFileDrawer(false) }
+            files={inputs.finetuneFiles}
+            onUpdate={inputs.setFinetuneFiles}
+            onClose={() => setShowFileDrawer(false)}
           />
         )
       }
@@ -570,7 +579,7 @@ const Create: FC = () => {
       {
         inputs.uploadProgress && (
           <UploadingOverlay
-            percent={ inputs.uploadProgress.percent }
+            percent={inputs.uploadProgress.percent}
           />
         )
       }

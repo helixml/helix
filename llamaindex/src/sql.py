@@ -63,6 +63,7 @@ class HelixDocumentChunk(Base):
   document_id = mapped_column(String)
   document_group_id = mapped_column(String)
   filename = mapped_column(String)
+  source = mapped_column(String)
   # the number of bytes into the root document that this chunk starts
   # this is used to re-constitute the document from its chunks
   # when it's matched to an embedding record
@@ -112,6 +113,7 @@ def convertRow(row):
       "document_id": row.document_id,
       "document_group_id": row.document_group_id,
       "filename": row.filename,
+      "source": row.source,
       "content_offset": row.content_offset,
       "content": row.content,
       "embedding": row.embedding.tolist()  # Convert ndarray to list
@@ -127,6 +129,7 @@ def convertSimpleRow(row):
       "document_id": row.document_id,
       "document_group_id": row.document_group_id,
       "filename": row.filename,
+      "source": row.source,
       "content_offset": row.content_offset,
       "content": row.content,
       "distance": row.distance,
@@ -159,7 +162,7 @@ def queryPrompt(data_entity_id, query_embedding, distance_function, distance_thr
 
   raw_sql = text(f"""
 select
-  id, data_entity_id, document_id, document_group_id, filename, content_offset, content,
+  id, data_entity_id, document_id, document_group_id, filename, source, content_offset, content,
   {embedding_str} as distance
 from 
   {TABLE_NAME}
@@ -178,5 +181,22 @@ limit {max_results}
   session.close()
 
   return convertSimpleRows(rows)
-  
-  
+
+def deleteDataByEntityId(data_entity_id):
+    if not data_entity_id:
+        raise Exception("Missing data entity id")
+
+    try:
+        raw_sql = text(f"""
+        delete from {TABLE_NAME} where data_entity_id = '{data_entity_id}'
+        """)
+      
+        session = Session()
+        session.execute(raw_sql)
+        session.commit()
+        session.close()
+
+        return True
+    except Exception as e:        
+        raise e
+

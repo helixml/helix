@@ -11,9 +11,15 @@ import (
 
 type Client interface {
 	CreateApp(app *types.App) (*types.App, error)
+	GetApp(appID string) (*types.App, error)
 	UpdateApp(app *types.App) (*types.App, error)
-	DeleteApp(appID string) error
+	DeleteApp(appID string, deleteKnowledge bool) error
 	ListApps(f *AppFilter) ([]*types.App, error)
+
+	ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error)
+	GetKnowledge(id string) (*types.Knowledge, error)
+	DeleteKnowledge(id string) error
+	RefreshKnowledge(id string) error
 }
 
 // HelixClient is the client for the helix api
@@ -42,7 +48,7 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 	}
 
 	if apiKey == "" {
-		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account")
+		return nil, errors.New("apiKey is required, find yours in https://app.tryhelix.ai/account and set HELIX_API_KEY (and optionally HELIX_URL)")
 	}
 
 	if !strings.HasSuffix(url, "/api/v1") {

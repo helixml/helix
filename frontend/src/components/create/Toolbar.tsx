@@ -40,14 +40,15 @@ const CreateToolbar: FC<{
 }) => {
   const bigScreen = useIsBigScreen()
   const account = useAccount()
+  const appRequested = new URLSearchParams(window.location.search).get('app_id') || '';
   return (
     <Row>
       <Cell>
         {
-          !app && model && mode == SESSION_MODE_INFERENCE && type == SESSION_TYPE_TEXT && (
+          !(app || appRequested) && mode === SESSION_MODE_INFERENCE && type === SESSION_TYPE_TEXT && (
             <ModelPicker
-              model={ model }
-              onSetModel={ onSetModel }
+              model={model || ''}
+              onSetModel={onSetModel}
             />
           )
         }
@@ -56,7 +57,10 @@ const CreateToolbar: FC<{
         
       </Cell>
       {
-        !app && (
+        // don't show the tools icon in inference mode since we don't have
+        // global tools any more. we still show it in "learn" mode where it
+        // controls rag and finetune settings.
+        !app && !(mode === SESSION_MODE_INFERENCE) && (
           <Cell>
             <IconButton
               onClick={ onOpenConfig }

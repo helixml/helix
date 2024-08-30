@@ -262,6 +262,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods("GET")
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
 
@@ -301,13 +302,18 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/github/{id}", system.Wrapper(apiServer.updateGithubApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
+	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods("GET")
+	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.getKnowledge)).Methods("GET")
+	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.deleteKnowledge)).Methods("DELETE")
+	authRouter.HandleFunc("/knowledge/{id}/refresh", system.Wrapper(apiServer.refreshKnowledge)).Methods("POST")
+
 	// we know which app this is by the token that is used (which is linked to the app)
 	// this is so frontend devs don't need anything other than their access token
 	// and can auto-connect to this endpoint
 	// we handle CORs by loading the app from the token.app_id and it knowing which domains are allowed
 	authRouter.HandleFunc("/apps/script", system.Wrapper(apiServer.appRunScript)).Methods("POST", "OPTIONS")
-
 	adminRouter.HandleFunc("/dashboard", system.DefaultWrapper(apiServer.dashboard)).Methods("GET")
+	adminRouter.HandleFunc("/llm_calls", system.Wrapper(apiServer.listLLMCalls)).Methods("GET")
 
 	// all these routes are secured via runner tokens
 	runnerRouter.HandleFunc("/runner/{runnerid}/nextsession", system.DefaultWrapper(apiServer.getNextRunnerSession)).Methods("GET")

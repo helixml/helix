@@ -1,0 +1,11 @@
+name: website-knowledge
+description: |
+  A simple app that demonstrates how to setup Helix with knowledge from a website
+assistants:
+- name: Helix
+  description: Know
+  knowledge:
+  - name: book about dinosaurs
+    source:
+      files:      
+      - path: ./data/*
