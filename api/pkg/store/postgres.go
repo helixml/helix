@@ -117,6 +117,10 @@ func (s *PostgresStore) autoMigrate() error {
 		log.Err(err).Msg("failed to add DB FK")
 	}
 
+	if err := createFK(s.gdb, types.KnowledgeVersion{}, types.Knowledge{}, "knowledge_id", "id", "CASCADE", "CASCADE"); err != nil {
+		log.Err(err).Msg("failed to add DB FK")
+	}
+
 	return s.runMigrationScripts(MIGRATION_SCRIPTS)
 }
 
