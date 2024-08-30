@@ -249,6 +249,7 @@ if [ -n "\$POSTGRES_DATABASES" ]; then
 	echo "databases created"
 fi
 EOF
+    chmod +x $INSTALL_DIR/scripts/postgres/postgres-db.sh
 
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
