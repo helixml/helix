@@ -38,11 +38,9 @@ func (r *Reconciler) index(ctx context.Context) error {
 			Msg("indexing knowledge")
 
 		go func(knowledge *types.Knowledge) {
-			// Set version for the indexing process// Set version for the indexing process
-			// TODO: maybe we should set this only when we have finished indexing
-			// so that on failed indexing we can retry without setting a new version
-			// and previous version will be used
-			err := r.indexKnowledge(ctx, knowledge, system.GenerateVersion())
+			version := system.GenerateVersion()
+
+			err := r.indexKnowledge(ctx, knowledge, version)
 			if err != nil {
 				log.
 					Warn().
@@ -53,6 +51,15 @@ func (r *Reconciler) index(ctx context.Context) error {
 				k.State = types.KnowledgeStateError
 				k.Message = err.Error()
 				_, _ = r.store.UpdateKnowledge(ctx, k)
+
+				// Create a failed version too just for logs
+				_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+					KnowledgeID: k.ID,
+					Version:     version,
+					Size:        k.Size,
+					State:       types.KnowledgeStateError,
+					Message:     err.Error(),
+				})
 				return
 			}
 
@@ -108,15 +115,23 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		return fmt.Errorf("failed to update knowledge, error: %w", err)
 	}
 
-	r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+	_, err = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
 		KnowledgeID: k.ID,
 		Version:     version,
 		Size:        k.Size,
 		State:       types.KnowledgeStateReady,
 	})
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("knowledge_id", k.ID).
+			Str("version", version).
+			Msg("failed to create knowledge version")
+	}
 
 	log.Info().
 		Str("knowledge_id", k.ID).
+		Str("new_version", version).
 		Msg("knowledge indexed")
 
 	return nil
