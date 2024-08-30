@@ -223,3 +223,15 @@ func (s *PostgresStore) ListKnowledgeVersions(ctx context.Context, q *ListKnowle
 
 	return versionList, nil
 }
+
+func (s *PostgresStore) DeleteKnowledgeVersion(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
+	err := s.gdb.WithContext(ctx).Delete(&types.KnowledgeVersion{ID: id}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
