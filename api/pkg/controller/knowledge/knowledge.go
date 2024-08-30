@@ -94,6 +94,11 @@ func (r *Reconciler) runIndexer(ctx context.Context) {
 // runCronManager is responsible for reconciling the cron jobs in the database
 // with the actual cron jobs that are running.
 func (r *Reconciler) runCronManager(ctx context.Context) {
+	err := r.reconcileCronJobs(ctx)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to reconcile cron jobs")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
