@@ -26,11 +26,11 @@ type AssistantKnowledge struct {
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
 	// every 24 hours.
-	RefreshEnabled bool `json:"refresh_enabled"`
+	RefreshEnabled bool `json:"refresh_enabled" yaml:"refresh_enabled"`
 	// RefreshSchedule defines the schedule for refreshing the knowledge.
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
-	RefreshSchedule string `json:"refresh_schedule"`
+	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
 }
 
 type Knowledge struct {
