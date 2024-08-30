@@ -90,10 +90,14 @@ type KnowledgeVersion struct {
 }
 
 func (k *Knowledge) GetDataEntityID() string {
-	if k.Version == "" {
-		return k.ID
+	return GetDataEntityID(k.ID, k.Version)
+}
+
+func GetDataEntityID(knowledgeID, version string) string {
+	if version == "" {
+		return knowledgeID
 	}
-	return fmt.Sprintf("%s-%s", k.ID, k.Version)
+	return fmt.Sprintf("%s-%s", knowledgeID, version)
 }
 
 type KnowledgeState string
