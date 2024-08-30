@@ -45,6 +45,12 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 	for _, knowledge := range knowledges {
 		job, ok := jobsMap[knowledge.ID]
 		if !ok {
+			log.Info().
+				Str("knowledge_id", knowledge.ID).
+				Str("knowledge_name", knowledge.Name).
+				Str("knowledge_refresh_schedule", knowledge.RefreshSchedule).
+				Msg("adding cron job to the scheduler")
+
 			// job doesn't exist, create it
 			_, err := r.cron.NewJob(gocron.CronJob(knowledge.RefreshSchedule, true), gocron.NewTask(func() {
 				fmt.Println("running job for knowledge", knowledge.ID)
