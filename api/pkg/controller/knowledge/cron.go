@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -130,28 +131,28 @@ func (r *Reconciler) getCronTask(ctx context.Context, knowledgeID string) gocron
 			return
 		}
 
-		// If knowledge is ready, run the indexing
-		if knowledge.State == types.KnowledgeStateReady {
-			err := r.indexKnowledge(ctx, knowledge, knowledge.Version)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("knowledge_id", knowledgeID).
-					Msg("failed to index knowledge")
+		// Generate a new version ID
+		version := system.GenerateVersion()
 
-				knowledge.State = types.KnowledgeStateError
-				knowledge.Message = err.Error()
-				_, _ = r.store.UpdateKnowledge(ctx, knowledge)
+		err = r.indexKnowledge(ctx, knowledge, version)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("knowledge_id", knowledgeID).
+				Msg("failed to index knowledge")
 
-				// Create a failed version too just for logs
-				_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
-					KnowledgeID: knowledge.ID,
-					Version:     knowledge.Version,
-					Size:        knowledge.Size,
-					State:       types.KnowledgeStateError,
-					Message:     err.Error(),
-				})
-			}
+			knowledge.State = types.KnowledgeStateError
+			knowledge.Message = err.Error()
+			_, _ = r.store.UpdateKnowledge(ctx, knowledge)
+
+			// Create a failed version too just for logs
+			_, _ = r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+				KnowledgeID: knowledge.ID,
+				Version:     version,
+				Size:        knowledge.Size,
+				State:       types.KnowledgeStateError,
+				Message:     err.Error(),
+			})
 		}
 	})
 }
