@@ -163,3 +163,63 @@ func (s *PostgresStore) DeleteKnowledge(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+func (s *PostgresStore) CreateKnowledgeVersion(ctx context.Context, version *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
+	if version.ID == "" {
+		version.ID = system.GenerateKnowledgeVersionID()
+	}
+
+	if version.KnowledgeID == "" {
+		return nil, fmt.Errorf("knowledge_id not specified")
+	}
+
+	version.Created = time.Now()
+	version.Updated = time.Now()
+
+	err := s.gdb.WithContext(ctx).Create(version).Error
+	if err != nil {
+		return nil, err
+	}
+	return s.GetKnowledgeVersion(ctx, version.ID)
+}
+
+func (s *PostgresStore) GetKnowledgeVersion(ctx context.Context, id string) (*types.KnowledgeVersion, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id not specified")
+	}
+
+	var version types.KnowledgeVersion
+	err := s.gdb.WithContext(ctx).Where("id = ?", id).First(&version).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &version, nil
+}
+
+type ListKnowledgeVersionQuery struct {
+	KnowledgeID string
+	State       types.KnowledgeState
+}
+
+func (s *PostgresStore) ListKnowledgeVersions(ctx context.Context, q *ListKnowledgeVersionQuery) ([]*types.KnowledgeVersion, error) {
+	query := s.gdb.WithContext(ctx)
+
+	if q.KnowledgeID != "" {
+		query = query.Where("knowledge_id = ?", q.KnowledgeID)
+	}
+	if q.State != "" {
+		query = query.Where("state = ?", q.State)
+	}
+
+	var versionList []*types.KnowledgeVersion
+
+	err := query.Order("created DESC").Find(&versionList).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return versionList, nil
+}
