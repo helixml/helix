@@ -30,12 +30,6 @@ func (r *Reconciler) index(ctx context.Context) error {
 		k.State = types.KnowledgeStateIndexing
 		k.Message = ""
 
-		// Set version for the indexing process
-		// TODO: maybe we should set this only when we have finished indexing
-		// so that on failed indexing we can retry without setting a new version
-		// and previous version will be used
-		k.Version = system.GenerateVersion()
-
 		_, _ = r.store.UpdateKnowledge(ctx, k)
 
 		log.
@@ -44,7 +38,11 @@ func (r *Reconciler) index(ctx context.Context) error {
 			Msg("indexing knowledge")
 
 		go func(knowledge *types.Knowledge) {
-			err := r.indexKnowledge(ctx, knowledge)
+			// Set version for the indexing process// Set version for the indexing process
+			// TODO: maybe we should set this only when we have finished indexing
+			// so that on failed indexing we can retry without setting a new version
+			// and previous version will be used
+			err := r.indexKnowledge(ctx, knowledge, system.GenerateVersion())
 			if err != nil {
 				log.
 					Warn().
@@ -64,10 +62,11 @@ func (r *Reconciler) index(ctx context.Context) error {
 	return nil
 }
 
-func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) error {
+func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, version string) error {
 	// If source is plain text, nothing to do
 	if k.Source.Content != nil {
 		k.State = types.KnowledgeStateReady
+		k.Version = version
 		_, err := r.store.UpdateKnowledge(ctx, k)
 		if err != nil {
 			return fmt.Errorf("failed to update knowledge, error: %w", err)
@@ -89,23 +88,32 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge) err
 
 	start = time.Now()
 
-	err = r.indexData(ctx, k, data)
+	err = r.indexData(ctx, k, version, data)
 	if err != nil {
 		return fmt.Errorf("indexing failed, error: %w", err)
 	}
 	elapsed = time.Since(start)
 	log.Info().
 		Str("knowledge_id", k.ID).
+		Str("new_version", version).
 		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("data indexed")
 
 	k.State = types.KnowledgeStateReady
 	k.Size = getSize(data)
+	k.Version = version // Set latest version
 
 	_, err = r.store.UpdateKnowledge(ctx, k)
 	if err != nil {
 		return fmt.Errorf("failed to update knowledge, error: %w", err)
 	}
+
+	r.store.CreateKnowledgeVersion(ctx, &types.KnowledgeVersion{
+		KnowledgeID: k.ID,
+		Version:     version,
+		Size:        k.Size,
+		State:       types.KnowledgeStateReady,
+	})
 
 	log.Info().
 		Str("knowledge_id", k.ID).
@@ -136,15 +144,14 @@ func (r *Reconciler) getRagClient(k *types.Knowledge) rag.RAG {
 	return r.ragClient
 }
 
-func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+func (r *Reconciler) indexData(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
 	if k.RAGSettings.DisableChunking {
-		return r.indexDataDirectly(ctx, k, data)
+		return r.indexDataDirectly(ctx, k, version, data)
 	}
-
-	return r.indexDataWithChunking(ctx, k, data)
+	return r.indexDataWithChunking(ctx, k, version, data)
 }
 
-func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
 	documentGroupID := k.ID
 
 	ragClient := r.getRagClient(k)
@@ -163,7 +170,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 		pool.Go(func() error {
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-				DataEntityID:    k.GetDataEntityID(),
+				DataEntityID:    types.GetDataEntityID(k.ID, version),
 				Filename:        d.Source,
 				Source:          d.Source,
 				DocumentID:      getDocumentID(d.Data),
@@ -189,7 +196,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 // indexDataWithChunking we expect to be operating on text data, first we split,
 // then index with the rag server
-func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, data []*indexerData) error {
+func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowledge, version string, data []*indexerData) error {
 	chunks, err := splitData(k, data)
 	if err != nil {
 		return fmt.Errorf("failed to split data, error: %w", err)
@@ -210,7 +217,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		chunk := chunk
 		pool.Go(func() error {
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-				DataEntityID:    k.GetDataEntityID(),
+				DataEntityID:    types.GetDataEntityID(k.ID, version),
 				Filename:        chunk.Filename,
 				Source:          chunk.Filename, // For backwards compatibility
 				DocumentID:      chunk.DocumentID,
