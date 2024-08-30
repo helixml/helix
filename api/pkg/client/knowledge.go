@@ -12,14 +12,14 @@ type KnowledgeFilter struct {
 }
 
 func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, error) {
-	url := c.url + "/knowledge"
+	path := "/knowledge"
 	if f.AppID != "" {
-		url += "?app_id=" + f.AppID
+		path += "?app_id=" + f.AppID
 	}
 
 	var knowledge []*types.Knowledge
 
-	err := c.makeRequest(http.MethodGet, "/knowledge", nil, &knowledge)
+	err := c.makeRequest(http.MethodGet, path, nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
@@ -28,10 +28,10 @@ func (c *HelixClient) ListKnowledge(f *KnowledgeFilter) ([]*types.Knowledge, err
 }
 
 func (c *HelixClient) GetKnowledge(id string) (*types.Knowledge, error) {
-	url := c.url + "/knowledge/" + id
+	path := "/knowledge/" + id
 
 	var knowledge *types.Knowledge
-	err := c.makeRequest(http.MethodGet, url, nil, &knowledge)
+	err := c.makeRequest(http.MethodGet, path, nil, &knowledge)
 	if err != nil {
 		return nil, err
 	}
