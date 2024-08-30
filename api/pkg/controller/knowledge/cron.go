@@ -33,13 +33,30 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to list knowledges: %w", err)
 	}
-
 	jobs := r.cron.Jobs()
 
-	jobsMap := make(map[string]gocron.Job)
+	knowledgesMap := make(map[string]*types.Knowledge) // knowledge id to knowledge
+	jobsMap := make(map[string]gocron.Job)             // knowledge id to job
+
+	for _, knowledge := range knowledges {
+		knowledgesMap[knowledge.ID] = knowledge
+	}
 
 	for _, job := range jobs {
 		jobsMap[job.Name()] = job
+
+		// If the job is not in the knowledges list, remove it
+		if _, ok := knowledgesMap[job.Name()]; !ok {
+			log.Info().
+				Str("job_id", job.ID().String()).
+				Strs("job_tags", job.Tags()).
+				Msg("removing job")
+
+			err := r.cron.RemoveJob(job.ID())
+			if err != nil {
+				return fmt.Errorf("failed to remove job: %w", err)
+			}
+		}
 	}
 
 	for _, knowledge := range knowledges {
@@ -52,11 +69,10 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 				Msg("adding cron job to the scheduler")
 
 			// job doesn't exist, create it
-			_, err := r.cron.NewJob(gocron.CronJob(knowledge.RefreshSchedule, true), gocron.NewTask(func() {
-				fmt.Println("running job for knowledge", knowledge.ID)
-			}),
-				gocron.WithName(knowledge.ID),
-				gocron.WithTags(fmt.Sprintf("schedule:%s", knowledge.RefreshSchedule)),
+			_, err := r.cron.NewJob(
+				gocron.CronJob(knowledge.RefreshSchedule, true),
+				r.getCronTask(ctx, knowledge.ID),
+				r.getCronJobOptions(knowledge)...,
 			)
 			if err != nil {
 				log.Error().
@@ -68,30 +84,58 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 			}
 		} else {
 			// Job exists, check schedule and update if needed
-			tags := job.Tags()
-
-			// current schedule
-			var currentSchedule string
-			for _, tag := range tags {
-				if strings.HasPrefix(tag, "schedule:") {
-					currentSchedule = strings.TrimPrefix(tag, "schedule:")
-					break
-				}
-			}
+			currentSchedule := getJobSchedule(job)
 
 			if currentSchedule != knowledge.RefreshSchedule {
-				_, err := r.cron.Update(job.ID(), gocron.CronJob(knowledge.RefreshSchedule, true), gocron.NewTask(func() {
-					fmt.Println("running job for knowledge", knowledge.ID)
-				}), gocron.WithTags(fmt.Sprintf("schedule:%s", knowledge.RefreshSchedule)))
+				log.Info().
+					Str("knowledge_id", knowledge.ID).
+					Str("knowledge_name", knowledge.Name).
+					Str("knowledge_refresh_schedule", knowledge.RefreshSchedule).
+					Str("current_schedule", currentSchedule).
+					Msg("updating cron job schedule")
+
+				_, err := r.cron.Update(
+					job.ID(),
+					gocron.CronJob(knowledge.RefreshSchedule, true),
+					r.getCronTask(ctx, knowledge.ID),
+					r.getCronJobOptions(knowledge)...,
+				)
 				if err != nil {
 					return fmt.Errorf("failed to remove job: %w", err)
 				}
-
 			}
 		}
 	}
 
 	return nil
+}
+
+func (r *Reconciler) getCronTask(ctx context.Context, knowledgeID string) gocron.Task {
+	// TODO: implement
+	fmt.Println("running job for knowledge", knowledgeID)
+	return nil
+}
+
+func (r *Reconciler) getCronJobOptions(knowledge *types.Knowledge) []gocron.JobOption {
+	return []gocron.JobOption{
+		gocron.WithName(knowledge.ID),
+		gocron.WithTags(fmt.Sprintf("schedule:%s", knowledge.RefreshSchedule)),
+	}
+}
+
+func getJobSchedule(job gocron.Job) string {
+	tags := job.Tags()
+
+	// current schedule
+	var currentSchedule string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "schedule:") {
+			currentSchedule = strings.TrimPrefix(tag, "schedule:")
+			return currentSchedule
+		}
+	}
+
+	return currentSchedule
 }
 
 func (r *Reconciler) listKnowledge(ctx context.Context) ([]*types.Knowledge, error) {
