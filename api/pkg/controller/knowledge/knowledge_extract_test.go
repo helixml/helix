@@ -2,6 +2,9 @@ package knowledge
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -76,5 +79,33 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerEnabled() {
 		},
 	}, nil)
 
-	suite.reconciler.extractDataFromWebWithCrawler(suite.ctx, knowledge)
+	suite.reconciler.getIndexingData(suite.ctx, knowledge)
+}
+
+func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractDisabled() {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello, world!")
+	}))
+	defer ts.Close()
+
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		RAGSettings: types.RAGSettings{
+			DisableChunking: true,
+		},
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{ts.URL},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: false,
+				},
+			},
+		},
+	}
+
+	data, err := suite.reconciler.getIndexingData(suite.ctx, knowledge)
+	suite.NoError(err)
+	suite.Equal(1, len(data))
+	suite.Equal(ts.URL, data[0].Source)
+	suite.Contains(string(data[0].Data), "Hello, world!")
 }
