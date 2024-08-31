@@ -113,3 +113,30 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractDisable
 	suite.Equal(ts.URL, data[0].Source)
 	suite.Contains(string(data[0].Data), "Hello, world!")
 }
+
+func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractEnabled() {
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		RAGSettings: types.RAGSettings{
+			DisableChunking: false,
+		},
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://example.com"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: false,
+				},
+			},
+		},
+	}
+
+	suite.extractor.EXPECT().Extract(gomock.Any(), &extract.ExtractRequest{
+		URL: "https://example.com",
+	}).Return("Hello, world!", nil)
+
+	data, err := suite.reconciler.getIndexingData(suite.ctx, knowledge)
+	suite.NoError(err)
+	suite.Equal(1, len(data))
+	suite.Equal("https://example.com", data[0].Source)
+	suite.Contains(string(data[0].Data), "Hello, world!")
+}
