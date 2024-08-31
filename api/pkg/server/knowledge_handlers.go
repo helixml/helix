@@ -89,6 +89,13 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
 	}
 
+	versions, err := s.Store.ListKnowledgeVersions(r.Context(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Get rag client
 	ragClient, err := s.Controller.GetRagClient(r.Context(), existing)
 	if err != nil {
@@ -103,6 +110,20 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 				Str("knowledge_id", existing.ID).
 				Str("data_entity_id", existing.GetDataEntityID()).
 				Msg("error deleting knowledge")
+		}
+	}
+
+	// Delete all versions from the store
+	for _, version := range versions {
+		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
+			DataEntityID: version.GetDataEntityID(),
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", existing.ID).
+				Str("data_entity_id", existing.GetDataEntityID()).
+				Msg("error deleting knowledge version")
 		}
 	}
 
