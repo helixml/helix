@@ -12,6 +12,15 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+var (
+	// Allowed paths for app API keys. Currently we support
+	// only OpenAI compatible chat completions API
+	AppAPIKeyPaths = map[string]bool{
+		"/v1/chat/completions":  true,
+		"/api/v1/sessions/chat": true,
+	}
+)
+
 type authMiddlewareConfig struct {
 	adminUserIDs []string
 	runnerToken  string
@@ -131,6 +140,15 @@ func (auth *authMiddleware) extractMiddleware(next http.Handler) http.Handler {
 		if user == nil {
 			user = &types.User{}
 		}
+
+		// If app API key, check if the path is in the allowed list
+		if user.AppID != "" {
+			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
+				http.Error(w, "path not allowed for app API keys", http.StatusForbidden)
+				return
+			}
+		}
+
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 		next.ServeHTTP(w, r)
 	}
@@ -148,6 +166,14 @@ func (auth *authMiddleware) auth(f http.HandlerFunc) http.HandlerFunc {
 		if user == nil {
 			user = &types.User{}
 		}
+
+		if user.AppID != "" {
+			if _, ok := AppAPIKeyPaths[r.URL.Path]; !ok {
+				http.Error(w, "path not allowed for app API keys", http.StatusForbidden)
+				return
+			}
+		}
+
 		r = r.WithContext(setRequestUser(r.Context(), *user))
 
 		f(w, r)
