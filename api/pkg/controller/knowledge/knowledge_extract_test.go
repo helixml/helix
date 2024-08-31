@@ -79,7 +79,11 @@ func (suite *ExtractorSuite) Test_getIndexingData_CrawlerEnabled() {
 		},
 	}, nil)
 
-	suite.reconciler.getIndexingData(suite.ctx, knowledge)
+	data, err := suite.reconciler.getIndexingData(suite.ctx, knowledge)
+	suite.NoError(err)
+	suite.Equal(1, len(data))
+	suite.Equal("https://example.com", data[0].Source)
+	suite.Contains(string(data[0].Data), "Hello, world!")
 }
 
 func (suite *ExtractorSuite) Test_getIndexingData_CrawlerDisabled_ExtractDisabled() {
