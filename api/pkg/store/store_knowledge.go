@@ -157,11 +157,20 @@ func (s *PostgresStore) DeleteKnowledge(ctx context.Context, id string) error {
 		return fmt.Errorf("id not specified")
 	}
 
-	err := s.gdb.WithContext(ctx).Delete(&types.Knowledge{ID: id}).Error
-	if err != nil {
-		return err
-	}
-	return nil
+	err := s.gdb.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Delete all knowledge versions
+		if err := tx.Where("knowledge_id = ?", id).Delete(&types.KnowledgeVersion{}).Error; err != nil {
+			return err
+		}
+
+		// Delete the knowledge
+		if err := tx.Delete(&types.Knowledge{ID: id}).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
 }
 
 func (s *PostgresStore) CreateKnowledgeVersion(ctx context.Context, version *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
