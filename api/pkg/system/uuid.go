@@ -18,6 +18,7 @@ const (
 	DataEntityPrefix          = "dent_"
 	LLMCallPrefix             = "llmc_"
 	KnowledgePrefix           = "kno_"
+	KnowledgeVersionPrefix    = "knov_"
 )
 
 func GenerateUUID() string {
@@ -58,6 +59,10 @@ func GenerateLLMCallID() string {
 
 func GenerateKnowledgeID() string {
 	return fmt.Sprintf("%s%s", KnowledgePrefix, newID())
+}
+
+func GenerateKnowledgeVersionID() string {
+	return fmt.Sprintf("%s%s", KnowledgeVersionPrefix, newID())
 }
 
 // GenerateVersion generates a version string for the knowledge
