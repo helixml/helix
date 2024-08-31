@@ -78,6 +78,10 @@ type Knowledge struct {
 	Versions []*KnowledgeVersion `json:"versions" `
 }
 
+func (k *Knowledge) GetDataEntityID() string {
+	return GetDataEntityID(k.ID, k.Version)
+}
+
 type KnowledgeVersion struct {
 	ID          string         `json:"id" gorm:"primaryKey"`
 	Created     time.Time      `json:"created"`
@@ -89,8 +93,8 @@ type KnowledgeVersion struct {
 	Message     string         `json:"message"` // Set if something wrong happens
 }
 
-func (k *Knowledge) GetDataEntityID() string {
-	return GetDataEntityID(k.ID, k.Version)
+func (k *KnowledgeVersion) GetDataEntityID() string {
+	return GetDataEntityID(k.KnowledgeID, k.Version)
 }
 
 func GetDataEntityID(knowledgeID, version string) string {
