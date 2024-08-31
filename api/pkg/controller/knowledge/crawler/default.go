@@ -102,7 +102,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
 		collector.Visit(e.Request.AbsoluteURL(link))
-		log.Info().Str("url", link).Msg("Visiting link")
+		log.Debug().Str("url", link).Msg("Visiting link")
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
