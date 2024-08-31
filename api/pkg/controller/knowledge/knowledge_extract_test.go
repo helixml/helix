@@ -9,6 +9,7 @@ import (
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
+	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
 
 	"github.com/stretchr/testify/suite"
@@ -45,4 +46,35 @@ func (suite *ExtractorSuite) SetupTest() {
 	suite.cfg = &config.ServerConfig{}
 
 	suite.reconciler, _ = New(suite.cfg, suite.store, suite.extractor, nil)
+
+	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
+		return suite.rag
+	}
+
+	suite.reconciler.newCrawler = func(k *types.Knowledge) (crawler.Crawler, error) {
+		return suite.crawler, nil
+	}
+}
+
+func (suite *ExtractorSuite) Test_getIndexingData_CrawlerEnabled() {
+	knowledge := &types.Knowledge{
+		ID: "knowledge_id",
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://example.com"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: true,
+				},
+			},
+		},
+	}
+
+	suite.crawler.EXPECT().Crawl(gomock.Any()).Return([]*types.CrawledDocument{
+		{
+			Content:   "Hello, world!",
+			SourceURL: "https://example.com",
+		},
+	}, nil)
+
+	suite.reconciler.extractDataFromWebWithCrawler(suite.ctx, knowledge)
 }
