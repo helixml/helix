@@ -144,11 +144,25 @@ func (suite *PostgresStoreTestSuite) TestPostgresStore_DeleteKnowledge() {
 	_, err := suite.db.CreateKnowledge(context.Background(), &knowledge)
 	suite.NoError(err)
 
+	// Add a knowledge version
+	version := types.KnowledgeVersion{
+		KnowledgeID: knowledge.ID,
+		State:       types.KnowledgeStateIndexing,
+	}
+
+	_, err = suite.db.CreateKnowledgeVersion(context.Background(), &version)
+	suite.NoError(err)
+
 	err = suite.db.DeleteKnowledge(context.Background(), knowledge.ID)
 	suite.NoError(err)
 
 	// Verify that the knowledge is deleted
 	_, err = suite.db.GetKnowledge(context.Background(), knowledge.ID)
+	suite.Error(err)
+	suite.Equal(ErrNotFound, err)
+
+	// Verify that the knowledge version is deleted
+	_, err = suite.db.GetKnowledgeVersion(context.Background(), version.ID)
 	suite.Error(err)
 	suite.Equal(ErrNotFound, err)
 }
