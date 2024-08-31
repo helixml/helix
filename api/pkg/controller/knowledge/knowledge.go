@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -24,6 +25,7 @@ type Reconciler struct {
 	httpClient   *http.Client
 	ragClient    rag.RAG                                   // Default server RAG client
 	newRagClient func(settings *types.RAGSettings) rag.RAG // Custom RAG server client constructor
+	newCrawler   func(k *types.Knowledge) (crawler.Crawler, error)
 	cron         gocron.Scheduler
 	wg           sync.WaitGroup
 }
@@ -43,6 +45,9 @@ func New(config *config.ServerConfig, store store.Store, extractor extract.Extra
 		ragClient:  ragClient,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
+		},
+		newCrawler: func(k *types.Knowledge) (crawler.Crawler, error) {
+			return crawler.NewCrawler(k)
 		},
 	}, nil
 }
