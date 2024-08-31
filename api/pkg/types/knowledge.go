@@ -26,11 +26,11 @@ type AssistantKnowledge struct {
 	// RefreshEnabled defines if the knowledge should be refreshed periodically
 	// or on events. For example a Google Drive knowledge can be refreshed
 	// every 24 hours.
-	RefreshEnabled bool `json:"refresh_enabled"`
+	RefreshEnabled bool `json:"refresh_enabled" yaml:"refresh_enabled"`
 	// RefreshSchedule defines the schedule for refreshing the knowledge.
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
-	RefreshSchedule string `json:"refresh_schedule"`
+	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
 }
 
 type Knowledge struct {
@@ -71,13 +71,33 @@ type Knowledge struct {
 	// It can be specified in cron format or as a duration for example '@every 2h'
 	// or 'every 5m' or '0 0 * * *' for daily at midnight.
 	RefreshSchedule string `json:"refresh_schedule" yaml:"refresh_schedule"`
+
+	// Size of the knowledge in bytes
+	Size int64 `json:"size"`
+
+	Versions []*KnowledgeVersion `json:"versions" `
+}
+
+type KnowledgeVersion struct {
+	ID          string         `json:"id" gorm:"primaryKey"`
+	Created     time.Time      `json:"created"`
+	Updated     time.Time      `json:"updated"`
+	KnowledgeID string         `json:"knowledge_id"`
+	Version     string         `json:"version"`
+	Size        int64          `json:"size"`
+	State       KnowledgeState `json:"state"`
+	Message     string         `json:"message"` // Set if something wrong happens
 }
 
 func (k *Knowledge) GetDataEntityID() string {
-	if k.Version == "" {
-		return k.ID
+	return GetDataEntityID(k.ID, k.Version)
+}
+
+func GetDataEntityID(knowledgeID, version string) string {
+	if version == "" {
+		return knowledgeID
 	}
-	return fmt.Sprintf("%s-%s", k.ID, k.Version)
+	return fmt.Sprintf("%s-%s", knowledgeID, version)
 }
 
 type KnowledgeState string
