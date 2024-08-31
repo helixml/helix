@@ -38,6 +38,8 @@ func (r *Reconciler) index(ctx context.Context) error {
 			Msg("indexing knowledge")
 
 		go func(knowledge *types.Knowledge) {
+			defer r.wg.Done()
+
 			version := system.GenerateVersion()
 
 			err := r.indexKnowledge(ctx, knowledge, version)
