@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/rs/zerolog/log"
@@ -118,8 +117,9 @@ func (r *Reconciler) createOrDeleteCronJobs(ctx context.Context, knowledges []*t
 
 func (r *Reconciler) getCronTask(ctx context.Context, knowledgeID string) gocron.Task {
 	return gocron.NewTask(func() {
-		// TODO:
-		fmt.Println(time.Now().Format("2006-01-02 15:04:05") + " running job for knowledge " + knowledgeID)
+		log.Info().
+			Str("knowledge_id", knowledgeID).
+			Msg("running knowledge refresh cron job")
 
 		knowledge, err := r.store.GetKnowledge(ctx, knowledgeID)
 		if err != nil {
