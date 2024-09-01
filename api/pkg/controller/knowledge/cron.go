@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/rs/zerolog/log"
@@ -12,6 +13,18 @@ import (
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
 )
+
+func (r *Reconciler) NextRun(ctx context.Context, knowledgeID string) (time.Time, error) {
+	jobs := r.cron.Jobs()
+
+	for _, job := range jobs {
+		if job.Name() == knowledgeID {
+			return job.NextRun()
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("job not found")
+}
 
 func (r *Reconciler) startCron(ctx context.Context) error {
 	// start the scheduler
