@@ -35,7 +35,7 @@ var listCmd = &cobra.Command{
 
 		table := tablewriter.NewWriter(cmd.OutOrStdout())
 
-		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh", "Schedule", "Version", "Size"}
+		header := []string{"ID", "Name", "Created", "Source", "State", "Refresh", "Schedule", "Next Run", "Version", "Size"}
 
 		table.SetHeader(header)
 
@@ -74,6 +74,14 @@ var listCmd = &cobra.Command{
 				stateStr = string(k.State)
 			}
 
+			var nextRunStr string
+
+			if k.RefreshEnabled && k.RefreshSchedule != "" && !k.NextRun.IsZero() {
+				nextRunStr = k.NextRun.Format(time.RFC3339)
+			} else {
+				nextRunStr = ""
+			}
+
 			row := []string{
 				k.ID,
 				k.Name,
@@ -82,6 +90,7 @@ var listCmd = &cobra.Command{
 				stateStr,
 				strconv.FormatBool(k.RefreshEnabled),
 				k.RefreshSchedule,
+				nextRunStr,
 				k.Version,
 				humanize.Bytes(uint64(k.Size)),
 			}
