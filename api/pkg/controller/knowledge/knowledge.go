@@ -18,6 +18,10 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+type KnowledgeManager interface {
+	NextRun(ctx context.Context, knowledgeID string) (time.Time, error)
+}
+
 type Reconciler struct {
 	config       *config.ServerConfig
 	store        store.Store

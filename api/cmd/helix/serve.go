@@ -287,7 +287,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
 	if err != nil {
 		return err
 	}
