@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/auth"
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"
+	"github.com/helixml/helix/api/pkg/controller/knowledge"
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/openai"
@@ -61,6 +62,7 @@ type HelixAPIServer struct {
 	pubsub            pubsub.PubSub
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   openai.HelixServer // Helix OpenAI server
+	knowledgeManager  knowledge.KnowledgeManager
 	router            *mux.Router
 }
 
@@ -74,6 +76,7 @@ func NewServer(
 	stripe *stripe.Stripe,
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
+	knowledgeManager knowledge.KnowledgeManager,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -107,7 +110,8 @@ func NewServer(
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
-		pubsub: ps,
+		pubsub:           ps,
+		knowledgeManager: knowledgeManager,
 	}, nil
 }
 
