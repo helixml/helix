@@ -84,3 +84,44 @@ func (suite *CronSuite) Test_CreateJob_Daily() {
 	// Check tags
 	suite.Require().Equal(jobs[0].Tags(), []string{"schedule:0 0 * * *"})
 }
+
+func (suite *CronSuite) Test_CreateJob_Daily_Humanized() {
+	k := &types.Knowledge{
+		ID:             "knowledge_id",
+		RefreshEnabled: true,
+		// Setting to timezone BST
+		RefreshSchedule: "TZ=Europe/London @daily",
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://example.com"},
+			},
+		},
+	}
+
+	jobs := suite.reconciler.cron.Jobs()
+
+	suite.reconciler.cron.Start()
+
+	err := suite.reconciler.createOrDeleteCronJobs(suite.ctx, []*types.Knowledge{k}, jobs)
+	suite.Require().NoError(err)
+
+	jobs = suite.reconciler.cron.Jobs()
+
+	// We should have 1 job
+	suite.Require().Len(jobs, 1)
+
+	// Check name
+	suite.Require().Equal(jobs[0].Name(), "knowledge_id")
+
+	// Check tags
+	suite.Require().Equal(jobs[0].Tags(), []string{"schedule:TZ=Europe/London @daily"})
+
+	// Check next run
+	nextRun, err := jobs[0].NextRun()
+	suite.Require().NoError(err)
+
+	// Check next run should be at midnight
+	suite.Require().Equal(nextRun.Hour(), 0)
+	suite.Require().Equal(nextRun.Minute(), 0)
+	suite.Require().Equal(nextRun.Second(), 0)
+}
