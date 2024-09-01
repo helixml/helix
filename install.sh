@@ -36,6 +36,7 @@ LARGE=false
 API_HOST=""
 RUNNER_TOKEN=""
 TOGETHERAI_TOKEN=""
+AUTO_APPROVE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -70,6 +71,10 @@ while [[ $# -gt 0 ]]; do
         --togetherai-token)
             TOGETHERAI_TOKEN="$2"
             shift 2
+            ;;
+        -y)
+            AUTO_APPROVE=true
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -116,6 +121,53 @@ BINARY_NAME="helix-${OS}-${ARCH}"
 
 # Create installation directory
 sudo mkdir -p /opt/HelixML/data/helix-{postgres,filestore}
+
+# Function to gather planned modifications
+gather_modifications() {
+    local modifications=""
+    
+    if [ "$CLI" = true ]; then
+        modifications+="- Install Helix CLI\n"
+    fi
+    
+    if [ "$CONTROLPLANE" = true ]; then
+        modifications+="- Install Docker and Docker Compose plugin\n"
+        modifications+="- Install Helix Control Plane\n"
+    fi
+    
+    if [ "$RUNNER" = true ]; then
+        modifications+="- Install Docker and Docker Compose plugin\n"
+        modifications+="- Install NVIDIA Docker runtime (if GPU is available)\n"
+        modifications+="- Install Helix Runner\n"
+    fi
+    
+    echo -e "$modifications"
+}
+
+# Function to ask for user approval
+ask_for_approval() {
+    if [ "$AUTO_APPROVE" = true ]; then
+        return 0
+    fi
+    
+    echo "The following modifications will be made to your system:"
+    echo
+    gather_modifications
+    echo
+    read -p "Do you want to proceed? (y/N) " response
+    case "$response" in
+        [yY][eE][sS]|[yY]) 
+            return 0
+            ;;
+        *)
+            echo "Installation aborted."
+            exit 1
+            ;;
+    esac
+}
+
+# Ask for user approval before proceeding
+ask_for_approval
 
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
