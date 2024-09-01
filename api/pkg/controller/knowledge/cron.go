@@ -37,6 +37,10 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 	}
 	jobs := r.cron.Jobs()
 
+	return r.createOrDeleteCronJobs(ctx, knowledges, jobs)
+}
+
+func (r *Reconciler) createOrDeleteCronJobs(ctx context.Context, knowledges []*types.Knowledge, jobs []gocron.Job) error {
 	knowledgesMap := make(map[string]*types.Knowledge) // knowledge id to knowledge
 	jobsMap := make(map[string]gocron.Job)             // knowledge id to job
 
