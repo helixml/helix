@@ -193,18 +193,18 @@ gather_modifications() {
     local modifications=""
     
     if [ "$CLI" = true ]; then
-        modifications+="  - Install Helix CLI\n"
+        modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
     
     if [ "$CONTROLPLANE" = true ]; then
         modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
-        modifications+="  - Install Helix Control Plane\n"
+        modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
     fi
 
     if [ "$RUNNER" = true ]; then
         modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
         modifications+="  - Ensure NVIDIA Docker runtime is installed (if GPU is available)\n"
-        modifications+="  - Install Helix Runner\n"
+        modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
     
     echo -e "$modifications"
@@ -374,7 +374,7 @@ EOF
 
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
-    echo -e "\nCreating .env file..."
+    echo -e "\nCreating/updating .env file..."
     
     # Set domain
     if [ -z "$API_HOST" ]; then
@@ -383,11 +383,31 @@ EOF
         DOMAIN="https://${API_HOST}"
     fi
 
+    if [ -f "$ENV_FILE" ]; then
+        echo ".env file already exists. Reusing existing passwords."
+
+        # Make a backup copy of the .env file
+        DATE=$(date +%Y%m%d%H%M%S)
+        cp "$ENV_FILE" "$ENV_FILE-$DATE"
+        echo "Backup of .env file created: $ENV_FILE-$DATE"
+        echo "To see what changed, run:"
+        echo "diff $ENV_FILE $ENV_FILE-$DATE"
+
+        KEYCLOAK_ADMIN_PASSWORD=$(grep -oP '^KEYCLOAK_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(grep -oP '^POSTGRES_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
+        RUNNER_TOKEN=$(grep -oP '^RUNNER_TOKEN=\K.*' "$ENV_FILE" || generate_password)
+    else
+        echo ".env file does not exist. Generating new passwords."
+        KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(generate_password)
+        RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+    fi
+
     # Generate .env content
     cat << EOF > "$ENV_FILE"
 # Set passwords
-KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
-POSTGRES_ADMIN_PASSWORD=$(generate_password)
+KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
+POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 
 # URLs
