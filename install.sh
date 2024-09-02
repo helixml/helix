@@ -31,6 +31,7 @@ TOGETHER_API_KEY=""
 OPENAI_API_KEY=""
 OPENAI_BASE_URL=""
 AUTO_APPROVE=false
+OLDER_GPU=false
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -70,6 +71,7 @@ Options:
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
+  --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   -y                       Auto approve the installation
 
 Examples:
@@ -77,22 +79,25 @@ Examples:
 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
    ./install-helix.sh
 
-2. Install just the CLI:
+2. Install alongside Ollama already running:
+   ./install-helix.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
+
+3. Install just the CLI:
    ./install-helix.sh --cli
 
-3. Install CLI and controlplane with external TogetherAI token:
+4. Install CLI and controlplane with external TogetherAI token:
    ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
 
-4. Install CLI and controlplane (to install runner separately):
-   ./install-helix.sh --cli --controlplane
+5. Install CLI and controlplane (to install runner separately), specifying a DNS name, automatically setting up TLS:
+   ./install-helix.sh --cli --controlplane --api-host https://helix.mycompany.com
 
-5. Install CLI, controlplane, and runner on a node with a GPU:
+6. Install CLI, controlplane, and runner on a node with a GPU:
    ./install-helix.sh --cli --controlplane --runner
 
-6. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
-   ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
+   ./install-helix.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-7. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
 EOF
@@ -144,6 +149,10 @@ while [[ $# -gt 0 ]]; do
             OPENAI_BASE_URL="$2"
             shift 2
             ;;
+        --older-gpu)
+            OLDER_GPU=true
+            shift
+            ;;
         -y)
             AUTO_APPROVE=true
             shift
@@ -156,15 +165,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to check for NVIDIA GPU
+check_nvidia_gpu() {
+    # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
+    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Adjust default values based on provided arguments and AUTO mode
 if [ "$AUTO" = true ]; then
     CLI=true
     CONTROLPLANE=true
-    if command -v nvidia-smi &> /dev/null; then
+    if check_nvidia_gpu; then
         RUNNER=true
     fi
     echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
-    if command -v nvidia-smi &> /dev/null; then
+    if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Runner will be installed locally."
     else
         echo "No NVIDIA GPU detected. Runner will not be installed. If you want to connect "
@@ -195,15 +214,17 @@ gather_modifications() {
     if [ "$CLI" = true ]; then
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
-    
-    if [ "$CONTROLPLANE" = true ]; then
+
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ]; then
         modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+    fi
+
+    if [ "$CONTROLPLANE" = true ]; then
         modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
     fi
 
     if [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
-        modifications+="  - Ensure NVIDIA Docker runtime is installed (if GPU is available)\n"
+        modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
     
@@ -260,9 +281,19 @@ generate_password() {
     openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
 }
 
+# Function to check if running on WSL2 (don't auto-install docker in that case)
+check_wsl2_docker() {
+    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
+        echo "Detected WSL2 (Windows) environment."
+        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
+        exit 1
+    fi
+}
+
 # Function to install Docker and Docker Compose plugin
 install_docker() {
     if ! command -v docker &> /dev/null; then
+        check_wsl2_docker
         echo "Docker not found. Installing Docker..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
@@ -304,12 +335,13 @@ install_docker() {
 
 # Function to install NVIDIA Docker runtime
 install_nvidia_docker() {
-    if ! command -v nvidia-smi &> /dev/null; then
+    if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping NVIDIA Docker runtime installation."
         return
     fi
 
-    if ! docker info | grep -i nvidia &> /dev/null; then
+    if ! docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
+        check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
@@ -393,9 +425,10 @@ EOF
         echo "To see what changed, run:"
         echo "diff $ENV_FILE $ENV_FILE-$DATE"
 
-        KEYCLOAK_ADMIN_PASSWORD=$(grep -oP '^KEYCLOAK_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        POSTGRES_ADMIN_PASSWORD=$(grep -oP '^POSTGRES_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        RUNNER_TOKEN=$(grep -oP '^RUNNER_TOKEN=\K.*' "$ENV_FILE" || generate_password)
+        KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
+        RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
@@ -469,8 +502,11 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo -e "\nYou can now 'cd $INSTALL_DIR' and run 'docker compose up -d' to start Helix"
-    echo "Helix will be available at $DOMAIN"
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ You can now 'cd $INSTALL_DIR'"
+    echo "│ and run 'docker compose up -d' to start Helix                             │"
+    echo "│ Helix will be available at $DOMAIN"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
@@ -506,14 +542,18 @@ if [ "$RUNNER" = true ]; then
     install_docker
     install_nvidia_docker
     # Check for NVIDIA GPU
-    if ! command -v nvidia-smi &> /dev/null; then
+    if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping runner installation."
         echo "Set up a runner separately, per https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner"
         exit 1
     fi
 
     # Determine GPU memory
-    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}')
+    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}' || echo "")
+    if [ -z "$GPU_MEMORY" ]; then
+        echo "Failed to determine GPU memory."
+        read -p "Please specify the GPU memory in GB: " GPU_MEMORY
+    fi
 
     # Determine runner tag and warmup models
     if [ "$LARGE" = true ]; then
@@ -541,10 +581,11 @@ if [ "$RUNNER" = true ]; then
 
 # Configuration variables
 RUNNER_TAG="${RUNNER_TAG}"
-api_host="${API_HOST}"
+API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
+OLDER_GPU="${OLDER_GPU:-false}"
 
 # Set warmup models parameter
 if [ -n "\$WARMUP_MODELS" ]; then
@@ -553,10 +594,17 @@ else
     WARMUP_MODELS_PARAM=""
 fi
 
+# Set older GPU parameter
+if [ "\$OLDER_GPU" = "true" ]; then
+    OLDER_GPU_PARAM="-e RUNTIME_AXOLOTL_ENABLED=false"
+else
+    OLDER_GPU_PARAM=""
+fi
+
 # Check if api-1 container is running
 if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
-    api_host="http://api:80"
-    echo "Detected controlplane container running. Setting API_HOST to \${api_host}"
+    API_HOST="http://api:80"
+    echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
 # Run the docker container
@@ -567,8 +615,9 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${WARMUP_MODELS_PARAM} \\
+    \${OLDER_GPU_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
-    --api-host \${api_host} --api-token \${RUNNER_TOKEN} \\
+    --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
     --memory \${GPU_MEMORY}GB \\
     --allow-multiple-copies
@@ -576,13 +625,21 @@ EOF
 
     sudo chmod +x $INSTALL_DIR/runner.sh
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
-    echo "To start the runner, run: sudo $INSTALL_DIR/runner.sh"
-    if [ -z "$API_HOST" ]; then
-        echo
-        echo "To connect an external runner to this controlplane, run on a node with a GPU:"
-        echo "bash <(curl -Ls https://get.helix.ml/) --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-        echo "You can find the runner token in $INSTALL_DIR/.env"
-    fi
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ To start the runner, run:                                                 │"
+    echo "│                                                                           │"
+    echo "│   sudo $INSTALL_DIR/runner.sh"
+    echo "│                                                                           │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
+fi
+
+if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
+    echo
+    echo "To connect an external runner to this controlplane, run on a node with a GPU:"
+    echo
+    echo "curl -Ls -o install-helix.sh https://get.helix.ml/"
+    echo "chmod +x install-helix.sh"
+    echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."

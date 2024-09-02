@@ -26,26 +26,26 @@ Looking for a private GenAI platform? From language models to image models and m
 
 ## Docker
 
-```
-git clone https://github.com/helixml/helix.git
-cd helix
-```
-
-Create an `.env` file with settings based on the example values and edit it:
+Use our quickstart installer:
 
 ```
-cp .env.example-prod .env
+curl -Ls -o install-helix.sh https://get.helix.ml
+chmod +x install-helix.sh
+sudo ./install-helix.sh
 ```
+The installer will prompt you before making changes to your system.
 
-To start the services:
+By default, the dashboard will be available on `http://localhost:8080`.
 
-```
-docker compose up -d
-```
-
-By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+For setting up a deployment with a DNS name, see `./install-helix.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#using-an-external-llm-provider).
+
+## Kubernetes
+
+Use our helm charts:
+* [controlplane helm chart](https://docs.helix.ml/helix/private-deployment/helix-controlplane-helm-chart/)
+* [runner helm chart](https://docs.helix.ml/helix/private-deployment/helix-runner-helm-chart/)
 
 ## Developer Instructions
 

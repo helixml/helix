@@ -31,12 +31,12 @@ func TestDefault_Crawl(t *testing.T) {
 	require.NoError(t, err)
 
 	const (
-		apiToolsText          = `By connecting to external APIs, your AI can access up-to-date information that may not be present in its training data`
+		appsText              = `When I submit a request that uses an App, it hangs`
 		privateDeploymentText = `The stack might take a minute to boot up`
 	)
 
 	var (
-		apiToolsTextFound          bool
+		appsTextFound              bool
 		privateDeploymentTextFound bool
 	)
 
@@ -44,19 +44,19 @@ func TestDefault_Crawl(t *testing.T) {
 		// Uncomment to save the chunks to a file for debugging
 		// os.WriteFile(fmt.Sprintf("doc-%s.html", doc.Title), []byte(doc.Content), 0644)
 
-		if strings.Contains(doc.Content, apiToolsText) {
-			apiToolsTextFound = true
+		if strings.Contains(doc.Content, appsText) {
+			appsTextFound = true
 
-			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/develop/helix-tools/")
+			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/develop/apps/")
 		}
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
 
-			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/private-deployment/controlplane/")
+			assert.Equal(t, doc.SourceURL, "https://docs.helix.ml/helix/private-deployment/manual-install/")
 		}
 	}
 
-	require.True(t, apiToolsTextFound, "api tools text not found")
+	require.True(t, appsTextFound, "apps text not found")
 	require.True(t, privateDeploymentTextFound, "private deployment text not found")
 
 	t.Logf("docs: %d", len(docs))
