@@ -166,7 +166,10 @@ fi
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
     echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
     echo "to connect to an external controlplane, for example:"
-    echo "./install.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+    echo
+    echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+    echo
+    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
     exit 1
 fi
 
