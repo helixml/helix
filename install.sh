@@ -536,7 +536,7 @@ if [ "$RUNNER" = true ]; then
     fi
 
     # Determine GPU memory
-    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}')
+    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}' || echo "")
     if [ -z "$GPU_MEMORY" ]; then
         echo "Failed to determine GPU memory."
         read -p "Please specify the GPU memory in GB: " GPU_MEMORY
