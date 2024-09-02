@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -14,8 +15,10 @@ import (
 )
 
 const (
-	defaultMaxDepth  = 10
-	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+	defaultMaxDepth    = 10
+	defaultMaxPages    = 500
+	defaultParallelism = 20
+	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 // Default crawler for web sources, uses colly to crawl the website
@@ -72,10 +75,19 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	collector := colly.NewCollector(collyOptions...)
 
+	for _, domain := range domains {
+		collector.Limit(&colly.LimitRule{
+			DomainGlob:  fmt.Sprintf("*%s*", domain),
+			Parallelism: defaultParallelism,
+		})
+	}
+
 	var crawledDocs []*types.CrawledDocument
 	converter := md.NewConverter("", true, nil)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
+		log.Trace().Str("url", e.Request.URL.String()).Msg("Visiting link")
+
 		doc := &types.CrawledDocument{
 			SourceURL: e.Request.URL.String(),
 		}
@@ -102,7 +114,6 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Attr("href")
 		collector.Visit(e.Request.AbsoluteURL(link))
-		log.Debug().Str("url", link).Msg("Visiting link")
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
