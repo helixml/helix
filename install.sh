@@ -38,9 +38,51 @@ RUNNER_TOKEN=""
 TOGETHERAI_TOKEN=""
 AUTO_APPROVE=false
 
+# Function to display help message
+display_help() {
+    cat << EOF
+Usage: ./install.sh [OPTIONS]
+
+Options:
+  --cli                    Install the CLI (binary in /usr/local/bin)
+  --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in /opt/HelixML)
+  --runner                 Install the runner (single container with runner.sh script to start it in /opt/HelixML)
+  --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
+  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com
+  --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
+  --togetherai-token <token> Specify the together.ai token for inference, rag and apps without a GPU
+  -y                       Auto approve the installation
+
+Examples:
+
+1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
+   ./install-helix.sh
+
+2. Install just the CLI:
+   ./install-helix.sh --cli
+
+3. Install CLI and controlplane with external TogetherAI token:
+   ./install-helix.sh --cli --controlplane --togetherai-token YOUR_TOGETHERAI_TOKEN
+
+4. Install CLI and controlplane (to install runner separately):
+   ./install-helix.sh --cli --controlplane
+
+5. Install CLI, controlplane, and runner on a node with a GPU:
+   ./install-helix.sh --cli --controlplane --runner
+
+6. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
+   ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+
+EOF
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --help)
+            display_help
+            exit 0
+            ;;
         --cli)
             CLI=true
             AUTO=false
@@ -78,6 +120,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
+            display_help
             exit 1
             ;;
     esac
@@ -90,17 +133,24 @@ if [ "$AUTO" = true ]; then
     if command -v nvidia-smi &> /dev/null; then
         RUNNER=true
     fi
-    echo "Auto-install mode detected. Installing CLI and Control Plane."
+    echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
     if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected. Runner will be installed."
+        echo "NVIDIA GPU detected. Runner will be installed locally."
     else
-        echo "No NVIDIA GPU detected. Runner will not be installed. See command "
-        echo "at the end to install runner separately on a GPU node."
+        echo "No NVIDIA GPU detected. Runner will not be installed. If you want "
+        echo "to connect an external GPU node to this controlplane, you need to "
+        echo "point a DNS name at the IP address of this server and set "
+        echo "--api-host for example https://my-controlplane.com. See command "
+        echo "at the end to install runner separately on a GPU node, or pass "
+        echo "--togetherai-token to connect to together.ai for LLM inference."
+        echo -e "\n"
     fi
 fi
 
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing only the runner, you must specify --api-host"
+    echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
+    echo "to connect to an external controlplane, for example:"
+    echo "./install.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
     exit 1
 fi
 
@@ -120,7 +170,7 @@ LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/lat
 BINARY_NAME="helix-${OS}-${ARCH}"
 
 # Create installation directory
-sudo mkdir -p /opt/HelixML/data/helix-{postgres,filestore}
+sudo mkdir -p /opt/HelixML
 
 # Function to gather planned modifications
 gather_modifications() {
@@ -131,13 +181,13 @@ gather_modifications() {
     fi
     
     if [ "$CONTROLPLANE" = true ]; then
-        modifications+="- Install Docker and Docker Compose plugin\n"
+        modifications+="- Ensure Docker and Docker Compose plugin are installed\n"
         modifications+="- Install Helix Control Plane\n"
     fi
     
     if [ "$RUNNER" = true ]; then
-        modifications+="- Install Docker and Docker Compose plugin\n"
-        modifications+="- Install NVIDIA Docker runtime (if GPU is available)\n"
+        modifications+="- Ensure Docker and Docker Compose plugin are installed\n"
+        modifications+="- Ensure NVIDIA Docker runtime is installed (if GPU is available)\n"
         modifications+="- Install Helix Runner\n"
     fi
     
@@ -332,7 +382,8 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo "You can now cd /opt/HelixML and run 'docker compose up -d' to start Helix"
+    echo "You can now 'cd /opt/HelixML' and run 'docker compose up -d' to start Helix"
+    echo "Helix will be available at $DOMAIN"
 fi
 
 # Install runner if requested or in AUTO mode with GPU
@@ -420,6 +471,12 @@ EOF
     sudo chmod +x /opt/HelixML/runner.sh
     echo "Runner script has been created at /opt/HelixML/runner.sh"
     echo "To start the runner, run: sudo /opt/HelixML/runner.sh"
+    if [ -z "$API_HOST" ]; then
+        echo
+        echo "To connect an external runner to this controlplane, run on a node with a GPU:"
+        echo "bash <(curl -Ls https://get.helix.ml/) --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo "You can find the runner token in /opt/HelixML/.env"
+    fi
 fi
 
 echo "Installation complete."
