@@ -416,9 +416,10 @@ EOF
         echo "To see what changed, run:"
         echo "diff $ENV_FILE $ENV_FILE-$DATE"
 
-        KEYCLOAK_ADMIN_PASSWORD=$(grep -oP '^KEYCLOAK_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        POSTGRES_ADMIN_PASSWORD=$(grep -oP '^POSTGRES_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        RUNNER_TOKEN=$(grep -oP '^RUNNER_TOKEN=\K.*' "$ENV_FILE" || generate_password)
+        KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
+        RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
@@ -614,7 +615,7 @@ EOF
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 fi
 
-if [ -n "$API_HOST" ] || [ "$CONTROLPLANE" = true ]; then
+if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
