@@ -120,7 +120,9 @@ const Account: FC = () => {
 export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
 export AZURE_OPENAI_API_KEY=${apiKey}
 `
-  const cliLogin = `export HELIX_URL=${window.location.protocol}//${window.location.host}
+  const cliLogin = `bash <(curl -Ls https://get.helix.ml) --cli
+
+export HELIX_URL=${window.location.protocol}//${window.location.host}
 export HELIX_API_KEY=${apiKey}
 `
 
@@ -191,7 +193,7 @@ export HELIX_API_KEY=${apiKey}
                 </Paper>
 
                 <Paper sx={{ mt: 2 }}>
-                  <Typography sx={{ p: 2}} variant="h6">CLI login</Typography>
+                  <Typography sx={{ p: 2}} variant="h6">CLI install &amp; login</Typography>
                   <List>
                     {account.apiKeys.map((apiKey) => (
                       <ListItem key={apiKey.key}>
