@@ -31,6 +31,7 @@ Use our quickstart installer:
 ```
 curl -Ls https://get.helix.ml |sudo bash
 ```
+The installer will prompt you before making changes to your system.
 
 By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
