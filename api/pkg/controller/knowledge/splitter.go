@@ -5,6 +5,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 
 	"github.com/tmc/langchaingo/textsplitter"
 )
@@ -14,6 +15,10 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 
 	switch k.RAGSettings.TextSplitter {
 	case types.TextSplitterTypeText:
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Msgf("splitting data with text splitter")
+
 		splitter, err := text.NewDataPrepSplitter(text.DataPrepTextSplitterOptions{
 			ChunkSize: k.RAGSettings.ChunkSize,
 			Overflow:  k.RAGSettings.ChunkOverflow,
@@ -33,6 +38,10 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 
 		return splitter.Chunks, nil
 	default:
+		log.Info().
+			Str("knowledge_id", k.ID).
+			Msgf("splitting data with markdown text splitter")
+
 		splitter := textsplitter.NewMarkdownTextSplitter(
 			textsplitter.WithChunkSize(k.RAGSettings.ChunkSize),
 			textsplitter.WithChunkOverlap(k.RAGSettings.ChunkOverflow),

@@ -1,9 +1,14 @@
 package client
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/types"
@@ -20,6 +25,8 @@ type Client interface {
 	GetKnowledge(id string) (*types.Knowledge, error)
 	DeleteKnowledge(id string) error
 	RefreshKnowledge(id string) error
+
+	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 }
 
 // HelixClient is the client for the helix api
@@ -61,4 +68,33 @@ func NewClient(url, apiKey string) (*HelixClient, error) {
 		apiKey:     apiKey,
 		url:        url,
 	}, nil
+}
+
+func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interface{}) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, method, c.url+path, body)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status code %d", resp.StatusCode)
+	}
+
+	if v != nil {
+		return json.NewDecoder(resp.Body).Decode(v)
+	}
+
+	return nil
 }

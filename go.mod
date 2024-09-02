@@ -15,6 +15,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/getkin/kin-openapi v0.123.0
 	github.com/getsentry/sentry-go v0.25.0
+	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/gocolly/colly/v2 v2.1.0
 	github.com/golang-jwt/jwt/v5 v5.0.0
@@ -60,7 +61,9 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/jonboulle/clockwork v0.4.0 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
+	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e // indirect
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
@@ -195,8 +198,8 @@ require (
 	go.uber.org/multierr v1.9.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/crypto v0.25.0
-	golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f // indirect
-	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
+	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/oauth2 v0.20.0
 	golang.org/x/sync v0.7.0 // indirect
@@ -204,7 +207,7 @@ require (
 	golang.org/x/term v0.22.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
+	golang.org/x/tools v0.22.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240513163218-0867130af1f8 // indirect
