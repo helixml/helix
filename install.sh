@@ -156,15 +156,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to check for NVIDIA GPU
+check_nvidia_gpu() {
+    # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
+    if command -v nvidia-smi &> /dev/null || docker info | grep -i nvidia &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Adjust default values based on provided arguments and AUTO mode
 if [ "$AUTO" = true ]; then
     CLI=true
     CONTROLPLANE=true
-    if command -v nvidia-smi &> /dev/null; then
+    if check_nvidia_gpu; then
         RUNNER=true
     fi
     echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
-    if command -v nvidia-smi &> /dev/null; then
+    if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Runner will be installed locally."
     else
         echo "No NVIDIA GPU detected. Runner will not be installed. If you want to connect "
@@ -314,7 +324,7 @@ install_docker() {
 
 # Function to install NVIDIA Docker runtime
 install_nvidia_docker() {
-    if ! command -v nvidia-smi &> /dev/null; then
+    if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping NVIDIA Docker runtime installation."
         return
     fi
@@ -517,7 +527,7 @@ if [ "$RUNNER" = true ]; then
     install_docker
     install_nvidia_docker
     # Check for NVIDIA GPU
-    if ! command -v nvidia-smi &> /dev/null; then
+    if ! check_nvidia_gpu; then
         echo "NVIDIA GPU not detected. Skipping runner installation."
         echo "Set up a runner separately, per https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner"
         exit 1
@@ -525,6 +535,10 @@ if [ "$RUNNER" = true ]; then
 
     # Determine GPU memory
     GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print int($1/1024)}')
+    if [ -z "$GPU_MEMORY" ]; then
+        echo "Failed to determine GPU memory."
+        read -p "Please specify the GPU memory in GB: " GPU_MEMORY
+    fi
 
     # Determine runner tag and warmup models
     if [ "$LARGE" = true ]; then
