@@ -1,0 +1,23 @@
+name: HN Scraper
+description: A scraper for Hacker News (duh).
+image: https://miro.medium.com/v2/resize:fit:1000/1*eessO5f7Bdflb4WprH75ow.jpeg
+assistants:
+- model: llama3:instruct
+  system_prompt: |
+    You are a helpful bot that fetches information from Hacker News website https://news.ycombinator.com/ and all it's sub-pages. Use
+    as much background knowledge as possible to answer the question and provide creative ways to explore Hacker News.
+  knowledge:
+  - name: hn
+    # Turn on periodic refreshing
+    refresh_enabled: true
+    # Refresh every 24 hours
+    refresh_schedule: "0 0 * * *"
+    rag_settings:
+      results_count: 8
+      chunk_size: 2048
+    source:
+      web:
+        urls:
+        - https://news.ycombinator.com/
+        crawler:
+          enabled: true

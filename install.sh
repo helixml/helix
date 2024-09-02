@@ -79,22 +79,25 @@ Examples:
 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
    ./install-helix.sh
 
-2. Install just the CLI:
+2. Install alongside Ollama already running:
+   ./install-helix.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
+
+3. Install just the CLI:
    ./install-helix.sh --cli
 
-3. Install CLI and controlplane with external TogetherAI token:
+4. Install CLI and controlplane with external TogetherAI token:
    ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
 
-4. Install CLI and controlplane (to install runner separately):
-   ./install-helix.sh --cli --controlplane
+5. Install CLI and controlplane (to install runner separately), specifying a DNS name, automatically setting up TLS:
+   ./install-helix.sh --cli --controlplane --api-host https://helix.mycompany.com
 
-5. Install CLI, controlplane, and runner on a node with a GPU:
+6. Install CLI, controlplane, and runner on a node with a GPU:
    ./install-helix.sh --cli --controlplane --runner
 
-6. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
-   ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
+   ./install-helix.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
-7. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
    ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
 EOF
