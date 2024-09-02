@@ -494,7 +494,7 @@ EOF
 
     echo ".env file has been created at $ENV_FILE"
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
-    echo "│ You can now 'cd $INSTALL_DIR'                                             │"
+    echo "│ You can now 'cd $INSTALL_DIR'"
     echo "│ and run 'docker compose up -d' to start Helix                             │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
     echo "Helix will be available at $DOMAIN"
@@ -610,7 +610,7 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ To start the runner, run:                                                 │"
     echo "│                                                                           │"
-    echo "│   sudo $INSTALL_DIR/runner.sh                                             │"
+    echo "│   sudo $INSTALL_DIR/runner.sh"
     echo "│                                                                           │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 fi
