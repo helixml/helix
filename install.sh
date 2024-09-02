@@ -31,6 +31,7 @@ TOGETHER_API_KEY=""
 OPENAI_API_KEY=""
 OPENAI_BASE_URL=""
 AUTO_APPROVE=false
+OLDER_GPU=false
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -70,6 +71,7 @@ Options:
   --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
+  --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
   -y                       Auto approve the installation
 
 Examples:
@@ -143,6 +145,10 @@ while [[ $# -gt 0 ]]; do
         --openai-base-url)
             OPENAI_BASE_URL="$2"
             shift 2
+            ;;
+        --older-gpu)
+            OLDER_GPU=true
+            shift
             ;;
         -y)
             AUTO_APPROVE=true
@@ -576,12 +582,20 @@ API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
+OLDER_GPU="${OLDER_GPU:-false}"
 
 # Set warmup models parameter
 if [ -n "\$WARMUP_MODELS" ]; then
     WARMUP_MODELS_PARAM="-e RUNTIME_OLLAMA_WARMUP_MODELS=\$WARMUP_MODELS"
 else
     WARMUP_MODELS_PARAM=""
+fi
+
+# Set older GPU parameter
+if [ "\$OLDER_GPU" = "true" ]; then
+    OLDER_GPU_PARAM="-e RUNTIME_AXOLOTL_ENABLED=false"
+else
+    OLDER_GPU_PARAM=""
 fi
 
 # Check if api-1 container is running
@@ -598,6 +612,7 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     --network="helix_default" \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${WARMUP_MODELS_PARAM} \\
+    \${OLDER_GPU_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
