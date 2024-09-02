@@ -105,8 +105,9 @@ type RAGSettings struct {
 	PromptTemplate     string           `json:"prompt_template" yaml:"prompt_template"`         // the prompt template to use for the RAG query
 
 	// RAG endpoint configuration if used with a custom RAG service
-	IndexURL string `json:"index_url" yaml:"index_url"` // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
-	QueryURL string `json:"query_url" yaml:"query_url"` // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
+	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
+	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
 }
 
 func (m RAGSettings) Value() (driver.Value, error) {
@@ -150,6 +151,10 @@ type SessionRAGQuery struct {
 	DistanceThreshold float64 `json:"distance_threshold"`
 	DistanceFunction  string  `json:"distance_function"`
 	MaxResults        int     `json:"max_results"`
+}
+
+type DeleteIndexRequest struct {
+	DataEntityID string `json:"data_entity_id"`
 }
 
 // the thing we load from llamaindex when we send the user prompt
@@ -589,8 +594,8 @@ type RunnerProcessConfig struct {
 
 // a session will run "tasks" on runners
 // task's job is to take the most recent user interaction
-// and add a response to it in the form of a system interaction
-// the api controller will have already appended the system interaction
+// and add a response to it in the form of a assistant interaction
+// the api controller will have already appended the assistant interaction
 // to the very end of the Session.Interactions list
 // our job is to fill in the Message and/or Files field of that interaction
 type RunnerTask struct {
@@ -610,7 +615,7 @@ type RunnerTaskResponse struct {
 	// the python code must submit these fields back to the runner api
 	Type      WorkerTaskResponseType `json:"type"`
 	SessionID string                 `json:"session_id"`
-	// this should be the latest system interaction
+	// this should be the latest assistant interaction
 	// it is filled in by the model instance
 	// based on currentSession
 	InteractionID string `json:"interaction_id"`
@@ -795,9 +800,14 @@ func HistoryFromInteractions(interactions []*Interaction) []*ToolHistoryMessage 
 				Role:    openai.ChatMessageRoleUser,
 				Content: interaction.Message,
 			})
-		case CreatorTypeSystem:
+		case CreatorTypeAssistant:
 			history = append(history, &ToolHistoryMessage{
 				Role:    openai.ChatMessageRoleAssistant,
+				Content: interaction.Message,
+			})
+		case CreatorTypeSystem:
+			history = append(history, &ToolHistoryMessage{
+				Role:    openai.ChatMessageRoleSystem,
 				Content: interaction.Message,
 			})
 		case CreatorTypeTool:

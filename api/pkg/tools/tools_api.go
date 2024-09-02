@@ -98,21 +98,31 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 	return req, nil
 }
 
-func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (map[string]string, error) {
+func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
 	systemPrompt, err := c.getApiSystemPrompt(tool)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	userPrompt, err := c.getApiUserPrompt(tool, history, currentMessage, action)
+	userPrompt, err := c.getApiUserPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare user prompt: %w", err)
 	}
 
 	messages := []openai.ChatCompletionMessage{
 		systemPrompt,
-		userPrompt,
 	}
+
+	for _, msg := range history {
+		if msg.Role != openai.ChatMessageRoleSystem {
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	}
+
+	messages = append(messages, userPrompt)
 
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
@@ -178,7 +188,7 @@ func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletion
 	}, nil
 }
 
-func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.ToolHistoryMessage, currentMessage, action string) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
 	// Render template
 	apiUserPromptTemplate := apiUserPrompt
 
@@ -199,13 +209,9 @@ func (c *ChainStrategy) getApiUserPrompt(tool *types.Tool, history []*types.Tool
 	// Render template
 	var sb strings.Builder
 	err = tmpl.Execute(&sb, struct {
-		Schema       string
-		Message      string
-		Interactions []*types.ToolHistoryMessage
+		Schema string
 	}{
-		Schema:       jsonSpec,
-		Message:      currentMessage,
-		Interactions: history,
+		Schema: jsonSpec,
 	})
 
 	if err != nil {
@@ -262,16 +268,15 @@ Examples:
 ` + "```" + `
 
 ===END EXAMPLES===
-OpenAPI schema: {{.Schema}}
 
-Conversation so far:
-{{ range $index, $interaction := .Interactions }}
-{{ $interaction.Role }}: ({{ $interaction.Content }})
-{{ end }}
-user: ({{ .Message }})
+OpenAPI schema:
 
+{{.Schema}}
 
-Based on the information provided, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params.
+===END OPENAPI SCHEMA===
+
+Based on conversation so far, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out.
+ONLY use search parameters from the user messages above - do NOT use search parameters provided in the examples.
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {

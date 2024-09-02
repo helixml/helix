@@ -9,7 +9,7 @@ import {
   SESSION_TYPE_TEXT,
   SESSION_TYPE_IMAGE,
   SESSION_MODE_INFERENCE,
-  SESSION_CREATOR_SYSTEM,
+  SESSION_CREATOR_ASSISTANT,
   SESSION_CREATOR_USER,
   INTERACTION_STATE_EDITING,
   TEXT_DATA_PREP_STAGE_NONE,
@@ -46,7 +46,7 @@ export const useInteraction = ({
   let displayMessage: string = ''
   let imageURLs: string[] = []
   
-  let isLoading = isLast && interaction?.creator == SESSION_CREATOR_SYSTEM && !interaction.finished
+  let isLoading = isLast && interaction?.creator == SESSION_CREATOR_ASSISTANT && !interaction.finished
 
   const isImageFinetune = interaction?.creator == SESSION_CREATOR_USER && session.type == SESSION_TYPE_IMAGE
   const isTextFinetune = interaction?.creator == SESSION_CREATOR_USER && session.type == SESSION_TYPE_TEXT
@@ -82,7 +82,7 @@ export const useInteraction = ({
   }
 
   const useSystemName = session.name || 'System'
-  const useName = interaction?.creator == SESSION_CREATOR_SYSTEM ? useSystemName : interaction?.creator
+  const useName = interaction?.creator == SESSION_CREATOR_ASSISTANT ? useSystemName : interaction?.creator
 
   const dataPrepErrors = useMemo(() => {
     if(!interaction) return []
