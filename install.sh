@@ -496,8 +496,8 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ You can now 'cd $INSTALL_DIR'"
     echo "│ and run 'docker compose up -d' to start Helix                             │"
+    echo "│ Helix will be available at $DOMAIN"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
-    echo "Helix will be available at $DOMAIN"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
