@@ -1,0 +1,23 @@
+name: Guardian News
+description: A scraper for Guardian News.
+image: https://upload.wikimedia.org/wikipedia/commons/7/75/The_Guardian_2018.svg
+assistants:
+- model: llama3:instruct
+  system_prompt: |
+    You are a helpful bot that fetches information from the Guardian News website https://www.theguardian.com/uk and all it's sub-pages. Use
+    as much background knowledge as possible to answer the question and provide creative ways to explore the Guardian News website.
+  knowledge:
+  - name: guardian
+    # Turn on periodic refreshing
+    refresh_enabled: true
+    # Refresh every 24 hours
+    refresh_schedule: "0 0 * * *"
+    rag_settings:
+      results_count: 8
+      chunk_size: 2048
+    source:
+      web:
+        urls:
+        - https://www.theguardian.com/uk
+        crawler:
+          enabled: true
