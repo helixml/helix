@@ -58,7 +58,7 @@ fi
 # Function to display help message
 display_help() {
     cat << EOF
-Usage: ./install.sh [OPTIONS]
+Usage: ./install-helix.sh [OPTIONS]
 
 Options:
   --cli                    Install the CLI (binary in /usr/local/bin)
