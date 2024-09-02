@@ -27,7 +27,9 @@ RUNNER=false
 LARGE=false
 API_HOST=""
 RUNNER_TOKEN=""
-TOGETHERAI_TOKEN=""
+TOGETHER_API_KEY=""
+OPENAI_API_KEY=""
+OPENAI_BASE_URL=""
 AUTO_APPROVE=false
 
 # Determine OS and architecture
@@ -65,7 +67,9 @@ Options:
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
   --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
-  --togetherai-token <token> Specify the together.ai token for inference, rag and apps without a GPU
+  --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
+  --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
+  --openai-base-url <url>  Specify the base URL for the OpenAI API
   -y                       Auto approve the installation
 
 Examples:
@@ -77,7 +81,7 @@ Examples:
    ./install-helix.sh --cli
 
 3. Install CLI and controlplane with external TogetherAI token:
-   ./install-helix.sh --cli --controlplane --togetherai-token YOUR_TOGETHERAI_TOKEN
+   ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
 
 4. Install CLI and controlplane (to install runner separately):
    ./install-helix.sh --cli --controlplane
@@ -87,6 +91,9 @@ Examples:
 
 6. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
    ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+
+7. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+   ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
 EOF
 }
@@ -125,8 +132,16 @@ while [[ $# -gt 0 ]]; do
             RUNNER_TOKEN="$2"
             shift 2
             ;;
-        --togetherai-token)
-            TOGETHERAI_TOKEN="$2"
+        --together-api-key)
+            TOGETHER_API_KEY="$2"
+            shift 2
+            ;;
+        --openai-api-key)
+            OPENAI_API_KEY="$2"
+            shift 2
+            ;;
+        --openai-base-url)
+            OPENAI_BASE_URL="$2"
             shift 2
             ;;
         -y)
@@ -158,7 +173,7 @@ if [ "$AUTO" = true ]; then
         echo "https://my-controlplane.com"
         echo
         echo "See command at the end to install runner separately on a GPU node, or pass "
-        echo "--togetherai-token to connect to together.ai for LLM inference."
+        echo "--together-api-key to connect to together.ai for LLM inference."
         echo
     fi
 fi
@@ -394,10 +409,24 @@ SERVER_URL=${DOMAIN}
 EOF
 
     # Add TogetherAI configuration if token is provided
-    if [ -n "$TOGETHERAI_TOKEN" ]; then
+    if [ -n "$TOGETHER_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
 INFERENCE_PROVIDER=togetherai
-TOGETHER_API_KEY=$TOGETHERAI_TOKEN
+TOGETHER_API_KEY=$TOGETHER_API_KEY
+EOF
+    fi
+
+    # Add OpenAI configuration if key and base URL are provided
+    if [ -n "$OPENAI_API_KEY" ]; then
+        cat << EOF >> "$ENV_FILE"
+INFERENCE_PROVIDER=openai
+OPENAI_API_KEY=$OPENAI_API_KEY
+EOF
+    fi
+
+    if [ -n "$OPENAI_BASE_URL" ]; then
+        cat << EOF >> "$ENV_FILE"
+OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     fi
 
