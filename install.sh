@@ -384,7 +384,7 @@ EOF
     fi
 
     if [ -f "$ENV_FILE" ]; then
-        echo ".env file already exists. Reusing existing passwords."
+        echo ".env file already exists. Reusing existing secrets."
 
         # Make a backup copy of the .env file
         DATE=$(date +%Y%m%d%H%M%S)
