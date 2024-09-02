@@ -89,6 +89,7 @@ export const useApps = () => {
       app_source: APP_SOURCE_GITHUB,
       config: {
         helix: {
+          external_url: '',
           name: '',
           description: '',
           avatar: '',
@@ -97,7 +98,12 @@ export const useApps = () => {
         },
         github: {
           repo,
-          hash: '', 
+          hash: '',
+          last_update: {
+            updated: '',
+            hash: '',
+            error: ''
+          }
         },
         secrets: {},
         allowed_domains: [],

@@ -67,75 +67,8 @@ import {
   APP_SOURCE_GITHUB,
   IAssistantConfig,
   ISessionType,
+  IApp,
 } from '../types'
-
-interface IApp {
-  id: string;
-  config: {
-    allowed_domains: string[];
-    secrets: Record<string, string>;
-    helix: {
-      name: string;
-      description: string;
-      avatar: string;
-      image: string;
-      external_url: string;
-      assistants: Array<{
-        id: string;
-        name: string;
-        description: string;
-        avatar: string;
-        image: string;
-        model: string;
-        type: ISessionType;
-        system_prompt: string;
-        rag_source_id: string;
-        lora_id: string;
-        is_actionable_template: string;
-        apis: Array<{
-          name: string;
-          description: string;
-          schema: string;
-          url: string;
-          headers: Record<string, string>;
-          query: Record<string, string>;
-          request_prep_template: string;
-          response_success_template: string;
-          response_error_template: string;
-        }>;
-        gptscripts: Array<{
-          name: string;
-          description: string;
-          file: string;
-          content: string;
-        }>;
-        tools: ITool[];
-      }>;
-    };
-    github?: {
-      repo: string;
-      hash: string;
-      key_pair: {
-        type: string;
-        private_key: string;
-        public_key: string;
-      };
-      webhook_secret: string;
-      last_update: {
-        updated: string;
-        hash: string;
-        error: string;
-      };
-    };
-  };
-  shared: boolean;
-  global: boolean;
-  created: Date;
-  updated: Date;
-  owner: string;
-  owner_type: IOwnerType;
-  app_source: IAppSource;
-}
 
 const isHelixApp = (app: IApp): boolean => {
   return app.app_source === 'helix';
@@ -227,7 +160,7 @@ const App: FC = () => {
         updated: now,
         owner: account.user?.id || "",
         owner_type: "user",
-        app_source: "helix" as IAppSource,
+        app_source: APP_SOURCE_HELIX,
       };
       setIsNewApp(true);
     } else {
@@ -406,6 +339,7 @@ const App: FC = () => {
         helix: {
           name,
           description,
+          external_url: app.config.helix.external_url,
           avatar: app.config.helix.avatar,
           image: app.config.helix.image,
           assistants: app.config.helix.assistants.map(assistant => ({
@@ -429,8 +363,8 @@ const App: FC = () => {
         hash: app.config.github.hash,
         key_pair: app.config.github.key_pair ? {
           type: app.config.github.key_pair.type,
-          privateKey: app.config.github.key_pair.private_key,
-          publicKey: app.config.github.key_pair.public_key,
+          private_key: app.config.github.key_pair.private_key,
+          public_key: app.config.github.key_pair.public_key,
         } : undefined,
         last_update: app.config.github.last_update,
       };
