@@ -5,16 +5,16 @@
 
 set -euo pipefail
 
-echo -e "\033[1;35m"
+echo -e "\033[1;91m"
 echo -ne " ░█░█░█▀▀░█░░░▀█▀░█░█░░░░█▄█░█░░"
 echo -ne "\033[0m"
-echo -e "\033[1;33m"
+echo -e "\033[1;93m"
 echo -ne " ░█▀█░█▀▀░█░░░░█░░▄▀▄░░░░█░█░█░░"
 echo -ne "\033[0m"
-echo -e "\033[1;34m"
+echo -e "\033[1;92m"
 echo -ne " ░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░░▀░▀░▀▀▀"
 echo -e "\033[0m"
-echo -e "              Private GenAI Stack"
+echo -e "\033[1;96m              Private GenAI Stack\033[0m"
 echo
 
 set -euo pipefail
@@ -231,7 +231,7 @@ mkdir -p $INSTALL_DIR/scripts/postgres/
 
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
-    echo "Downloading Helix CLI..."
+    echo -e "\nDownloading Helix CLI..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
     sudo chmod +x /usr/local/bin/helix
     echo "Helix CLI has been installed to /usr/local/bin/helix"
@@ -325,7 +325,7 @@ install_nvidia_docker() {
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
-    echo "Downloading docker-compose.yaml..."
+    echo -e "\nDownloading docker-compose.yaml..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
@@ -356,7 +356,7 @@ EOF
 
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
-    echo "Creating .env file..."
+    echo -e "\nCreating .env file..."
     
     # Set domain
     if [ -z "$API_HOST" ]; then
@@ -415,7 +415,7 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo "You can now cd $INSTALL_DIR and run 'docker compose up -d' to start Helix"
+    echo -e "\nYou can now 'cd $INSTALL_DIR' and run 'docker compose up -d' to start Helix"
     echo "Helix will be available at $DOMAIN"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
@@ -531,4 +531,4 @@ EOF
     fi
 fi
 
-echo "Installation complete."
+echo -e "\nInstallation complete."
