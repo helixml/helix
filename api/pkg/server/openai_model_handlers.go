@@ -53,7 +53,8 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 			return nil, fmt.Errorf("unsupported inference provider: %s", apiServer.Cfg.Inference.Provider)
 		}
 
-		req, err := http.NewRequest("GET", baseURL+"/models", nil)
+		url := baseURL + "/models"
+		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request to provider's models endpoint: %w", err)
 		}
@@ -87,7 +88,7 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 			// This is how together.ai returns their models
 			err = json.Unmarshal(body, &models)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint: %w, %s", err, string(body))
+				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint (%s): %w, %s", url, err, string(body))
 			}
 		}
 
