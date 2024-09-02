@@ -615,8 +615,8 @@ EOF
     if [ -z "$API_HOST" ]; then
         echo
         echo "To connect an external runner to this controlplane, run on a node with a GPU:"
-        echo "bash <(curl -Ls https://get.helix.ml/) --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
-        echo "You can find the runner token in $INSTALL_DIR/.env"
+        echo
+        echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
     fi
 fi
 
