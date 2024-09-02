@@ -1,6 +1,6 @@
 name: Guardian News
 description: A scraper for Guardian News.
-image: https://upload.wikimedia.org/wikipedia/commons/7/75/The_Guardian_2018.svg
+image: https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianWHITE.png
 assistants:
 - model: llama3:instruct
   system_prompt: |
