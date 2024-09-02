@@ -1,6 +1,6 @@
-name: Guardian News
-description: A scraper for Guardian News.
-image: https://static.guim.co.uk/sys-images/Guardian/Pix/pictures/2010/03/01/poweredbyguardianWHITE.png
+name: News from The Guardian
+description: News from The Guardian.
+image: https://logosandtypes.com/wp-content/uploads/2020/11/the-guardian.svg
 assistants:
 - model: llama3:instruct
   system_prompt: |
