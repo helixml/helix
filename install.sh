@@ -205,15 +205,17 @@ gather_modifications() {
     if [ "$CLI" = true ]; then
         modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
     fi
-    
-    if [ "$CONTROLPLANE" = true ]; then
+
+    if [ "$CONTROLPLANE" = true ] || [ "$RUNNER" = true ]; then
         modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+    fi
+
+    if [ "$CONTROLPLANE" = true ]; then
         modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
     fi
 
     if [ "$RUNNER" = true ]; then
-        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
-        modifications+="  - Ensure NVIDIA Docker runtime is installed (if GPU is available)\n"
+        modifications+="  - Ensure NVIDIA Docker runtime is installed\n"
         modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
     fi
     
