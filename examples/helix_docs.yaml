@@ -1,5 +1,5 @@
 name: helix-docs
-image: https://app.tryhelix.ai/img/logo.png
+image: https://lh3.googleusercontent.com/d/1HaiL33M9T0kr53a0xrfu7_v9-gE0Lcjr
 description: |
   A simple app that demonstrates how to setup Helix with knowledge from the Helix docs
 assistants:
@@ -12,6 +12,8 @@ assistants:
     to resolve the question.
   knowledge:
   - name: helix-docs
+    refresh_enabled: true
+    refresh_schedule: "0 0 * * *"
     rag_settings:
       results_count: 8
       chunk_size: 2048
