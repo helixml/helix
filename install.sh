@@ -416,9 +416,10 @@ EOF
         echo "To see what changed, run:"
         echo "diff $ENV_FILE $ENV_FILE-$DATE"
 
-        KEYCLOAK_ADMIN_PASSWORD=$(grep -oP '^KEYCLOAK_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        POSTGRES_ADMIN_PASSWORD=$(grep -oP '^POSTGRES_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
-        RUNNER_TOKEN=$(grep -oP '^RUNNER_TOKEN=\K.*' "$ENV_FILE" || generate_password)
+        KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
+        RUNNER_TOKEN=$(grep '^RUNNER_TOKEN=' "$ENV_FILE" | sed 's/^RUNNER_TOKEN=//' || generate_password)
+
     else
         echo ".env file does not exist. Generating new passwords."
         KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
@@ -493,10 +494,10 @@ EOF
 
     echo ".env file has been created at $ENV_FILE"
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
-    echo "│ You can now 'cd $INSTALL_DIR'                                             │"
+    echo "│ You can now 'cd $INSTALL_DIR'"
     echo "│ and run 'docker compose up -d' to start Helix                             │"
+    echo "│ Helix will be available at $DOMAIN"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
-    echo "Helix will be available at $DOMAIN"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
@@ -609,12 +610,12 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ To start the runner, run:                                                 │"
     echo "│                                                                           │"
-    echo "│   sudo $INSTALL_DIR/runner.sh                                             │"
+    echo "│   sudo $INSTALL_DIR/runner.sh"
     echo "│                                                                           │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 fi
 
-if [ -n "$API_HOST" ] || [ "$CONTROLPLANE" = true ]; then
+if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
