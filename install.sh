@@ -612,12 +612,15 @@ EOF
     echo "│   sudo $INSTALL_DIR/runner.sh                                             │"
     echo "│                                                                           │"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
-    if [ -z "$API_HOST" ]; then
-        echo
-        echo "To connect an external runner to this controlplane, run on a node with a GPU:"
-        echo
-        echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
-    fi
+fi
+
+if [ -n "$API_HOST" ] || [ "$CONTROLPLANE" = true ]; then
+    echo
+    echo "To connect an external runner to this controlplane, run on a node with a GPU:"
+    echo
+    echo "curl -Ls -o install-helix.sh https://get.helix.ml/"
+    echo "chmod +x install-helix.sh"
+    echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."
