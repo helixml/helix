@@ -87,7 +87,7 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 			// This is how together.ai returns their models
 			err = json.Unmarshal(body, &models)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint: %w", err)
+				return nil, fmt.Errorf("failed to unmarshal response from provider's models endpoint: %w, %s", err, string(body))
 			}
 		}
 
