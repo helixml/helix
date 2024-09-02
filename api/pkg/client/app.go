@@ -3,8 +3,6 @@ package client
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,58 +14,20 @@ type AppFilter struct {
 }
 
 func (c *HelixClient) ListApps(f *AppFilter) ([]*types.App, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url+"/apps", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bts, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var apps []*types.App
-	err = json.Unmarshal(bts, &apps)
+	err := c.makeRequest(http.MethodGet, "/apps", nil, &apps)
 	if err != nil {
 		return nil, err
 	}
-
 	return apps, nil
 }
 
 func (c *HelixClient) GetApp(appID string) (*types.App, error) {
-	req, err := http.NewRequest(http.MethodGet, c.url+"/apps/"+appID, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bts, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var app types.App
-	err = json.Unmarshal(bts, &app)
+	err := c.makeRequest(http.MethodGet, "/apps/"+appID, nil, &app)
 	if err != nil {
 		return nil, err
 	}
-
 	return &app, nil
 }
 
@@ -77,34 +37,11 @@ func (c *HelixClient) CreateApp(app *types.App) (*types.App, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.url+"/apps", bytes.NewBuffer(bts))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bts, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to create app (%s), status code: %d", string(bts), resp.StatusCode)
-	}
-
 	var createdApp types.App
-	err = json.Unmarshal(bts, &createdApp)
+	err = c.makeRequest(http.MethodPost, "/apps", bytes.NewBuffer(bts), &createdApp)
 	if err != nil {
 		return nil, err
 	}
-
 	return &createdApp, nil
 }
 
@@ -114,31 +51,8 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, c.url+"/apps/"+app.ID, bytes.NewBuffer(bts))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to update app, status code: %d, body: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	bts, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var updatedApp types.App
-	err = json.Unmarshal(bts, &updatedApp)
+	err = c.makeRequest(http.MethodPut, "/apps/"+app.ID, bytes.NewBuffer(bts), &updatedApp)
 	if err != nil {
 		return nil, err
 	}
@@ -149,21 +63,12 @@ func (c *HelixClient) UpdateApp(app *types.App) (*types.App, error) {
 func (c *HelixClient) DeleteApp(appID string, deleteKnowledge bool) error {
 	query := url.Values{}
 	query.Add("knowledge", strconv.FormatBool(deleteKnowledge))
-	req, err := http.NewRequest(http.MethodDelete, c.url+"/apps/"+appID+"?"+query.Encode(), nil)
+
+	url := "/apps/" + appID + "?" + query.Encode()
+
+	err := c.makeRequest(http.MethodDelete, url, nil, nil)
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete app, status code: %d", resp.StatusCode)
 	}
 
 	return nil

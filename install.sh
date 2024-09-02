@@ -2,26 +2,20 @@
 
 # Install:
 # curl -LO https://get.helix.ml/install-helix.sh && chmod +x install-helix.sh
-#
-# Examples:
-#
-# 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
-#    ./install-helix.sh
-#
-# 2. Install just the CLI:
-#    ./install-helix.sh --cli
-#
-# 3. Install CLI and controlplane with external TogetherAI token:
-#    ./install-helix.sh --cli --controlplane --togetherai-token YOUR_TOGETHERAI_TOKEN
-#
-# 4. Install CLI and controlplane (to install runner separately):
-#    ./install-helix.sh --cli --controlplane
-#
-# 5. Install CLI, controlplane, and runner on a node with a GPU:
-#    ./install-helix.sh --cli --controlplane --runner
-#
-# 6. Install just the runner, pointing to a controlplane with a DNS name:
-#    ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+
+set -euo pipefail
+
+echo -e "\033[1;91m"
+echo -ne " ░█░█░█▀▀░█░░░▀█▀░█░█░░░░█▄█░█░░"
+echo -ne "\033[0m"
+echo -e "\033[1;93m"
+echo -ne " ░█▀█░█▀▀░█░░░░█░░▄▀▄░░░░█░█░█░░"
+echo -ne "\033[0m"
+echo -e "\033[1;92m"
+echo -ne " ░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░░▀░▀░▀▀▀"
+echo -e "\033[0m"
+echo -e "\033[1;96m              Private GenAI Stack\033[0m"
+echo
 
 set -euo pipefail
 
@@ -33,11 +27,84 @@ RUNNER=false
 LARGE=false
 API_HOST=""
 RUNNER_TOKEN=""
-TOGETHERAI_TOKEN=""
+TOGETHER_API_KEY=""
+OPENAI_API_KEY=""
+OPENAI_BASE_URL=""
+AUTO_APPROVE=false
+
+# Determine OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case $ARCH in
+    x86_64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+# Determine latest release
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
+
+# Set binary name
+BINARY_NAME="helix-${OS}-${ARCH}"
+
+# Set installation directory
+if [ "$OS" = "linux" ]; then
+    INSTALL_DIR="/opt/HelixML"
+elif [ "$OS" = "darwin" ]; then
+    INSTALL_DIR="$HOME/HelixML"
+fi
+
+
+# Function to display help message
+display_help() {
+    cat << EOF
+Usage: ./install-helix.sh [OPTIONS]
+
+Options:
+  --cli                    Install the CLI (binary in /usr/local/bin)
+  --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in $INSTALL_DIR)
+  --runner                 Install the runner (single container with runner.sh script to start it in $INSTALL_DIR)
+  --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
+  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
+  --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
+  --together-api-key <token> Specify the together.ai token for inference, rag and apps without a GPU
+  --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
+  --openai-base-url <url>  Specify the base URL for the OpenAI API
+  -y                       Auto approve the installation
+
+Examples:
+
+1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
+   ./install-helix.sh
+
+2. Install just the CLI:
+   ./install-helix.sh --cli
+
+3. Install CLI and controlplane with external TogetherAI token:
+   ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
+
+4. Install CLI and controlplane (to install runner separately):
+   ./install-helix.sh --cli --controlplane
+
+5. Install CLI, controlplane, and runner on a node with a GPU:
+   ./install-helix.sh --cli --controlplane --runner
+
+6. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
+   ./install-helix.sh --runner --api-host your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN
+
+7. Install CLI and controlplane with OpenAI-compatible API key and base URL:
+   ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
+
+EOF
+}
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --help)
+            display_help
+            exit 0
+            ;;
         --cli)
             CLI=true
             AUTO=false
@@ -65,12 +132,25 @@ while [[ $# -gt 0 ]]; do
             RUNNER_TOKEN="$2"
             shift 2
             ;;
-        --togetherai-token)
-            TOGETHERAI_TOKEN="$2"
+        --together-api-key)
+            TOGETHER_API_KEY="$2"
             shift 2
+            ;;
+        --openai-api-key)
+            OPENAI_API_KEY="$2"
+            shift 2
+            ;;
+        --openai-base-url)
+            OPENAI_BASE_URL="$2"
+            shift 2
+            ;;
+        -y)
+            AUTO_APPROVE=true
+            shift
             ;;
         *)
             echo "Unknown option: $1"
+            display_help
             exit 1
             ;;
     esac
@@ -83,43 +163,84 @@ if [ "$AUTO" = true ]; then
     if command -v nvidia-smi &> /dev/null; then
         RUNNER=true
     fi
-    echo "Auto-install mode detected. Installing CLI and Control Plane."
+    echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
     if command -v nvidia-smi &> /dev/null; then
-        echo "NVIDIA GPU detected. Runner will be installed."
+        echo "NVIDIA GPU detected. Runner will be installed locally."
     else
-        echo "No NVIDIA GPU detected. Runner will not be installed. See command "
-        echo "at the end to install runner separately on a GPU node."
+        echo "No NVIDIA GPU detected. Runner will not be installed. If you want to connect "
+        echo "an external GPU node to this controlplane, you need to point a DNS name at "
+        echo "the IP address of this server and set --api-host, for example "
+        echo "https://my-controlplane.com"
+        echo
+        echo "See command at the end to install runner separately on a GPU node, or pass "
+        echo "--together-api-key to connect to together.ai for LLM inference."
+        echo
     fi
 fi
 
 if [ "$RUNNER" = true ] && [ "$CONTROLPLANE" = false ] && [ -z "$API_HOST" ]; then
-    echo "Error: When installing only the runner, you must specify --api-host"
+    echo "Error: When installing only the runner, you must specify --api-host and --runner-token"
+    echo "to connect to an external controlplane, for example:"
+    echo
+    echo "./install.sh --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+    echo
+    echo "You can find the runner token in <HELIX_INSTALL_DIR>/.env on the controlplane node."
     exit 1
 fi
 
-# Determine OS and architecture
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-case $ARCH in
-    x86_64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
-    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
-esac
+# Function to gather planned modifications
+gather_modifications() {
+    local modifications=""
+    
+    if [ "$CLI" = true ]; then
+        modifications+="  - Install Helix CLI version ${LATEST_RELEASE}\n"
+    fi
+    
+    if [ "$CONTROLPLANE" = true ]; then
+        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+        modifications+="  - Install Helix Control Plane version ${LATEST_RELEASE}\n"
+    fi
 
-# Determine latest release
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
+    if [ "$RUNNER" = true ]; then
+        modifications+="  - Ensure Docker and Docker Compose plugin are installed\n"
+        modifications+="  - Ensure NVIDIA Docker runtime is installed (if GPU is available)\n"
+        modifications+="  - Install Helix Runner version ${LATEST_RELEASE}\n"
+    fi
+    
+    echo -e "$modifications"
+}
 
-# Set binary name
-BINARY_NAME="helix-${OS}-${ARCH}"
+# Function to ask for user approval
+ask_for_approval() {
+    if [ "$AUTO_APPROVE" = true ]; then
+        return 0
+    fi
+    
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ The following modifications will be made to your system:                  │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
+    echo
+    gather_modifications
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ If this is not what you want, re-run the script with --help at the end to │"
+    echo "│ see other options.                                                        │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
+    echo
+    read -p "Do you want to proceed? (y/N) " response
+    case "$response" in
+        [yY][eE][sS]|[yY]) 
+            return 0
+            ;;
+        *)
+            echo "Installation aborted."
+            exit 1
+            ;;
+    esac
+}
 
-# Set installation directory
-if [ "$OS" = "linux" ]; then
-    INSTALL_DIR="/opt/HelixML"
-elif [ "$OS" = "darwin" ]; then
-    INSTALL_DIR="$HOME/HelixML"
-fi
+# Ask for user approval before proceeding
+ask_for_approval
 
-# Create installation directory
 sudo mkdir -p $INSTALL_DIR
 # Change the owner of the installation directory to the current user
 sudo chown -R $(id -un):$(id -gn) $INSTALL_DIR
@@ -128,7 +249,7 @@ mkdir -p $INSTALL_DIR/scripts/postgres/
 
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
-    echo "Downloading Helix CLI..."
+    echo -e "\nDownloading Helix CLI..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
     sudo chmod +x /usr/local/bin/helix
     echo "Helix CLI has been installed to /usr/local/bin/helix"
@@ -222,7 +343,7 @@ install_nvidia_docker() {
 # Install controlplane if requested or in AUTO mode
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
-    echo "Downloading docker-compose.yaml..."
+    echo -e "\nDownloading docker-compose.yaml..."
     sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
@@ -249,10 +370,11 @@ if [ -n "\$POSTGRES_DATABASES" ]; then
 	echo "databases created"
 fi
 EOF
+    chmod +x $INSTALL_DIR/scripts/postgres/postgres-db.sh
 
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
-    echo "Creating .env file..."
+    echo -e "\nCreating/updating .env file..."
     
     # Set domain
     if [ -z "$API_HOST" ]; then
@@ -261,11 +383,31 @@ EOF
         DOMAIN="https://${API_HOST}"
     fi
 
+    if [ -f "$ENV_FILE" ]; then
+        echo ".env file already exists. Reusing existing secrets."
+
+        # Make a backup copy of the .env file
+        DATE=$(date +%Y%m%d%H%M%S)
+        cp "$ENV_FILE" "$ENV_FILE-$DATE"
+        echo "Backup of .env file created: $ENV_FILE-$DATE"
+        echo "To see what changed, run:"
+        echo "diff $ENV_FILE $ENV_FILE-$DATE"
+
+        KEYCLOAK_ADMIN_PASSWORD=$(grep -oP '^KEYCLOAK_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(grep -oP '^POSTGRES_ADMIN_PASSWORD=\K.*' "$ENV_FILE" || generate_password)
+        RUNNER_TOKEN=$(grep -oP '^RUNNER_TOKEN=\K.*' "$ENV_FILE" || generate_password)
+    else
+        echo ".env file does not exist. Generating new passwords."
+        KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
+        POSTGRES_ADMIN_PASSWORD=$(generate_password)
+        RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
+    fi
+
     # Generate .env content
     cat << EOF > "$ENV_FILE"
 # Set passwords
-KEYCLOAK_ADMIN_PASSWORD=$(generate_password)
-POSTGRES_ADMIN_PASSWORD=$(generate_password)
+KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
+POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 
 # URLs
@@ -273,8 +415,10 @@ KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
 SERVER_URL=${DOMAIN}
 
 # Storage
-# Uncomment the lines below if you want to persist direct to disk. You may need to set up the
-# directory user and group on the filesystem and in the docker-compose.yaml file.
+# Uncomment the lines below and create the directories if you want to persist
+# direct to disk rather than a docker volume. You may need to set up the
+# directory user and group on the filesystem and in the docker-compose.yaml
+# file.
 #POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
 #FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
 #PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
@@ -285,10 +429,24 @@ SERVER_URL=${DOMAIN}
 EOF
 
     # Add TogetherAI configuration if token is provided
-    if [ -n "$TOGETHERAI_TOKEN" ]; then
+    if [ -n "$TOGETHER_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
 INFERENCE_PROVIDER=togetherai
-TOGETHER_API_KEY=$TOGETHERAI_TOKEN
+TOGETHER_API_KEY=$TOGETHER_API_KEY
+EOF
+    fi
+
+    # Add OpenAI configuration if key and base URL are provided
+    if [ -n "$OPENAI_API_KEY" ]; then
+        cat << EOF >> "$ENV_FILE"
+INFERENCE_PROVIDER=openai
+OPENAI_API_KEY=$OPENAI_API_KEY
+EOF
+    fi
+
+    if [ -n "$OPENAI_BASE_URL" ]; then
+        cat << EOF >> "$ENV_FILE"
+OPENAI_BASE_URL=$OPENAI_BASE_URL
 EOF
     fi
 
@@ -311,7 +469,36 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo "You can now cd $INSTALL_DIR and run 'docker compose up -d' to start Helix"
+    echo -e "\nYou can now 'cd $INSTALL_DIR' and run 'docker compose up -d' to start Helix"
+    echo "Helix will be available at $DOMAIN"
+
+    # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
+    if [[ "$API_HOST" == https* ]]; then
+        if [[ "$ID" != "ubuntu" ]]; then
+            echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
+        else
+            echo "Installing Caddy..."
+            sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+            sudo apt-get update
+            sudo apt-get install caddy
+
+            # Create Caddyfile
+            CADDYFILE="/etc/caddy/Caddyfile"
+            echo "Creating Caddyfile..."
+            # Strip https:// and port from API_HOST
+            CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
+            cat << EOF > "$CADDYFILE"
+$CADDY_HOST {
+    reverse_proxy localhost:8080
+}
+EOF
+            echo "Caddyfile has been created at $CADDYFILE"
+            echo "Please start Caddy manually after starting the Docker Compose stack:"
+            echo "sudo systemctl restart caddy"
+        fi
+    fi
 fi
 
 # Install runner if requested or in AUTO mode with GPU
@@ -390,6 +577,12 @@ EOF
     sudo chmod +x $INSTALL_DIR/runner.sh
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
     echo "To start the runner, run: sudo $INSTALL_DIR/runner.sh"
+    if [ -z "$API_HOST" ]; then
+        echo
+        echo "To connect an external runner to this controlplane, run on a node with a GPU:"
+        echo "bash <(curl -Ls https://get.helix.ml/) --runner --api-host https://your-controlplane-domain.com --runner-token YOUR_RUNNER_TOKEN"
+        echo "You can find the runner token in $INSTALL_DIR/.env"
+    fi
 fi
 
-echo "Installation complete."
+echo -e "\nInstallation complete."

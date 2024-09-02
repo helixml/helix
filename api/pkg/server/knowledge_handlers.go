@@ -16,7 +16,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 
 	appID := r.URL.Query().Get("app_id")
 
-	knowledge, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
+	knowledges, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 		AppID:     appID,
@@ -25,7 +25,17 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return knowledge, nil
+	for idx, knowledge := range knowledges {
+		if knowledge.RefreshEnabled && knowledge.RefreshSchedule != "" {
+			nextRun, err := s.knowledgeManager.NextRun(ctx, knowledge.ID)
+			if err != nil {
+				log.Error().Err(err).Msg("error getting next run")
+			}
+			knowledges[idx].NextRun = nextRun
+		}
+	}
+
+	return knowledges, nil
 }
 
 func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
@@ -47,6 +57,32 @@ func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*
 	return existing, nil
 }
 
+func (s *HelixAPIServer) listKnowledgeVersions(_ http.ResponseWriter, r *http.Request) ([]*types.KnowledgeVersion, *system.HTTPError) {
+	user := getRequestUser(r)
+	id := getID(r)
+
+	existing, err := s.Store.GetKnowledge(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, system.NewHTTPError404(store.ErrNotFound.Error())
+		}
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	if existing.Owner != user.ID {
+		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
+	}
+
+	versions, err := s.Store.ListKnowledgeVersions(r.Context(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
+	return versions, nil
+}
+
 func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
 	user := getRequestUser(r)
 	id := getID(r)
@@ -63,6 +99,13 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
 	}
 
+	versions, err := s.Store.ListKnowledgeVersions(r.Context(), &store.ListKnowledgeVersionQuery{
+		KnowledgeID: id,
+	})
+	if err != nil {
+		return nil, system.NewHTTPError500(err.Error())
+	}
+
 	// Get rag client
 	ragClient, err := s.Controller.GetRagClient(r.Context(), existing)
 	if err != nil {
@@ -77,6 +120,20 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 				Str("knowledge_id", existing.ID).
 				Str("data_entity_id", existing.GetDataEntityID()).
 				Msg("error deleting knowledge")
+		}
+	}
+
+	// Delete all versions from the store
+	for _, version := range versions {
+		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
+			DataEntityID: version.GetDataEntityID(),
+		})
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("knowledge_id", existing.ID).
+				Str("data_entity_id", existing.GetDataEntityID()).
+				Msg("error deleting knowledge version")
 		}
 	}
 
