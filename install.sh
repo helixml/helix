@@ -331,7 +331,7 @@ install_nvidia_docker() {
         return
     fi
 
-    if ! docker info | grep -i nvidia &> /dev/null; then
+    if ! docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
@@ -492,7 +492,10 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo -e "\nYou can now 'cd $INSTALL_DIR' and run 'docker compose up -d' to start Helix"
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ You can now 'cd $INSTALL_DIR'                                             │"
+    echo "│ and run 'docker compose up -d' to start Helix                             │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
     echo "Helix will be available at $DOMAIN"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
@@ -603,7 +606,12 @@ EOF
 
     sudo chmod +x $INSTALL_DIR/runner.sh
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
-    echo "To start the runner, run: sudo $INSTALL_DIR/runner.sh"
+    echo "┌───────────────────────────────────────────────────────────────────────────┐"
+    echo "│ To start the runner, run:                                                 │"
+    echo "│                                                                           │"
+    echo "│   sudo $INSTALL_DIR/runner.sh                                             │"
+    echo "│                                                                           │"
+    echo "└───────────────────────────────────────────────────────────────────────────┘"
     if [ -z "$API_HOST" ]; then
         echo
         echo "To connect an external runner to this controlplane, run on a node with a GPU:"
