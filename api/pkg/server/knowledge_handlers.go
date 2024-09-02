@@ -16,7 +16,7 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 
 	appID := r.URL.Query().Get("app_id")
 
-	knowledge, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
+	knowledges, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
 		Owner:     user.ID,
 		OwnerType: user.Type,
 		AppID:     appID,
@@ -25,7 +25,17 @@ func (s *HelixAPIServer) listKnowledge(_ http.ResponseWriter, r *http.Request) (
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
-	return knowledge, nil
+	for idx, knowledge := range knowledges {
+		if knowledge.RefreshEnabled && knowledge.RefreshSchedule != "" {
+			nextRun, err := s.knowledgeManager.NextRun(ctx, knowledge.ID)
+			if err != nil {
+				log.Error().Err(err).Msg("error getting next run")
+			}
+			knowledges[idx].NextRun = nextRun
+		}
+	}
+
+	return knowledges, nil
 }
 
 func (s *HelixAPIServer) getKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
