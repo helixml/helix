@@ -260,9 +260,19 @@ generate_password() {
     openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16
 }
 
+# Function to check if running on WSL2 (don't auto-install docker in that case)
+check_wsl2_docker() {
+    if grep -qEi "(Microsoft|WSL)" /proc/version &> /dev/null; then
+        echo "Detected WSL2 (Windows) environment."
+        echo "Please install Docker Desktop for Windows from https://docs.docker.com/desktop/windows/install/"
+        exit 1
+    fi
+}
+
 # Function to install Docker and Docker Compose plugin
 install_docker() {
     if ! command -v docker &> /dev/null; then
+        check_wsl2_docker
         echo "Docker not found. Installing Docker..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
@@ -310,6 +320,7 @@ install_nvidia_docker() {
     fi
 
     if ! docker info | grep -i nvidia &> /dev/null; then
+        check_wsl2_docker
         echo "NVIDIA Docker runtime not found. Installing NVIDIA Docker runtime..."
         if [ -f /etc/os-release ]; then
             . /etc/os-release
