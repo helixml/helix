@@ -377,8 +377,10 @@ KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
 SERVER_URL=${DOMAIN}
 
 # Storage
-# Uncomment the lines below if you want to persist direct to disk. You may need to set up the
-# directory user and group on the filesystem and in the docker-compose.yaml file.
+# Uncomment the lines below and create the directories if you want to persist
+# direct to disk rather than a docker volume. You may need to set up the
+# directory user and group on the filesystem and in the docker-compose.yaml
+# file.
 #POSTGRES_DATA=$INSTALL_DIR/data/helix-postgres
 #FILESTORE_DATA=$INSTALL_DIR/data/helix-filestore
 #PGVECTOR_DATA=$INSTALL_DIR/data/helix-pgvector
