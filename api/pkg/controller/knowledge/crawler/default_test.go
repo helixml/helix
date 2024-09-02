@@ -31,12 +31,12 @@ func TestDefault_Crawl(t *testing.T) {
 	require.NoError(t, err)
 
 	const (
-		appsText          = `A Helix App is`
+		appsText              = `When I submit a request that uses an App, it hangs`
 		privateDeploymentText = `The stack might take a minute to boot up`
 	)
 
 	var (
-		appsTextFound          bool
+		appsTextFound              bool
 		privateDeploymentTextFound bool
 	)
 
