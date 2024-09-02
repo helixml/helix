@@ -26,26 +26,21 @@ Looking for a private GenAI platform? From language models to image models and m
 
 ## Docker
 
-```
-git clone https://github.com/helixml/helix.git
-cd helix
-```
-
-Create an `.env` file with settings based on the example values and edit it:
+Use our quickstart installer:
 
 ```
-cp .env.example-prod .env
-```
-
-To start the services:
-
-```
-docker compose up -d
+curl -Ls https://get.helix.ml |sudo bash
 ```
 
 By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see [the docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#using-an-external-llm-provider).
+
+## Kubernetes
+
+Use our helm charts:
+* [controlplane helm chart](https://docs.helix.ml/helix/private-deployment/helix-controlplane-helm-chart/)
+* [runner helm chart](https://docs.helix.ml/helix/private-deployment/helix-runner-helm-chart/)
 
 ## Developer Instructions
 
