@@ -24,7 +24,7 @@ Including support for RAG, API-calling and fine-tuning models that's as easy as 
 
 Looking for a private GenAI platform? From language models to image models and more, Helix brings the best of open source AI to your business in an ergonomic, scalable way, while optimizing the tradeoff between GPU memory and latency.
 
-## Docker
+## Install on Docker
 
 Use our quickstart installer:
 
@@ -39,13 +39,13 @@ By default, the dashboard will be available on `http://localhost:8080`.
 
 For setting up a deployment with a DNS name, see `./install-helix.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
-Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#using-an-external-llm-provider).
+Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api).
 
-## Kubernetes
+## Install on Kubernetes
 
 Use our helm charts:
-* [controlplane helm chart](https://docs.helix.ml/helix/private-deployment/helix-controlplane-helm-chart/)
-* [runner helm chart](https://docs.helix.ml/helix/private-deployment/helix-runner-helm-chart/)
+* [Control Plane helm chart](https://docs.helix.ml/helix/private-deployment/helix-controlplane-helm-chart/)
+* [Runner helm chart](https://docs.helix.ml/helix/private-deployment/helix-runner-helm-chart/)
 
 ## Developer Instructions
 
