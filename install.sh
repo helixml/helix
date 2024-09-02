@@ -27,6 +27,20 @@
 
 set -euo pipefail
 
+echo -e "\033[1;35m"
+echo -ne " ░█░█░█▀▀░█░░░▀█▀░█░█░░░░█▄█░█░░"
+echo -ne "\033[0m"
+echo -e "\033[1;33m"
+echo -ne " ░█▀█░█▀▀░█░░░░█░░▄▀▄░░░░█░█░█░░"
+echo -ne "\033[0m"
+echo -e "\033[1;34m"
+echo -ne " ░▀░▀░▀▀▀░▀▀▀░▀▀▀░▀░▀░▀░░▀░▀░▀▀▀"
+echo -e "\033[0m"
+echo -e "              Private GenAI Stack"
+echo
+
+set -euo pipefail
+
 # Default values
 AUTO=true
 CLI=false
