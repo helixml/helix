@@ -159,7 +159,7 @@ done
 # Function to check for NVIDIA GPU
 check_nvidia_gpu() {
     # On windows, WSL2 doesn't support nvidia-smi but docker info can give us a clue
-    if command -v nvidia-smi &> /dev/null || docker info | grep -i nvidia &> /dev/null; then
+    if command -v nvidia-smi &> /dev/null || docker info 2>/dev/null | grep -i nvidia &> /dev/null; then
         return 0
     else
         return 1
