@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -27,6 +28,8 @@ type Client interface {
 	RefreshKnowledge(id string) error
 
 	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
+
+	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
 }
 
 // HelixClient is the client for the helix api
