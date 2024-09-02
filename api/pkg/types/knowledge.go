@@ -76,6 +76,8 @@ type Knowledge struct {
 	Size int64 `json:"size"`
 
 	Versions []*KnowledgeVersion `json:"versions" `
+
+	NextRun time.Time `json:"next_run" gorm:"-"` // Populated by the cron job controller
 }
 
 func (k *Knowledge) GetDataEntityID() string {

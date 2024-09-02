@@ -14,6 +14,18 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 )
 
+func (r *Reconciler) NextRun(ctx context.Context, knowledgeID string) (time.Time, error) {
+	jobs := r.cron.Jobs()
+
+	for _, job := range jobs {
+		if job.Name() == knowledgeID {
+			return job.NextRun()
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("job not found")
+}
+
 func (r *Reconciler) startCron(ctx context.Context) error {
 	// start the scheduler
 	r.cron.Start()
@@ -37,6 +49,10 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 	}
 	jobs := r.cron.Jobs()
 
+	return r.createOrDeleteCronJobs(ctx, knowledges, jobs)
+}
+
+func (r *Reconciler) createOrDeleteCronJobs(ctx context.Context, knowledges []*types.Knowledge, jobs []gocron.Job) error {
 	knowledgesMap := make(map[string]*types.Knowledge) // knowledge id to knowledge
 	jobsMap := make(map[string]gocron.Job)             // knowledge id to job
 
@@ -114,8 +130,9 @@ func (r *Reconciler) reconcileCronJobs(ctx context.Context) error {
 
 func (r *Reconciler) getCronTask(ctx context.Context, knowledgeID string) gocron.Task {
 	return gocron.NewTask(func() {
-		// TODO:
-		fmt.Println(time.Now().Format("2006-01-02 15:04:05") + " running job for knowledge " + knowledgeID)
+		log.Info().
+			Str("knowledge_id", knowledgeID).
+			Msg("running knowledge refresh cron job")
 
 		knowledge, err := r.store.GetKnowledge(ctx, knowledgeID)
 		if err != nil {
