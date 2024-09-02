@@ -48,7 +48,7 @@ Options:
   --controlplane           Install the controlplane (API, Postgres etc in Docker Compose in /opt/HelixML)
   --runner                 Install the runner (single container with runner.sh script to start it in /opt/HelixML)
   --large                  Install the large version of the runner (includes all models, 100GB+ download, otherwise uses small one)
-  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com
+  --api-host <host>        Specify the API host for the API to serve on and/or the runner to connect to, e.g. http://localhost:8080 or https://my-controlplane.com. Will install and configure Caddy if HTTPS and running on Ubuntu.
   --runner-token <token>   Specify the runner token when connecting a runner to an existing controlplane
   --togetherai-token <token> Specify the together.ai token for inference, rag and apps without a GPU
   -y                       Auto approve the installation
@@ -384,6 +384,34 @@ EOF
     echo ".env file has been created at $ENV_FILE"
     echo "You can now 'cd /opt/HelixML' and run 'docker compose up -d' to start Helix"
     echo "Helix will be available at $DOMAIN"
+
+    # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
+    if [[ "$API_HOST" == https* ]]; then
+        if [[ "$ID" != "ubuntu" ]]; then
+            echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
+        else
+            echo "Installing Caddy..."
+            sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
+            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+            sudo apt-get update
+            sudo apt-get install caddy
+
+            # Create Caddyfile
+            CADDYFILE="/etc/caddy/Caddyfile"
+            echo "Creating Caddyfile..."
+            # Strip https:// and port from API_HOST
+            CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
+            cat << EOF > "$CADDYFILE"
+$CADDY_HOST {
+    reverse_proxy localhost:8080
+}
+EOF
+            echo "Caddyfile has been created at $CADDYFILE"
+            echo "Please start Caddy manually after starting the Docker Compose stack:"
+            echo "sudo systemctl restart caddy"
+        fi
+    fi
 fi
 
 # Install runner if requested or in AUTO mode with GPU
