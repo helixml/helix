@@ -15,6 +15,7 @@ export const APPS: IApp[] = [{
     secrets: {},
     allowed_domains: [],
     helix: {
+      external_url: '',
       name: 'Sarcastic Collective',
       description: "AI chatbots that are mean to you. Meet Sarcastic Bob and Alice. They won't be nice, but it might be funny.",
       avatar: 'https://www.bbcstudios.com/media/4550/only-fools-and-horses-store-16x9.jpg?width=820&height=461',
@@ -30,6 +31,9 @@ export const APPS: IApp[] = [{
         apis :[],
         gptscripts: [],
         tools: [],
+        rag_source_id: '',
+        lora_id: '',
+        is_actionable_template: '',
       }, {
         name: 'Sarcastic Alice',
         description: "I am alice",
@@ -41,6 +45,9 @@ export const APPS: IApp[] = [{
         apis :[],
         gptscripts: [],
         tools: [],
+        rag_source_id: '',
+        lora_id: '',
+        is_actionable_template: '',
       }],
     }
   }
@@ -57,6 +64,7 @@ export const APPS: IApp[] = [{
     secrets: {},
     allowed_domains: [],
     helix: {
+      external_url: '',
       name: 'Waitrose Demo',
       description: "Personalized recipe recommendations, based on your purchase history and our recipe database. Yummy.",
       avatar: 'https://waitrose-prod.scene7.com/is/image/waitroseprod/cp-essential-everyday?uuid=0845d10c-ed0d-4961-bc85-9e571d35cd63&$Waitrose-Image-Preset-95$',
@@ -72,6 +80,9 @@ export const APPS: IApp[] = [{
         apis :[],
         gptscripts: [],
         tools: [],
+        rag_source_id: '',
+        lora_id: '',
+        is_actionable_template: '',
       }],
     }
   }
@@ -88,7 +99,9 @@ export const APPS: IApp[] = [{
     secrets: {},
     allowed_domains: [],
     helix: {
+      external_url: '',
       assistants: [{
+        id: '',
         name: 'Searchbot',
         description: "I am bob",
         // avatar: 'https://tryhelix.ai/assets/img/FGesgz7rGY-900.webp',
@@ -98,10 +111,15 @@ export const APPS: IApp[] = [{
         model: '',
         type: 'text',
         system_prompt: '',
-        apis :[],
+        apis: [],
         gptscripts: [],
         tools: [],
+        rag_source_id: '',
+        lora_id: '',
+        is_actionable_template: '',
       }],
+      name: '',
+      description: ''
     }
   }
 }]

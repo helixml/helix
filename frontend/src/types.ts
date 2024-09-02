@@ -474,8 +474,8 @@ export interface ITool {
 
 export interface IKeyPair {
 	type: string,
-  privateKey: string,
-  publicKey: string,
+  private_key: string,
+  public_key: string,
 }
 
 export interface IAppHelixConfigGptScript {
@@ -517,6 +517,9 @@ export interface IAssistantConfig {
   model: string;
   type: ISessionType; // Make sure this is explicitly ISessionType
   system_prompt: string;
+  rag_source_id: string;
+  lora_id: string;
+  is_actionable_template: string;
   apis: IAssistantApi[];
   gptscripts: IAssistantGPTScript[];
   tools: ITool[];
@@ -528,6 +531,8 @@ export interface IAppHelixConfig {
   avatar?: string;
   image?: string;
   assistants: IAssistantConfig[];
+  // TODO: add triggers
+  external_url: string;
   // Add any other properties that might be part of the helix config
 }
 
@@ -553,63 +558,7 @@ export interface IAppConfig {
 
 export interface IApp {
   id: string,
-  config: {
-    allowed_domains: string[];
-    secrets: Record<string, string>;
-    helix: {
-      name: string;
-      description: string;
-      avatar: string;
-      image: string;
-      external_url: string;
-      assistants: Array<{
-        id: string;
-        name: string;
-        description: string;
-        avatar: string;
-        image: string;
-        model: string;
-        type: ISessionType;
-        system_prompt: string;
-        rag_source_id: string;
-        lora_id: string;
-        is_actionable_template: string;
-        apis: Array<{
-          name: string;
-          description: string;
-          schema: string;
-          url: string;
-          headers: Record<string, string>;
-          query: Record<string, string>;
-          request_prep_template: string;
-          response_success_template: string;
-          response_error_template: string;
-        }>;
-        gptscripts: Array<{
-          name: string;
-          description: string;
-          file: string;
-          content: string;
-        }>;
-        tools: ITool[];
-      }>;
-    };
-    github?: {
-      repo: string;
-      hash: string;
-      key_pair: {
-        type: string;
-        private_key: string;
-        public_key: string;
-      };
-      webhook_secret: string;
-      last_update: {
-        updated: string;
-        hash: string;
-        error: string;
-      };
-    };
-  };
+  config: IAppConfig;
   shared: boolean;
   global: boolean;
   created: Date;
