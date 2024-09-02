@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/helixml/helix/api/pkg/cli/app"
+	"github.com/helixml/helix/api/pkg/cli/fs"
 	"github.com/helixml/helix/api/pkg/cli/knowledge"
 )
 
@@ -35,6 +36,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(app.New())
 	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
 	RootCmd.AddCommand(knowledge.New())
+	RootCmd.AddCommand(fs.New())
 
 	return RootCmd
 }
