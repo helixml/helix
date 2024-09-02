@@ -105,34 +105,31 @@ func GetUserInteraction(interactions []*types.Interaction) (*types.Interaction, 
 	return GetLastUserInteraction(interactions)
 }
 
-func GetLastSystemInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+func GetLastAssistantInteraction(interactions []*types.Interaction) (*types.Interaction, error) {
+	for i := len(interactions) - 1; i >= 0; i-- {
+		interaction := interactions[i]
+		if interaction.Creator == types.CreatorTypeAssistant {
+			return interaction, nil
+		}
+	}
+	// backward compatibility for old sessions where the assistant was called "system"
 	for i := len(interactions) - 1; i >= 0; i-- {
 		interaction := interactions[i]
 		if interaction.Creator == types.CreatorTypeSystem {
 			return interaction, nil
 		}
 	}
-	return nil, fmt.Errorf("no system interaction found")
+	return nil, fmt.Errorf("no assistant interaction found")
 }
 
-func GetSystemInteraction(session *types.Session) (*types.Interaction, error) {
-	return GetLastSystemInteraction(session.Interactions)
+func GetAssistantInteraction(session *types.Session) (*types.Interaction, error) {
+	return GetLastAssistantInteraction(session.Interactions)
 }
 
 func FilterUserInteractions(interactions []*types.Interaction) []*types.Interaction {
 	filtered := []*types.Interaction{}
 	for _, interaction := range interactions {
 		if interaction.Creator == types.CreatorTypeUser {
-			filtered = append(filtered, interaction)
-		}
-	}
-	return filtered
-}
-
-func FilterSystemInteractions(interactions []types.Interaction) []types.Interaction {
-	filtered := []types.Interaction{}
-	for _, interaction := range interactions {
-		if interaction.Creator == types.CreatorTypeSystem {
 			filtered = append(filtered, interaction)
 		}
 	}
@@ -170,7 +167,7 @@ func CopyInteractionsUntil(interactions []*types.Interaction, id string) []*type
 	return copied
 }
 
-// update the most recent system interaction
+// update the most recent assistant interaction
 
 type InteractionUpdater func(*types.Interaction) (*types.Interaction, error)
 
@@ -216,8 +213,8 @@ func UpdateUserInteraction(session *types.Session, updater InteractionUpdater) (
 	return UpdateInteraction(session, targetInteraction.ID, updater)
 }
 
-func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
-	targetInteraction, err := GetSystemInteraction(session)
+func UpdateAssistantInteraction(session *types.Session, updater InteractionUpdater) (*types.Session, error) {
+	targetInteraction, err := GetAssistantInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +226,7 @@ func UpdateSystemInteraction(session *types.Session, updater InteractionUpdater)
 }
 
 func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
-	systemInteraction, err := GetSystemInteraction(session)
+	assistantInteraction, err := GetAssistantInteraction(session)
 	if err != nil {
 		return nil, err
 	}
@@ -248,16 +245,16 @@ func GetSessionSummary(session *types.Session) (*types.SessionSummary, error) {
 	return &types.SessionSummary{
 		SessionID:     session.ID,
 		Name:          session.Name,
-		InteractionID: systemInteraction.ID,
+		InteractionID: assistantInteraction.ID,
 		Mode:          session.Mode,
 		Type:          session.Type,
 		ModelName:     session.ModelName,
 		Owner:         session.Owner,
 		LoraDir:       session.LoraDir,
-		Created:       systemInteraction.Created,
-		Updated:       systemInteraction.Updated,
-		Scheduled:     systemInteraction.Scheduled,
-		Completed:     systemInteraction.Completed,
+		Created:       assistantInteraction.Created,
+		Updated:       assistantInteraction.Updated,
+		Scheduled:     assistantInteraction.Scheduled,
+		Completed:     assistantInteraction.Completed,
 		Summary:       summary,
 		Priority:      session.Metadata.Priority,
 	}, nil

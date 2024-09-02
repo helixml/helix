@@ -11,6 +11,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/kelseyhightower/envconfig"
+	oai "github.com/lukemarsden/go-openai2"
 	openai_ext "github.com/lukemarsden/go-openai2"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
@@ -91,11 +92,14 @@ func (suite *ActionTestSuite) TestIsActionable_Yes() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What is the weather like in San Francisco?",
+		},
+	}
 
-	currentMessage := "What is the weather like in San Francisco?"
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -161,11 +165,14 @@ func (suite *ActionTestSuite) TestIsActionable_Retryable() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What is the weather like in San Francisco?",
+		},
+	}
 
-	currentMessage := "What is the weather like in San Francisco?"
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.Require().NoError(err)
 
 	suite.strategy.wg.Wait()
@@ -206,11 +213,14 @@ func (suite *ActionTestSuite) TestIsActionable_NotActionable() {
 		},
 	}
 
-	history := []*types.ToolHistoryMessage{}
+	history := []*types.ToolHistoryMessage{
+		{
+			Role:    oai.ChatMessageRoleUser,
+			Content: "What's the reason why oceans have less fish??",
+		},
+	}
 
-	currentMessage := "What's the reason why oceans have less fish??"
-
-	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history, currentMessage)
+	resp, err := suite.strategy.IsActionable(suite.ctx, "session-123", "i-123", tools, history)
 	suite.NoError(err)
 
 	suite.strategy.wg.Wait()

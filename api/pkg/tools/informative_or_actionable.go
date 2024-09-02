@@ -25,10 +25,10 @@ func (i *IsActionableResponse) Actionable() bool {
 	return i.NeedsTool == "yes"
 }
 
-func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, options ...Option) (*IsActionableResponse, error) {
 	return retry.DoWithData(
 		func() (*IsActionableResponse, error) {
-			return c.isActionable(ctx, sessionID, interactionID, tools, history, currentMessage, options...)
+			return c.isActionable(ctx, sessionID, interactionID, tools, history, options...)
 		},
 		retry.Attempts(apiActionRetries),
 		retry.Delay(delayBetweenApiRetries),
@@ -37,7 +37,7 @@ func (c *ChainStrategy) IsActionable(ctx context.Context, sessionID, interaction
 			log.Warn().
 				Err(err).
 				Str("session_id", sessionID).
-				Str("user_input", currentMessage).
+				Str("history", fmt.Sprintf("%+v", history)).
 				Uint("retry_number", n).
 				Msg("retrying isActionable")
 		}),
@@ -50,7 +50,7 @@ func (c *ChainStrategy) getDefaultOptions() Options {
 	}
 }
 
-func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, currentMessage string, options ...Option) (*IsActionableResponse, error) {
+func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interactionID string, tools []*types.Tool, history []*types.ToolHistoryMessage, options ...Option) (*IsActionableResponse, error) {
 	opts := c.getDefaultOptions()
 
 	for _, opt := range options {
@@ -82,9 +82,26 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	var messages []openai.ChatCompletionMessage
+	messages := []openai.ChatCompletionMessage{systemPrompt}
 
-	messages = append(messages, systemPrompt)
+	// Log history and current message in a readable way
+	log.Info().
+		Str("session_id", sessionID).
+		Str("interaction_id", interactionID).
+		Msg("Processing isActionable request")
+
+	if len(history) > 0 {
+		log.Info().Msg("Message history:")
+		for i, msg := range history {
+			log.Info().
+				Int("message_number", i+1).
+				Str("role", string(msg.Role)).
+				Str("content", msg.Content).
+				Msg("Historical message")
+		}
+	} else {
+		log.Info().Msg("No message history")
+	}
 
 	for _, msg := range history {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -95,10 +112,6 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 
 	// Adding current message
 	messages = append(messages,
-		openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: fmt.Sprintf("<user_message>\n\n%s\n\n</user_message>", currentMessage),
-		},
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,
 			Content: "Return the corresponding json for the last user input",
@@ -140,7 +153,7 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 	}
 
 	log.Info().
-		Str("user_input", currentMessage).
+		Str("history", fmt.Sprintf("%+v", history)).
 		Str("justification", actionableResponse.Justification).
 		Str("needs_tool", actionableResponse.NeedsTool).
 		Dur("time_taken", time.Since(started)).
@@ -279,7 +292,7 @@ Examples:
 }
 ` + "```" + `
 
-**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags, for example:
+**Response Format:** Always respond with JSON without any commentary, wrapped in markdown json tags (` + "```" + `json at the start and ` + "```" + `at the end), for example:
 
 ` + "```" + `json
 {

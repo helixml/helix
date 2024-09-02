@@ -181,5 +181,22 @@ limit {max_results}
   session.close()
 
   return convertSimpleRows(rows)
-  
-  
+
+def deleteDataByEntityId(data_entity_id):
+    if not data_entity_id:
+        raise Exception("Missing data entity id")
+
+    try:
+        raw_sql = text(f"""
+        delete from {TABLE_NAME} where data_entity_id = '{data_entity_id}'
+        """)
+      
+        session = Session()
+        session.execute(raw_sql)
+        session.commit()
+        session.close()
+
+        return True
+    except Exception as e:        
+        raise e
+

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/helixml/helix/api/pkg/types"
 
@@ -28,13 +29,15 @@ var _ RAG = &Llamaindex{}
 type Llamaindex struct {
 	indexURL   string
 	queryURL   string
+	deleteURL  string
 	httpClient *http.Client
 }
 
-func NewLlamaindex(indexURL, queryURL string) *Llamaindex {
+func NewLlamaindex(settings *types.RAGSettings) *Llamaindex {
 	return &Llamaindex{
-		indexURL:   indexURL,
-		queryURL:   queryURL,
+		indexURL:   settings.IndexURL,
+		queryURL:   settings.QueryURL,
+		deleteURL:  settings.DeleteURL,
 		httpClient: http.DefaultClient,
 	}
 }
@@ -163,4 +166,51 @@ func (l *Llamaindex) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*ty
 	logger.Info().Msg("query results")
 
 	return queryResp, nil
+}
+
+func (l *Llamaindex) Delete(ctx context.Context, r *types.DeleteIndexRequest) error {
+	var deleteURL string
+
+	if strings.HasSuffix(l.deleteURL, "/") {
+		deleteURL = l.deleteURL + r.DataEntityID
+	} else {
+		deleteURL = l.deleteURL + "/" + r.DataEntityID
+	}
+
+	logger := log.With().
+		Str("llamaindex_delete_url", deleteURL).
+		Str("data_entity_id", r.DataEntityID).
+		Logger()
+
+	if r.DataEntityID == "" {
+		return fmt.Errorf("data entity ID cannot be empty")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, deleteURL, http.NoBody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := l.httpClient.Do(req)
+	if err != nil {
+		logger.Err(err).Msg("error making request to llamaindex")
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Err(err).Msg("failed to read response body")
+		return fmt.Errorf("error reading response body: %s", err.Error())
+	}
+
+	if resp.StatusCode >= 400 {
+		logger.Err(err).Msg("bad status code from the llamaindex")
+		return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
+	}
+
+	logger.Info().Msg("deleted data entity")
+
+	return nil
 }

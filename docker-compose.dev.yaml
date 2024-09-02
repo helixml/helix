@@ -165,6 +165,8 @@ services:
       context: .
       dockerfile: Dockerfile.runner
     entrypoint: ${RUNNER_ENTRYPOINT:-tail -f /dev/null}
+    env_file:
+      - .env
     volumes:
       - .:/workspace/helix
       - ./cog/helix_cog_wrapper.py:/workspace/cog-sdxl/helix_cog_wrapper.py
@@ -220,3 +222,6 @@ volumes:
   helix-pgvector-db:
   helix-filestore:
 
+networks:
+  default:
+    name: helix_default

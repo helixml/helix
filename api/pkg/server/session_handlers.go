@@ -193,7 +193,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			ID:       system.GenerateUUID(),
 			Created:  time.Now(),
 			Updated:  time.Now(),
-			Creator:  types.CreatorTypeSystem,
+			Creator:  types.CreatorTypeAssistant,
 			Mode:     types.SessionModeInference,
 			Message:  "",
 			State:    types.InteractionStateWaiting,

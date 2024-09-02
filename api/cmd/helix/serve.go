@@ -236,7 +236,11 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
-	llamaindexRAG := rag.NewLlamaindex(cfg.RAG.Llamaindex.RAGIndexingURL, cfg.RAG.Llamaindex.RAGQueryURL)
+	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
+		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
+		QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
+		DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
+	})
 
 	var appController *controller.Controller
 
@@ -265,7 +269,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler := knowledge.New(cfg, store, textExtractor, llamaindexRAG)
+	knowledgeReconciler, err := knowledge.New(cfg, store, textExtractor, llamaindexRAG)
+	if err != nil {
+		return err
+	}
 
 	go knowledgeReconciler.Start(ctx)
 
@@ -280,7 +287,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor)
+	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
 	if err != nil {
 		return err
 	}

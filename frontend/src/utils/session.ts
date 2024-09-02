@@ -11,7 +11,7 @@ import {
   ISessionSummary,
   ISessionType,
   ITextDataPrepStage,
-  SESSION_CREATOR_SYSTEM,
+  SESSION_CREATOR_ASSISTANT,
   SESSION_MODE_FINETUNE,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_IMAGE,
@@ -39,48 +39,21 @@ export const hasDate = (dt?: string): boolean => {
   return dt != NO_DATE
 }
 
-export const getSystemMessage = (message: string): IInteraction => {
-  return {
-    id: 'system',
-    created: '',
-    updated: '',
-    scheduled: '',
-    completed: '',
-    mode: SESSION_MODE_INFERENCE,
-    creator: SESSION_CREATOR_SYSTEM,
-    runner: '',
-    error: '',
-    state: 'complete',
-    status: '',
-    lora_dir: '',
-    metadata: {},
-    message,
-    display_message: '',
-    progress: 0,
-    files: [],
-    finished: true,
-    data_prep_chunks: {},
-    data_prep_stage: TEXT_DATA_PREP_STAGE_NONE,
-    data_prep_limited: false,
-    data_prep_limit: 0,
-  }
-}
-
 export const getUserInteraction = (session: ISession): IInteraction | undefined => {
-  const userInteractions = session.interactions.filter(i => i.creator != SESSION_CREATOR_SYSTEM)
+  const userInteractions = session.interactions.filter(i => i.creator != SESSION_CREATOR_ASSISTANT)
   if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
 }
 
-export const getSystemInteraction = (session: ISession): IInteraction | undefined => {
-  const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_SYSTEM)
+export const getAssistantInteraction = (session: ISession): IInteraction | undefined => {
+  const userInteractions = session.interactions.filter(i => i.creator == SESSION_CREATOR_ASSISTANT)
   if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
 }
 
-export const getSystemFinetuneInteraction = (session: ISession): IInteraction | undefined => {
+export const getFinetuneInteraction = (session: ISession): IInteraction | undefined => {
   const userInteractions = session.interactions.filter(i => {
-    return i.creator == SESSION_CREATOR_SYSTEM && i.mode == SESSION_MODE_FINETUNE
+    return i.creator == SESSION_CREATOR_ASSISTANT && i.mode == SESSION_MODE_FINETUNE
   })
   if (userInteractions.length <= 0) return undefined
   return userInteractions[userInteractions.length - 1]
@@ -88,9 +61,9 @@ export const getSystemFinetuneInteraction = (session: ISession): IInteraction | 
 
 export const hasFinishedFinetune = (session: ISession): boolean => {
   if (session.config.original_mode != SESSION_MODE_FINETUNE) return false
-  const systemInteraction = getSystemFinetuneInteraction(session)
-  if (!systemInteraction) return false
-  return systemInteraction.finished
+  const finetuneInteraction = getFinetuneInteraction(session)
+  if (!finetuneInteraction) return false
+  return finetuneInteraction.finished
 }
 
 export const getColor = (modelName: string, mode: ISessionMode): string => {
@@ -157,7 +130,7 @@ export const getTiming = (session: ISessionSummary): string => {
 }
 
 export const getSessionSummary = (session: ISession): ISessionSummary => {
-  const systemInteraction = getSystemInteraction(session)
+  const systemInteraction = getAssistantInteraction(session)
   const userInteraction = getUserInteraction(session)
   let summary = ''
   if (session.mode == SESSION_MODE_INFERENCE) {
