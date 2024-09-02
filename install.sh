@@ -552,7 +552,7 @@ if [ "$RUNNER" = true ]; then
 
 # Configuration variables
 RUNNER_TAG="${RUNNER_TAG}"
-api_host="${API_HOST}"
+API_HOST="${API_HOST}"
 GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
@@ -566,8 +566,8 @@ fi
 
 # Check if api-1 container is running
 if sudo docker ps --format '{{.Image}}' | grep 'registry.helix.ml/helix/controlplane'; then
-    api_host="http://api:80"
-    echo "Detected controlplane container running. Setting API_HOST to \${api_host}"
+    API_HOST="http://api:80"
+    echo "Detected controlplane container running. Setting API_HOST to \${API_HOST}"
 fi
 
 # Run the docker container
@@ -579,7 +579,7 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${WARMUP_MODELS_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
-    --api-host \${api_host} --api-token \${RUNNER_TOKEN} \\
+    --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
     --memory \${GPU_MEMORY}GB \\
     --allow-multiple-copies
