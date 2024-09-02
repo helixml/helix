@@ -35,7 +35,9 @@ sudo ./install-helix.sh
 ```
 The installer will prompt you before making changes to your system.
 
-By default, the dashboard will be available on `http://localhost:8080`. For setting up a private deployment, see `./install-helix.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+By default, the dashboard will be available on `http://localhost:8080`.
+
+For setting up a deployment with a DNS name, see `./install-helix.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#using-an-external-llm-provider).
 
