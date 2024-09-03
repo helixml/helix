@@ -29,15 +29,15 @@ Looking for a private GenAI platform? From language models to image models and m
 Use our quickstart installer:
 
 ```
-curl -Ls -o install-helix.sh https://get.helix.ml
-chmod +x install-helix.sh
-sudo ./install-helix.sh
+curl -Ls -O https://get.helix.ml/install.sh
+chmod +x install.sh
+sudo ./install.sh
 ```
 The installer will prompt you before making changes to your system.
 
 By default, the dashboard will be available on `http://localhost:8080`.
 
-For setting up a deployment with a DNS name, see `./install-helix.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
+For setting up a deployment with a DNS name, see `./install.sh --help` or read [the detailed docs](https://docs.helix.ml/helix/private-deployment/controlplane/). We've documented easy TLS termination for you.
 
 Add an LLM: run your own GPU runners per [runners docs](https://docs.helix.ml/helix/private-deployment/controlplane/#attaching-a-runner) or use an [external OpenAI-compatible LLM](https://docs.helix.ml/helix/private-deployment/controlplane/#install-control-plane-pointing-at-any-openai-compatible-api).
 
