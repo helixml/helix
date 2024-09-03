@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -45,7 +46,6 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		extractorEnabled = false
 	}
 
-	// TODO: add concurrency
 	for _, u := range k.Source.Web.URLs {
 		// If we are not downloading the file, we just send the URL
 		if k.RAGSettings.DisableDownloading {
@@ -152,5 +152,59 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 }
 
 func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
-	return nil, fmt.Errorf("TODO")
+	data, err := getFilestoreFiles(ctx, r.filestore, k)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filestore files: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("no data found in filestore")
+	}
+
+	return data, nil
+}
+
+func getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
+	var result []*indexerData
+
+	var recursiveList func(path string) error
+
+	recursiveList = func(path string) error {
+		items, err := fs.List(ctx, path)
+		if err != nil {
+			return fmt.Errorf("failed to list files at %s, error: %w", path, err)
+		}
+
+		for _, item := range items {
+			if item.Directory {
+				err := recursiveList(item.Path)
+				if err != nil {
+					return err
+				}
+			} else {
+				r, err := fs.OpenFile(ctx, item.Path)
+				if err != nil {
+					return fmt.Errorf("failed to open file at %s, error: %w", item.Path, err)
+				}
+
+				bts, err := io.ReadAll(r)
+				if err != nil {
+					return fmt.Errorf("failed to read file at %s, error: %w", item.Path, err)
+				}
+
+				result = append(result, &indexerData{
+					Data:   bts,
+					Source: item.Path,
+				})
+			}
+		}
+		return nil
+	}
+
+	err := recursiveList(k.Source.Filestore.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
