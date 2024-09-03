@@ -62,7 +62,7 @@ const AppAPIKeysDataGrid: FC<React.PropsWithChildren<{
 <script>
   ChatWidget({
     url: '${window.location.origin}/v1/chat/completions',
-    model: 'mistral:7b-instruct',
+    model: 'llama3:instruct',
     bearerToken: '${data.key}',
   })
 </script>` }

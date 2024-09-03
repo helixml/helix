@@ -24,6 +24,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import SendIcon from '@mui/icons-material/Send';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -711,6 +712,27 @@ const App: FC = () => {
     loadAppTools();
   }, [loadAppTools]);
 
+  const handleCopyEmbedCode = useCallback(() => {
+    if (account.apiKeys.length > 0) {
+      const embedCode = `<script src="https://cdn.jsdelivr.net/npm/@helixml/chat-embed"></script>
+<script>
+  ChatWidget({
+    url: '${window.location.origin}/v1/chat/completions',
+    model: 'llama3:instruct',
+    bearerToken: '${data.key}',
+  })
+</script>`
+      navigator.clipboard.writeText(embedCode).then(() => {
+        snackbar.success('Embed code copied to clipboard');
+      }, (err) => {
+        console.error('Could not copy text: ', err);
+        snackbar.error('Failed to copy embed code');
+      });
+    } else {
+      snackbar.error('No API key available');
+    }
+  }, [account.apiKeys, snackbar]);
+
   console.log('Current app state:', app);
   console.log('Displayed tools:', displayedTools);
 
@@ -740,6 +762,17 @@ const App: FC = () => {
             onClick={ () => navigate('apps') }
           >
             Cancel
+          </Button>
+          <Button
+            sx={{ mr: 2 }}
+            type="button"
+            color="secondary"
+            variant="contained"
+            onClick={handleCopyEmbedCode}
+            startIcon={<ContentCopyIcon />}
+            disabled={account.apiKeys.length === 0 || isReadOnly}
+          >
+            Embed
           </Button>
           <Button
             sx={{ mr: 2 }}
@@ -830,7 +863,7 @@ const App: FC = () => {
                     {/* GitHub Settings (only shown for GitHub apps) */}
                     {app?.config.github && (
                       <Box sx={{ mt: 3 }}>
-                        <Typography variant="h6" sx={{mb: 1.5}}>GitHub Settings</Typography>
+                        <Typography variant="subtitle1" sx={{mb: 1.5}}>GitHub Settings</Typography>
                         <TextField
                           label="GitHub Repo"
                           value={app.config.github.repo}
