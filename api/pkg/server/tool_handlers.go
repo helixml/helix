@@ -75,7 +75,7 @@ func (s *HelixAPIServer) createTool(rw http.ResponseWriter, r *http.Request) (*t
 	var tool types.Tool
 	err := json.NewDecoder(r.Body).Decode(&tool)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to decode request body 5, error: %s", err)
 	}
 
 	user := getRequestUser(r)
@@ -134,7 +134,7 @@ func (s *HelixAPIServer) updateTool(rw http.ResponseWriter, r *http.Request) (*t
 	var tool types.Tool
 	err := json.NewDecoder(r.Body).Decode(&tool)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to decode request body 6, error: %s", err)
 	}
 
 	id := getID(r)
