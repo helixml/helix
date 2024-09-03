@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install:
-# curl -LO https://get.helix.ml/install-helix.sh && chmod +x install-helix.sh
+# curl -LO https://get.helix.ml/install.sh && chmod +x install.sh
 
 set -euo pipefail
 
@@ -60,7 +60,7 @@ fi
 # Function to display help message
 display_help() {
     cat << EOF
-Usage: ./install-helix.sh [OPTIONS]
+Usage: ./install.sh [OPTIONS]
 
 Options:
   --cli                    Install the CLI (binary in /usr/local/bin)
@@ -79,28 +79,28 @@ Options:
 Examples:
 
 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
-   ./install-helix.sh
+   ./install.sh
 
 2. Install alongside Ollama already running:
-   ./install-helix.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
+   ./install.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
 
 3. Install just the CLI:
-   ./install-helix.sh --cli
+   ./install.sh --cli
 
 4. Install CLI and controlplane with external TogetherAI token:
-   ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
+   ./install.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
 
 5. Install CLI and controlplane (to install runner separately), specifying a DNS name, automatically setting up TLS:
-   ./install-helix.sh --cli --controlplane --api-host https://helix.mycompany.com
+   ./install.sh --cli --controlplane --api-host https://helix.mycompany.com
 
 6. Install CLI, controlplane, and runner on a node with a GPU:
-   ./install-helix.sh --cli --controlplane --runner
+   ./install.sh --cli --controlplane --runner
 
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
-   ./install-helix.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
 8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
-   ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
+   ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
 EOF
 }
@@ -655,9 +655,9 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
-    echo "curl -Ls -o install-helix.sh https://get.helix.ml/"
-    echo "chmod +x install-helix.sh"
-    echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo "curl -Ls -O https://get.helix.ml/install.sh"
+    echo "chmod +x install.sh"
+    echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."
