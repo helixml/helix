@@ -15,8 +15,6 @@ import useRouter from '../hooks/useRouter'
 
 import {
   IApp,
-  IAppConfig,
-  APP_SOURCE_HELIX,
 } from '../types'
 
 const Apps: FC = () => {
