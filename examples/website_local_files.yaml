@@ -1,11 +1,10 @@
-name: website-knowledge
-description: |
-  A simple app that demonstrates how to setup Helix with knowledge from a website
+name: uploaded-knowledge
 assistants:
 - name: Helix
   description: Know
   knowledge:
-  - name: book about dinosaurs
+  - name: Honda hornet CB750 manual
     source:
-      files:      
-      - path: ./data/*
+      # Files uploaded to Helix filestore will be available in the knowledge base
+      filestore:      
+      - path: hornet/*
