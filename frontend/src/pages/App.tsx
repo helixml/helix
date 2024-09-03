@@ -18,9 +18,11 @@ import AccordionSummary from '@mui/material/AccordionSummary'
 import AccordionDetails from '@mui/material/AccordionDetails'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import AddIcon from '@mui/icons-material/Add'
-import { v4 as uuidv4 } from 'uuid'; // Add this import for generating unique IDs
+import { v4 as uuidv4 } from 'uuid';
 import { parse as parseYaml } from 'yaml';
 import Tooltip from '@mui/material/Tooltip';
+import Tabs from '@mui/material/Tabs';
+import Tab from '@mui/material/Tab';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -117,6 +119,8 @@ const App: FC = () => {
   const [app, setApp] = useState<IApp | null>(null);
   const [tools, setTools] = useState<ITool[]>([]);
   const [isNewApp, setIsNewApp] = useState(false);
+
+  const [tabValue, setTabValue] = useState(0);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -755,7 +759,7 @@ const App: FC = () => {
       <Container
         maxWidth="xl"
         sx={{
-          mt: 12,
+          mt: 3,
           height: 'calc(100% - 100px)',
         }}
       >
@@ -769,181 +773,179 @@ const App: FC = () => {
         >
           <Grid container spacing={2}>
             <Grid item xs={ 12 } md={ 6 }>
-              <Typography variant="h6" sx={{mb: 1.5}}>
-                Settings
-              </Typography>
-              <TextField
-                sx={{
-                  mb: 3,
-                }}
-                id="app-name"
-                name="app-name"
-                error={ showErrors && !name }
-                value={ name }
-                disabled={readOnly || isReadOnly}
-                onChange={(e) => setName(e.target.value)}
-                fullWidth
-                label="Name"
-                helperText="Please enter a Name"
-              />
-              <TextField
-                sx={{
-                  mb: 1,
-                }}
-                id="app-description"
-                name="app-description"
-                value={ description }
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={readOnly || isReadOnly}
-                fullWidth
-                multiline
-                rows={2}
-                label="Description"
-                helperText="Enter a description for this app"
-              />
-              <Tooltip title="Share this app with other users in your organization">
-                <FormGroup>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={ shared }
-                        onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                          setShared(event.target.checked)
-                        } }
-                        disabled={isReadOnly}
-                      />
-                    }
-                    label="Shared?"
+              <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+                <Tab label="Settings" />
+                <Tab label="Advanced" />
+              </Tabs>
+              
+              {tabValue === 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <TextField
+                    sx={{
+                      mb: 3,
+                    }}
+                    id="app-name"
+                    name="app-name"
+                    error={ showErrors && !name }
+                    value={ name }
+                    disabled={readOnly || isReadOnly}
+                    onChange={(e) => setName(e.target.value)}
+                    fullWidth
+                    label="Name"
+                    helperText="Please enter a Name"
                   />
-                </FormGroup>
-              </Tooltip>
-              {
-                account.admin && (
-                  <Tooltip title="Make this app available to all users">
+                  <TextField
+                    sx={{
+                      mb: 1,
+                    }}
+                    id="app-description"
+                    name="app-description"
+                    value={ description }
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={readOnly || isReadOnly}
+                    fullWidth
+                    multiline
+                    rows={2}
+                    label="Description"
+                    helperText="Enter a description for this app"
+                  />
+                  <Tooltip title="Share this app with other users in your organization">
                     <FormGroup>
                       <FormControlLabel
                         control={
                           <Checkbox
-                            checked={ global }
+                            checked={ shared }
                             onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                              setGlobal(event.target.checked)
+                              setShared(event.target.checked)
                             } }
                             disabled={isReadOnly}
                           />
                         }
-                        label="Global?"
+                        label="Shared?"
                       />
                     </FormGroup>
                   </Tooltip>
-                )
-              }
-              <Divider sx={{mt:4,mb:4}} />
+                  {
+                    account.admin && (
+                      <Tooltip title="Make this app available to all users">
+                        <FormGroup>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={ global }
+                                onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                                  setGlobal(event.target.checked)
+                                } }
+                                disabled={isReadOnly}
+                              />
+                            }
+                            label="Global?"
+                          />
+                        </FormGroup>
+                      </Tooltip>
+                    )
+                  }
+                  <Divider sx={{mt:4,mb:4}} />
 
-              {/* API Tools Section */}
-              <Box sx={{ mt: 4 }}>
-                <Typography variant="h6" sx={{ mb: 1 }}>
-                  API Tools
-                </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={onAddApiTool}
-                  sx={{ mb: 2 }}
-                  disabled={isReadOnly}
-                >
-                  Add API Tool
-                </Button>
-                <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                  {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                    <Box
-                      key={apiTool.id}
-                      sx={{
-                        p: 2,
-                        border: '1px solid #303047',
-                        mb: 2,
-                      }}
+                  {/* API Tools Section */}
+                  <Box sx={{ mt: 4 }}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      API Tools
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={onAddApiTool}
+                      sx={{ mb: 2 }}
+                      disabled={isReadOnly}
                     >
-                      <Typography variant="h6">{apiTool.name}</Typography>
-                      <Typography variant="body1">{apiTool.description}</Typography>
-                      <Button
-                        variant="outlined"
-                        onClick={() => setEditingTool(apiTool)}
-                        sx={{ mt: 1 }}
-                        disabled={isReadOnly}
-                      >
-                        Edit
-                      </Button>
-                    </Box>
-                  ))}
-                </Box>
-              </Box>
-
-              {/* GPT Scripts Section */}
-              <Box sx={{ mt: 4 }}>
-                <Typography variant="h6" sx={{ mb: 1 }}>
-                  GPTScripts
-                </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={onAddGptScript}
-                  sx={{ mb: 2 }}
-                  disabled={isReadOnly || isGithubApp}
-                >
-                  Add GPTScript
-                </Button>
-                <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                  {app?.config.helix?.assistants?.flatMap(assistant => 
-                    assistant.gptscripts?.map((script, index) => (
-                      <Box
-                        key={`${assistant.id}-${script.file}`}
-                        sx={{
-                          p: 2,
-                          border: '1px solid #303047',
-                          mb: 2,
-                        }}
-                      >
-                        <Typography variant="subtitle1">{script.name}</Typography>
-                        <Typography variant="body2">{script.description}</Typography>
-                        <Button
-                          variant="outlined"
-                          onClick={() => setEditingTool({
-                            id: script.file,
-                            name: script.name,
-                            description: script.description,
-                            tool_type: 'gptscript',
-                            global: false,
-                            config: {
-                              gptscript: {
-                                script: script.content,
-                              }
-                            },
-                            created: '',
-                            updated: '',
-                            owner: '',
-                            owner_type: 'user',
-                          })}
-                          sx={{ mt: 1 }}
-                          disabled={isReadOnly || isGithubApp}
+                      Add API Tool
+                    </Button>
+                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
+                        <Box
+                          key={apiTool.id}
+                          sx={{
+                            p: 2,
+                            border: '1px solid #303047',
+                            mb: 2,
+                          }}
                         >
-                          Edit
-                        </Button>
-                      </Box>
-                    )) || []
-                  )}
-                </Box>
-              </Box>
+                          <Typography variant="h6">{apiTool.name}</Typography>
+                          <Typography variant="body1">{apiTool.description}</Typography>
+                          <Button
+                            variant="outlined"
+                            onClick={() => setEditingTool(apiTool)}
+                            sx={{ mt: 1 }}
+                            disabled={isReadOnly}
+                          >
+                            Edit
+                          </Button>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
 
-              {/* Advanced Settings Accordion - Moved here */}
-              <Accordion
-                expanded={advancedSettingsOpen}
-                onChange={() => setAdvancedSettingsOpen(!advancedSettingsOpen)}
-                sx={{ backgroundColor: 'inherit', mt: 4 }}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography>Advanced Settings</Typography>
-                </AccordionSummary>
-                <AccordionDetails>
+                  {/* GPT Scripts Section */}
+                  <Box sx={{ mt: 4 }}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      GPTScripts
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={onAddGptScript}
+                      sx={{ mb: 2 }}
+                      disabled={isReadOnly || isGithubApp}
+                    >
+                      Add GPTScript
+                    </Button>
+                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                      {app?.config.helix?.assistants?.flatMap(assistant => 
+                        assistant.gptscripts?.map((script, index) => (
+                          <Box
+                            key={`${assistant.id}-${script.file}`}
+                            sx={{
+                              p: 2,
+                              border: '1px solid #303047',
+                              mb: 2,
+                            }}
+                          >
+                            <Typography variant="subtitle1">{script.name}</Typography>
+                            <Typography variant="body2">{script.description}</Typography>
+                            <Button
+                              variant="outlined"
+                              onClick={() => setEditingTool({
+                                id: script.file,
+                                name: script.name,
+                                description: script.description,
+                                tool_type: 'gptscript',
+                                global: false,
+                                config: {
+                                  gptscript: {
+                                    script: script.content,
+                                  }
+                                },
+                                created: '',
+                                updated: '',
+                                owner: '',
+                                owner_type: 'user',
+                              })}
+                              sx={{ mt: 1 }}
+                              disabled={isReadOnly || isGithubApp}
+                            >
+                              Edit
+                            </Button>
+                          </Box>
+                        )) || []
+                      )}
+                    </Box>
+                  </Box>
+                </Box>
+              )}
+
+              {tabValue === 1 && (
+                <Box sx={{ mt: 2 }}>
                   {/* GitHub Settings (only shown for GitHub apps) */}
                   {app?.config.github && (
                     <Box sx={{ mb: 3 }}>
@@ -1061,8 +1063,8 @@ const App: FC = () => {
                       expand
                     </JsonWindowLink>
                   </Box>
-                </AccordionDetails>
-              </Accordion>
+                </Box>
+              )}
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
               {/* This Grid item is now empty, you may want to add something here or adjust the layout */}
