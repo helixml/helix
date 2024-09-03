@@ -25,6 +25,7 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import SendIcon from '@mui/icons-material/Send';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import Link from '@mui/material/Link';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -832,6 +833,7 @@ const App: FC = () => {
                 <Tab label="Integrations" />
                 <Tab label="GPTScripts" />
                 <Tab label="API Keys" />
+                <Tab label="Developers" />
               </Tabs>
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
@@ -1093,8 +1095,13 @@ const App: FC = () => {
                       data={ allowedDomains }
                       onChange={ setAllowedDomains }
                     />
-                    {/* App Configuration (YAML Editor) */}
-                    <Typography variant="h6" sx={{mt: 4, mb: 1}}>
+                  </Box>
+                )}
+
+                {tabValue === 4 && (
+                  <Box sx={{ mt: 2 }}>
+                    {/* AISpec (App Configuration) content */}
+                    <Typography variant="h6" sx={{mb: 1}}>
                       App Configuration
                     </Typography>
                     <TextField
@@ -1121,6 +1128,30 @@ const App: FC = () => {
                         expand
                       </JsonWindowLink>
                     </Box>
+                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
+                    CLI Access
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+                      You can also access this app configuration with the CLI command:
+                    </Typography>
+                    <Box sx={{ 
+                      backgroundColor: '#1e1e2f', 
+                      padding: '10px', 
+                      borderRadius: '4px',
+                      fontFamily: 'monospace',
+                      fontSize: '0.9rem'
+                    }}>
+                      helix app inspect {app.id}
+                    </Box>
+                    <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
+                      Don't have the CLI installed? 
+                      <Link 
+                        onClick={() => navigate('account')}
+                        sx={{ ml: 1, textDecoration: 'underline', cursor: 'pointer' }}
+                      >
+                        Install it from your account page
+                      </Link>
+                    </Typography>
                   </Box>
                 )}
               </Box>
