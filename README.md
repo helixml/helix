@@ -29,7 +29,7 @@ Looking for a private GenAI platform? From language models to image models and m
 Use our quickstart installer:
 
 ```
-curl -sL -O https://get.helix.ml/install.sh && bash install.sh
+curl -sL -O https://get.helix.ml/install.sh && chmod +x install.sh && sudo ./install.sh
 ```
 The installer will prompt you before making changes to your system. By default, the dashboard will be available on `http://localhost:8080`.
 
