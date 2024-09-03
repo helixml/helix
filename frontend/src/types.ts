@@ -523,7 +523,51 @@ export interface IAssistantConfig {
   apis: IAssistantApi[];
   gptscripts: IAssistantGPTScript[];
   tools: ITool[];
+  knowledge?: IKnowledgeSource[];
 }
+
+export interface IKnowledgeSource {
+  name: string;
+  description?: string;
+  rag_settings: {
+    results_count: number;
+    chunk_size: number;
+  };
+  source: {
+    helix_drive?: {
+      path: string;
+    };
+    s3?: {
+      bucket: string;
+      path: string;
+    };
+    gcs?: {
+      bucket: string;
+      path: string;
+    };
+    web?: {
+      urls: string[];
+      excludes?: string[];
+      auth?: {
+        username: string;
+        password: string;
+      };
+      crawler?: {
+        firecrawl?: {
+          api_key: string;
+          api_url: string;
+        };
+        enabled: boolean;
+        max_depth?: number;
+        user_agent?: string;
+      };
+    };
+    text?: string;
+  };
+  refresh_enabled?: boolean;
+  refresh_schedule?: string;
+}
+
 
 export interface IAppHelixConfig {
   name: string;

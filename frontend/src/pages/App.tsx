@@ -42,6 +42,7 @@ import ToolDetail from '../components/tools/ToolDetail'
 import ToolEditor from '../components/ToolEditor'
 import Interaction from '../components/session/Interaction'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
+import KnowledgeEditor from '../components/KnowledgeEditor';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -74,6 +75,7 @@ import {
   IAssistantConfig,
   ISessionType,
   IApp,
+  IKnowledgeSource,
 } from '../types'
 
 const isHelixApp = (app: IApp): boolean => {
@@ -147,6 +149,28 @@ const App: FC = () => {
   const themeConfig = useThemeConfig()
 
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
+
+  const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
+    setKnowledgeSources(updatedKnowledge);
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+        ...assistant,
+        knowledge: updatedKnowledge,
+      }));
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+  }, []);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -389,6 +413,7 @@ const App: FC = () => {
             ...assistant,
             system_prompt: systemPrompt,
             tools: tools,
+            knowledge: knowledgeSources, // Add this line to include knowledge sources
           })),
         },
         secrets,
@@ -440,7 +465,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources]); // Add knowledgeSources to the dependency array
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -830,6 +855,7 @@ const App: FC = () => {
             <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
               <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
                 <Tab label="Settings" />
+                <Tab label="Knowledge" /> {/* Moved to position 2 */}
                 <Tab label="Integrations" />
                 <Tab label="GPTScripts" />
                 <Tab label="API Keys" />
@@ -936,6 +962,19 @@ const App: FC = () => {
 
                 {tabValue === 1 && (
                   <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                      Knowledge Sources
+                    </Typography>
+                    <KnowledgeEditor
+                      knowledgeSources={knowledgeSources}
+                      onUpdate={handleKnowledgeUpdate}
+                      disabled={isReadOnly}
+                    />
+                  </Box>
+                )}
+
+                {tabValue === 2 && (
+                  <Box sx={{ mt: 2 }}>
                     {/* Integrations (API Tools) content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
                       API Tools
@@ -975,7 +1014,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 2 && (
+                {tabValue === 3 && (
                   <Box sx={{ mt: 2 }}>
                     {/* GPTScripts content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
@@ -1046,7 +1085,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 3 && (
+                {tabValue === 4 && (
                   <Box sx={{ mt: 2 }}>
                     {/* API Keys content */}
                     <Typography variant="subtitle1" sx={{mb: 1}}>
@@ -1098,7 +1137,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 4 && (
+                {tabValue === 5 && (
                   <Box sx={{ mt: 2 }}>
                     {/* AISpec (App Configuration) content */}
                     <Typography variant="h6" sx={{mb: 1}}>
