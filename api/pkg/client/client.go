@@ -30,6 +30,7 @@ type Client interface {
 	ListKnowledgeVersions(f *KnowledgeVersionsFilter) ([]*types.KnowledgeVersion, error)
 
 	FilestoreList(ctx context.Context, path string) ([]filestore.FileStoreItem, error)
+	FilestoreUpload(ctx context.Context, path string, file io.Reader) error
 }
 
 // HelixClient is the client for the helix api
