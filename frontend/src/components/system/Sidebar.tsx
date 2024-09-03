@@ -263,14 +263,14 @@
                         Files
                       </MenuItem>
 
-                      <MenuItem onClick={ () => {
+                      {/* <MenuItem onClick={ () => {
                         toggleMode()
                       }}>
                         <ListItemIcon>
                           {lightTheme.isDark ? <Brightness7Icon fontSize="small" /> : <Brightness4Icon fontSize="small" />}
                         </ListItemIcon>
                         {lightTheme.isDark ? 'Light Mode' : 'Dark Mode'}
-                      </MenuItem>
+                      </MenuItem> */}
 
                       <MenuItem onClick={ () => {
                         setAccountMenuAnchorEl(null)
