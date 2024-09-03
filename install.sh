@@ -414,11 +414,9 @@ EOF
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
     
-    # Set domain
+    # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
-        DOMAIN="http://localhost:8080"
-    else
-        DOMAIN="https://$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')"
+        API_HOST="http://localhost:8080"
     fi
 
     if [ -f "$ENV_FILE" ]; then
@@ -450,8 +448,8 @@ POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 
 # URLs
-KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
-SERVER_URL=${DOMAIN}
+KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
+SERVER_URL=${API_HOST}
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
@@ -511,7 +509,7 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ You can now 'cd $INSTALL_DIR'"
     echo "│ and run 'docker compose up -d' to start Helix                             │"
-    echo "│ Helix will be available at $DOMAIN"
+    echo "│ Helix will be available at $API_HOST"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
