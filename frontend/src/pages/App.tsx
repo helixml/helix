@@ -155,6 +155,8 @@ const App: FC = () => {
   const [avatar, setAvatar] = useState('');
   const [image, setImage] = useState('');
 
+  const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
+
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
@@ -226,6 +228,8 @@ const App: FC = () => {
     setApp(initialApp);
     if (initialApp && initialApp.config.helix.assistants.length > 0) {
       setTools(initialApp.config.helix.assistants[0].tools || []);
+      // Set the knowledge sources here
+      setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
     }
   }, [params.app_id, apps.data, account.user]);
 
@@ -383,13 +387,21 @@ const App: FC = () => {
     return errors;
   };
 
+  const validateKnowledge = () => {
+    const hasErrors = knowledgeSources.some(source => 
+      !source.source.web?.urls || source.source.web.urls.length === 0
+    );
+    setKnowledgeErrors(hasErrors);
+    return !hasErrors;
+  };
+
   const onUpdate = useCallback(async () => {
     if (!app) {
       snackbar.error('No app data available');
       return;
     }
 
-    if (!validate()) {
+    if (!validate() || !validateKnowledge()) {
       setShowErrors(true);
       return;
     }
@@ -459,7 +471,8 @@ const App: FC = () => {
       setApp(result);
       setIsNewApp(false); // The app is no longer new after saving
       snackbar.success(isNewApp ? 'App created' : 'App updated');
-      navigate('apps');
+      // Remove the navigation line
+      // navigate('apps');
     } catch (error: unknown) {
       if (error instanceof Error) {
         snackbar.error('Error in app operation: ' + error.message);
@@ -469,7 +482,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -998,6 +1011,11 @@ const App: FC = () => {
                       onUpdate={handleKnowledgeUpdate}
                       disabled={isReadOnly}
                     />
+                    {knowledgeErrors && showErrors && (
+                      <Alert severity="error" sx={{ mt: 2 }}>
+                        Please specify at least one URL for each knowledge source.
+                      </Alert>
+                    )}
                   </Box>
                 )}
 
@@ -1229,7 +1247,7 @@ const App: FC = () => {
                 backgroundImage: `url(${image || '/img/app-editor-swirl.webp'})`,
                 backgroundPosition: 'top',
                 backgroundRepeat: 'no-repeat',
-                // backgroundSize: 'cover',
+                backgroundSize: image ? 'cover' : 'auto', // Set 'cover' only when image is present
                 p: 2,
                 borderRight: '1px solid #303047',
                 borderBottom: '1px solid #303047',

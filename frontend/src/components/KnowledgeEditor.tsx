@@ -8,6 +8,11 @@ import {
   AccordionSummary,
   AccordionDetails,
   IconButton,
+  Alert,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -22,6 +27,7 @@ interface KnowledgeEditorProps {
 
 const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
+  const [errors, setErrors] = useState<{ [key: number]: string }>({});
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -29,15 +35,23 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
     const newSources = [...knowledgeSources];
-    newSources[index] = { ...newSources[index], ...updatedSource };
+    let newSource = { ...newSources[index], ...updatedSource };
+
+    // Ensure refresh_schedule is always a valid cron expression or empty string
+    if (newSource.refresh_schedule === 'custom') {
+      newSource.refresh_schedule = '0 0 * * *'; // Default to daily at midnight
+    } else if (newSource.refresh_schedule === 'One off') {
+      newSource.refresh_schedule = ''; // Empty string for one-off
+    }
+
+    newSources[index] = newSource;
     onUpdate(newSources);
   };
 
   const addNewSource = () => {
-    const newSource = {
-      name: `New Source ${knowledgeSources.length + 1}`,
-      rag_settings: { results_count: 5, chunk_size: 1024 },
+    const newSource: IKnowledgeSource = {
       source: { web: { urls: [], crawler: { enabled: false } } },
+      refresh_schedule: '', // Empty string for one-off
     };
     onUpdate([...knowledgeSources, newSource]);
     setExpanded(`panel${knowledgeSources.length}`);
@@ -48,11 +62,20 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     onUpdate(newSources);
   };
 
+  const validateSources = () => {
+    const newErrors: { [key: number]: string } = {};
+    knowledgeSources.forEach((source, index) => {
+      if (!source.source.web?.urls || source.source.web.urls.length === 0) {
+        newErrors[index] = "At least one URL must be specified.";
+      }
+    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   useEffect(() => {
-    if (knowledgeSources.length > 0) {
-      setExpanded(`panel${knowledgeSources.length - 1}`);
-    }
-  }, [knowledgeSources.length]);
+    validateSources();
+  }, [knowledgeSources]);
 
   return (
     <Box>
@@ -66,7 +89,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             expandIcon={<ExpandMoreIcon />}
             sx={{ display: 'flex', alignItems: 'center' }}
           >
-            <Typography sx={{ flexGrow: 1 }}>{source.name}</Typography>
+            <Typography sx={{ flexGrow: 1 }}>Knowledge Source {index + 1}</Typography>
             <IconButton
               onClick={(e) => {
                 e.stopPropagation();
@@ -81,48 +104,54 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           <AccordionDetails>
             <TextField
               fullWidth
-              label="Name"
-              value={source.name}
-
-              onChange={(e) => handleSourceUpdate(index, { name: e.target.value })}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Results Count"
-              type="number"
-              value={source.rag_settings.results_count}
-              onChange={(e) => handleSourceUpdate(index, { rag_settings: { ...source.rag_settings, results_count: parseInt(e.target.value) } })}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Chunk Size"
-              type="number"
-              value={source.rag_settings.chunk_size}
-              onChange={(e) => handleSourceUpdate(index, { rag_settings: { ...source.rag_settings, chunk_size: parseInt(e.target.value) } })}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
               label="URLs (comma-separated)"
               value={source.source.web?.urls?.join(', ') || ''}
-              onChange={(e) => handleSourceUpdate(index, { 
-                source: { 
-                  ...source.source, 
-                  web: { 
-                    ...source.source.web, 
-                    urls: e.target.value.split(',').map(url => url.trim()) 
+              onChange={(e) => {
+                handleSourceUpdate(index, { 
+                  source: { 
+                    ...source.source, 
+                    web: { 
+                      ...source.source.web, 
+                      urls: e.target.value.split(',').map(url => url.trim()) 
+                    } 
                   } 
-                } 
-              })}
+                });
+              }}
               disabled={disabled}
               sx={{ mb: 2 }}
+              error={!!errors[index]}
+              helperText={errors[index]}
             />
-            {/* Add more fields for other knowledge source settings */}
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Scrape Interval</InputLabel>
+              <Select
+                value={source.refresh_schedule === '' ? 'One off' : 
+                       (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
+                onChange={(e) => {
+                  let newSchedule = e.target.value;
+                  if (newSchedule === 'One off') newSchedule = '';
+                  if (newSchedule === 'custom') newSchedule = '0 0 * * *';
+                  handleSourceUpdate(index, { refresh_schedule: newSchedule });
+                }}
+                disabled={disabled}
+              >
+                <MenuItem value="One off">One off</MenuItem>
+                <MenuItem value="@hourly">Hourly</MenuItem>
+                <MenuItem value="@daily">Daily</MenuItem>
+                <MenuItem value="custom">Custom (cron)</MenuItem>
+              </Select>
+            </FormControl>
+            {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
+              <TextField
+                fullWidth
+                label="Custom Cron Schedule"
+                value={source.refresh_schedule}
+                onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
+                disabled={disabled}
+                sx={{ mb: 2 }}
+                helperText="Enter a valid cron expression (default: daily at midnight)"
+              />
+            )}
           </AccordionDetails>
         </Accordion>
       ))}
@@ -135,6 +164,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       >
         Add Knowledge Source
       </Button>
+      {Object.keys(errors).length > 0 && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          Please specify at least one URL for each knowledge source.
+        </Alert>
+      )}
     </Box>
   );
 };
