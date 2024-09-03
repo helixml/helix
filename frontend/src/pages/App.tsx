@@ -83,6 +83,22 @@ const isGithubApp = (app: IApp): boolean => {
   return !!app.config.github;
 };
 
+// Updated helper function
+const removeEmptyValues = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
+    return filtered.length ? filtered : undefined;
+  } else if (typeof obj === 'object' && obj !== null) {
+    const filtered = Object.fromEntries(
+      Object.entries(obj)
+        .map(([k, v]) => [k, removeEmptyValues(v)])
+        .filter(([_, v]) => v !== undefined && v !== null && v !== '')
+    );
+    return Object.keys(filtered).length ? filtered : undefined;
+  }
+  return obj === '' ? undefined : obj;
+};
+
 const App: FC = () => {
   console.log('App component rendering');
   const loading = useLoading()
@@ -461,7 +477,9 @@ const App: FC = () => {
     });
     setName(app.config.helix.name || '');
     setDescription(app.config.helix.description || '');
-    setSchema(stringifyYaml(app.config.helix, { indent: 2 }));
+    // Use the updated helper function here
+    const cleanedConfig = removeEmptyValues(app.config.helix);
+    setSchema(stringifyYaml(cleanedConfig, { indent: 2 }));
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
@@ -1092,7 +1110,7 @@ const App: FC = () => {
             </Grid>
             <Grid item xs={12} md={6}
               sx={{
-                backgroundImage: 'url(https://helixai-beta.surge.sh/assets/img/Ue_21e48xb-1420.webp)',
+                backgroundImage: 'url(/img/app-editor-swirl.webp)',
                 backgroundPosition: 'top',
                 backgroundRepeat: 'no-repeat',
                 p: 2,

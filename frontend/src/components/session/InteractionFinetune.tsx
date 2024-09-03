@@ -146,7 +146,7 @@ export const InteractionFinetune: FC<{
                     return file.match(/\.txt$/i) ? false : true
                   })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.tokenUrlEscaped}`
                     const filenameParts = file.split('/')
                     const label = interaction.metadata[filenameParts[filenameParts.length - 1]] || ''
 
@@ -202,7 +202,7 @@ export const InteractionFinetune: FC<{
                     return true
                   })
                   .map((file) => {
-                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.token}`
+                    const useURL = `${serverConfig.filestore_prefix}/${file}?access_token=${account.tokenUrlEscaped}`
                     const filenameParts = file.split('/')
                     const filename = filenameParts[filenameParts.length - 1] || ''
 
