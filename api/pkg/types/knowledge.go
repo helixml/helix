@@ -116,7 +116,7 @@ const (
 )
 
 type KnowledgeSource struct {
-	Filestore *KnowledgeSourceHelixFilestore `json:"filestore"`
+	Filestore *KnowledgeSourceHelixFilestore `json:"filestore" yaml:"filestore"`
 	S3        *KnowledgeSourceS3             `json:"s3"`
 	GCS       *KnowledgeSourceGCS            `json:"gcs"`
 	Web       *KnowledgeSourceWeb            `json:"web"`
@@ -172,7 +172,7 @@ type KnowledgeSourceWebAuth struct {
 }
 
 type KnowledgeSourceHelixFilestore struct {
-	Path string `json:"path"`
+	Path string `json:"path" yaml:"path"`
 }
 
 // KnowledgeSourceS3 authentication through AWS IAM role
