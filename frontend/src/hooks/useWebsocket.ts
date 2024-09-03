@@ -15,6 +15,7 @@ export const useWebsocket = (
   const account = useAccount()
 
   useEffect(() => {
+    console.log('useWebsocket', account.token, session_id)
     if(!account.token) return
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'

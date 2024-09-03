@@ -470,6 +470,7 @@ const App: FC = () => {
   }, [app])
 
   useWebsocket(sessionID, (parsedData) => {
+    console.log('Websocket event', parsedData)
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
       session.setData(newSession)
