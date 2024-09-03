@@ -145,6 +145,8 @@ const App: FC = () => {
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const themeConfig = useThemeConfig()
 
+  const [systemPrompt, setSystemPrompt] = useState('');
+
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
     let initialApp: IApp | null = null;
@@ -384,6 +386,7 @@ const App: FC = () => {
           image: app.config.helix.image,
           assistants: app.config.helix.assistants.map(assistant => ({
             ...assistant,
+            system_prompt: systemPrompt,
             tools: tools,
           })),
         },
@@ -436,7 +439,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -484,6 +487,7 @@ const App: FC = () => {
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
+    setSystemPrompt(app.config.helix.assistants[0]?.system_prompt || '');
     setHasLoaded(true);
   }, [app])
 
@@ -847,7 +851,7 @@ const App: FC = () => {
                       helperText="Name your app"
                     />
                     <TextField
-                      sx={{ mb: 1 }}
+                      sx={{ mb: 3 }}
                       id="app-description"
                       name="app-description"
                       value={ description }
@@ -857,6 +861,19 @@ const App: FC = () => {
                       rows={2}
                       label="Description"
                       helperText="Enter a short description of what this app does"
+                    />
+                    <TextField
+                      sx={{ mb: 3 }}
+                      id="app-instructions"
+                      name="app-instructions"
+                      value={ systemPrompt }
+                      onChange={(e) => setSystemPrompt(e.target.value)}
+                      disabled={readOnly || isReadOnly}
+                      fullWidth
+                      multiline
+                      rows={4}
+                      label="Instructions"
+                      helperText="What does this app do? How does it behave? What should it avoid doing?"
                     />
                     <Tooltip title="Share this app with other users in your organization">
                       <FormGroup>
