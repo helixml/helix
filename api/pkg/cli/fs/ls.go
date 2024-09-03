@@ -1,9 +1,11 @@
 package fs
 
 import (
-	"fmt"
+	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/helixml/helix/api/pkg/client"
+	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
 
@@ -32,9 +34,35 @@ var lsCmd = &cobra.Command{
 			return err
 		}
 
+		table := tablewriter.NewWriter(cmd.OutOrStdout())
+
+		header := []string{"Created", "Name", "Size"}
+
+		table.SetHeader(header)
+
+		table.SetAutoWrapText(false)
+		table.SetAutoFormatHeaders(true)
+		table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+		table.SetAlignment(tablewriter.ALIGN_LEFT)
+		table.SetCenterSeparator("")
+		table.SetColumnSeparator("")
+		table.SetRowSeparator("")
+		table.SetHeaderLine(false)
+		table.SetBorder(false)
+		table.SetTablePadding(" ")
+		table.SetNoWhiteSpace(false)
+
 		for _, file := range files {
-			fmt.Println(file.Name)
+			row := []string{
+				time.Unix(file.Created, 0).Format(time.DateTime),
+				file.Name,
+				humanize.Bytes(uint64(file.Size)),
+			}
+
+			table.Append(row)
 		}
+
+		table.Render()
 
 		return nil
 	},
