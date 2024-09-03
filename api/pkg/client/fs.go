@@ -32,6 +32,19 @@ func (c *HelixClient) FilestoreList(ctx context.Context, path string) ([]filesto
 	return resp, nil
 }
 
+func (c *HelixClient) FilestoreDelete(ctx context.Context, path string) error {
+	if path == "" {
+		return fmt.Errorf("path is required")
+	}
+
+	err := c.makeRequest("DELETE", "/filestore/delete?path="+path, nil, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.Reader) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
