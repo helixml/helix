@@ -65,8 +65,10 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 			continue
 		}
 		if !isAdmin(user) && app.Global {
-			app.Config.Github.KeyPair.PrivateKey = ""
-			app.Config.Github.WebhookSecret = ""
+			if app.Config.Github != nil {
+				app.Config.Github.KeyPair.PrivateKey = ""
+				app.Config.Github.WebhookSecret = ""
+			}
 		}
 
 		filteredApps = append(filteredApps, app)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install:
-# curl -LO https://get.helix.ml/install-helix.sh && chmod +x install-helix.sh
+# curl -LO https://get.helix.ml/install.sh && chmod +x install.sh
 
 set -euo pipefail
 
@@ -32,6 +32,7 @@ OPENAI_API_KEY=""
 OPENAI_BASE_URL=""
 AUTO_APPROVE=false
 OLDER_GPU=false
+HF_TOKEN=""
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -59,7 +60,7 @@ fi
 # Function to display help message
 display_help() {
     cat << EOF
-Usage: ./install-helix.sh [OPTIONS]
+Usage: ./install.sh [OPTIONS]
 
 Options:
   --cli                    Install the CLI (binary in /usr/local/bin)
@@ -72,33 +73,34 @@ Options:
   --openai-api-key <key>   Specify the OpenAI API key for any OpenAI compatible API
   --openai-base-url <url>  Specify the base URL for the OpenAI API
   --older-gpu              Disable axolotl and sdxl models (which don't work on older GPUs) on the runner
+  --hf-token <token>       Specify the Hugging Face token for downloading models
   -y                       Auto approve the installation
 
 Examples:
 
 1. Install the CLI, the controlplane and a runner if a GPU is available (auto mode):
-   ./install-helix.sh
+   ./install.sh
 
 2. Install alongside Ollama already running:
-   ./install-helix.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
+   ./install.sh --openai-api-key ollama --openai-base-url http://host.docker.internal:11434/v1
 
 3. Install just the CLI:
-   ./install-helix.sh --cli
+   ./install.sh --cli
 
 4. Install CLI and controlplane with external TogetherAI token:
-   ./install-helix.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
+   ./install.sh --cli --controlplane --together-api-key YOUR_TOGETHER_API_KEY
 
 5. Install CLI and controlplane (to install runner separately), specifying a DNS name, automatically setting up TLS:
-   ./install-helix.sh --cli --controlplane --api-host https://helix.mycompany.com
+   ./install.sh --cli --controlplane --api-host https://helix.mycompany.com
 
 6. Install CLI, controlplane, and runner on a node with a GPU:
-   ./install-helix.sh --cli --controlplane --runner
+   ./install.sh --cli --controlplane --runner
 
 7. Install just the runner, pointing to a controlplane with a DNS name (find runner token in /opt/HelixML/.env):
-   ./install-helix.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
+   ./install.sh --runner --api-host https://helix.mycompany.com --runner-token YOUR_RUNNER_TOKEN
 
 8. Install CLI and controlplane with OpenAI-compatible API key and base URL:
-   ./install-helix.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
+   ./install.sh --cli --controlplane --openai-api-key YOUR_OPENAI_API_KEY --openai-base-url YOUR_OPENAI_BASE_URL
 
 EOF
 }
@@ -152,6 +154,10 @@ while [[ $# -gt 0 ]]; do
         --older-gpu)
             OLDER_GPU=true
             shift
+            ;;
+        --hf-token)
+            HF_TOKEN="$2"
+            shift 2
             ;;
         -y)
             AUTO_APPROVE=true
@@ -408,11 +414,9 @@ EOF
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
     
-    # Set domain
+    # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
-        DOMAIN="http://localhost:8080"
-    else
-        DOMAIN="https://${API_HOST}"
+        API_HOST="http://localhost:8080"
     fi
 
     if [ -f "$ENV_FILE" ]; then
@@ -444,8 +448,8 @@ POSTGRES_ADMIN_PASSWORD=$POSTGRES_ADMIN_PASSWORD
 RUNNER_TOKEN=${RUNNER_TOKEN:-$(generate_password)}
 
 # URLs
-KEYCLOAK_FRONTEND_URL=${DOMAIN}/auth/
-SERVER_URL=${DOMAIN}
+KEYCLOAK_FRONTEND_URL=${API_HOST}/auth/
+SERVER_URL=${API_HOST}
 
 # Storage
 # Uncomment the lines below and create the directories if you want to persist
@@ -505,34 +509,39 @@ EOF
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ You can now 'cd $INSTALL_DIR'"
     echo "│ and run 'docker compose up -d' to start Helix                             │"
-    echo "│ Helix will be available at $DOMAIN"
+    echo "│ Helix will be available at $API_HOST"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
-        if [[ "$ID" != "ubuntu" ]]; then
+        if [[ "$OS" != "linux" ]]; then
             echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
         else
-            echo "Installing Caddy..."
-            sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-            sudo apt-get update
-            sudo apt-get install caddy
+            . /etc/os-release
+            if [[ "$ID" != "ubuntu" ]]; then
+                echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
+            else
+                echo "Installing Caddy..."
+                sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+                sudo apt-get update
+                sudo apt-get install caddy
 
-            # Create Caddyfile
-            CADDYFILE="/etc/caddy/Caddyfile"
-            echo "Creating Caddyfile..."
-            # Strip https:// and port from API_HOST
-            CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
-            cat << EOF > "$CADDYFILE"
+                # Create Caddyfile
+                CADDYFILE="/etc/caddy/Caddyfile"
+                echo "Creating Caddyfile..."
+                # Strip https:// and port from API_HOST
+                CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
+                cat << EOF > "$CADDYFILE"
 $CADDY_HOST {
     reverse_proxy localhost:8080
 }
 EOF
-            echo "Caddyfile has been created at $CADDYFILE"
-            echo "Please start Caddy manually after starting the Docker Compose stack:"
-            echo "sudo systemctl restart caddy"
+                echo "Caddyfile has been created at $CADDYFILE"
+                echo "Please start Caddy manually after starting the Docker Compose stack:"
+                echo "sudo systemctl restart caddy"
+            fi
         fi
     fi
 fi
@@ -586,6 +595,7 @@ GPU_MEMORY="${GPU_MEMORY}"
 WARMUP_MODELS="${WARMUP_MODELS}"
 RUNNER_TOKEN="${RUNNER_TOKEN}"
 OLDER_GPU="${OLDER_GPU:-false}"
+HF_TOKEN="${HF_TOKEN}"
 
 # Set warmup models parameter
 if [ -n "\$WARMUP_MODELS" ]; then
@@ -599,6 +609,13 @@ if [ "\$OLDER_GPU" = "true" ]; then
     OLDER_GPU_PARAM="-e RUNTIME_AXOLOTL_ENABLED=false"
 else
     OLDER_GPU_PARAM=""
+fi
+
+# Set HF_TOKEN parameter
+if [ -n "\$HF_TOKEN" ]; then
+    HF_TOKEN_PARAM="-e HF_TOKEN=\$HF_TOKEN"
+else
+    HF_TOKEN_PARAM=""
 fi
 
 # Check if api-1 container is running
@@ -616,6 +633,7 @@ sudo docker run --privileged --gpus all --shm-size=10g \\
     -v \${HOME}/.cache/huggingface:/root/.cache/huggingface \\
     \${WARMUP_MODELS_PARAM} \\
     \${OLDER_GPU_PARAM} \\
+    \${HF_TOKEN_PARAM} \\
     registry.helix.ml/helix/runner:\${RUNNER_TAG} \\
     --api-host \${API_HOST} --api-token \${RUNNER_TOKEN} \\
     --runner-id \$(hostname) \\
@@ -637,9 +655,9 @@ if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
     echo
     echo "To connect an external runner to this controlplane, run on a node with a GPU:"
     echo
-    echo "curl -Ls -o install-helix.sh https://get.helix.ml/"
-    echo "chmod +x install-helix.sh"
-    echo "./install-helix.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
+    echo "curl -Ls -O https://get.helix.ml/install.sh"
+    echo "chmod +x install.sh"
+    echo "./install.sh --runner --api-host $API_HOST --runner-token $RUNNER_TOKEN"
 fi
 
 echo -e "\nInstallation complete."
