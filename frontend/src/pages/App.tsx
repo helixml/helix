@@ -755,7 +755,7 @@ const App: FC = () => {
   ChatWidget({
     url: '${window.location.origin}/v1/chat/completions',
     model: 'llama3:instruct',
-    bearerToken: '${data.key}',
+    bearerToken: '${account.apiKeys[0].key}',
   })
 </script>`
       navigator.clipboard.writeText(embedCode).then(() => {
