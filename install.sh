@@ -510,29 +510,34 @@ EOF
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
-        if [[ "$ID" != "ubuntu" ]]; then
+        if [[ "$OS" != "linux" ]]; then
             echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
         else
-            echo "Installing Caddy..."
-            sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
-            curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-            sudo apt-get update
-            sudo apt-get install caddy
+            . /etc/os-release
+            if [[ "$ID" != "ubuntu" ]]; then
+                echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
+            else
+                echo "Installing Caddy..."
+                sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo apt-key add -
+                curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+                sudo apt-get update
+                sudo apt-get install caddy
 
-            # Create Caddyfile
-            CADDYFILE="/etc/caddy/Caddyfile"
-            echo "Creating Caddyfile..."
-            # Strip https:// and port from API_HOST
-            CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
-            cat << EOF > "$CADDYFILE"
+                # Create Caddyfile
+                CADDYFILE="/etc/caddy/Caddyfile"
+                echo "Creating Caddyfile..."
+                # Strip https:// and port from API_HOST
+                CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
+                cat << EOF > "$CADDYFILE"
 $CADDY_HOST {
     reverse_proxy localhost:8080
 }
 EOF
-            echo "Caddyfile has been created at $CADDYFILE"
-            echo "Please start Caddy manually after starting the Docker Compose stack:"
-            echo "sudo systemctl restart caddy"
+                echo "Caddyfile has been created at $CADDYFILE"
+                echo "Please start Caddy manually after starting the Docker Compose stack:"
+                echo "sudo systemctl restart caddy"
+            fi
         fi
     fi
 fi

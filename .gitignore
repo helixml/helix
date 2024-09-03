@@ -15,3 +15,4 @@ helix
 .vscode
 integration-test/frontend/screenshots
 build-errors.log
+.DS_Store
