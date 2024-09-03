@@ -120,7 +120,7 @@ const Account: FC = () => {
 export AZURE_OPENAI_API_BASE=${window.location.protocol}//${window.location.host}
 export AZURE_OPENAI_API_KEY=${apiKey}
 `
-  const cliLogin = `bash <(curl -Ls https://get.helix.ml) --cli
+  const cliLogin = `curl -Ls -O https://get.helix.ml/install.sh && bash install.sh --cli
 
 export HELIX_URL=${window.location.protocol}//${window.location.host}
 export HELIX_API_KEY=${apiKey}

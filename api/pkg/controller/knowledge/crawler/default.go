@@ -2,9 +2,11 @@ package crawler
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/gocolly/colly/v2"
@@ -14,8 +16,10 @@ import (
 )
 
 const (
-	defaultMaxDepth  = 10
-	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+	defaultMaxDepth    = 10  // How deep to crawl the website
+	defaultMaxPages    = 500 // How many pages to crawl before stopping
+	defaultParallelism = 20  // How many pages to crawl in parallel
+	defaultUserAgent   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 // Default crawler for web sources, uses colly to crawl the website
@@ -41,8 +45,9 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	var (
-		maxDepth  int
-		userAgent string
+		maxDepth    int
+		userAgent   string
+		pageCounter atomic.Int32
 	)
 
 	if d.knowledge.Source.Web.Crawler.MaxDepth == 0 {
@@ -56,6 +61,8 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	} else {
 		userAgent = d.knowledge.Source.Web.Crawler.UserAgent
 	}
+
+	pageCounter.Store(0)
 
 	collyOptions := []colly.CollectorOption{
 		colly.AllowedDomains(domains...),
@@ -72,10 +79,21 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	collector := colly.NewCollector(collyOptions...)
 
+	for _, domain := range domains {
+		collector.Limit(&colly.LimitRule{
+			DomainGlob:  fmt.Sprintf("*%s*", domain),
+			Parallelism: defaultParallelism,
+		})
+	}
+
 	var crawledDocs []*types.CrawledDocument
 	converter := md.NewConverter("", true, nil)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
+		log.Trace().
+			Str("knowledge_id", d.knowledge.ID).
+			Str("url", e.Request.URL.String()).Msg("Visiting link")
+
 		doc := &types.CrawledDocument{
 			SourceURL: e.Request.URL.String(),
 		}
@@ -96,13 +114,21 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		}
 
 		crawledDocs = append(crawledDocs, doc)
+
+		pageCounter.Add(1)
 	})
 
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
+		if pageCounter.Load() >= defaultMaxPages {
+			log.Warn().
+				Str("knowledge_id", d.knowledge.ID).
+				Msg("Max pages reached")
+			return
+		}
+
 		link := e.Attr("href")
 		collector.Visit(e.Request.AbsoluteURL(link))
-		log.Debug().Str("url", link).Msg("Visiting link")
 	})
 
 	collector.OnRequest(func(r *colly.Request) {
@@ -124,6 +150,14 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			continue
 		}
 	}
+
+	log.Info().
+		Str("knowledge_id", d.knowledge.ID).
+		Str("knowledge_name", d.knowledge.Name).
+		Str("url", d.knowledge.Source.Web.URLs[0]).
+		Str("domains", strings.Join(domains, ",")).
+		Int32("pages_crawled", pageCounter.Load()).
+		Msg("finished crawling the website")
 
 	return crawledDocs, nil
 }
