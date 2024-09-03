@@ -99,7 +99,6 @@ func uploadFile(ctx context.Context, apiClient client.Client, localPath string, 
 	defer file.Close()
 
 	fmt.Printf("Uploading file %s to %s\n", localPath, remotePath)
-
 	err = apiClient.FilestoreUpload(ctx, remotePath, file)
 	if err != nil {
 		return fmt.Errorf("failed to upload file: %w", err)

@@ -37,14 +37,6 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 		return fmt.Errorf("path is required")
 	}
 
-	url := url.URL{
-		Path: "/filestore/upload",
-	}
-
-	query := url.Query()
-	query.Add("path", path)
-	url.RawQuery = query.Encode()
-
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -62,6 +54,17 @@ func (c *HelixClient) FilestoreUpload(ctx context.Context, path string, file io.
 	if err != nil {
 		return err
 	}
+
+	// Remove the filename from the path as it would create a directory named as a filename
+	path = filepath.Dir(path)
+
+	url := url.URL{
+		Path: "/filestore/upload",
+	}
+
+	query := url.Query()
+	query.Add("path", path)
+	url.RawQuery = query.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.url+url.String(), body)
 	if err != nil {
