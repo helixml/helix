@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState, useMemo } from 'react'
+import React, { FC, useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -19,10 +19,11 @@ import AccordionDetails from '@mui/material/AccordionDetails'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import AddIcon from '@mui/icons-material/Add'
 import { v4 as uuidv4 } from 'uuid';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import SendIcon from '@mui/icons-material/Send';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -37,6 +38,8 @@ import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
 import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
 import ToolDetail from '../components/tools/ToolDetail'
 import ToolEditor from '../components/ToolEditor'
+import Interaction from '../components/session/Interaction'
+import InteractionLiveStream from '../components/session/InteractionLiveStream'
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -46,6 +49,7 @@ import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
 import useApi, { getTokenHeaders } from '../hooks/useApi'
 import useWebsocket from '../hooks/useWebsocket'
+import useThemeConfig from '../hooks/useThemeConfig'
 
 import {
   IAppConfig,
@@ -121,6 +125,8 @@ const App: FC = () => {
   const [isNewApp, setIsNewApp] = useState(false);
 
   const [tabValue, setTabValue] = useState(0);
+  const textFieldRef = useRef<HTMLTextAreaElement>()
+  const themeConfig = useThemeConfig()
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -441,7 +447,7 @@ const App: FC = () => {
     });
     setName(app.config.helix.name || '');
     setDescription(app.config.helix.description || '');
-    setSchema(JSON.stringify(app.config, null, 4));
+    setSchema(stringifyYaml(app.config.helix, { indent: 2 }));
     setSecrets(app.config.secrets || {});
     setAllowedDomains(app.config.allowed_domains || []);
     setShared(app.shared ? true : false);
@@ -759,7 +765,7 @@ const App: FC = () => {
       <Container
         maxWidth="xl"
         sx={{
-          mt: 3,
+          // mt: 3,
           height: 'calc(100% - 100px)',
         }}
       >
@@ -812,10 +818,9 @@ const App: FC = () => {
                       onChange={(e) => setDescription(e.target.value)}
                       disabled={readOnly || isReadOnly}
                       fullWidth
-                      multiline
                       rows={2}
                       label="Description"
-                      helperText="Enter a description for this app"
+                      helperText="Enter a short description for this app"
                     />
                     <Tooltip title="Share this app with other users in your organization">
                       <FormGroup>
@@ -980,8 +985,8 @@ const App: FC = () => {
                     <Typography variant="subtitle1">
                       Environment Variables
                     </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#777'}}>
-                      These will be available to your GPT Scripts as environment variables
+                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
+                      These will be available to your GPTScripts as environment variables
                     </Typography>
                     <StringMapEditor
                       entityTitle="variable"
@@ -994,7 +999,7 @@ const App: FC = () => {
                     <Typography variant="subtitle1">
                       Allowed Domains (website widget)
                     </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#777'}}>
+                    <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
                       The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
                       Ensures the website chat widget can work for your custom domain.
                     </Typography>
@@ -1010,7 +1015,7 @@ const App: FC = () => {
                       <Typography variant="subtitle1" sx={{mb: 1}}>
                         App-scoped API Keys
                       </Typography>
-                      <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                      <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
                         Using this key will automatically force all requests to use this app.
                       </Typography>
                       <Row>
@@ -1057,6 +1062,9 @@ const App: FC = () => {
                       name="app-schema"
                       label="App Configuration"
                       helperText={ showErrors && !schema ? "Please enter a schema" : "" }
+                      InputProps={{
+                        style: { fontFamily: 'monospace' }
+                      }}
                     />
                     <Box
                       sx={{
@@ -1075,8 +1083,102 @@ const App: FC = () => {
                 )}
               </Box>
             </Grid>
-            <Grid item xs={ 12 } md={ 6 }>
-              {/* This Grid item is now empty, you may want to add something here or adjust the layout */}
+            <Grid item xs={ 12 } md={ 6 }
+              sx={{
+                backgroundImage: 'url(https://helixai-beta.surge.sh/assets/img/Ue_21e48xb-1420.webp)',
+                backgroundPosition: 'top',
+                backgroundRepeat: 'no-repeat',
+                p: 2,
+                borderRight: '1px solid #303047',
+                borderBottom: '1px solid #303047',
+              }}
+            >
+              <Box
+                sx={{
+                  mb: 3,
+                }}
+              >
+                <Typography variant="h6" sx={{mb: 1}}>
+                  Preview
+                </Typography>
+                <Box
+                  sx={{
+                    width: '100%',
+                    flexGrow: 0,
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <TextField
+                    id="textEntry"
+                    fullWidth
+                    inputRef={textFieldRef}
+                    autoFocus
+                    label={`Message ${name || 'Helix'}`}
+                    helperText="Prompt the AI with a message, tool decisions are taken based on action description"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    multiline={true}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <Button
+                    id="sendButton"
+                    variant='contained'
+                    onClick={ onInference }
+                    sx={{
+                      color: themeConfig.darkText,
+                      ml: 2,
+                      mb: 3,
+                    }}
+                    endIcon={<SendIcon />}
+                  >
+                    Send
+                  </Button>
+                </Box>
+              </Box>
+              <Box
+                sx={{
+                  mb: 3,
+                  mt: 3,
+                }}
+              >
+                {
+                  session.data && (
+                    <>
+                      {
+                        session.data?.interactions.map((interaction: any, i: number) => {
+                          const interactionsLength = session.data?.interactions.length || 0
+                          const isLastInteraction = i == interactionsLength - 1
+                          const isLive = isLastInteraction && !interaction.finished
+
+                          if(!session.data) return null
+                          return (
+                            <Interaction
+                              key={ i }
+                              serverConfig={ account.serverConfig }
+                              interaction={ interaction }
+                              session={ session.data }
+                            >
+                              {
+                                isLive && (
+                                  <InteractionLiveStream
+                                    session_id={ session.data.id }
+                                    interaction={ interaction }
+                                    session={ session.data }
+                                    serverConfig={ account.serverConfig }
+                                  />
+                                )
+                              }
+                            </Interaction>
+                          )   
+                        })
+                      }
+                    </>
+                  )
+                }
+              </Box>
             </Grid>
           </Grid>
         </Box>
