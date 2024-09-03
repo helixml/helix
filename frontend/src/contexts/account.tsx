@@ -103,16 +103,13 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const token = useMemo(() => {
-    if(apiKeys && apiKeys.length > 0) {
-      return apiKeys[0].key
-    } else if(user && user.token) {
+    if(user && user.token) {
       return user.token
     } else {
       return ''
     }
   }, [
     user,
-    apiKeys,
   ])
 
   const tokenUrlEscaped = useMemo(() => {
@@ -261,6 +258,7 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     token,
+    tokenUrlEscaped,
     admin,
     loggingOut,
     serverConfig,
