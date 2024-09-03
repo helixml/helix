@@ -459,8 +459,18 @@ const App: FC = () => {
       let result;
       if (isNewApp) {
         result = await apps.createApp(app.app_source, updatedApp.config);
+        if (result) {
+          // Redirect to the new app's URL
+          navigate('app', { app_id: result.id });
+          // Update the app state with the new app data
+          setApp(result);
+          setIsNewApp(false);
+        }
       } else {
         result = await apps.updateApp(app.id, updatedApp);
+        if (result) {
+          setApp(result);
+        }
       }
 
       if (!result) {
@@ -468,11 +478,7 @@ const App: FC = () => {
         return;
       }
 
-      setApp(result);
-      setIsNewApp(false); // The app is no longer new after saving
       snackbar.success(isNewApp ? 'App created' : 'App updated');
-      // Remove the navigation line
-      // navigate('apps');
     } catch (error: unknown) {
       if (error instanceof Error) {
         snackbar.error('Error in app operation: ' + error.message);
@@ -482,7 +488,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
