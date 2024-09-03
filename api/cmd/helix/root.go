@@ -37,6 +37,7 @@ func NewRootCmd() *cobra.Command {
 	RootCmd.AddCommand(app.NewApplyCmd()) // Shortcut for apply
 	RootCmd.AddCommand(knowledge.New())
 	RootCmd.AddCommand(fs.New())
+	RootCmd.AddCommand(fs.NewUploadCmd()) // Shortcut for upload
 
 	return RootCmd
 }
