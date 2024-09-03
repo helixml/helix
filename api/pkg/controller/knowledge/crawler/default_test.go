@@ -32,7 +32,7 @@ func TestDefault_Crawl(t *testing.T) {
 
 	const (
 		appsText              = `When I submit a request that uses an App, it hangs`
-		privateDeploymentText = `The stack might take a minute to boot up`
+		privateDeploymentText = `This section describes how to install the control plane using Docker`
 	)
 
 	var (
@@ -52,7 +52,7 @@ func TestDefault_Crawl(t *testing.T) {
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
 
-			assert.Equal(t, "https://docs.helix.ml/helix/private-deployment/manual-install/", doc.SourceURL)
+			assert.Equal(t, "https://docs.helix.ml/helix/private-deployment/manual-install/docker/", doc.SourceURL)
 		}
 	}
 
