@@ -218,18 +218,31 @@ const App: FC = () => {
   const onInference = async () => {
     if(!app) return
     session.setData(undefined)
-    const formData = new FormData()
-    
-    formData.set('input', inputValue)
-    formData.set('mode', SESSION_MODE_INFERENCE)
-    formData.set('type', SESSION_TYPE_TEXT)
-    formData.set('parent_app', app.id)
-
-    const newSessionData = await api.post('/api/v1/sessions', formData)
-    if(!newSessionData) return
-    await bluebird.delay(300)
+    const sessionChatRequest = {
+      mode: SESSION_MODE_INFERENCE,
+      type: SESSION_TYPE_TEXT,
+      stream: true,
+      legacy: true,
+      app_id: app.id,
+      messages: [{
+        role: 'user',
+        content: {
+          content_type: 'text',
+          parts: [
+            inputValue,
+          ]
+        },
+      }]
+    }
+    loading.setLoading(true)
+    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+    if(!newSessionData) {
+      loading.setLoading(false)
+      return
+    }
     setInputValue('')
     session.loadSession(newSessionData.id)
+    loading.setLoading(false)
   }
 
   const validate = useCallback(() => {
@@ -812,7 +825,7 @@ const App: FC = () => {
                       onChange={(e) => setName(e.target.value)}
                       fullWidth
                       label="Name"
-                      helperText="Please enter a Name"
+                      helperText="Name your app"
                     />
                     <TextField
                       sx={{ mb: 1 }}
@@ -824,7 +837,7 @@ const App: FC = () => {
                       fullWidth
                       rows={2}
                       label="Description"
-                      helperText="Enter a short description for this app"
+                      helperText="Enter a short description of what this app does"
                     />
                     <Tooltip title="Share this app with other users in your organization">
                       <FormGroup>
@@ -1110,7 +1123,7 @@ const App: FC = () => {
                     inputRef={textFieldRef}
                     autoFocus
                     label={`Message ${name || 'Helix'}`}
-                    helperText="Prompt the AI with a message, tool decisions are taken based on action description"
+                    helperText="Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
