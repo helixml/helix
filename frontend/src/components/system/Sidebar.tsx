@@ -12,6 +12,7 @@
   import MenuItem from '@mui/material/MenuItem'
   import IconButton from '@mui/material/IconButton'
 
+  import WebhookIcon from '@mui/icons-material/Webhook'
   import AddIcon from '@mui/icons-material/Add'
   import HomeIcon from '@mui/icons-material/Home'
   import DashboardIcon from '@mui/icons-material/Dashboard'
@@ -219,6 +220,15 @@
                         Home
                       </MenuItem>
 
+                      <MenuItem onClick={ () => {
+                        navigateTo('appstore')
+                      }}>
+                        <ListItemIcon>
+                          <AppsIcon fontSize="small" />
+                        </ListItemIcon> 
+                        App Store
+                      </MenuItem>
+
                       {
                         account.admin && (
                           <MenuItem onClick={ () => {
@@ -238,9 +248,9 @@
                             navigateTo('apps')
                           }}>
                             <ListItemIcon>
-                              <AppsIcon fontSize="small" />
+                              <WebhookIcon fontSize="small" />
                             </ListItemIcon> 
-                            Apps
+                            Your Apps
                           </MenuItem>
                         )
                       }
