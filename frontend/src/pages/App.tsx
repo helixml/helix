@@ -772,299 +772,308 @@ const App: FC = () => {
           }}
         >
           <Grid container spacing={2}>
-            <Grid item xs={ 12 } md={ 6 }>
+            <Grid item xs={ 12 } md={ 6 } sx={{borderRight: '1px solid #303047'}}>
               <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-                <Tab label="Settings" />
-                <Tab label="Advanced" />
+                <Tab label="Settings" sx={{
+                }}/>
+                <Tab label="Advanced" sx={{
+                }}/>
               </Tabs>
               
-              {tabValue === 0 && (
-                <Box sx={{ mt: 2 }}>
-                  <TextField
-                    sx={{
-                      mb: 3,
-                    }}
-                    id="app-name"
-                    name="app-name"
-                    error={ showErrors && !name }
-                    value={ name }
-                    disabled={readOnly || isReadOnly}
-                    onChange={(e) => setName(e.target.value)}
-                    fullWidth
-                    label="Name"
-                    helperText="Please enter a Name"
-                  />
-                  <TextField
-                    sx={{
-                      mb: 1,
-                    }}
-                    id="app-description"
-                    name="app-description"
-                    value={ description }
-                    onChange={(e) => setDescription(e.target.value)}
-                    disabled={readOnly || isReadOnly}
-                    fullWidth
-                    multiline
-                    rows={2}
-                    label="Description"
-                    helperText="Enter a description for this app"
-                  />
-                  <Tooltip title="Share this app with other users in your organization">
-                    <FormGroup>
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={ shared }
-                            onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                              setShared(event.target.checked)
-                            } }
-                            disabled={isReadOnly}
-                          />
-                        }
-                        label="Shared?"
-                      />
-                    </FormGroup>
-                  </Tooltip>
-                  {
-                    account.admin && (
-                      <Tooltip title="Make this app available to all users">
-                        <FormGroup>
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={ global }
-                                onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                  setGlobal(event.target.checked)
-                                } }
-                                disabled={isReadOnly}
-                              />
-                            }
-                            label="Global?"
-                          />
-                        </FormGroup>
-                      </Tooltip>
-                    )
-                  }
-                  <Divider sx={{mt:4,mb:4}} />
+              <Box sx={{ 
+                mt: "-1px", 
+                borderTop: '1px solid #303047', 
+                p: 3,
+                // backgroundColor: '#1e1e1e',
+              }}>
+                {tabValue === 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <TextField
+                      sx={{
+                        mb: 3,
+                      }}
+                      id="app-name"
+                      name="app-name"
+                      error={ showErrors && !name }
+                      value={ name }
+                      disabled={readOnly || isReadOnly}
+                      onChange={(e) => setName(e.target.value)}
+                      fullWidth
+                      label="Name"
+                      helperText="Please enter a Name"
+                    />
+                    <TextField
+                      sx={{
+                        mb: 1,
+                      }}
+                      id="app-description"
+                      name="app-description"
+                      value={ description }
+                      onChange={(e) => setDescription(e.target.value)}
+                      disabled={readOnly || isReadOnly}
+                      fullWidth
+                      multiline
+                      rows={2}
+                      label="Description"
+                      helperText="Enter a description for this app"
+                    />
+                    <Tooltip title="Share this app with other users in your organization">
+                      <FormGroup>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={ shared }
+                              onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                                setShared(event.target.checked)
+                              } }
+                              disabled={isReadOnly}
+                            />
+                          }
+                          label="Shared?"
+                        />
+                      </FormGroup>
+                    </Tooltip>
+                    {
+                      account.admin && (
+                        <Tooltip title="Make this app available to all users">
+                          <FormGroup>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={ global }
+                                  onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                                    setGlobal(event.target.checked)
+                                  } }
+                                  disabled={isReadOnly}
+                                />
+                              }
+                              label="Global?"
+                            />
+                          </FormGroup>
+                        </Tooltip>
+                      )
+                    }
+                    <Divider sx={{mt:4,mb:4}} />
 
-                  {/* API Tools Section */}
-                  <Box sx={{ mt: 4 }}>
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      API Tools
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddApiTool}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly}
-                    >
-                      Add API Tool
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                        <Box
-                          key={apiTool.id}
-                          sx={{
-                            p: 2,
-                            border: '1px solid #303047',
-                            mb: 2,
-                          }}
-                        >
-                          <Typography variant="h6">{apiTool.name}</Typography>
-                          <Typography variant="body1">{apiTool.description}</Typography>
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool(apiTool)}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
-
-                  {/* GPT Scripts Section */}
-                  <Box sx={{ mt: 4 }}>
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      GPTScripts
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddGptScript}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly || isGithubApp}
-                    >
-                      Add GPTScript
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {app?.config.helix?.assistants?.flatMap(assistant => 
-                        assistant.gptscripts?.map((script, index) => (
+                    {/* API Tools Section */}
+                    <Box sx={{ mt: 4 }}>
+                      <Typography variant="h6" sx={{ mb: 1 }}>
+                        API Tools
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={onAddApiTool}
+                        sx={{ mb: 2 }}
+                        disabled={isReadOnly}
+                      >
+                        Add API Tool
+                      </Button>
+                      <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                        {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
                           <Box
-                            key={`${assistant.id}-${script.file}`}
+                            key={apiTool.id}
                             sx={{
                               p: 2,
                               border: '1px solid #303047',
                               mb: 2,
                             }}
                           >
-                            <Typography variant="subtitle1">{script.name}</Typography>
-                            <Typography variant="body2">{script.description}</Typography>
+                            <Typography variant="h6">{apiTool.name}</Typography>
+                            <Typography variant="body1">{apiTool.description}</Typography>
                             <Button
                               variant="outlined"
-                              onClick={() => setEditingTool({
-                                id: script.file,
-                                name: script.name,
-                                description: script.description,
-                                tool_type: 'gptscript',
-                                global: false,
-                                config: {
-                                  gptscript: {
-                                    script: script.content,
-                                  }
-                                },
-                                created: '',
-                                updated: '',
-                                owner: '',
-                                owner_type: 'user',
-                              })}
+                              onClick={() => setEditingTool(apiTool)}
                               sx={{ mt: 1 }}
-                              disabled={isReadOnly || isGithubApp}
+                              disabled={isReadOnly}
                             >
                               Edit
                             </Button>
                           </Box>
-                        )) || []
-                      )}
+                        ))}
+                      </Box>
+                    </Box>
+
+                    {/* GPT Scripts Section */}
+                    <Box sx={{ mt: 4 }}>
+                      <Typography variant="h6" sx={{ mb: 1 }}>
+                        GPTScripts
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={onAddGptScript}
+                        sx={{ mb: 2 }}
+                        disabled={isReadOnly || isGithubApp}
+                      >
+                        Add GPTScript
+                      </Button>
+                      <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                        {app?.config.helix?.assistants?.flatMap(assistant => 
+                          assistant.gptscripts?.map((script, index) => (
+                            <Box
+                              key={`${assistant.id}-${script.file}`}
+                              sx={{
+                                p: 2,
+                                border: '1px solid #303047',
+                                mb: 2,
+                              }}
+                            >
+                              <Typography variant="subtitle1">{script.name}</Typography>
+                              <Typography variant="body2">{script.description}</Typography>
+                              <Button
+                                variant="outlined"
+                                onClick={() => setEditingTool({
+                                  id: script.file,
+                                  name: script.name,
+                                  description: script.description,
+                                  tool_type: 'gptscript',
+                                  global: false,
+                                  config: {
+                                    gptscript: {
+                                      script: script.content,
+                                    }
+                                  },
+                                  created: '',
+                                  updated: '',
+                                  owner: '',
+                                  owner_type: 'user',
+                                })}
+                                sx={{ mt: 1 }}
+                                disabled={isReadOnly || isGithubApp}
+                              >
+                                Edit
+                              </Button>
+                            </Box>
+                          )) || []
+                        )}
+                      </Box>
                     </Box>
                   </Box>
-                </Box>
-              )}
+                )}
 
-              {tabValue === 1 && (
-                <Box sx={{ mt: 2 }}>
-                  {/* GitHub Settings (only shown for GitHub apps) */}
-                  {app?.config.github && (
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="h6" sx={{mb: 1.5}}>GitHub Settings</Typography>
-                      <TextField
-                        label="GitHub Repo"
-                        value={app.config.github.repo}
-                        fullWidth
-                        disabled
-                        sx={{mb: 2}}
-                      />
-                      <TextField
-                        label="Last Commit Hash"
-                        value={app.config.github.hash}
-                        fullWidth
-                        disabled
-                        sx={{mb: 2}}
-                      />
-                      {/* Add more GitHub-related fields as needed */}
-                    </Box>
-                  )}
+                {tabValue === 1 && (
+                  <Box sx={{ mt: 2 }}>
+                    {/* GitHub Settings (only shown for GitHub apps) */}
+                    {app?.config.github && (
+                      <Box sx={{ mb: 3 }}>
+                        <Typography variant="h6" sx={{mb: 1.5}}>GitHub Settings</Typography>
+                        <TextField
+                          label="GitHub Repo"
+                          value={app.config.github.repo}
+                          fullWidth
+                          disabled
+                          sx={{mb: 2}}
+                        />
+                        <TextField
+                          label="Last Commit Hash"
+                          value={app.config.github.hash}
+                          fullWidth
+                          disabled
+                          sx={{mb: 2}}
+                        />
+                        {/* Add more GitHub-related fields as needed */}
+                      </Box>
+                    )}
 
-                  {/* Environment Variables */}
-                  <Typography variant="subtitle1">
-                    Environment Variables
-                  </Typography>
-                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                    These will be available to your GPT Scripts as environment variables
-                  </Typography>
-                  <StringMapEditor
-                    entityTitle="variable"
-                    disabled={ readOnly || isReadOnly }
-                    data={ secrets }
-                    onChange={ setSecrets }
-                  />
-
-                  {/* Allowed Domains */}
-                  <Typography variant="subtitle1">
-                    Allowed Domains (website widget)
-                  </Typography>
-                  <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                    The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
-                    Ensures the website chat widget can work for your custom domain.
-                  </Typography>
-                  <StringArrayEditor
-                    entityTitle="domain"
-                    disabled={ readOnly || isReadOnly }
-                    data={ allowedDomains }
-                    onChange={ setAllowedDomains }
-                  />
-
-                  {/* API Keys Section */}
-                  <Box sx={{ mt: 4, mb: 4 }}>
-                    <Typography variant="subtitle1" sx={{mb: 1}}>
-                      App-scoped API Keys
+                    {/* Environment Variables */}
+                    <Typography variant="subtitle1">
+                      Environment Variables
                     </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
-                      Using this key will automatically force all requests to use this app.
+                    <Typography variant="caption" sx={{lineHeight: '3', color: '#777'}}>
+                      These will be available to your GPT Scripts as environment variables
                     </Typography>
-                    <Row>
-                      <Cell grow>
-                        <Typography variant="subtitle1" sx={{mb: 1}}>
-                          API Keys
-                        </Typography>
-                      </Cell>
-                      <Cell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          endIcon={<AddCircleIcon />}
-                          onClick={onAddAPIKey}
-                          disabled={isReadOnly}
-                        >
-                          Add API Key
-                        </Button>
-                      </Cell>
-                    </Row>
-                    <Box sx={{ height: '300px' }}>
-                      <AppAPIKeysDataGrid
-                        data={account.apiKeys}
-                        onDeleteKey={(key) => {
-                          setDeletingAPIKey(key)
-                        }}
-                      />
-                    </Box>
-                  </Box>
+                    <StringMapEditor
+                      entityTitle="variable"
+                      disabled={ readOnly || isReadOnly }
+                      data={ secrets }
+                      onChange={ setSecrets }
+                    />
 
-                  {/* App Configuration (YAML Editor) */}
-                  <Typography variant="h6" sx={{mb: 1}}>
-                    App Configuration
-                  </Typography>
-                  <TextField
-                    error={ showErrors && !schema }
-                    value={ schema }
-                    onChange={(e) => setSchema(e.target.value)}
-                    disabled={true}
-                    fullWidth
-                    multiline
-                    rows={10}
-                    id="app-schema"
-                    name="app-schema"
-                    label="App Configuration"
-                    helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-                  />
-                  <Box
-                    sx={{
-                      textAlign: 'right',
-                      mb: 1,
-                    }}
-                  >
-                    <JsonWindowLink
-                      sx={{textDecoration: 'underline'}}
-                      data={schema}
+                    {/* Allowed Domains */}
+                    <Typography variant="subtitle1">
+                      Allowed Domains (website widget)
+                    </Typography>
+                    <Typography variant="caption" sx={{lineHeight: '3', color: '#777'}}>
+                      The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+                      Ensures the website chat widget can work for your custom domain.
+                    </Typography>
+                    <StringArrayEditor
+                      entityTitle="domain"
+                      disabled={ readOnly || isReadOnly }
+                      data={ allowedDomains }
+                      onChange={ setAllowedDomains }
+                    />
+
+                    {/* API Keys Section */}
+                    <Box sx={{ mt: 4, mb: 4 }}>
+                      <Typography variant="subtitle1" sx={{mb: 1}}>
+                        App-scoped API Keys
+                      </Typography>
+                      <Typography variant="caption" sx={{lineHeight: '3', color: '#666'}}>
+                        Using this key will automatically force all requests to use this app.
+                      </Typography>
+                      <Row>
+                        <Cell grow>
+                          <Typography variant="subtitle1" sx={{mb: 1}}>
+                            API Keys
+                          </Typography>
+                        </Cell>
+                        <Cell>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            endIcon={<AddCircleIcon />}
+                            onClick={onAddAPIKey}
+                            disabled={isReadOnly}
+                          >
+                            Add API Key
+                          </Button>
+                        </Cell>
+                      </Row>
+                      <Box sx={{ height: '300px' }}>
+                        <AppAPIKeysDataGrid
+                          data={account.apiKeys}
+                          onDeleteKey={(key) => {
+                            setDeletingAPIKey(key)
+                          }}
+                        />
+                      </Box>
+                    </Box>
+
+                    {/* App Configuration (YAML Editor) */}
+                    <Typography variant="h6" sx={{mb: 1}}>
+                      App Configuration
+                    </Typography>
+                    <TextField
+                      error={ showErrors && !schema }
+                      value={ schema }
+                      onChange={(e) => setSchema(e.target.value)}
+                      disabled={true}
+                      fullWidth
+                      multiline
+                      rows={10}
+                      id="app-schema"
+                      name="app-schema"
+                      label="App Configuration"
+                      helperText={ showErrors && !schema ? "Please enter a schema" : "" }
+                    />
+                    <Box
+                      sx={{
+                        textAlign: 'right',
+                        mb: 1,
+                      }}
                     >
-                      expand
-                    </JsonWindowLink>
+                      <JsonWindowLink
+                        sx={{textDecoration: 'underline'}}
+                        data={schema}
+                      >
+                        expand
+                      </JsonWindowLink>
+                    </Box>
                   </Box>
-                </Box>
-              )}
+                )}
+              </Box>
             </Grid>
             <Grid item xs={ 12 } md={ 6 }>
               {/* This Grid item is now empty, you may want to add something here or adjust the layout */}
