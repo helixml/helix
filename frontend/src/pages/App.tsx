@@ -730,27 +730,19 @@ const App: FC = () => {
         }
       ]}
       topbarContent={(
-        <Box
-          sx={{
-            textAlign: 'right',
-          }}
-        >
+        <Box sx={{ textAlign: 'right' }}>
           <Button
             id="cancelButton" 
-            sx={{
-              mr: 2,
-            }}
+            sx={{ mr: 2 }}
             type="button"
             color="primary"
             variant="outlined"
             onClick={ () => navigate('apps') }
-           >
+          >
             Cancel
           </Button>
           <Button
-            sx={{
-              mr: 2,
-            }}
+            sx={{ mr: 2 }}
             type="button"
             color="secondary"
             variant="contained"
@@ -762,42 +754,23 @@ const App: FC = () => {
         </Box>
       )}
     >
-      <Container
-        maxWidth="xl"
-        sx={{
-          // mt: 3,
-          height: 'calc(100% - 100px)',
-        }}
-      >
-        <Box
-          sx={{
-            height: 'calc(100vh - 100px)',
-            width: '100%',
-            flexGrow: 1,
-            p: 2,
-          }}
-        >
+      <Container maxWidth="xl" sx={{ height: 'calc(100% - 100px)' }}>
+        <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
           <Grid container spacing={2}>
-            <Grid item xs={ 12 } md={ 6 } sx={{borderRight: '1px solid #303047'}}>
+            <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
               <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-                <Tab label="Settings" sx={{
-                }}/>
-                <Tab label="Advanced" sx={{
-                }}/>
+                <Tab label="Settings" />
+                <Tab label="Integrations" />
+                <Tab label="GPTScripts" />
+                <Tab label="API Keys" />
               </Tabs>
               
-              <Box sx={{ 
-                mt: "-1px", 
-                borderTop: '1px solid #303047', 
-                p: 3,
-                // backgroundColor: '#1e1e1e',
-              }}>
+              <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                 {tabValue === 0 && (
                   <Box sx={{ mt: 2 }}>
+                    {/* Settings content */}
                     <TextField
-                      sx={{
-                        mb: 3,
-                      }}
+                      sx={{ mb: 3 }}
                       id="app-name"
                       name="app-name"
                       error={ showErrors && !name }
@@ -809,9 +782,7 @@ const App: FC = () => {
                       helperText="Please enter a Name"
                     />
                     <TextField
-                      sx={{
-                        mb: 1,
-                      }}
+                      sx={{ mb: 1 }}
                       id="app-description"
                       name="app-description"
                       value={ description }
@@ -838,130 +809,27 @@ const App: FC = () => {
                         />
                       </FormGroup>
                     </Tooltip>
-                    {
-                      account.admin && (
-                        <Tooltip title="Make this app available to all users">
-                          <FormGroup>
-                            <FormControlLabel
-                              control={
-                                <Checkbox
-                                  checked={ global }
-                                  onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                    setGlobal(event.target.checked)
-                                  } }
-                                  disabled={isReadOnly}
-                                />
-                              }
-                              label="Global?"
-                            />
-                          </FormGroup>
-                        </Tooltip>
-                      )
-                    }
-                    <Divider sx={{mt:4,mb:4}} />
-
-                    {/* API Tools Section */}
-                    <Box sx={{ mt: 4 }}>
-                      <Typography variant="h6" sx={{ mb: 1 }}>
-                        API Tools
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        onClick={onAddApiTool}
-                        sx={{ mb: 2 }}
-                        disabled={isReadOnly}
-                      >
-                        Add API Tool
-                      </Button>
-                      <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                        {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                          <Box
-                            key={apiTool.id}
-                            sx={{
-                              p: 2,
-                              border: '1px solid #303047',
-                              mb: 2,
-                            }}
-                          >
-                            <Typography variant="h6">{apiTool.name}</Typography>
-                            <Typography variant="body1">{apiTool.description}</Typography>
-                            <Button
-                              variant="outlined"
-                              onClick={() => setEditingTool(apiTool)}
-                              sx={{ mt: 1 }}
-                              disabled={isReadOnly}
-                            >
-                              Edit
-                            </Button>
-                          </Box>
-                        ))}
-                      </Box>
-                    </Box>
-
-                    {/* GPT Scripts Section */}
-                    <Box sx={{ mt: 4 }}>
-                      <Typography variant="h6" sx={{ mb: 1 }}>
-                        GPTScripts
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        onClick={onAddGptScript}
-                        sx={{ mb: 2 }}
-                        disabled={isReadOnly || isGithubApp}
-                      >
-                        Add GPTScript
-                      </Button>
-                      <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                        {app?.config.helix?.assistants?.flatMap(assistant => 
-                          assistant.gptscripts?.map((script, index) => (
-                            <Box
-                              key={`${assistant.id}-${script.file}`}
-                              sx={{
-                                p: 2,
-                                border: '1px solid #303047',
-                                mb: 2,
-                              }}
-                            >
-                              <Typography variant="subtitle1">{script.name}</Typography>
-                              <Typography variant="body2">{script.description}</Typography>
-                              <Button
-                                variant="outlined"
-                                onClick={() => setEditingTool({
-                                  id: script.file,
-                                  name: script.name,
-                                  description: script.description,
-                                  tool_type: 'gptscript',
-                                  global: false,
-                                  config: {
-                                    gptscript: {
-                                      script: script.content,
-                                    }
-                                  },
-                                  created: '',
-                                  updated: '',
-                                  owner: '',
-                                  owner_type: 'user',
-                                })}
-                                sx={{ mt: 1 }}
-                                disabled={isReadOnly || isGithubApp}
-                              >
-                                Edit
-                              </Button>
-                            </Box>
-                          )) || []
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                )}
-
-                {tabValue === 1 && (
-                  <Box sx={{ mt: 2 }}>
+                    {account.admin && (
+                      <Tooltip title="Make this app available to all users">
+                        <FormGroup>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={ global }
+                                onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
+                                  setGlobal(event.target.checked)
+                                } }
+                                disabled={isReadOnly}
+                              />
+                            }
+                            label="Global?"
+                          />
+                        </FormGroup>
+                      </Tooltip>
+                    )}
                     {/* GitHub Settings (only shown for GitHub apps) */}
                     {app?.config.github && (
-                      <Box sx={{ mb: 3 }}>
+                      <Box sx={{ mt: 3 }}>
                         <Typography variant="h6" sx={{mb: 1.5}}>GitHub Settings</Typography>
                         <TextField
                           label="GitHub Repo"
@@ -977,12 +845,109 @@ const App: FC = () => {
                           disabled
                           sx={{mb: 2}}
                         />
-                        {/* Add more GitHub-related fields as needed */}
                       </Box>
                     )}
+                  </Box>
+                )}
 
+                {tabValue === 1 && (
+                  <Box sx={{ mt: 2 }}>
+                    {/* Integrations (API Tools) content */}
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      API Tools
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={onAddApiTool}
+                      sx={{ mb: 2 }}
+                      disabled={isReadOnly}
+                    >
+                      Add API Tool
+                    </Button>
+                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
+                        <Box
+                          key={apiTool.id}
+                          sx={{
+                            p: 2,
+                            border: '1px solid #303047',
+                            mb: 2,
+                          }}
+                        >
+                          <Typography variant="h6">{apiTool.name}</Typography>
+                          <Typography variant="body1">{apiTool.description}</Typography>
+                          <Button
+                            variant="outlined"
+                            onClick={() => setEditingTool(apiTool)}
+                            sx={{ mt: 1 }}
+                            disabled={isReadOnly}
+                          >
+                            Edit
+                          </Button>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+
+                {tabValue === 2 && (
+                  <Box sx={{ mt: 2 }}>
+                    {/* GPTScripts content */}
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      GPTScripts
+                    </Typography>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={onAddGptScript}
+                      sx={{ mb: 2 }}
+                      disabled={isReadOnly || isGithubApp}
+                    >
+                      Add GPTScript
+                    </Button>
+                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+                      {app?.config.helix?.assistants?.flatMap(assistant => 
+                        assistant.gptscripts?.map((script, index) => (
+                          <Box
+                            key={`${assistant.id}-${script.file}`}
+                            sx={{
+                              p: 2,
+                              border: '1px solid #303047',
+                              mb: 2,
+                            }}
+                          >
+                            <Typography variant="subtitle1">{script.name}</Typography>
+                            <Typography variant="body2">{script.description}</Typography>
+                            <Button
+                              variant="outlined"
+                              onClick={() => setEditingTool({
+                                id: script.file,
+                                name: script.name,
+                                description: script.description,
+                                tool_type: 'gptscript',
+                                global: false,
+                                config: {
+                                  gptscript: {
+                                    script: script.content,
+                                  }
+                                },
+                                created: '',
+                                updated: '',
+                                owner: '',
+                                owner_type: 'user',
+                              })}
+                              sx={{ mt: 1 }}
+                              disabled={isReadOnly || isGithubApp}
+                            >
+                              Edit
+                            </Button>
+                          </Box>
+                        )) || []
+                      )}
+                    </Box>
                     {/* Environment Variables */}
-                    <Typography variant="subtitle1">
+                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
                       Environment Variables
                     </Typography>
                     <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
@@ -994,13 +959,50 @@ const App: FC = () => {
                       data={ secrets }
                       onChange={ setSecrets }
                     />
+                  </Box>
+                )}
 
+                {tabValue === 3 && (
+                  <Box sx={{ mt: 2 }}>
+                    {/* API Keys content */}
+                    <Typography variant="subtitle1" sx={{mb: 1}}>
+                      App-scoped API Keys
+                    </Typography>
+                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
+                      Using this key will automatically force all requests to use this app.
+                    </Typography>
+                    <Row>
+                      <Cell grow>
+                        <Typography variant="subtitle1" sx={{mb: 1}}>
+                          API Keys
+                        </Typography>
+                      </Cell>
+                      <Cell>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          endIcon={<AddCircleIcon />}
+                          onClick={onAddAPIKey}
+                          disabled={isReadOnly}
+                        >
+                          Add API Key
+                        </Button>
+                      </Cell>
+                    </Row>
+                    <Box sx={{ height: '300px' }}>
+                      <AppAPIKeysDataGrid
+                        data={account.apiKeys}
+                        onDeleteKey={(key) => {
+                          setDeletingAPIKey(key)
+                        }}
+                      />
+                    </Box>
                     {/* Allowed Domains */}
-                    <Typography variant="subtitle1">
+                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
                       Allowed Domains (website widget)
                     </Typography>
                     <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
-                      The domain where your app is hosted.  http://localhost and http://localhost:port are always allowed.
+                      The domain where your app is hosted. http://localhost and http://localhost:port are always allowed.
                       Ensures the website chat widget can work for your custom domain.
                     </Typography>
                     <StringArrayEditor
@@ -1009,45 +1011,8 @@ const App: FC = () => {
                       data={ allowedDomains }
                       onChange={ setAllowedDomains }
                     />
-
-                    {/* API Keys Section */}
-                    <Box sx={{ mt: 4, mb: 4 }}>
-                      <Typography variant="subtitle1" sx={{mb: 1}}>
-                        App-scoped API Keys
-                      </Typography>
-                      <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-                        Using this key will automatically force all requests to use this app.
-                      </Typography>
-                      <Row>
-                        <Cell grow>
-                          <Typography variant="subtitle1" sx={{mb: 1}}>
-                            API Keys
-                          </Typography>
-                        </Cell>
-                        <Cell>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            endIcon={<AddCircleIcon />}
-                            onClick={onAddAPIKey}
-                            disabled={isReadOnly}
-                          >
-                            Add API Key
-                          </Button>
-                        </Cell>
-                      </Row>
-                      <Box sx={{ height: '300px' }}>
-                        <AppAPIKeysDataGrid
-                          data={account.apiKeys}
-                          onDeleteKey={(key) => {
-                            setDeletingAPIKey(key)
-                          }}
-                        />
-                      </Box>
-                    </Box>
-
                     {/* App Configuration (YAML Editor) */}
-                    <Typography variant="h6" sx={{mb: 1}}>
+                    <Typography variant="h6" sx={{mt: 4, mb: 1}}>
                       App Configuration
                     </Typography>
                     <TextField
@@ -1066,12 +1031,7 @@ const App: FC = () => {
                         style: { fontFamily: 'monospace' }
                       }}
                     />
-                    <Box
-                      sx={{
-                        textAlign: 'right',
-                        mb: 1,
-                      }}
-                    >
+                    <Box sx={{ textAlign: 'right', mb: 1 }}>
                       <JsonWindowLink
                         sx={{textDecoration: 'underline'}}
                         data={schema}
@@ -1083,7 +1043,7 @@ const App: FC = () => {
                 )}
               </Box>
             </Grid>
-            <Grid item xs={ 12 } md={ 6 }
+            <Grid item xs={12} md={6}
               sx={{
                 backgroundImage: 'url(https://helixai-beta.surge.sh/assets/img/Ue_21e48xb-1420.webp)',
                 backgroundPosition: 'top',
