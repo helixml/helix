@@ -98,12 +98,7 @@ export const useApps = () => {
         },
         github: {
           repo,
-          hash: '',
-          last_update: {
-            updated: '',
-            hash: '',
-            error: ''
-          }
+          hash: ''
         },
         secrets: {},
         allowed_domains: [],
