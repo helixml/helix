@@ -412,7 +412,7 @@ EOF
     if [ -z "$API_HOST" ]; then
         DOMAIN="http://localhost:8080"
     else
-        DOMAIN="https://${API_HOST}"
+        DOMAIN="https://$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')"
     fi
 
     if [ -f "$ENV_FILE" ]; then
