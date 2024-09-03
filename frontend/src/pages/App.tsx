@@ -26,6 +26,7 @@ import Tab from '@mui/material/Tab';
 import SendIcon from '@mui/icons-material/Send';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Link from '@mui/material/Link';
+import Avatar from '@mui/material/Avatar';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -150,6 +151,9 @@ const App: FC = () => {
 
   const [systemPrompt, setSystemPrompt] = useState('');
   const [knowledgeSources, setKnowledgeSources] = useState<IKnowledgeSource[]>([]);
+
+  const [avatar, setAvatar] = useState('');
+  const [image, setImage] = useState('');
 
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
@@ -407,13 +411,13 @@ const App: FC = () => {
           name,
           description,
           external_url: app.config.helix.external_url,
-          avatar: app.config.helix.avatar,
-          image: app.config.helix.image,
+          avatar,
+          image,
           assistants: app.config.helix.assistants.map(assistant => ({
             ...assistant,
             system_prompt: systemPrompt,
             tools: tools,
-            knowledge: knowledgeSources, // Add this line to include knowledge sources
+            knowledge: knowledgeSources,
           })),
         },
         secrets,
@@ -465,7 +469,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources]); // Add knowledgeSources to the dependency array
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, navigate, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -514,6 +518,8 @@ const App: FC = () => {
     setShared(app.shared ? true : false);
     setGlobal(app.global ? true : false);
     setSystemPrompt(app.config.helix.assistants[0]?.system_prompt || '');
+    setAvatar(app.config.helix.avatar || '');
+    setImage(app.config.helix.image || '');
     setHasLoaded(true);
   }, [app])
 
@@ -903,6 +909,28 @@ const App: FC = () => {
                       label="Instructions"
                       helperText="What does this app do? How does it behave? What should it avoid doing?"
                     />
+                    <TextField
+                      sx={{ mb: 3 }}
+                      id="app-avatar"
+                      name="app-avatar"
+                      value={ avatar }
+                      onChange={(e) => setAvatar(e.target.value)}
+                      disabled={readOnly || isReadOnly}
+                      fullWidth
+                      label="Avatar"
+                      helperText="URL for the app's avatar image"
+                    />
+                    <TextField
+                      sx={{ mb: 3 }}
+                      id="app-image"
+                      name="app-image"
+                      value={ image }
+                      onChange={(e) => setImage(e.target.value)}
+                      disabled={readOnly || isReadOnly}
+                      fullWidth
+                      label="Image"
+                      helperText="URL for the app's main image"
+                    />
                     <Tooltip title="Share this app with other users in your organization">
                       <FormGroup>
                         <FormControlLabel
@@ -1197,22 +1225,51 @@ const App: FC = () => {
             </Grid>
             <Grid item xs={12} md={6}
               sx={{
-                backgroundImage: 'url(/img/app-editor-swirl.webp)',
+                position: 'relative',
+                backgroundImage: `url(${image || '/img/app-editor-swirl.webp'})`,
                 backgroundPosition: 'top',
                 backgroundRepeat: 'no-repeat',
+                // backgroundSize: 'cover',
                 p: 2,
                 borderRight: '1px solid #303047',
                 borderBottom: '1px solid #303047',
               }}
             >
+              {image && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)', // 20% opacity (1 - 0.8)
+                    zIndex: 1,
+                  }}
+                />
+              )}
               <Box
                 sx={{
                   mb: 3,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  position: 'relative',
+                  zIndex: 2,
                 }}
               >
-                <Typography variant="h6" sx={{mb: 1}}>
+                <Typography variant="h6" sx={{mb: 2, color: 'white'}}>
                   Preview
                 </Typography>
+                <Avatar
+                  src={avatar}
+                  sx={{
+                    width: 80,
+                    height: 80,
+                    mb: 2,
+                    border: '2px solid #fff',
+                  }}
+                />
                 <Box
                   sx={{
                     width: '100%',
@@ -1234,6 +1291,14 @@ const App: FC = () => {
                     onChange={(e) => setInputValue(e.target.value)}
                     multiline={true}
                     onKeyDown={handleKeyDown}
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      },
+                      '& .MuiFormHelperText-root': {
+                        color: 'white',
+                      },
+                    }}
                   />
                   <Button
                     id="sendButton"
@@ -1252,8 +1317,8 @@ const App: FC = () => {
               </Box>
               <Box
                 sx={{
-                  mb: 3,
-                  mt: 3,
+                  position: 'relative',
+                  zIndex: 2,
                 }}
               >
                 {
