@@ -29,7 +29,7 @@ func newQapairCommand() *cobra.Command {
 			}
 			helixInference := openai.NewInternalHelixServer(&serverConfig, ps)
 
-			client, err := createOpenAIClient(&serverConfig, helixInference)
+			client, err := createDataPrepOpenAIClient(&serverConfig, helixInference)
 			if err != nil {
 				return err
 			}

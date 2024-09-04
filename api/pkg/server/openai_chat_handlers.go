@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -85,6 +87,53 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 	if user.AppID != "" {
 		log.Debug().Str("app_id", user.AppID).Msg("using app_id from user (api key)")
 		options.AppID = user.AppID
+
+		// Check if the appID contains a LORA
+		assistant, err := s.getAppLoraAssistant(ctx, options.AppID)
+		if err != nil {
+			log.Error().Err(err).Msg("error getting app assistant")
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Debug().Interface("assistant", assistant).Msg("got app assistant")
+
+		// If it has a Lora, we must use the old sessions handler.
+		if assistant != nil {
+			// Override the request's query parameters to set the app details
+			query := r.URL.Query()
+			query.Set("app_id", options.AppID)
+			query.Set("assistant_id", assistant.ID)
+			query.Set("lora_id", assistant.LoraID)
+			r.URL.RawQuery = query.Encode()
+
+			// Create a new body in the format the sessions API is expecting
+			messages := []*types.Message{}
+			for _, message := range chatCompletionRequest.Messages {
+				messages = append(messages, &types.Message{
+					Role: types.CreatorType(message.Role),
+					Content: types.MessageContent{
+						ContentType: types.MessageContentTypeText,
+						Parts:       []any{message.Content},
+					},
+				})
+			}
+			sessionBody := types.SessionChatRequest{
+				Model:    chatCompletionRequest.Model,
+				Stream:   chatCompletionRequest.Stream,
+				Messages: messages,
+				// Do not set lora_id or lora_dir here. It will break the logic in the handler.
+			}
+			body, err := json.Marshal(sessionBody)
+			if err != nil {
+				log.Error().Err(err).Msg("error marshalling session body")
+				http.Error(rw, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			log.Debug().Str("app_id", options.AppID).Str("lora_id", assistant.LoraID).Msg("overriding app_id in request and passing to old Session handler")
+			s.startChatSessionLegacyHandler(ctx, user, &sessionBody, r, rw)
+			return
+		}
 	}
 
 	// Non-streaming request returns the response immediately
@@ -151,4 +200,23 @@ func (s *HelixAPIServer) createChatCompletion(rw http.ResponseWriter, r *http.Re
 		writeChunk(rw, bts)
 	}
 
+}
+
+func (s *HelixAPIServer) getAppLoraAssistant(ctx context.Context, appID string) (*types.AssistantConfig, error) {
+	app, err := s.Store.GetApp(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+
+	// The old code had this in:
+	// TODO: support > 1 assistant
+	// because the sessions API can only handle one assistant at a time...
+	var assistant *types.AssistantConfig
+	if len(app.Config.Helix.Assistants) > 0 {
+		if app.Config.Helix.Assistants[0].LoraID != "" {
+			assistant = &app.Config.Helix.Assistants[0]
+		}
+	}
+
+	return assistant, nil
 }
