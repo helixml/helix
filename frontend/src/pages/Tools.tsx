@@ -39,14 +39,17 @@ const Tools: FC = () => {
         query: {},
       }
     })
-    if(!newTool) return
-    setAddingApiTool(false)
-    snackbar.success('API tool created')
-    navigate('tool', {
-      tool_id: newTool.id,
-    })
+    if (newTool) {
+      setAddingApiTool(false)
+      snackbar.success('API tool created')
+      navigate('tool', {
+        tool_id: newTool.id,
+      })
+    }
   }, [
     tools.createTool,
+    navigate,
+    snackbar,
   ])
 
   const onCreateGptScriptTool = useCallback(async (name: string, description: string, script: string) => {

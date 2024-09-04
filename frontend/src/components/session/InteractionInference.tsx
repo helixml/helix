@@ -58,7 +58,7 @@ export const InteractionInference: FC<{
   if(!serverConfig || !serverConfig.filestore_prefix) return null
 
   const getFileURL = (url: string) => {
-    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.token}&redirect_urls=true`
+    return `${serverConfig.filestore_prefix}/${url}?access_token=${account.tokenUrlEscaped}&redirect_urls=true`
   }
 
   const sourceText = replaceMessageText(message || '', session, getFileURL)
