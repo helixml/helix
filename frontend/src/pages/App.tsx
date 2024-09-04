@@ -265,37 +265,7 @@ const App: FC = () => {
       app_id: params.app_id,
     })
   }
-
-  const onInference = async () => {
-    if(!app) return
-    session.setData(undefined)
-    const sessionChatRequest = {
-      mode: SESSION_MODE_INFERENCE,
-      type: SESSION_TYPE_TEXT,
-      stream: true,
-      legacy: true,
-      app_id: app.id,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [
-            inputValue,
-          ]
-        },
-      }]
-    }
-    loading.setLoading(true)
-    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-    if(!newSessionData) {
-      loading.setLoading(false)
-      return
-    }
-    setInputValue('')
-    session.loadSession(newSessionData.id)
-    loading.setLoading(false)
-  }
-
+  
   const validate = useCallback(() => {
     if (!app) return false;
     if (!name) return false;
@@ -368,34 +338,7 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
-  const validateApiSchemas = (app: IApp): string[] => {
-    const errors: string[] = [];
-    app.config.helix.assistants.forEach((assistant, assistantIndex) => {
-      assistant.tools.forEach((tool, toolIndex) => {
-        if (tool.tool_type === 'api' && tool.config.api) {
-          try {
-            const parsedSchema = parseYaml(tool.config.api.schema);
-            if (!parsedSchema || typeof parsedSchema !== 'object') {
-              errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
-            }
-          } catch (error) {
-            errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
-          }
-        }
-      });
-    });
-    return errors;
-  };
-
-  const validateKnowledge = () => {
-    const hasErrors = knowledgeSources.some(source => 
-      !source.source.web?.urls || source.source.web.urls.length === 0
-    );
-    setKnowledgeErrors(hasErrors);
-    return !hasErrors;
-  };
-
-  const onUpdate = useCallback(async () => {
+  const onSave = useCallback(async () => {
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -489,6 +432,67 @@ const App: FC = () => {
       }
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate]);
+
+  const onInference = async () => {
+    if(!app) return
+    
+    // Save the app before sending the message
+    await onSave();
+    
+    session.setData(undefined)
+    const sessionChatRequest = {
+      mode: SESSION_MODE_INFERENCE,
+      type: SESSION_TYPE_TEXT,
+      stream: true,
+      legacy: true,
+      app_id: app.id,
+      messages: [{
+        role: 'user',
+        content: {
+          content_type: 'text',
+          parts: [
+            inputValue,
+          ]
+        },
+      }]
+    }
+    loading.setLoading(true)
+    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
+    if(!newSessionData) {
+      loading.setLoading(false)
+      return
+    }
+    setInputValue('')
+    session.loadSession(newSessionData.id)
+    loading.setLoading(false)
+  }
+
+  const validateApiSchemas = (app: IApp): string[] => {
+    const errors: string[] = [];
+    app.config.helix.assistants.forEach((assistant, assistantIndex) => {
+      assistant.tools.forEach((tool, toolIndex) => {
+        if (tool.tool_type === 'api' && tool.config.api) {
+          try {
+            const parsedSchema = parseYaml(tool.config.api.schema);
+            if (!parsedSchema || typeof parsedSchema !== 'object') {
+              errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+            }
+          } catch (error) {
+            errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
+          }
+        }
+      });
+    });
+    return errors;
+  };
+
+  const validateKnowledge = () => {
+    const hasErrors = knowledgeSources.some(source => 
+      !source.source.web?.urls || source.source.web.urls.length === 0
+    );
+    setKnowledgeErrors(hasErrors);
+    return !hasErrors;
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -861,16 +865,6 @@ const App: FC = () => {
           >
             Embed
           </Button>
-          <Button
-            sx={{ mr: 2 }}
-            type="button"
-            color="secondary"
-            variant="contained"
-            onClick={ () => onUpdate() }
-            disabled={isReadOnly}
-          >
-            Save
-          </Button>
         </Box>
       )}
     >
@@ -880,7 +874,7 @@ const App: FC = () => {
             <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
               <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
                 <Tab label="Settings" />
-                <Tab label="Knowledge" /> {/* Moved to position 2 */}
+                <Tab label="Knowledge" />
                 <Tab label="Integrations" />
                 <Tab label="GPTScripts" />
                 <Tab label="API Keys" />
@@ -1245,6 +1239,19 @@ const App: FC = () => {
                     </Typography>
                   </Box>
                 )}
+              </Box>
+              
+              {/* Save button placed here, underneath the tab section */}
+              <Box sx={{ mt: 2, pl: 3 }}>
+                <Button
+                  type="button"
+                  color="secondary"
+                  variant="contained"
+                  onClick={ onSave }
+                  disabled={isReadOnly}
+                >
+                  Save
+                </Button>
               </Box>
             </Grid>
             <Grid item xs={12} md={6}
