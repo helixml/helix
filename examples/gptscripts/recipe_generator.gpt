@@ -1,0 +1,5 @@
+name: recipegenerator
+description: Generates a recipe based on the provided ingredients
+args: input: Any string
+
+Generate 1 new recipe based on the ingredients list

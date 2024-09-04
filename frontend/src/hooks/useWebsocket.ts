@@ -15,11 +15,12 @@ export const useWebsocket = (
   const account = useAccount()
 
   useEffect(() => {
+    console.log('useWebsocket', account.token, session_id)
     if(!account.token) return
     if(!session_id) return
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsHost = window.location.host
-    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?access_token=${account.token}&session_id=${session_id}`
+    const url = `${wsProtocol}//${wsHost}/api/v1/ws/user?access_token=${account.tokenUrlEscaped}&session_id=${session_id}`
     const rws = new ReconnectingWebSocket(url)
     const messageHandler = (event: MessageEvent<any>) => {
       const parsedData = JSON.parse(event.data) as IWebsocketEvent

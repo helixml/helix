@@ -180,6 +180,7 @@ class CogInference:
                 # TODO: improve this, by making cog just read the weights from
                 # the filesystem, rather than downloading them
                 apiToken = os.getenv("API_TOKEN")
+                apiTokenEscaped = urllib.parse.quote(apiToken)
                 if apiToken is None:
                     sys.exit("API_TOKEN is not set")
                 if apiToken == "":
@@ -193,7 +194,7 @@ class CogInference:
                 #     /sessions/6af9dcfc-a431-4331-8aca-8ddde090cf30
                 #     /lora/bb9e6395-0df6-4073-8064-0ae759075b2f/trained_model.tar
                 # XXX TODO: maybe we can construct url from session instead, e.g. user etc
-                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar?access_token={apiToken}"
+                self.lora_weights = f"{apiHost}/api/v1/filestore/viewer/{lora_api_path}/trained_model.tar?access_token={apiTokenEscaped}"
 
         print("🟡 Lora weights URL --------------------------------------------------\n")
         print(self.lora_weights)

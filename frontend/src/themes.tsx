@@ -70,7 +70,7 @@ export const THEMES: Record<string, ITheme> = {
     url: 'https://tryhelix.ai/',
     // primary: '#5d5d7b',
     // secondary: '#00d5ff',
-    primary: '#5d5d7b',
+    primary: '#8989a5',
     secondary: '#00d5ff',
     darkIcon: '#5d5d7b',
     darkIconHover: '#00d5ff',
