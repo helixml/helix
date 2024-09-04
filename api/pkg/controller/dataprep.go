@@ -242,7 +242,7 @@ func (c *Controller) getTextFilesToConvert(session *types.Session) ([]string, er
 
 func (c *Controller) getDataPrepFactory() (text.DataPrepTextQuestionGenerator, *text.DataPrepTextSplitter, error) {
 	questionGenerator := text.NewDynamicDataPrep(
-		c.openAIClient,
+		c.dataprepOpenAIClient,
 		c.Options.Config.FineTuning.QAPairGenModel,
 	)
 

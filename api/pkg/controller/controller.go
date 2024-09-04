@@ -25,16 +25,17 @@ import (
 )
 
 type ControllerOptions struct {
-	Config            *config.ServerConfig
-	Store             store.Store
-	PubSub            pubsub.PubSub
-	Extractor         extract.Extractor
-	RAG               rag.RAG
-	GPTScriptExecutor gptscript.Executor
-	Filestore         filestore.FileStore
-	Janitor           *janitor.Janitor
-	Notifier          notification.Notifier
-	OpenAIClient      openai.Client
+	Config               *config.ServerConfig
+	Store                store.Store
+	PubSub               pubsub.PubSub
+	Extractor            extract.Extractor
+	RAG                  rag.RAG
+	GPTScriptExecutor    gptscript.Executor
+	Filestore            filestore.FileStore
+	Janitor              *janitor.Janitor
+	Notifier             notification.Notifier
+	OpenAIClient         openai.Client
+	DataprepOpenAIClient openai.Client
 }
 
 type Controller struct {
@@ -42,7 +43,8 @@ type Controller struct {
 	Options      ControllerOptions
 	ToolsPlanner tools.Planner
 
-	openAIClient openai.Client
+	openAIClient         openai.Client
+	dataprepOpenAIClient openai.Client
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
 
@@ -87,12 +89,13 @@ func NewController(
 	}
 
 	controller := &Controller{
-		Ctx:                 ctx,
-		Options:             options,
-		openAIClient:        options.OpenAIClient,
-		sessionQueue:        []*types.Session{},
-		sessionSummaryQueue: []*types.SessionSummary{},
-		models:              models,
+		Ctx:                  ctx,
+		Options:              options,
+		openAIClient:         options.OpenAIClient,
+		dataprepOpenAIClient: options.DataprepOpenAIClient,
+		sessionQueue:         []*types.Session{},
+		sessionSummaryQueue:  []*types.SessionSummary{},
+		models:               models,
 		newRagClient: func(settings *types.RAGSettings) rag.RAG {
 			return rag.NewLlamaindex(settings)
 		},
