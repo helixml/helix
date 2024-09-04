@@ -1,0 +1,10 @@
+name: uploaded-knowledge
+assistants:
+- name: Helix
+  description: Know
+  knowledge:
+  - name: Honda hornet CB750 manual
+    source:
+      # Files uploaded to Helix filestore will be available in the knowledge base
+      filestore:      
+        path: hornet/
