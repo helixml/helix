@@ -86,6 +86,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Cfg:        cfg,
 		pubsub:     suite.pubsub,
 		Controller: c,
+		Store:      suite.store,
 	}
 }
 
@@ -517,7 +518,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 		},
 	}
 
-	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(2)
 
 	req, err := http.NewRequest("POST", "/v1/chat/completions", bytes.NewBufferString(`{
 		"model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
