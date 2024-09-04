@@ -183,7 +183,7 @@ type Controller struct {
 	// path in the filestore - it is passed Owner and OwnerType values
 	// write me an example FilePrefixUser as a go template
 	// e.g. "users/{{.Owner}}"
-	FilePrefixUser string `envconfig:"FILE_PREFIX_USER" default:"users/{{.Owner}}" description:"The go template that produces the prefix path for a user."`
+	// FilePrefixUser string `envconfig:"FILE_PREFIX_USER" default:"users/{{.Owner}}" description:"The go template that produces the prefix path for a user."`
 
 	// a static path used to denote what sub-folder job results live in
 	FilePrefixResults string `envconfig:"FILE_PREFIX_RESULTS" default:"results" description:"The go template that produces the prefix path for a user."`

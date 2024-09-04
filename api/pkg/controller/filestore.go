@@ -1,12 +1,10 @@
 package controller
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"io"
 	"path/filepath"
-	"text/template"
 
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
@@ -58,28 +56,31 @@ func GetSessionResultsFolder(sessionID string) string {
 
 // apply the user path template so we know what the users prefix actually is
 // then return that path with the requested path appended
-func (c *Controller) getFilestoreUserPrefix(ctx types.OwnerContext) (string, error) {
-	tmpl, err := template.New("user_path").Parse(c.Options.Config.Controller.FilePrefixUser)
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, userPathTemplateData{
-		Owner:     ctx.Owner,
-		OwnerType: ctx.OwnerType,
-	})
-	if err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
+// func (c *Controller) getFilestoreUserPrefix(ctx types.OwnerContext) (string, error) {
+// tmpl, err := template.New("user_path").Parse(c.Options.Config.Controller.FilePrefixUser)
+// if err != nil {
+// 	return "", err
+// }
+// var buf bytes.Buffer
+// err = tmpl.Execute(&buf, userPathTemplateData{
+// 	Owner:     ctx.Owner,
+// 	OwnerType: ctx.OwnerType,
+// })
+// if err != nil {
+// 	return "", err
+// }
+// return buf.String(), nil
+// }
 
 func (c *Controller) GetFilestoreUserPath(ctx types.OwnerContext, path string) (string, error) {
-	userPrefix, err := c.getFilestoreUserPrefix(ctx)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(c.Options.Config.Controller.FilePrefixGlobal, userPrefix, path), nil
+	// userPrefix, err := c.getFilestoreUserPrefix(ctx)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
+
+	return filepath.Join(userPrefix, path), nil
 }
 
 func (c *Controller) VerifySignature(url string) bool {
@@ -130,10 +131,8 @@ func (c *Controller) ensureFilestoreUserPath(ctx types.OwnerContext, path string
 }
 
 func (c *Controller) FilestoreConfig(ctx types.OwnerContext) (filestore.FilestoreConfig, error) {
-	userPrefix, err := c.getFilestoreUserPrefix(ctx)
-	if err != nil {
-		return filestore.FilestoreConfig{}, err
-	}
+	userPrefix := filestore.GetUserPrefix(c.Options.Config.Controller.FilePrefixGlobal, ctx.Owner)
+
 	folders, err := GetFolders()
 	if err != nil {
 		return filestore.FilestoreConfig{}, err
