@@ -29,6 +29,7 @@ import useThemeConfig from '../hooks/useThemeConfig'
 import useWebsocket from '../hooks/useWebsocket'
 
 import {
+  ITool,
   ISession,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
@@ -53,34 +54,28 @@ const Tool: FC = () => {
 
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const [ inputValue, setInputValue ] = useState('')
-  const [ name, setName ] = useState('')
-  const [ description, setDescription ] = useState('')
-  const [ url, setURL ] = useState('')
-  const [ gptScriptURL, setGptScriptURL ] = useState('')
-  const [ gptScript, setGptScript ] = useState('')
-  const [ global, setGlobal ] = useState(false)
-  const [ headers, setHeaders ] = useState<Record<string, string>>({})
-  const [ query, setQuery ] = useState<Record<string, string>>({})
-  const [ schema, setSchema ] = useState('')
   const [ showErrors, setShowErrors ] = useState(false)
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
 
-  const tool = useMemo(() => {
-    return tools.data.find((tool) => tool.id === params.tool_id)
-  }, [
-    tools.data,
-    params,
-  ])
+  const [localTool, setLocalTool] = useState<ITool | null>(null)
+
+  useEffect(() => {
+    const foundTool = tools.data.find((t) => t.id === params.tool_id)
+    if (foundTool && (!localTool || localTool.id !== foundTool.id)) {
+      setLocalTool(foundTool)
+    }
+  }, [tools.data, params.tool_id])
+
+  useEffect(() => {
+    console.log("LocalTool updated:", localTool)
+  }, [localTool])
 
   const readOnly = useMemo(() => {
-    if(!tool) return true
-    if(!tool.global) return false
-    return isAdmin ? false : true
-  }, [
-    tool,
-    isAdmin,
-  ])
+    if (!localTool) return true;
+    if (localTool.global && !isAdmin) return true;
+    return false;
+  }, [localTool, isAdmin]);
 
   const sessionID = useMemo(() => {
     return session.data?.id || ''
@@ -88,95 +83,87 @@ const Tool: FC = () => {
     session.data,
   ])
 
-  // this is for inference in both modes
-  const onInference = async () => {
-    if(!tool) return
-    session.setData(undefined)
-    const formData = new FormData()
-    
-    formData.set('input', inputValue)
-    formData.set('mode', SESSION_MODE_INFERENCE)
-    formData.set('type', SESSION_TYPE_TEXT)
-    formData.set('active_tools', tool.id)
-    formData.set('parent_session', params.tool_id)
+  const handleInputChange = (field: keyof ITool, value: any) => {
+    console.log(`Updating ${String(field)}:`, value)
+    setLocalTool((prev: ITool | null) => {
+      if (!prev) return prev;
+      const updated = { ...prev, [field]: value };
+      console.log("Updated localTool:", updated)
+      return updated;
+    });
+  };
 
-    const newSessionData = await api.post('/api/v1/sessions', formData)
-    if(!newSessionData) return
-    await bluebird.delay(300)
-    setInputValue('')
-    session.loadSession(newSessionData.id)
-  }
+  const handleConfigChange = (field: string, value: any) => {
+    console.log(`Updating config ${field}:`, value)
+    setLocalTool((prev: ITool | null) => {
+      if (!prev) return prev;
+      const newConfig = { ...prev.config };
+      if (prev.tool_type === 'api' && newConfig.api) {
+        newConfig.api = { ...newConfig.api, [field]: value };
+      } else if (prev.tool_type === 'gptscript' && newConfig.gptscript) {
+        newConfig.gptscript = { ...newConfig.gptscript, [field]: value };
+      }
+      const updated = { ...prev, config: newConfig };
+      console.log("Updated localTool config:", updated)
+      return updated;
+    });
+  };
 
   const validate = () => {
-    if(!name) return false
-    if(!description) return false
-    if(tool?.config.api) {
-      if(!url) return false
-      if(!schema) return false
-    } else if(tool?.config.gptscript) {
-      if(!gptScriptURL && !gptScript) return false
+    console.log("Validating tool:", localTool)
+    if (!localTool) return false;
+    if (!localTool.name || !localTool.description) return false;
+    if (localTool.tool_type === 'api') {
+      if (!localTool.config.api?.url || !localTool.config.api?.schema) return false;
+    } else if (localTool.tool_type === 'gptscript') {
+      if (!localTool.config.gptscript?.script_url && !localTool.config.gptscript?.script) return false;
     }
-    return true
-  }
+    return true;
+  };
+
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!account.user) return
+    console.log("Loading tool data")
+    const loadToolData = async () => {
+      if (!hasLoaded) {
+        await tools.loadData()
+        if (mountedRef.current) {
+          console.log("Tool data loaded, setting hasLoaded to true")
+          setHasLoaded(true)
+        }
+      }
+    }
+    loadToolData()
+  }, [account.user, tools, hasLoaded])
 
   const onUpdate = useCallback(async () => {
-    if(!tool) return
-    if(!validate()) {
+    console.log("onUpdate called")
+    console.log("Current localTool state:", localTool)
+    if (!localTool) {
+      console.log("No localTool found")
+      return
+    }
+    if (!validate()) {
+      console.log("Validation failed")
       setShowErrors(true)
       return
     }
     setShowErrors(false)
-    if(tool.config.api) {
-      const newConfig = Object.assign({}, tool.config.api, {
-        url,
-        schema,
-        headers,
-        query,
-      })
-
-      const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
-        name,
-        description,
-        global,
-        config: {
-          api: newConfig,
-        },
-      }))
-
-      if(!result) return
-      snackbar.success('Tool updated')
-      navigate('tools')
-    } else if(tool.config.gptscript) {
-      const newConfig = Object.assign({}, tool.config.gptscript, {
-        script: gptScript,
-        script_url: gptScriptURL,
-      })
-
-      const result = await tools.updateTool(params.tool_id, Object.assign({}, tool, {
-        name,
-        description,
-        global,
-        config: {
-          gptscript: newConfig,
-        },
-      }))
-
-      if(!result) return
-      snackbar.success('Tool updated')
-      navigate('tools')
-    }    
-  }, [
-    tool,
-    name,
-    description,
-    global,
-    url,
-    schema,
-    headers,
-    query,
-    gptScript,
-    gptScriptURL
-  ])
+    console.log("Updating tool:", localTool.id)
+    const result = await tools.updateTool(localTool.id, localTool)
+    console.log("Update result:", result)
+    if (!result || !mountedRef.current) return
+    snackbar.success('Tool updated')
+    navigate('tools')
+  }, [localTool, tools.updateTool, validate, snackbar, navigate, mountedRef])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -189,31 +176,23 @@ const Tool: FC = () => {
     }
   }
 
-  useEffect(() => {
-    if(!account.user) return
-    tools.loadData()
-  }, [
-    account.user,
-  ])
+  const onInference = async () => {
+    if(!localTool) return
+    session.setData(undefined)
+    const formData = new FormData()
+    
+    formData.set('input', inputValue)
+    formData.set('mode', SESSION_MODE_INFERENCE)
+    formData.set('type', SESSION_TYPE_TEXT)
+    formData.set('active_tools', localTool.id)
+    formData.set('parent_session', localTool.id)
 
-  useEffect(() => {
-    if(!tool) return
-    setName(tool.name)
-    setDescription(tool.description)
-    setGlobal(tool.global)
-    if(tool.config.api) {
-      setURL(tool.config.api.url)
-      setSchema(tool.config.api.schema)
-      setHeaders(tool.config.api.headers)
-      setQuery(tool.config.api.query)
-    } else if(tool.config.gptscript) {
-      setGptScriptURL(tool.config.gptscript.script_url || '')
-      setGptScript(tool.config.gptscript.script || '')
-    }
-    setHasLoaded(true)
-  }, [
-    tool,
-  ])
+    const newSessionData = await api.post('/api/v1/sessions', formData)
+    if(!newSessionData) return
+    await bluebird.delay(300)
+    setInputValue('')
+    session.loadSession(newSessionData.id)
+  }
 
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
@@ -223,7 +202,7 @@ const Tool: FC = () => {
   })
 
   if(!account.user) return null
-  if(!tool) return null
+  if(!localTool) return null
   if(!hasLoaded) return null
 
   return (
@@ -253,7 +232,7 @@ const Tool: FC = () => {
             type="button"
             color="secondary"
             variant="contained"
-            onClick={ () => onUpdate() }
+            onClick={onUpdate}
           >
             Save
           </Button>
@@ -284,10 +263,10 @@ const Tool: FC = () => {
                 sx={{
                   mb: 3,
                 }}
-                error={ showErrors && !name }
-                value={ name }
+                error={ showErrors && !localTool?.name }
+                value={ localTool?.name || '' }
                 disabled={readOnly}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => handleInputChange('name', e.target.value)}
                 fullWidth
                 label="Name"
                 helperText="Please enter a Name"
@@ -296,8 +275,8 @@ const Tool: FC = () => {
                 sx={{
                   mb: 1,
                 }}
-                value={ description }
-                onChange={(e) => setDescription(e.target.value)}
+                value={ localTool?.description || '' }
+                onChange={(e) => handleInputChange('description', e.target.value)}
                 disabled={readOnly}
                 fullWidth
                 multiline
@@ -306,13 +285,13 @@ const Tool: FC = () => {
                 helperText="Enter a description of this tool (optional)"
               />
               {
-                (account.admin || tool.global) && (
+                (account.admin || localTool.global) && (
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={global}
+                        checked={localTool.global}
                         disabled={readOnly}
-                        onChange={(e) => setGlobal(e.target.checked)}
+                        onChange={(e) => handleInputChange('global', e.target.checked)}
                       />
                     }
                     label="Global?"
@@ -320,7 +299,7 @@ const Tool: FC = () => {
                 )
               }
               {
-                tool.config.api && (
+                localTool.tool_type === 'api' && (
                   <>
                     <Typography variant="h6" sx={{mb: 1}}>
                       API Specification
@@ -329,25 +308,25 @@ const Tool: FC = () => {
                       sx={{
                         mb: 3,
                       }}
-                      error={ showErrors && !url }
-                      value={ url }
-                      onChange={(e) => setURL(e.target.value)}
+                      error={ showErrors && !localTool?.config.api?.url }
+                      value={ localTool?.config.api?.url || '' }
+                      onChange={(e) => handleConfigChange('url', e.target.value)}
                       disabled={readOnly}
                       fullWidth
                       label="Endpoint URL"
                       placeholder="Enter API URL"
-                      helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
+                      helperText={ showErrors && !localTool?.config.api?.url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
                     />
                     <TextField
-                      error={ showErrors && !schema }
-                      value={ schema }
-                      onChange={(e) => setSchema(e.target.value)}
+                      error={ showErrors && !localTool?.config.api?.schema }
+                      value={ localTool?.config.api?.schema || '' }
+                      onChange={(e) => handleConfigChange('schema', e.target.value)}
                       disabled={readOnly}
                       fullWidth
                       multiline
                       rows={10}
                       label="OpenAPI (Swagger) schema"
-                      helperText={ showErrors && !schema ? "Please enter a schema" : "" }
+                      helperText={ showErrors && !localTool?.config.api?.schema ? "Please enter a schema" : "" }
                     />
                     <Box
                       sx={{
@@ -375,8 +354,8 @@ const Tool: FC = () => {
                       <StringMapEditor
                         entityTitle="header"
                         disabled={readOnly}
-                        data={ headers }
-                        onChange={ setHeaders }
+                        data={ localTool?.config.api?.headers || {} }
+                        onChange={ (headers) => handleConfigChange('headers', headers) }
                       />
                     </Box>
                     <Box
@@ -390,12 +369,12 @@ const Tool: FC = () => {
                       <StringMapEditor
                         entityTitle="query param"
                         disabled={readOnly}
-                        data={ query }
-                        onChange={ setQuery }
+                        data={ localTool?.config.api?.query || {} }
+                        onChange={ (query) => handleConfigChange('query', query) }
                       />
                     </Box>
                     {
-                      tool.config.api && (
+                      localTool?.config.api && (
                         <Box
                           sx={{
                             mb: 3,
@@ -405,7 +384,7 @@ const Tool: FC = () => {
                             Actions
                           </Typography>
                           <ToolActionsGrid
-                            data={ tool.config.api.actions }
+                            data={ localTool.config.api.actions }
                           />  
                         </Box>
                       )
@@ -414,7 +393,7 @@ const Tool: FC = () => {
                 )
               }
               {
-                tool.config.gptscript && (
+                localTool.tool_type === 'gptscript' && (
                   <>
                     <Typography variant="h6" sx={{mb: 1}}>
                       GPTScript
@@ -423,24 +402,25 @@ const Tool: FC = () => {
                       sx={{
                         mb: 3,
                       }}
-                      error={ showErrors && !gptScriptURL && !gptScript }
-                      value={ gptScriptURL }
-                      onChange={(e) => setGptScriptURL(e.target.value)}
+                      error={ showErrors && !localTool?.config.gptscript?.script_url && !localTool?.config.gptscript?.script }
+                      value={ localTool?.config.gptscript?.script_url || '' }
+                      onChange={(e) => handleConfigChange('script_url', e.target.value)}
                       disabled={readOnly}
                       fullWidth
                       label="Script URL"
                       placeholder="Enter Script URL"
-                      helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
+                      helperText={ showErrors && !localTool?.config.gptscript?.script_url && !localTool?.config.gptscript?.script ? "Please enter a script URL or script" : "" }
                     />
                     <TextField
-                      error={ showErrors && !gptScriptURL && !gptScript }
-                      value={ gptScript }
-                      onChange={(e) => setGptScript(e.target.value)}
+                      error={ showErrors && !localTool?.config.gptscript?.script_url && !localTool?.config.gptscript?.script }
+                      value={ localTool?.config.gptscript?.script || '' }
+                      onChange={(e) => handleConfigChange('script', e.target.value)}
                       disabled={readOnly}
                       fullWidth
                       multiline
                       rows={10}
                       label="GPT Script"
+                      helperText={ showErrors && !localTool?.config.gptscript?.script_url && !localTool?.config.gptscript?.script ? "Please enter a script URL or script" : "" }
                     />
                   </>
                 )
@@ -555,13 +535,13 @@ const Tool: FC = () => {
               }}
             >
               <TextField
-                error={showErrors && !schema}
-                value={schema}
-                onChange={(e) => setSchema(e.target.value)}
+                error={showErrors && !localTool?.config.api?.schema}
+                value={localTool?.config.api?.schema || ''}
+                onChange={(e) => handleConfigChange('schema', e.target.value)}
                 fullWidth
                 multiline
                 label="OpenAPI (Swagger) schema"
-                helperText={showErrors && !schema ? "Please enter a schema" : ""}
+                helperText={showErrors && !localTool?.config.api?.schema ? "Please enter a schema" : ""}
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>

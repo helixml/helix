@@ -20,6 +20,8 @@ import useThemeConfig from '../../hooks/useThemeConfig'
 
 import {
   IApp,
+  APP_SOURCE_GITHUB,
+  APP_SOURCE_HELIX,
 } from '../../types'
 
 import {
@@ -28,6 +30,9 @@ import {
   getAppName,
   getAppDescription,
 } from '../../utils/apps'
+
+// Import the Helix icon
+import HelixIcon from '../../../assets/img/logo.png'
 
 const AppsDataGrid: FC<React.PropsWithChildren<{
   data: IApp[],
@@ -89,9 +94,9 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
 
       const apisElem = apiTools.length > 0 ? (
         <>
-          <Box sx={{mb: 2}}>
+          <Box sx={{mt: 2, mb: 2}}>
             <Typography variant="body1" gutterBottom sx={{fontWeight: 'bold', textDecoration: 'underline'}}>
-              APIs
+              API Tools
             </Typography>
           </Box>
           {
@@ -119,7 +124,11 @@ const AppsDataGrid: FC<React.PropsWithChildren<{
         name: (
           <Row>
             <Cell sx={{pr: 2,}}>
-              <GitHubIcon />
+              {app.app_source === APP_SOURCE_GITHUB ? (
+                <GitHubIcon />
+              ) : (
+                <img src={HelixIcon} alt="Helix" style={{ width: '24px', height: '24px' }} />
+              )}
             </Cell>
             <Cell grow>
               <Typography variant="body1">

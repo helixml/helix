@@ -340,28 +340,6 @@ export const CreateAppWindow: FC<{
           ) 
         }
 
-        {/* <TextField
-          sx={{
-            mb: 2,
-          }}
-          error={ showErrors && !url }
-          value={ url }
-          onChange={(e) => setURL(e.target.value)}
-          fullWidth
-          label="Endpoint URL"
-          placeholder="https://api.example.com/v1/"
-          helperText={ showErrors && !url ? "Please enter a URL" : "URL should be in the format: https://api.example.com/v1/endpoint" }
-        />
-        <TextField
-          error={ showErrors && !schema }
-          value={ schema }
-          onChange={(e) => setSchema(e.target.value)}
-          fullWidth
-          multiline
-          rows={10}
-          label="OpenAPI (Swagger) schema"
-          helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-        /> */}
       </Box>
     </Window>
   )  

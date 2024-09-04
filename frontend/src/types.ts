@@ -243,7 +243,6 @@ export interface IBotForm {
 }
 
 export interface IBotConfig {
-
 }
 
 export interface IBot {
@@ -445,6 +444,9 @@ export interface IToolApiConfig {
   actions: IToolApiAction[],
   headers: Record<string, string>,
   query: Record<string, string>,
+  request_prep_template?: string,
+  response_success_template?: string,
+  response_error_template?: string,
 }
 
 export interface IToolGptScriptConfig {
@@ -472,8 +474,8 @@ export interface ITool {
 
 export interface IKeyPair {
 	type: string,
-  privateKey: string,
-  publicKey: string,
+  private_key: string,
+  public_key: string,
 }
 
 export interface IAppHelixConfigGptScript {
@@ -507,25 +509,75 @@ export interface IAssistantGPTScript {
 }
 
 export interface IAssistantConfig {
-  id?: string,
-  name: string,
-  description: string,
-  avatar: string,
-  image: string,
-  model: string,
-  type: ISessionType,
-  system_prompt: string,
-  apis: IAssistantApi[],
-  gptscripts: IAssistantGPTScript[],
-  tools: ITool[],
+  id?: string;
+  name: string;
+  description: string;
+  avatar: string;
+  image: string;
+  model: string;
+  type: ISessionType; // Make sure this is explicitly ISessionType
+  system_prompt: string;
+  rag_source_id: string;
+  lora_id: string;
+  is_actionable_template: string;
+  apis: IAssistantApi[];
+  gptscripts: IAssistantGPTScript[];
+  tools: ITool[];
+  knowledge?: IKnowledgeSource[];
 }
 
+export interface IKnowledgeSource {
+  name: string;
+  description?: string;
+  rag_settings: {
+    results_count: number;
+    chunk_size: number;
+  };
+  source: {
+    helix_drive?: {
+      path: string;
+    };
+    s3?: {
+      bucket: string;
+      path: string;
+    };
+    gcs?: {
+      bucket: string;
+      path: string;
+    };
+    web?: {
+      urls: string[];
+      excludes?: string[];
+      auth?: {
+        username: string;
+        password: string;
+      };
+      crawler?: {
+        firecrawl?: {
+          api_key: string;
+          api_url: string;
+        };
+        enabled: boolean;
+        max_depth?: number;
+        user_agent?: string;
+      };
+    };
+    text?: string;
+  };
+  refresh_enabled?: boolean;
+  refresh_schedule?: string;
+}
+
+
 export interface IAppHelixConfig {
-  name?: string,
-  description?: string,
-  avatar?: string,
-  image?: string,
-  assistants: IAssistantConfig[],  
+  name: string;
+  description: string;
+  avatar?: string;
+  image?: string;
+  assistants: IAssistantConfig[];
+  // TODO: add triggers
+  external_url: string;
+  // Add any other properties that might be part of the helix config
 }
 
 export interface IAppGithubConfigUpdate {
@@ -533,7 +585,7 @@ export interface IAppGithubConfigUpdate {
   hash: string,
   error: string,
 }
-
+ 
 export interface IAppGithubConfig {
   repo: string,
   hash: string,
@@ -542,31 +594,36 @@ export interface IAppGithubConfig {
 }
 
 export interface IAppConfig {
-  helix: IAppHelixConfig,
-  github?: IAppGithubConfig,
-  secrets: Record<string, string>,
-  allowed_domains: string[],
+  helix: IAppHelixConfig;
+  github?: IAppGithubConfig;
+  secrets: Record<string, string>;
+  allowed_domains: string[];
 }
 
 export interface IApp {
   id: string,
-  created: Date,
-  updated: Date,
-  owner: string,
-  owner_type: IOwnerType,
-  app_source: IAppSource,
-  config: IAppConfig,
-  global: boolean,
-  shared: boolean,
+  config: IAppConfig;
+  shared: boolean;
+  global: boolean;
+  created: Date;
+  updated: Date;
+  owner: string;
+  owner_type: IOwnerType;
+  app_source: IAppSource;
 }
 
 export interface IAppUpdate {
-  name: string,
-  description: string,
-  secrets: Record<string, string>,
-  allowed_domains: string[],
-  global: boolean,
-  shared: boolean,
+  id: string;
+  config: {
+    helix: IAppHelixConfig;
+    secrets: Record<string, string>;
+    allowed_domains: string[];
+    github?: IAppGithubConfig;
+  };
+  shared: boolean;
+  global: boolean;
+  owner: string;
+  owner_type: IOwnerType;
 }
 
 export interface IGithubStatus {
@@ -679,6 +736,13 @@ export interface IPageBreadcrumb {
   title: string,
   routeName?: string,
   params?: Record<string, any>,
+}
+
+// Add this interface near the top of the file, with other interfaces
+export interface IApiOptions {
+  snackbar?: boolean;
+  errorCapture?: (error: any) => void;
+  signal?: AbortSignal;
 }
 
 export interface LLMCall {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -87,9 +88,14 @@ func (s *HelixAPIServer) listApps(_ http.ResponseWriter, r *http.Request) ([]*ty
 // @Security BearerAuth
 func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*types.App, *system.HTTPError) {
 	var app types.App
-	err := json.NewDecoder(r.Body).Decode(&app)
+	body, err := io.ReadAll(r.Body)
+	// log.Info().Msgf("createApp body: %s", string(body))
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to read request body, error: %s", err)
+	}
+	err = json.Unmarshal(body, &app)
+	if err != nil {
+		return nil, system.NewHTTPError400("failed to decode request body 1, error: %s, body: %s", err, string(body))
 	}
 
 	user := getRequestUser(r)
@@ -323,7 +329,7 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 	var update types.App
 	err := json.NewDecoder(r.Body).Decode(&update)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to decode request body 2, error: %s", err)
 	}
 
 	// Getting existing app
@@ -400,7 +406,7 @@ func (s *HelixAPIServer) updateGithubApp(_ http.ResponseWriter, r *http.Request)
 	var appUpdate AppUpdatePayload
 	err := json.NewDecoder(r.Body).Decode(&appUpdate)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to decode request body 3, error: %s", err)
 	}
 
 	if appUpdate.ActiveTools == nil {
@@ -569,7 +575,7 @@ func (s *HelixAPIServer) appRunScript(w http.ResponseWriter, r *http.Request) (*
 	var req types.GptScriptRequest
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		return nil, system.NewHTTPError400("failed to decode request body, error: %s", err)
+		return nil, system.NewHTTPError400("failed to decode request body 4, error: %s", err)
 	}
 
 	envPairs := []string{}

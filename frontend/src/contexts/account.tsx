@@ -26,6 +26,7 @@ export interface IAccountContext {
   admin: boolean,
   user?: IKeycloakUser,
   token?: string,
+  tokenUrlEscaped?: string,
   loggingOut?: boolean,
   serverConfig: IServerConfig,
   userConfig: IUserConfig,
@@ -102,17 +103,19 @@ export const useAccountContext = (): IAccountContext => {
   }, [])
 
   const token = useMemo(() => {
-    if(apiKeys && apiKeys.length > 0) {
-      return apiKeys[0].key
-    } else if(user && user.token) {
+    if(user && user.token) {
       return user.token
     } else {
       return ''
     }
   }, [
     user,
-    apiKeys,
   ])
+
+  const tokenUrlEscaped = useMemo(() => {
+    if (!token) return '';
+    return encodeURIComponent(token);
+  }, [token]);
 
   const loadStatus = useCallback(async () => {
     const statusResult = await api.get('/api/v1/status')
@@ -255,6 +258,7 @@ export const useAccountContext = (): IAccountContext => {
     initialized,
     user,
     token,
+    tokenUrlEscaped,
     admin,
     loggingOut,
     serverConfig,
