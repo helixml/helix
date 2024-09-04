@@ -9,6 +9,9 @@ import Switch from '@mui/material/Switch'
 import Container from '@mui/material/Container'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
+import TextField from '@mui/material/TextField'
+import IconButton from '@mui/material/IconButton'
+import ClearIcon from '@mui/icons-material/Clear'
 
 import Page from '../components/system/Page'
 import Interaction from '../components/session/Interaction'
@@ -44,10 +47,12 @@ const Dashboard: FC = () => {
   const [ active, setActive ] = useState(START_ACTIVE)
   const [ data, setData ] = useState<IDashboardData>()
   const [ activeTab, setActiveTab ] = useState(0)
+  const [ sessionFilter, setSessionFilter ] = useState('')
 
   const {
     session_id,
     tab,
+    filter_sessions,
   } = router.params
 
   const onViewSession = useCallback((session_id: string) => {
@@ -102,6 +107,12 @@ const Dashboard: FC = () => {
     }
   }, [tab])
 
+  useEffect(() => {
+    if (filter_sessions) {
+      setSessionFilter(filter_sessions)
+    }
+  }, [filter_sessions])
+
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue)
     if (newValue === 1) {
@@ -109,6 +120,21 @@ const Dashboard: FC = () => {
     } else {
       router.removeParams(['tab'])
     }
+  }
+
+  const handleFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newFilter = event.target.value
+    setSessionFilter(newFilter)
+    if (newFilter) {
+      router.setParams({ filter_sessions: newFilter })
+    } else {
+      router.removeParams(['filter_sessions'])
+    }
+  }
+
+  const clearFilter = () => {
+    setSessionFilter('')
+    router.removeParams(['filter_sessions'])
   }
 
   if(!account.user) return null
@@ -289,9 +315,25 @@ const Dashboard: FC = () => {
           <Box
             sx={{
               width: '100%',
+              height: 'calc(200vh - 200px)',
+              overflow: 'auto',
             }}
           >
-            <LLMCallsTable />
+            <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+              <TextField
+                label="Filter by Session ID"
+                variant="outlined"
+                value={sessionFilter}
+                onChange={handleFilterChange}
+                sx={{ flexGrow: 1, mr: 1 }}
+              />
+              {sessionFilter && (
+                <IconButton onClick={clearFilter} size="small">
+                  <ClearIcon />
+                </IconButton>
+              )}
+            </Box>
+            <LLMCallsTable sessionFilter={sessionFilter} />
           </Box>
         )}
 

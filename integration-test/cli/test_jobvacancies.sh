@@ -65,7 +65,7 @@ run_test() {
       }")
 
     local session_id=$(echo "$result" | jq -r '.id')
-    local dashboard_link="${HELIX_URL}/dashboard?filter_sessions=${session_id}"
+    local dashboard_link="${HELIX_URL}/dashboard?tab=llm_calls&filter_sessions=${session_id}"
 
     if echo "$result" | grep -q "Human Resources Manager"; then
         echo -e "\xE2\x9C\x85 Test passed"
