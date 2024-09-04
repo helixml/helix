@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
@@ -18,7 +19,7 @@ func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([
 	case k.Source.Filestore != nil:
 		return r.extractDataFromHelixFilestore(ctx, k)
 	default:
-		return nil, fmt.Errorf("unknown source")
+		return nil, fmt.Errorf("unknown source: %+v", k.Source)
 	}
 }
 
@@ -152,7 +153,7 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 }
 
 func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
-	data, err := getFilestoreFiles(ctx, r.filestore, k)
+	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get filestore files: %w", err)
 	}
@@ -164,7 +165,7 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 	return data, nil
 }
 
-func getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
+func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
 	var result []*indexerData
 
 	var recursiveList func(path string) error
@@ -201,7 +202,13 @@ func getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Kno
 		return nil
 	}
 
-	err := recursiveList(k.Source.Filestore.Path)
+	userPrefix := filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, k.Owner)
+
+	path := filepath.Join(userPrefix, k.Source.Filestore.Path)
+
+	fmt.Println("filestore path", path)
+
+	err := recursiveList(path)
 	if err != nil {
 		return nil, err
 	}
