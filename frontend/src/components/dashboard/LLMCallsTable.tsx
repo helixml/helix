@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { FC, useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -18,13 +18,17 @@ import useApi from '../../hooks/useApi';
 import { PaginatedLLMCalls, LLMCall } from '../../types';
 import JsonView from '../widgets/JsonView';
 
-const LLMCallsTable: React.FC = () => {
+interface LLMCallsTableProps {
+  sessionFilter: string;
+}
+
+const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
+  const api = useApi();
   const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const api = useApi();
 
   const fetchLLMCalls = async () => {
     try {
@@ -63,6 +67,10 @@ const LLMCallsTable: React.FC = () => {
 
   if (!llmCalls) return null;
 
+  const filteredCalls = llmCalls.calls.filter(call => 
+    sessionFilter ? call.session_id.includes(sessionFilter) : true
+  );
+
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
@@ -89,7 +97,7 @@ const LLMCallsTable: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {llmCalls.calls.map((call: LLMCall) => (
+            {filteredCalls.map((call: LLMCall) => (
               <TableRow key={call.id}>
                 <TableCell>{call.id}</TableCell>
                 <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
