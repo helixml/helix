@@ -94,7 +94,11 @@ func (c *HelixClient) makeRequest(method, path string, body io.Reader, v interfa
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status code %d", resp.StatusCode)
+		bts, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("status code %d", resp.StatusCode)
+		}
+		return fmt.Errorf("status code %d (%s)", resp.StatusCode, string(bts))
 	}
 
 	if v != nil {
