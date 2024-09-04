@@ -1,11 +1,13 @@
 import React, { FC, useState, useEffect } from 'react';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import FormControlLabel from '@mui/material/FormControlLabel';
-import Checkbox from '@mui/material/Checkbox';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Grid from '@mui/material/Grid';
+import Accordion from '@mui/material/Accordion';
+import AccordionSummary from '@mui/material/AccordionSummary';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 import StringMapEditor from './widgets/StringMapEditor';
 import JsonWindowLink from './widgets/JsonWindowLink';
@@ -26,7 +28,6 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
 
   const [name, setName] = useState(initialData.name || '');
   const [description, setDescription] = useState(initialData.description || '');
-  const [global, setGlobal] = useState(initialData.global || false);
   const [url, setURL] = useState(initialData.config.api?.url || '');
   const [gptScriptURL, setGptScriptURL] = useState(initialData.config.gptscript?.script_url || '');
   const [gptScript, setGptScript] = useState(initialData.config.gptscript?.script || '');
@@ -46,7 +47,6 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
     if (initialData) {
       setName(initialData.name || '');
       setDescription(initialData.description || '');
-      setGlobal(initialData.global || false);
       if (initialData.config.api) {
         setURL(initialData.config.api.url || '');
         setSchema(initialData.config.api.schema || '');
@@ -87,7 +87,6 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
       ...initialData,
       name,
       description,
-      global,
       config: initialData.tool_type === 'api'
         ? {
             api: {
@@ -145,18 +144,6 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
             id="tool-description"
             name="tool-description"
             disabled={isReadOnly}
-          />
-        </Grid>
-        <Grid item xs={12}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={global}
-                onChange={(e) => setGlobal(e.target.checked)}
-                disabled={isReadOnly}
-              />
-            }
-            label="Global"
           />
         </Grid>
         {initialData.config.api ? (
@@ -245,7 +232,6 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
               />
             </Grid>
             <Grid item xs={12}>
-              <Typography variant="subtitle1">Actions</Typography>
               {actions.map((action, index) => (
                 <Box key={index} sx={{ mb: 2 }}>
                   <TextField
@@ -293,100 +279,76 @@ const ToolEditor: FC<ToolEditorProps> = ({ initialData, onSave, onCancel, isRead
                   />
                 </Box>
               ))}
-              <Button
-                variant="outlined"
-                onClick={() => setActions([...actions, { name: '', description: '', method: '', path: '' }])}
-                disabled={isReadOnly}
-              >
-                Add Action
-              </Button>
             </Grid>
             <Grid item xs={12}>
-              <TextField
-                value={requestPrepTemplate}
-                onChange={(e) => setRequestPrepTemplate(e.target.value)}
-                label="Request Prep Template"
-                fullWidth
-                multiline
-                rows={4}
-                disabled={isReadOnly}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                value={responseSuccessTemplate}
-                onChange={(e) => setResponseSuccessTemplate(e.target.value)}
-                label="Response Success Template"
-                fullWidth
-                multiline
-                rows={4}
-                disabled={isReadOnly}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                value={responseErrorTemplate}
-                onChange={(e) => setResponseErrorTemplate(e.target.value)}
-                label="Response Error Template"
-                fullWidth
-                multiline
-                rows={4}
-                disabled={isReadOnly}
-              />
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography>Advanced Template Settings</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <TextField
+                    value={requestPrepTemplate}
+                    onChange={(e) => setRequestPrepTemplate(e.target.value)}
+                    label="Request Prep Template"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    disabled={isReadOnly}
+                    sx={{ mb: 2 }}
+                  />
+                  <TextField
+                    value={responseSuccessTemplate}
+                    onChange={(e) => setResponseSuccessTemplate(e.target.value)}
+                    label="Response Success Template"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    disabled={isReadOnly}
+                    sx={{ mb: 2 }}
+                  />
+                  <TextField
+                    value={responseErrorTemplate}
+                    onChange={(e) => setResponseErrorTemplate(e.target.value)}
+                    label="Response Error Template"
+                    fullWidth
+                    multiline
+                    rows={4}
+                    disabled={isReadOnly}
+                  />
+                </AccordionDetails>
+              </Accordion>
             </Grid>
           </>
         ) : (
           <>
             <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={useScriptUrl}
-                    onChange={(e) => {
-                      setUseScriptUrl(e.target.checked);
-                      if (e.target.checked) {
-                        setGptScript('');
-                      } else {
-                        setGptScriptURL('');
-                      }
-                    }}
-                    disabled={isReadOnly}
-                  />
-                }
-                label="Use Script URL"
+              <TextField
+                value={gptScriptURL}
+                onChange={(e) => setGptScriptURL(e.target.value)}
+                label="Script URL"
+                fullWidth
+                id="tool-script-url"
+                name="tool-script-url"
+                error={showErrors && !gptScriptURL}
+                helperText={showErrors && !gptScriptURL ? 'Please enter a script URL' : ''}
+                disabled={isReadOnly}
               />
             </Grid>
-            {useScriptUrl ? (
-              <Grid item xs={12}>
-                <TextField
-                  value={gptScriptURL}
-                  onChange={(e) => setGptScriptURL(e.target.value)}
-                  label="Script URL"
-                  fullWidth
-                  id="tool-script-url"
-                  name="tool-script-url"
-                  error={showErrors && !gptScriptURL}
-                  helperText={showErrors && !gptScriptURL ? 'Please enter a script URL' : ''}
-                  disabled={isReadOnly}
-                />
-              </Grid>
-            ) : (
-              <Grid item xs={12}>
-                <TextField
-                  value={gptScript}
-                  onChange={(e) => setGptScript(e.target.value)}
-                  label="Script"
-                  fullWidth
-                  multiline
-                  rows={10}
-                  id="tool-script"
-                  name="tool-script"
-                  error={showErrors && !gptScript}
-                  helperText={showErrors && !gptScript ? 'Please enter a script' : ''}
-                  disabled={isReadOnly}
-                />
-              </Grid>
-            )}
+            <Grid item xs={12}>
+              <TextField
+                value={gptScript}
+                onChange={(e) => setGptScript(e.target.value)}
+                label="Script"
+                fullWidth
+                multiline
+                rows={10}
+                id="tool-script"
+                name="tool-script"
+                error={showErrors && !gptScript}
+                helperText={showErrors && !gptScript ? 'Please enter a script' : ''}
+                disabled={isReadOnly}
+              />
+            </Grid>
           </>
         )}
       </Grid>
