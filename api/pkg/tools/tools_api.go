@@ -282,6 +282,27 @@ Examples:
 }
 ` + "```" + `
 
+**User Input:** What job is Marcus applying for?
+**OpenAPI schema path:** /jobvacancies/v1/list
+**OpenAPI schema parameters:** [
+	{
+		"in": "query",
+		"name": "candidate_name",
+		"schema": {
+			"type": "string"
+		},
+		"required": false,
+		"description": "Filter vacancies by candidate name"
+	}
+]
+**Verdict:** response should be:
+
+` + "```" + `json
+{
+  "candidate_name": "Marcus"
+}
+` + "```" + `
+
 **User Input:** List all users with status "active"
 **OpenAPI schema path:** /users/findByStatus 
 **OpenAPI schema parameters:** [
@@ -294,7 +315,7 @@ Examples:
 		"items": {
 			"type": "string",
 			"enum": ["active", "pending", "sold"],
-			"default": "available"
+			"default": "active"
 		}		
 	}
 ]
@@ -322,7 +343,7 @@ OpenAPI schema:
 
 ===END OPENAPI SCHEMA===
 
-Based on conversation below, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out.
+Based on conversation below, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out. Do not pass parameters as null, instead just don't include them.
 ONLY use search parameters from the user messages below - do NOT use search parameters provided in the examples.
 `
 
