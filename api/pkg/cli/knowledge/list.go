@@ -59,6 +59,8 @@ var listCmd = &cobra.Command{
 				sourceStr = "plain_content"
 			case k.Source.Web != nil:
 				sourceStr = "web"
+			case k.Source.Filestore != nil:
+				sourceStr = "filestore"
 			}
 
 			var stateStr string
