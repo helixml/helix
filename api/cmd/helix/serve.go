@@ -236,6 +236,12 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
+	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
+	if err != nil {
+		return err
+	}
+	dataprepOpenAIClient = logger.Wrap(cfg, dataprepOpenAIClient, logStores...)
+
 	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
 		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
 		QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
@@ -245,16 +251,17 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	var appController *controller.Controller
 
 	controllerOptions := controller.ControllerOptions{
-		Config:            cfg,
-		Store:             store,
-		PubSub:            ps,
-		RAG:               llamaindexRAG,
-		Extractor:         textExtractor,
-		GPTScriptExecutor: gse,
-		Filestore:         fs,
-		Janitor:           janitor,
-		Notifier:          notifier,
-		OpenAIClient:      controllerOpenAIClient,
+		Config:               cfg,
+		Store:                store,
+		PubSub:               ps,
+		RAG:                  llamaindexRAG,
+		Extractor:            textExtractor,
+		GPTScriptExecutor:    gse,
+		Filestore:            fs,
+		Janitor:              janitor,
+		Notifier:             notifier,
+		OpenAIClient:         controllerOpenAIClient,
+		DataprepOpenAIClient: dataprepOpenAIClient,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
