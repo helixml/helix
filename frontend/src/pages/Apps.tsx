@@ -30,6 +30,17 @@ const Apps: FC = () => {
 
   const [ deletingApp, setDeletingApp ] = useState<IApp>()
 
+  const onCreateNewApp = useCallback(() => {
+    if (!account.user) {
+      account.setShowLoginWindow(true)
+      return
+    }
+
+    navigate('app', {
+      app_id: 'new',
+    })
+  }, [account.user, account.setShowLoginWindow, navigate])
+
   const onConnectRepo = useCallback(async (repo: string) => {
     const newApp = await apps.createGithubApp(repo)
     if(!newApp) return false
@@ -97,19 +108,29 @@ const Apps: FC = () => {
       topbarContent={(
         <div>
           <Button
-              id="new-app-button"
-              variant="contained"
-              color="secondary"
-              endIcon={<AddIcon />}
-              onClick={ () => {
-                if(!account.user) {
-                  account.setShowLoginWindow(true)
-                  return false
-                }
-                setParams({add_app: 'true'})
-              }}
-            >
-              New App
+            id="new-app-button"
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={onCreateNewApp}
+            sx={{ mr: 2 }}
+          >
+            New App
+          </Button>
+          <Button
+            id="connect-repo-button"
+            variant="contained"
+            color="secondary"
+            endIcon={<AddIcon />}
+            onClick={ () => {
+              if(!account.user) {
+                account.setShowLoginWindow(true)
+                return false
+              }
+              setParams({add_app: 'true'})
+            }}
+          >
+            Connect Repo
           </Button>
         </div>
       )}

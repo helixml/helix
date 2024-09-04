@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { FC, useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -18,17 +18,27 @@ import useApi from '../../hooks/useApi';
 import { PaginatedLLMCalls, LLMCall } from '../../types';
 import JsonView from '../widgets/JsonView';
 
-const LLMCallsTable: React.FC = () => {
+interface LLMCallsTableProps {
+  sessionFilter: string;
+}
+
+const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
+  const api = useApi();
   const [llmCalls, setLLMCalls] = useState<PaginatedLLMCalls | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [modalContent, setModalContent] = useState<any>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const api = useApi();
 
   const fetchLLMCalls = async () => {
     try {
-      const data = await api.get<PaginatedLLMCalls>(`/api/v1/llm_calls?page=${page + 1}&pageSize=${rowsPerPage}`);
+      const queryParams = new URLSearchParams({
+        page: (page + 1).toString(),
+        pageSize: rowsPerPage.toString(),
+        sessionFilter: sessionFilter,
+      }).toString();
+
+      const data = await api.get<PaginatedLLMCalls>(`/api/v1/llm_calls?${queryParams}`);
       setLLMCalls(data);
     } catch (error) {
       console.error('Error fetching LLM calls:', error);
@@ -37,7 +47,7 @@ const LLMCallsTable: React.FC = () => {
 
   useEffect(() => {
     fetchLLMCalls();
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, sessionFilter]);
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -71,7 +81,7 @@ const LLMCallsTable: React.FC = () => {
           Refresh
         </Button>
       </Box>
-      <TableContainer sx={{ maxHeight: 440 }}>
+      <TableContainer>
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>

@@ -117,7 +117,7 @@ type Store interface {
 	DeleteScriptRun(ctx context.Context, id string) error
 
 	CreateLLMCall(ctx context.Context, call *types.LLMCall) (*types.LLMCall, error)
-	ListLLMCalls(ctx context.Context, page, pageSize int) ([]*types.LLMCall, int64, error)
+	ListLLMCalls(ctx context.Context, page, pageSize int, sessionFilter string) ([]*types.LLMCall, int64, error)
 }
 
 var ErrNotFound = errors.New("not found")

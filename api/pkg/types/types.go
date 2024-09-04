@@ -925,7 +925,7 @@ const (
 
 type AssistantGPTScript struct {
 	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"`
+	Description string `json:"description" yaml:"description"` // When to use this tool (required)
 	File        string `json:"file" yaml:"file"`
 	Content     string `json:"content" yaml:"content"`
 }

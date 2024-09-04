@@ -90,7 +90,7 @@ const JsonWindow: FC<React.PropsWithChildren<JsonWindowProps>> = ({
         >
           <JsonView
             data={data}
-            scrolling={true}
+            scrolling={false}
           />
         </Box>
         <Box

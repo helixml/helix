@@ -16,9 +16,11 @@ func Validate(k *types.AssistantKnowledge) error {
 			return fmt.Errorf("invalid refresh schedule: %w", err)
 		}
 
-		// Validate that the cron schedule is setup to run not more than once per 10 minutes
-		if cronSchedule.Next(time.Now()).Before(time.Now().Add(10 * time.Minute)) {
-			return fmt.Errorf("refresh schedule must run more than once per 10 minutes")
+		// Check if the schedule runs more frequently than every 10 minutes
+		nextRun := cronSchedule.Next(time.Now())
+		secondRun := cronSchedule.Next(nextRun)
+		if secondRun.Sub(nextRun) < 10*time.Minute {
+			return fmt.Errorf("refresh schedule must not run more than once per 10 minutes")
 		}
 	}
 

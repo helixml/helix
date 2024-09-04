@@ -14,5 +14,6 @@ kubeconfig
 helix
 .vscode
 integration-test/frontend/screenshots
+instructions.txt
 build-errors.log
 .DS_Store

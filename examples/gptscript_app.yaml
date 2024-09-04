@@ -1,7 +1,7 @@
-name: gpt-script-app
+name: gpt-script-recipe-generator
 description: A simple app that demonstrates how to use gptscripts
 assistants:
-- name: Welcome
-  description: This assistant demonstrates how to use gptscripts
-  gptscripts:
-    - file: gptscripts/welcome.gpt
+- name: Recipe Generator  
+  gptscripts:      
+    - file: gptscripts/recipe_generator.gpt
+      description: use this tool to generate recipes

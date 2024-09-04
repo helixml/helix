@@ -205,7 +205,7 @@ func (apiServer *HelixAPIServer) getGithubOauthConfig(ctx context.Context, user 
 			"%s%s/github/callback?access_token=%s&pageURL=%s",
 			apiServer.Cfg.WebServer.URL,
 			API_PREFIX,
-			user.Token,
+			url.QueryEscape(user.Token),
 			url.QueryEscape(pageURL),
 		),
 		Endpoint: github_oauth.Endpoint,
