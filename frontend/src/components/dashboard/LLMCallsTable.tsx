@@ -32,7 +32,13 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
 
   const fetchLLMCalls = async () => {
     try {
-      const data = await api.get<PaginatedLLMCalls>(`/api/v1/llm_calls?page=${page + 1}&pageSize=${rowsPerPage}`);
+      const queryParams = new URLSearchParams({
+        page: (page + 1).toString(),
+        pageSize: rowsPerPage.toString(),
+        sessionFilter: sessionFilter,
+      }).toString();
+
+      const data = await api.get<PaginatedLLMCalls>(`/api/v1/llm_calls?${queryParams}`);
       setLLMCalls(data);
     } catch (error) {
       console.error('Error fetching LLM calls:', error);
@@ -41,7 +47,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
 
   useEffect(() => {
     fetchLLMCalls();
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, sessionFilter]);
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -66,10 +72,6 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
   };
 
   if (!llmCalls) return null;
-
-  const filteredCalls = llmCalls.calls.filter(call => 
-    sessionFilter ? call.session_id.includes(sessionFilter) : true
-  );
 
   return (
     <Paper sx={{ width: '100%', overflow: 'hidden' }}>
@@ -97,7 +99,7 @@ const LLMCallsTable: FC<LLMCallsTableProps> = ({ sessionFilter }) => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredCalls.map((call: LLMCall) => (
+            {llmCalls.calls.map((call: LLMCall) => (
               <TableRow key={call.id}>
                 <TableCell>{call.id}</TableCell>
                 <TableCell>{new Date(call.created).toLocaleString()}</TableCell>
