@@ -110,7 +110,6 @@ func (c *ChainStrategy) isActionable(ctx context.Context, sessionID, interaction
 		})
 	}
 
-	// Adding current message
 	messages = append(messages,
 		openai.ChatCompletionMessage{
 			Role:    openai.ChatMessageRoleUser,

@@ -335,7 +335,7 @@ func (suite *ActionTestSuite) TestAction_CustomRequestPrompt() {
 		},
 	}
 
-	chatReq, err := suite.strategy.getApiUserPrompt(tool, "getProductDetails")
+	chatReq, err := suite.strategy.getApiSystemPrompt(tool, "getProductDetails")
 	suite.Require().NoError(err)
 
 	suite.Equal("CUSTOM_TEMPLATE_HERE", chatReq.Content)

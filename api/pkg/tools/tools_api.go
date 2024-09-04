@@ -99,15 +99,19 @@ func (c *ChainStrategy) prepareRequest(ctx context.Context, tool *types.Tool, ac
 }
 
 func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (map[string]string, error) {
-	systemPrompt, err := c.getApiSystemPrompt(tool)
+	systemPrompt, err := c.getApiSystemPrompt(tool, action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare system prompt: %w", err)
 	}
 
-	userPrompt, err := c.getApiUserPrompt(tool, action)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare user prompt: %w", err)
-	}
+	// Experiment: put main body of the prompt (and the OpenAPI schema) into the
+	// system prompt and only add the user prompt as a message. Hypothesis is that
+	// this will help the model to stop forgetting the user message.
+
+	// userPrompt, err := c.getApiUserPrompt(tool, action)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to prepare user prompt: %w", err)
+	// }
 
 	messages := []openai.ChatCompletionMessage{
 		systemPrompt,
@@ -122,7 +126,15 @@ func (c *ChainStrategy) getAPIRequestParameters(ctx context.Context, sessionID, 
 		}
 	}
 
-	messages = append(messages, userPrompt)
+	// messages = append(messages, userPrompt)
+
+	// copy what works for the is_actionable prompt
+	messages = append(messages,
+		openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: "Return the corresponding json for the last user input",
+		},
+	)
 
 	req := openai.ChatCompletionRequest{
 		Stream:   false,
@@ -181,10 +193,39 @@ func unmarshalParams(data string) (map[string]string, error) {
 	return params, nil
 }
 
-func (c *ChainStrategy) getApiSystemPrompt(_ *types.Tool) (openai.ChatCompletionMessage, error) {
+func (c *ChainStrategy) getApiSystemPrompt(tool *types.Tool, action string) (openai.ChatCompletionMessage, error) {
+	// Render template
+	apiUserPromptTemplate := apiUserPrompt
+
+	if tool.Config.API.RequestPrepTemplate != "" {
+		apiUserPromptTemplate = tool.Config.API.RequestPrepTemplate
+	}
+
+	tmpl, err := template.New("api_params").Parse(apiUserPromptTemplate)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, err
+	}
+
+	jsonSpec, err := filterOpenAPISchema(tool, action)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, err
+	}
+
+	// Render template
+	var sb strings.Builder
+	err = tmpl.Execute(&sb, struct {
+		Schema string
+	}{
+		Schema: jsonSpec,
+	})
+
+	if err != nil {
+		return openai.ChatCompletionMessage{}, err
+	}
+
 	return openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
-		Content: apiSystemPrompt,
+		Content: apiSystemPrompt + "\n\n" + sb.String(),
 	}, nil
 }
 
@@ -275,8 +316,8 @@ OpenAPI schema:
 
 ===END OPENAPI SCHEMA===
 
-Based on conversation so far, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out.
-ONLY use search parameters from the user messages above - do NOT use search parameters provided in the examples.
+Based on conversation below, construct a valid JSON object. In cases where user input does not contain information for a query, DO NOT add that specific query parameter to the output. If a user doesn't provide a required parameter, use sensible defaults for required params, and leave optional params out.
+ONLY use search parameters from the user messages below - do NOT use search parameters provided in the examples.
 `
 
 func filterOpenAPISchema(tool *types.Tool, operationId string) (string, error) {
