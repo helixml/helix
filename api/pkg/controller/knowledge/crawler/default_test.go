@@ -52,7 +52,7 @@ func TestDefault_Crawl(t *testing.T) {
 		if strings.Contains(doc.Content, privateDeploymentText) {
 			privateDeploymentTextFound = true
 
-			assert.Equal(t, "https://docs.helix.ml/helix/private-deployment/manual-install/", doc.SourceURL)
+			assert.Equal(t, "https://docs.helix.ml/helix/private-deployment/manual-install/docker/", doc.SourceURL)
 		}
 	}
 
