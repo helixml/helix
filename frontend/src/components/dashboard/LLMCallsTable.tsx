@@ -71,7 +71,7 @@ const LLMCallsTable: React.FC = () => {
           Refresh
         </Button>
       </Box>
-      <TableContainer sx={{ maxHeight: 440 }}>
+      <TableContainer>
         <Table stickyHeader aria-label="LLM calls table">
           <TableHead>
             <TableRow>
