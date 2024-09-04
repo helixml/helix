@@ -274,7 +274,13 @@ Examples:
 
 **User Input:** Get project prj_1234 details
 **OpenAPI schema path:** /projects/{projectId}
-**Verdict:** response should be {"projectId": "prj_1234"}
+**Verdict:** response should be
+
+` + "```" + `json
+{
+  "projectId": "prj_1234"
+}
+` + "```" + `
 
 **User Input:** List all users with status "active"
 **OpenAPI schema path:** /users/findByStatus 
