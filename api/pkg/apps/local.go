@@ -105,8 +105,9 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 					}
 
 					gptScripts = append(gptScripts, &types.Tool{
-						Name:     getNameGptScriptName(script.Name, file),
-						ToolType: types.ToolTypeGPTScript,
+						Name:        getNameGptScriptName(script.Name, file),
+						Description: script.Description,
+						ToolType:    types.ToolTypeGPTScript,
 						Config: types.ToolConfig{
 							GPTScript: &types.ToolGPTScriptConfig{
 								Script: string(content),
@@ -116,6 +117,8 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 				}
 			}
 		}
+		// Append the gptscripts into the list
+		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, gptScripts...)
 	}
 
 	return &LocalApp{
