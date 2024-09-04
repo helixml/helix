@@ -48,16 +48,48 @@ cd "$TMP_DIR"
 APP_ID=$(helix apply -f helix.yaml 2>/dev/null)
 echo "Got app id: $APP_ID"
 
-curl --request POST \
-  --url ${HELIX_URL}/api/v1/sessions/chat \
-  --header "Authorization: Bearer ${HELIX_API_KEY}" \
-  --header 'Content-Type: application/json' \
-  --data "{
-    \"app_id\": \"${APP_ID}\",
-    \"messages\": [
-      {
-        \"role\": \"user\",
-        \"content\": { \"content_type\": \"text\", \"parts\": [\"what job is Marcus applying for?\"] }
-      }
-    ]
-  }"
+# Test function
+run_test() {
+    local result=$(curl --silent --request POST \
+      --url ${HELIX_URL}/api/v1/sessions/chat \
+      --header "Authorization: Bearer ${HELIX_API_KEY}" \
+      --header 'Content-Type: application/json' \
+      --data "{
+        \"app_id\": \"${APP_ID}\",
+        \"messages\": [
+          {
+            \"role\": \"user\",
+            \"content\": { \"content_type\": \"text\", \"parts\": [\"what job is Marcus applying for?\"] }
+          }
+        ]
+      }")
+
+    local session_id=$(echo "$result" | jq -r '.id')
+    local dashboard_link="${HELIX_URL}/dashboard?filter_sessions=${session_id}"
+
+    if echo "$result" | grep -q "Human Resources Manager"; then
+        echo -e "\xE2\x9C\x85 Test passed"
+        echo "Dashboard link: $dashboard_link"
+        return 0
+    else
+        echo -e "\xE2\x9D\x8C Test failed"
+        echo "API Response content:"
+        echo "$result" | jq -r '.choices[0].message.content'
+        echo "Dashboard link: $dashboard_link"
+        return 1
+    fi
+}
+
+# Run the test 10 times
+echo "Running test 10 times..."
+passed_tests=0
+for i in {1..10}; do
+    echo "Test $i:"
+    if run_test; then
+        passed_tests=$((passed_tests + 1))
+    fi
+    echo
+done
+
+# Print summary
+echo "Test summary: $passed_tests out of 10 tests passed."
