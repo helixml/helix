@@ -10,11 +10,12 @@ import (
 
 // listLLMCalls godoc
 // @Summary List LLM calls
-// @Description List LLM calls with pagination
+// @Description List LLM calls with pagination and optional session filtering
 // @Tags    llm_calls
 // @Produce json
-// @Param   page     query    int     false  "Page number"
-// @Param   pageSize query    int     false  "Page size"
+// @Param   page          query    int     false  "Page number"
+// @Param   pageSize      query    int     false  "Page size"
+// @Param   sessionFilter query    string  false  "Filter by session ID"
 // @Success 200 {object} types.PaginatedLLMCalls
 // @Router /api/v1/llm_calls [get]
 // @Security BearerAuth
@@ -30,8 +31,10 @@ func (s *HelixAPIServer) listLLMCalls(w http.ResponseWriter, r *http.Request) (*
 		pageSize = 10 // Default page size
 	}
 
-	// Call the ListLLMCalls function from the store
-	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), page, pageSize)
+	sessionFilter := r.URL.Query().Get("sessionFilter")
+
+	// Call the ListLLMCalls function from the store with the session filter
+	calls, totalCount, err := s.Store.ListLLMCalls(r.Context(), page, pageSize, sessionFilter)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
