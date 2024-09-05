@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -109,13 +108,7 @@ func (m *LoggingMiddleware) CreateChatCompletionStream(ctx context.Context, requ
 			// Add the message to the response
 			appendChunk(&resp, &msg)
 
-			bts, err := json.Marshal(msg)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to marshal message")
-				break
-			}
-
-			writeChunk(downstreamWriter, bts)
+			transport.WriteChatCompletionStream(downstreamWriter, &msg)
 		}
 
 		// Once the stream is done, close the downstream writer
@@ -164,20 +157,6 @@ func appendChunk(resp *openai.ChatCompletionResponse, chunk *openai.ChatCompleti
 	// resp.Usage.PromptTokens += chunk.Usage.PromptTokens
 	// resp.Usage.CompletionTokens += chunk.Usage.CompletionTokens
 	// resp.Usage.TotalTokens += chunk.Usage.TotalTokens
-}
-
-func writeChunk(w io.Writer, chunk []byte) error {
-	_, err := fmt.Fprintf(w, "data: %s\n\n", string(chunk))
-	if err != nil {
-		return fmt.Errorf("error writing chunk '%s': %w", string(chunk), err)
-	}
-
-	// Flush the ResponseWriter buffer to send the chunk immediately
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-
-	return nil
 }
 
 func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatCompletionRequest, resp *openai.ChatCompletionResponse, durationMs int64) {
