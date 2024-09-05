@@ -785,25 +785,7 @@ const App: FC = () => {
     }
   }, [app]);
 
-  const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]);
-
-  // const loadAppTools = useCallback(async () => {
-  //   if (app && app.id !== 'new') {
-  //     try {
-  //       const result = await api.get(`/api/v1/apps/${app.id}/tools`);
-  //       if (result && Array.isArray(result)) {
-  //         setAppTools(result);
-  //       }
-  //     } catch (error) {
-  //       console.error('Error loading app tools:', error);
-  //       snackbar.error('Failed to load app tools');
-  //     }
-  //   }
-  // }, [app, api, snackbar]);
-
-  // useEffect(() => {
-  //   loadAppTools();
-  // }, [loadAppTools]);
+  const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]); 
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {
