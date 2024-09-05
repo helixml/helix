@@ -13,6 +13,9 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -69,11 +72,13 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const validateSources = () => {
     const newErrors: { [key: number]: string } = {};
-    knowledgeSources.forEach((source, index) => {
-      if (!source.source.web?.urls || source.source.web.urls.length === 0) {
-        newErrors[index] = "At least one URL must be specified.";
+    knowledgeSources.forEach((source, index) => {      
+      if ((!source.source.web?.urls || source.source.web.urls.length === 0) && !source.source.filestore?.path) {
+        newErrors[index] = "At least one URL or a filestore path must be specified.";
       }
     });
+    console.log('xxxx')
+    console.log(Object.keys(newErrors).length)
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -81,6 +86,70 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   useEffect(() => {
     validateSources();
   }, [knowledgeSources]);
+
+  const renderSourceInput = (source: IKnowledgeSource, index: number) => {
+    const sourceType = source.source.filestore ? 'filestore' : 'web';
+
+    return (
+      <>
+        <FormControl component="fieldset" sx={{ mb: 2 }}>
+          <RadioGroup
+            row
+            value={sourceType}
+            onChange={(e) => {
+              const newSourceType = e.target.value;
+              let newSource: Partial<IKnowledgeSource> = {
+                source: newSourceType === 'filestore'
+                  ? { filestore: { path: '' } }
+                  : { web: { urls: [], crawler: { enabled: false } } }
+              };
+              handleSourceUpdate(index, newSource);
+            }}
+          >
+            <FormControlLabel value="filestore" control={<Radio />} label="Helix Filestore" />
+            <FormControlLabel value="web" control={<Radio />} label="Web" />
+          </RadioGroup>
+        </FormControl>
+
+        {sourceType === 'filestore' ? (
+          <TextField
+            fullWidth
+            label="Filestore Path"
+            value={source.source.filestore?.path || ''}
+            onChange={(e) => {
+              handleSourceUpdate(index, { 
+                source: { 
+                  filestore: { path: e.target.value } 
+                } 
+              });
+            }}
+            disabled={disabled}
+            sx={{ mb: 2 }}
+          />
+        ) : (
+          <TextField
+            fullWidth
+            label="URLs (comma-separated)"
+            value={source.source.web?.urls?.join(', ') || ''}
+            onChange={(e) => {
+              handleSourceUpdate(index, { 
+                source: { 
+                  web: { 
+                    ...source.source.web, 
+                    urls: e.target.value.split(',').map(url => url.trim()) 
+                  } 
+                } 
+              });
+            }}
+            disabled={disabled}
+            sx={{ mb: 2 }}
+            error={!!errors[index]}
+            helperText={errors[index]}
+          />
+        )}
+      </>
+    );
+  };
 
   return (
     <Box>
@@ -107,26 +176,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             </IconButton>
           </AccordionSummary>
           <AccordionDetails>
-            <TextField
-              fullWidth
-              label="URLs (comma-separated)"
-              value={source.source.web?.urls?.join(', ') || ''}
-              onChange={(e) => {
-                handleSourceUpdate(index, { 
-                  source: { 
-                    ...source.source, 
-                    web: { 
-                      ...source.source.web, 
-                      urls: e.target.value.split(',').map(url => url.trim()) 
-                    } 
-                  } 
-                });
-              }}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-              error={!!errors[index]}
-              helperText={errors[index]}
-            />
+            {renderSourceInput(source, index)}
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>Scrape Interval</InputLabel>
               <Select
