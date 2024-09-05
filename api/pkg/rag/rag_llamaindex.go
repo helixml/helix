@@ -82,7 +82,10 @@ func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexC
 	}
 
 	if resp.StatusCode >= 400 {
-		logger.Err(err).Msg("bad status code from the extractor")
+		logger.Error().
+			Err(err).
+			Str("response_body", string(body)).
+			Msg("bad status code from the indexer")
 		return fmt.Errorf("error response from server: %s (%s)", resp.Status, string(body))
 	}
 
