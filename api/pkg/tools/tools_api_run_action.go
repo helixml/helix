@@ -43,8 +43,8 @@ func (c *ChainStrategy) RunAction(ctx context.Context, sessionID, interactionID 
 
 func (c *ChainStrategy) RunActionStream(ctx context.Context, sessionID, interactionID string, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
 	switch tool.ToolType {
-	// case types.ToolTypeGPTScript:
-	// 	return c.RunGPTScriptAction(ctx, tool, history, action)
+	case types.ToolTypeGPTScript:
+		return c.RunGPTScriptActionStream(ctx, tool, history, action)
 	case types.ToolTypeAPI:
 		return c.runApiActionStream(ctx, sessionID, interactionID, tool, history, action)
 	default:
