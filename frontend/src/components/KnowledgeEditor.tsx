@@ -87,6 +87,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     validateSources();
   }, [knowledgeSources]);
 
+  const getSourcePreview = (source: IKnowledgeSource): string => {
+    if (source.source.web?.urls && source.source.web.urls.length > 0) {
+      const url = new URL(source.source.web.urls[0]);
+      return url.hostname;
+    } else if (source.source.filestore?.path) {
+      return source.source.filestore.path;
+    }
+    return 'No source specified';
+  };
+
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
     const sourceType = source.source.filestore ? 'filestore' : 'web';
 
@@ -163,7 +173,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             expandIcon={<ExpandMoreIcon />}
             sx={{ display: 'flex', alignItems: 'center' }}
           >
-            <Typography sx={{ flexGrow: 1 }}>Knowledge Source {index + 1}</Typography>
+            <Typography sx={{ flexGrow: 1 }}>
+              Knowledge Source ({getSourcePreview(source)})
+            </Typography>
             <IconButton
               onClick={(e) => {
                 e.stopPropagation();
