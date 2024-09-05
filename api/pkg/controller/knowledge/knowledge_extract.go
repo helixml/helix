@@ -173,9 +173,33 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 		Str("knowledge_id", k.ID).
 		Int64("total_size", totalSize).
 		Int64("count", int64(len(data))).
-		Msg("filestore data found, will be indexed")
+		Msg("filestore data found")
 
-	return data, nil
+	// Optional mode to disable text extractor and chunking,
+	// useful when the indexing server will know how to handle
+	// raw data directly
+	if k.RAGSettings.DisableChunking {
+		return data, nil
+	}
+
+	// Chunking enabled, extracting text
+	var extractedData []*indexerData
+
+	for _, d := range data {
+		extractedText, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
+			Content: d.Data,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract data from %s, error: %w", d.Source, err)
+		}
+
+		extractedData = append(extractedData, &indexerData{
+			Data:   []byte(extractedText),
+			Source: d.Source,
+		})
+	}
+
+	return extractedData, nil
 }
 
 func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
@@ -218,8 +242,6 @@ func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileSto
 	userPrefix := filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, k.Owner)
 
 	path := filepath.Join(userPrefix, k.Source.Filestore.Path)
-
-	fmt.Println("filestore path", path)
 
 	err := recursiveList(path)
 	if err != nil {
