@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
 	switch {
 	case k.Source.Web != nil:
 		return r.extractDataFromWeb(ctx, k)
-	case k.Source.HelixDrive != nil:
-		return r.extractDataFromHelixDrive(ctx, k)
+	case k.Source.Filestore != nil:
+		return r.extractDataFromHelixFilestore(ctx, k)
 	default:
-		return nil, fmt.Errorf("unknown source")
+		return nil, fmt.Errorf("unknown source: %+v", k.Source)
 	}
 }
 
@@ -45,7 +48,6 @@ func (r *Reconciler) extractDataFromWeb(ctx context.Context, k *types.Knowledge)
 		extractorEnabled = false
 	}
 
-	// TODO: add concurrency
 	for _, u := range k.Source.Web.URLs {
 		// If we are not downloading the file, we just send the URL
 		if k.RAGSettings.DisableDownloading {
@@ -151,6 +153,100 @@ func (r *Reconciler) downloadDirectly(ctx context.Context, k *types.Knowledge, u
 	return bts, nil
 }
 
-func (r *Reconciler) extractDataFromHelixDrive(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
-	return nil, fmt.Errorf("TODO")
+func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
+	data, err := r.getFilestoreFiles(ctx, r.filestore, k)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get filestore files: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("no data found in filestore")
+	}
+
+	var totalSize int64
+
+	for _, d := range data {
+		totalSize += int64(len(d.Data))
+	}
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int64("total_size", totalSize).
+		Int64("count", int64(len(data))).
+		Msg("filestore data found")
+
+	// Optional mode to disable text extractor and chunking,
+	// useful when the indexing server will know how to handle
+	// raw data directly
+	if k.RAGSettings.DisableChunking {
+		return data, nil
+	}
+
+	// Chunking enabled, extracting text
+	var extractedData []*indexerData
+
+	for _, d := range data {
+		extractedText, err := r.extractor.Extract(ctx, &extract.ExtractRequest{
+			Content: d.Data,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract data from %s, error: %w", d.Source, err)
+		}
+
+		extractedData = append(extractedData, &indexerData{
+			Data:   []byte(extractedText),
+			Source: d.Source,
+		})
+	}
+
+	return extractedData, nil
+}
+
+func (r *Reconciler) getFilestoreFiles(ctx context.Context, fs filestore.FileStore, k *types.Knowledge) ([]*indexerData, error) {
+	var result []*indexerData
+
+	var recursiveList func(path string) error
+
+	recursiveList = func(path string) error {
+		items, err := fs.List(ctx, path)
+		if err != nil {
+			return fmt.Errorf("failed to list files at %s, error: %w", path, err)
+		}
+
+		for _, item := range items {
+			if item.Directory {
+				err := recursiveList(item.Path)
+				if err != nil {
+					return err
+				}
+			} else {
+				r, err := fs.OpenFile(ctx, item.Path)
+				if err != nil {
+					return fmt.Errorf("failed to open file at %s, error: %w", item.Path, err)
+				}
+
+				bts, err := io.ReadAll(r)
+				if err != nil {
+					return fmt.Errorf("failed to read file at %s, error: %w", item.Path, err)
+				}
+
+				result = append(result, &indexerData{
+					Data:   bts,
+					Source: item.Path,
+				})
+			}
+		}
+		return nil
+	}
+
+	userPrefix := filestore.GetUserPrefix(r.config.Controller.FilePrefixGlobal, k.Owner)
+
+	path := filepath.Join(userPrefix, k.Source.Filestore.Path)
+
+	err := recursiveList(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

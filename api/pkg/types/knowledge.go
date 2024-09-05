@@ -116,11 +116,11 @@ const (
 )
 
 type KnowledgeSource struct {
-	HelixDrive *KnowledgeSourceHelixDrive `json:"helix_drive"`
-	S3         *KnowledgeSourceS3         `json:"s3"`
-	GCS        *KnowledgeSourceGCS        `json:"gcs"`
-	Web        *KnowledgeSourceWeb        `json:"web"`
-	Content    *string                    `json:"text"`
+	Filestore *KnowledgeSourceHelixFilestore `json:"filestore" yaml:"filestore"`
+	S3        *KnowledgeSourceS3             `json:"s3"`
+	GCS       *KnowledgeSourceGCS            `json:"gcs"`
+	Web       *KnowledgeSourceWeb            `json:"web"`
+	Content   *string                        `json:"text"`
 }
 
 func (m KnowledgeSource) Value() (driver.Value, error) {
@@ -171,8 +171,8 @@ type KnowledgeSourceWebAuth struct {
 	Password string
 }
 
-type KnowledgeSourceHelixDrive struct {
-	Path string `json:"path"`
+type KnowledgeSourceHelixFilestore struct {
+	Path string `json:"path" yaml:"path"`
 }
 
 // KnowledgeSourceS3 authentication through AWS IAM role

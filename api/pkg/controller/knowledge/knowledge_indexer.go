@@ -226,13 +226,13 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		Int("chunks", len(chunks)).
 		Msg("submitting chunks into the rag server")
 
-	pool := pool.New().
+	pool := pool.New().WithContext(ctx).
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
-		WithErrors()
+		WithCancelOnError()
 
 	for _, chunk := range chunks {
 		chunk := chunk
-		pool.Go(func() error {
+		pool.Go(func(ctx context.Context) error {
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 				DataEntityID:    types.GetDataEntityID(k.ID, version),
 				Filename:        chunk.Filename,
@@ -243,7 +243,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 				Content:         chunk.Text,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to index chunk '%s', error: %w", chunk.Text, err)
+				return fmt.Errorf("failed to index chunk, error: %w", err)
 			}
 			return nil
 		})

@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -25,6 +26,7 @@ type KnowledgeManager interface {
 type Reconciler struct {
 	config       *config.ServerConfig
 	store        store.Store
+	filestore    filestore.FileStore
 	extractor    extract.Extractor // Unstructured.io or equivalent
 	httpClient   *http.Client
 	ragClient    rag.RAG                                   // Default server RAG client
@@ -34,7 +36,7 @@ type Reconciler struct {
 	wg           sync.WaitGroup
 }
 
-func New(config *config.ServerConfig, store store.Store, extractor extract.Extractor, ragClient rag.RAG) (*Reconciler, error) {
+func New(config *config.ServerConfig, store store.Store, filestore filestore.FileStore, extractor extract.Extractor, ragClient rag.RAG) (*Reconciler, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
@@ -43,6 +45,7 @@ func New(config *config.ServerConfig, store store.Store, extractor extract.Extra
 	return &Reconciler{
 		config:     config,
 		store:      store,
+		filestore:  filestore,
 		cron:       s,
 		extractor:  extractor,
 		httpClient: http.DefaultClient,
