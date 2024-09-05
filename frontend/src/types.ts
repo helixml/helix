@@ -545,6 +545,9 @@ export interface IKnowledgeSource {
       bucket: string;
       path: string;
     };
+    filestore?: {
+      path: string;
+    };
     web?: {
       urls: string[];
       excludes?: string[];
