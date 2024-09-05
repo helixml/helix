@@ -7,6 +7,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
 	"github.com/helixml/helix/api/pkg/extract"
+	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
@@ -24,6 +25,7 @@ type CronSuite struct {
 	crawler   *crawler.MockCrawler
 	store     *store.MockStore
 	rag       *rag.MockRAG
+	filestore *filestore.MockFileStore
 
 	cfg *config.ServerConfig
 
@@ -42,10 +44,11 @@ func (suite *CronSuite) SetupTest() {
 	suite.crawler = crawler.NewMockCrawler(ctrl)
 	suite.store = store.NewMockStore(ctrl)
 	suite.rag = rag.NewMockRAG(ctrl)
+	suite.filestore = filestore.NewMockFileStore(ctrl)
 
 	suite.cfg = &config.ServerConfig{}
 
-	suite.reconciler, _ = New(suite.cfg, suite.store, suite.extractor, nil)
+	suite.reconciler, _ = New(suite.cfg, suite.store, suite.filestore, suite.extractor, nil)
 
 	suite.reconciler.newRagClient = func(settings *types.RAGSettings) rag.RAG {
 		return suite.rag

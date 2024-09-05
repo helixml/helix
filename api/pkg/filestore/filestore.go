@@ -3,6 +3,7 @@ package filestore
 import (
 	"context"
 	"io"
+	"path/filepath"
 )
 
 type FileStoreItem struct {
@@ -52,4 +53,8 @@ type FileStore interface {
 	Rename(ctx context.Context, path string, newPath string) (FileStoreItem, error)
 	Delete(ctx context.Context, path string) error
 	CopyFile(ctx context.Context, from string, to string) error
+}
+
+func GetUserPrefix(filestorePrefix, userID string) string {
+	return filepath.Join(filestorePrefix, "users", userID)
 }

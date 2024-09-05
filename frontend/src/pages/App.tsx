@@ -470,25 +470,27 @@ const App: FC = () => {
   const validateApiSchemas = (app: IApp): string[] => {
     const errors: string[] = [];
     app.config.helix.assistants.forEach((assistant, assistantIndex) => {
-      assistant.tools.forEach((tool, toolIndex) => {
-        if (tool.tool_type === 'api' && tool.config.api) {
-          try {
-            const parsedSchema = parseYaml(tool.config.api.schema);
-            if (!parsedSchema || typeof parsedSchema !== 'object') {
-              errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+      if (assistant.tools && assistant.tools.length > 0) {
+        assistant.tools.forEach((tool, toolIndex) => {
+          if (tool.tool_type === 'api' && tool.config.api) {
+            try {
+              const parsedSchema = parseYaml(tool.config.api.schema);
+              if (!parsedSchema || typeof parsedSchema !== 'object') {
+                errors.push(`Invalid schema for tool ${tool.name} in assistant ${assistant.name}`);
+              }
+            } catch (error) {
+              errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
             }
-          } catch (error) {
-            errors.push(`Error parsing schema for tool ${tool.name} in assistant ${assistant.name}: ${error}`);
           }
-        }
-      });
+        });
+      }
     });
     return errors;
   };
 
   const validateKnowledge = () => {
     const hasErrors = knowledgeSources.some(source => 
-      !source.source.web?.urls || source.source.web.urls.length === 0
+      (source.source.web?.urls && source.source.web.urls.length === 0) && !source.source.filestore?.path
     );
     setKnowledgeErrors(hasErrors);
     return !hasErrors;
@@ -785,23 +787,23 @@ const App: FC = () => {
 
   const isGithubApp = useMemo(() => app?.app_source === APP_SOURCE_GITHUB, [app]);
 
-  const loadAppTools = useCallback(async () => {
-    if (app && app.id !== 'new') {
-      try {
-        const result = await api.get(`/api/v1/apps/${app.id}/tools`);
-        if (result && Array.isArray(result)) {
-          setAppTools(result);
-        }
-      } catch (error) {
-        console.error('Error loading app tools:', error);
-        snackbar.error('Failed to load app tools');
-      }
-    }
-  }, [app, api, snackbar]);
+  // const loadAppTools = useCallback(async () => {
+  //   if (app && app.id !== 'new') {
+  //     try {
+  //       const result = await api.get(`/api/v1/apps/${app.id}/tools`);
+  //       if (result && Array.isArray(result)) {
+  //         setAppTools(result);
+  //       }
+  //     } catch (error) {
+  //       console.error('Error loading app tools:', error);
+  //       snackbar.error('Failed to load app tools');
+  //     }
+  //   }
+  // }, [app, api, snackbar]);
 
-  useEffect(() => {
-    loadAppTools();
-  }, [loadAppTools]);
+  // useEffect(() => {
+  //   loadAppTools();
+  // }, [loadAppTools]);
 
   const handleCopyEmbedCode = useCallback(() => {
     if (account.apiKeys.length > 0) {

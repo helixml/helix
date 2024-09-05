@@ -181,6 +181,12 @@ func (c *Controller) evaluateToolUsageStream(ctx context.Context, user *types.Us
 
 	stream, err := c.ToolsPlanner.RunActionStream(ctx, vals.SessionID, vals.InteractionID, selectedTool, history, isActionable.Api)
 	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("tool", selectedTool.Name).
+			Str("action", isActionable.Api).
+			Msg("failed to perform action")
+
 		return nil, false, fmt.Errorf("failed to perform action: %w", err)
 	}
 

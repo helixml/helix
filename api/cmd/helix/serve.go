@@ -276,7 +276,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, textExtractor, llamaindexRAG)
+	knowledgeReconciler, err := knowledge.New(cfg, store, fs, textExtractor, llamaindexRAG)
 	if err != nil {
 		return err
 	}
