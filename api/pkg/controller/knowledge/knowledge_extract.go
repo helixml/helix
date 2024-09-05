@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 )
 
 func (r *Reconciler) getIndexingData(ctx context.Context, k *types.Knowledge) ([]*indexerData, error) {
@@ -161,6 +162,18 @@ func (r *Reconciler) extractDataFromHelixFilestore(ctx context.Context, k *types
 	if len(data) == 0 {
 		return nil, fmt.Errorf("no data found in filestore")
 	}
+
+	var totalSize int64
+
+	for _, d := range data {
+		totalSize += int64(len(d.Data))
+	}
+
+	log.Info().
+		Str("knowledge_id", k.ID).
+		Int64("total_size", totalSize).
+		Int64("count", int64(len(data))).
+		Msg("filestore data found, will be indexed")
 
 	return data, nil
 }
