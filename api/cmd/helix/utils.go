@@ -11,6 +11,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -134,7 +135,7 @@ func generateEnvHelpText(cfg interface{}, prefix string) string {
 
 func createOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) (openai.Client, error) {
 	switch cfg.Inference.Provider {
-	case config.ProviderOpenAI:
+	case types.ProviderOpenAI:
 		if cfg.Providers.OpenAI.APIKey == "" {
 			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
 		}
@@ -146,7 +147,7 @@ func createOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) 
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL), nil
 
-	case config.ProviderTogetherAI:
+	case types.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey == "" {
 			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
@@ -158,7 +159,7 @@ func createOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) 
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL), nil
 
-	case config.ProviderHelix:
+	case types.ProviderHelix:
 		log.Info().Msg("using Helix provider for inference")
 		return helixInference, nil
 
@@ -169,7 +170,7 @@ func createOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) 
 
 func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) (openai.Client, error) {
 	switch cfg.FineTuning.Provider {
-	case config.ProviderOpenAI:
+	case types.ProviderOpenAI:
 		if cfg.Providers.OpenAI.APIKey == "" {
 			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
 		}
@@ -181,7 +182,7 @@ func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL), nil
 
-	case config.ProviderTogetherAI:
+	case types.ProviderTogetherAI:
 		if cfg.Providers.TogetherAI.APIKey == "" {
 			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
 		}
@@ -193,7 +194,7 @@ func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL), nil
 
-	case config.ProviderHelix:
+	case types.ProviderHelix:
 		log.Info().Msg("using Helix provider for inference")
 		return helixInference, nil
 

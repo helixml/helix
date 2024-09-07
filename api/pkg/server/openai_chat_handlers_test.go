@@ -69,7 +69,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = config.ProviderTogetherAI
+	cfg.Inference.Provider = types.ProviderTogetherAI
 
 	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
 		Config:       cfg,
