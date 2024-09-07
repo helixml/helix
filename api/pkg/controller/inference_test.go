@@ -61,7 +61,7 @@ func (suite *ControllerSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = config.ProviderTogetherAI
+	cfg.Inference.Provider = types.ProviderTogetherAI
 
 	c, err := NewController(context.Background(), ControllerOptions{
 		Config:       cfg,
