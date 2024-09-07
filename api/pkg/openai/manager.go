@@ -8,19 +8,19 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
-	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type GetClientRequest struct {
 	Provider types.Provider
-	Model    string
 }
 
 // ProviderManager returns an OpenAI compatible client based on provider
 type ProviderManager interface {
+	// GetClient returns a client for the given provider
 	GetClient(ctx context.Context, req *GetClientRequest) (Client, error)
-	ListModels(ctx context.Context, provider types.Provider) ([]model.OpenAIModel, error)
+	// ListProviders returns a list of providers that are available
+	ListProviders(ctx context.Context) ([]types.Provider, error)
 }
 
 type providerClient struct {
@@ -67,6 +67,18 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiC
 		clients:   clients,
 		clientsMu: &sync.RWMutex{},
 	}
+}
+
+func (m *MultiClientManager) ListProviders(ctx context.Context) ([]types.Provider, error) {
+	m.clientsMu.RLock()
+	defer m.clientsMu.RUnlock()
+
+	providers := make([]types.Provider, 0, len(m.clients))
+	for provider := range m.clients {
+		providers = append(providers, provider)
+	}
+
+	return providers, nil
 }
 
 func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (Client, error) {

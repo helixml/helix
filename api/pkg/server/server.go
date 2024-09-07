@@ -60,6 +60,7 @@ type HelixAPIServer struct {
 	Janitor           *janitor.Janitor
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
+	providerManager   openai.ProviderManager
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   openai.HelixServer // Helix OpenAI server
 	knowledgeManager  knowledge.KnowledgeManager
@@ -71,6 +72,7 @@ func NewServer(
 	store store.Store,
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
+	providerManager openai.ProviderManager,
 	inferenceServer openai.HelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,
@@ -110,6 +112,7 @@ func NewServer(
 				runnerToken:  cfg.WebServer.RunnerToken,
 			},
 		),
+		providerManager:  providerManager,
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
 	}, nil

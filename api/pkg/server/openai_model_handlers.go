@@ -16,10 +16,24 @@ import (
 
 // Updated listModels function
 func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Request) {
-	models, err := apiServer.determineModels()
+	provider := types.Provider(r.URL.Query().Get("provider"))
+	if provider == "" {
+		provider = apiServer.Cfg.Inference.Provider
+	}
+
+	client, err := apiServer.providerManager.GetClient(r.Context(), &openai.GetClientRequest{
+		Provider: provider,
+	})
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to determine models")
-		http.Error(rw, "Internal server error", http.StatusInternalServerError)
+		log.Err(err).Msg("error getting client")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	models, err := client.ListModels(r.Context())
+	if err != nil {
+		log.Err(err).Msg("error listing models")
+		http.Error(rw, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
