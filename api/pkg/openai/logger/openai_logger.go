@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
@@ -42,6 +43,10 @@ func Wrap(cfg *config.ServerConfig, client oai.Client, logStores ...LogStore) *L
 		client:    client,
 		wg:        sync.WaitGroup{},
 	}
+}
+
+func (m *LoggingMiddleware) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	return m.client.ListModels(ctx)
 }
 
 func (m *LoggingMiddleware) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
