@@ -238,6 +238,7 @@ type SessionChatRequest struct {
 	SystemPrompt string      `json:"system"`   // System message, only applicable when starting a new session
 	Messages     []*Message  `json:"messages"` // Initial messages
 	Tools        []string    `json:"tools"`    // Available tools to use in the session
+	Provider     Provider    `json:"provider"` // The provider to use
 	Model        string      `json:"model"`    // The model to use
 	RAGSourceID  string      `json:"rag_source_id"`
 	// the fine tuned data entity we produced from this session
