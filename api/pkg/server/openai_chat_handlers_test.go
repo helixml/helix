@@ -71,14 +71,17 @@ func (suite *OpenAIChatSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
+	providerManager := openai.NewMockProviderManager(ctrl)
+	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
+
 	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
-		Config:       cfg,
-		Store:        suite.store,
-		Janitor:      janitor.NewJanitor(config.Janitor{}),
-		OpenAIClient: suite.openAiClient,
-		Filestore:    filestoreMock,
-		Extractor:    extractorMock,
-		RAG:          suite.rag,
+		Config:          cfg,
+		Store:           suite.store,
+		Janitor:         janitor.NewJanitor(config.Janitor{}),
+		ProviderManager: providerManager,
+		Filestore:       filestoreMock,
+		Extractor:       extractorMock,
+		RAG:             suite.rag,
 	})
 	suite.NoError(err)
 
