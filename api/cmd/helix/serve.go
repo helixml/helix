@@ -262,7 +262,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Filestore:            fs,
 		Janitor:              janitor,
 		Notifier:             notifier,
-		OpenAIClient:         controllerOpenAIClient,
+		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
 	}
 
