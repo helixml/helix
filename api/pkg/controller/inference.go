@@ -63,7 +63,12 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	resp, err := c.openAIClient.CreateChatCompletion(ctx, req)
+	client, err := c.getClient(ctx, assistant.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion")
 		return nil, nil, err
@@ -112,13 +117,34 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	stream, err := c.openAIClient.CreateChatCompletionStream(ctx, req)
+	client, err := c.getClient(ctx, assistant.Provider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	stream, err := client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		log.Err(err).Msg("error creating chat completion stream")
 		return nil, nil, err
 	}
 
 	return stream, &req, nil
+}
+
+func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oai.Client, error) {
+	if provider == "" {
+		provider = c.Options.Config.Inference.Provider
+	}
+
+	client, err := c.providerManager.GetClient(ctx, &oai.GetClientRequest{
+		Provider: provider,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client: %v", err)
+	}
+
+	return client, nil
+
 }
 
 func (c *Controller) authorizeUserToApp(user *types.User, app *types.App) error {
