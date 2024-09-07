@@ -232,6 +232,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AppID:       startReq.AppID,
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
+			Provider:    startReq.Provider,
 		}
 	)
 

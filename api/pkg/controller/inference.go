@@ -21,6 +21,7 @@ type ChatCompletionOptions struct {
 	AppID       string
 	AssistantID string
 	RAGSourceID string
+	Provider    types.Provider
 
 	QueryParams map[string]string
 }
@@ -58,12 +59,16 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, assistant.Provider)
+	client, err := c.getClient(ctx, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
@@ -111,13 +116,17 @@ func (c *Controller) ChatCompletionStream(ctx context.Context, user *types.User,
 		opts.RAGSourceID = assistant.RAGSourceID
 	}
 
+	if assistant.Provider != "" {
+		opts.Provider = assistant.Provider
+	}
+
 	// Check for knowledge
 	err = c.enrichPromptWithKnowledge(ctx, user, &req, assistant, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to enrich prompt with knowledge: %w", err)
 	}
 
-	client, err := c.getClient(ctx, assistant.Provider)
+	client, err := c.getClient(ctx, opts.Provider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get client: %v", err)
 	}
