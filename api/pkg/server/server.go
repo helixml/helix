@@ -269,6 +269,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 
 	// OpenAI API compatible routes
 	router.HandleFunc("/v1/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
+	router.HandleFunc("/v1/providers", apiServer.authMiddleware.auth(apiServer.listProviders)).Methods("GET")
 	router.HandleFunc("/v1/models", apiServer.authMiddleware.auth(apiServer.listModels)).Methods("GET")
 	// Azure OpenAI API compatible routes
 	router.HandleFunc("/openai/deployments/{model}/chat/completions", apiServer.authMiddleware.auth(apiServer.createChatCompletion)).Methods("POST", "OPTIONS")
