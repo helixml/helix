@@ -2,11 +2,13 @@ package openai
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -18,6 +20,7 @@ type GetClientRequest struct {
 // Manager returns an OpenAI compatible client based on provider
 type Manager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (Client, error)
+	ListModels(ctx context.Context, provider types.Provider) ([]model.OpenAIModel, error)
 }
 
 type providerClient struct {
@@ -64,4 +67,16 @@ func NewManager(cfg *config.ServerConfig, helixInference Client) *MultiClientMan
 		clients:   clients,
 		clientsMu: &sync.RWMutex{},
 	}
+}
+
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (Client, error) {
+	m.clientsMu.RLock()
+	defer m.clientsMu.RUnlock()
+
+	client, ok := m.clients[req.Provider]
+	if !ok {
+		return nil, fmt.Errorf("no client found for provider: %s", req.Provider)
+	}
+
+	return client.client, nil
 }
