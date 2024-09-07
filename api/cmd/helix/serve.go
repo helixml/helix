@@ -224,6 +224,8 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
+	providerManager := openai.NewProviderManager(cfg, helixInference)
+
 	controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
 	if err != nil {
 		return err
@@ -294,7 +296,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
+	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
 	if err != nil {
 		return err
 	}
