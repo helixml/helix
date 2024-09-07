@@ -98,6 +98,10 @@ func (c *RetryableClient) ListModels(ctx context.Context) ([]model.OpenAIModel, 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get models from provider: %s", resp.Status)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response from provider's models endpoint: %w", err)

@@ -59,9 +59,8 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiC
 		clients[types.ProviderTogetherAI] = &providerClient{client: togetherAiClient}
 	}
 
-	if cfg.Inference.Provider == types.ProviderHelix {
-		clients[types.ProviderHelix] = &providerClient{client: helixInference}
-	}
+	// Always configure Helix provider too
+	clients[types.ProviderHelix] = &providerClient{client: helixInference}
 
 	return &MultiClientManager{
 		clients:   clients,
