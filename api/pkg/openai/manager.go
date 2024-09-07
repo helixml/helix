@@ -17,8 +17,8 @@ type GetClientRequest struct {
 	Model    string
 }
 
-// Manager returns an OpenAI compatible client based on provider
-type Manager interface {
+// ProviderManager returns an OpenAI compatible client based on provider
+type ProviderManager interface {
 	GetClient(ctx context.Context, req *GetClientRequest) (Client, error)
 	ListModels(ctx context.Context, provider types.Provider) ([]model.OpenAIModel, error)
 }
@@ -32,7 +32,7 @@ type MultiClientManager struct {
 	clientsMu *sync.RWMutex
 }
 
-func NewManager(cfg *config.ServerConfig, helixInference Client) *MultiClientManager {
+func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiClientManager {
 	clients := make(map[types.Provider]*providerClient)
 
 	if cfg.Providers.OpenAI.APIKey != "" {
