@@ -946,12 +946,13 @@ type AssistantAPI struct {
 // apps are a collection of assistants
 // the APIs and GPTScripts are both processed into a single list of Tools
 type AssistantConfig struct {
-	ID          string `json:"id" yaml:"id"`
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"`
-	Avatar      string `json:"avatar" yaml:"avatar"`
-	Image       string `json:"image" yaml:"image"`
-	Model       string `json:"model" yaml:"model"`
+	ID          string   `json:"id" yaml:"id"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description" yaml:"description"`
+	Avatar      string   `json:"avatar" yaml:"avatar"`
+	Image       string   `json:"image" yaml:"image"`
+	Provider    Provider `json:"provider" yaml:"provider"` // openai, togetherai, helix, etc.
+	Model       string   `json:"model" yaml:"model"`
 	// so we can have fine tuned image assistants or system prompt augmentedimage inference
 	// defaults to text
 	Type SessionType `json:"type" yaml:"type"`

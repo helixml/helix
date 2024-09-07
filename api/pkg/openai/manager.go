@@ -15,6 +15,8 @@ type GetClientRequest struct {
 	Provider types.Provider
 }
 
+//go:generate mockgen -source $GOFILE -destination manager_mocks.go -package $GOPACKAGE
+
 // ProviderManager returns an OpenAI compatible client based on provider
 type ProviderManager interface {
 	// GetClient returns a client for the given provider
