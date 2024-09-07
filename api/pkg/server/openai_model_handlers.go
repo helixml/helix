@@ -8,8 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -39,14 +40,14 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 // Updated function to determine models
 func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) {
 	// If configured to proxy through to LLM provider, return their models
-	if apiServer.Cfg.Inference.Provider != config.ProviderHelix {
+	if apiServer.Cfg.Inference.Provider != types.ProviderHelix {
 		var baseURL string
 		var apiKey string
 		switch apiServer.Cfg.Inference.Provider {
-		case config.ProviderOpenAI:
+		case types.ProviderOpenAI:
 			baseURL = apiServer.Cfg.Providers.OpenAI.BaseURL
 			apiKey = apiServer.Cfg.Providers.OpenAI.APIKey
-		case config.ProviderTogetherAI:
+		case types.ProviderTogetherAI:
 			baseURL = apiServer.Cfg.Providers.TogetherAI.BaseURL
 			apiKey = apiServer.Cfg.Providers.TogetherAI.APIKey
 		default:
@@ -152,92 +153,5 @@ func (apiServer *HelixAPIServer) determineModels() ([]model.OpenAIModel, error) 
 	}
 
 	// Return the list of Helix models
-	return []model.OpenAIModel{
-		{
-			ID:          "helix-3.5",
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        "Helix 3.5",
-			Description: "Llama3 8B, fast and good for everyday tasks",
-		},
-		{
-			ID:          "helix-4",
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        "Helix 4",
-			Description: "Llama3 70B, smarter but a bit slower",
-		},
-		{
-			ID:          "helix-mixtral",
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        "Helix Mixtral",
-			Description: "Mistral 8x7B MoE, we rely on this for some use cases",
-		},
-		{
-			ID:          "helix-json",
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        "Helix JSON",
-			Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
-		},
-		{
-			ID:          "helix-small",
-			Object:      "model",
-			OwnedBy:     "helix",
-			Name:        "Helix Small",
-			Description: "Phi-3 Mini 3.8B, fast and memory efficient",
-		},
-		// ollama spellings
-		// TODO: make these dynamic by having the runners report which models
-		// they were configured with, and union them
-		{
-			ID:      "llama3:instruct",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "llama3:70b",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "mixtral:instruct",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "phi3:instruct",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "llama3:8b-instruct-fp16",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "llama3:8b-instruct-q6_K",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-		{
-			ID:      "llama3:8b-instruct-q8_0",
-			Object:  "model",
-			OwnedBy: "helix",
-			Hide:    true,
-		},
-	}, nil
+	return openai.HelixModels, nil
 }
