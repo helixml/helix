@@ -29,11 +29,12 @@ type ControllerSuite struct {
 
 	ctx context.Context
 
-	store        *store.MockStore
-	pubsub       pubsub.PubSub
-	openAiClient *oai.MockClient
-	rag          *rag.MockRAG
-	user         *types.User
+	store           *store.MockStore
+	pubsub          pubsub.PubSub
+	openAiClient    *oai.MockClient
+	rag             *rag.MockRAG
+	user            *types.User
+	providerManager *oai.MockProviderManager
 
 	controller *Controller
 }
@@ -46,8 +47,12 @@ func (suite *ControllerSuite) SetupTest() {
 	ps, err := pubsub.New(suite.T().TempDir())
 	suite.NoError(err)
 
-	suite.openAiClient = oai.NewMockClient(ctrl)
 	suite.pubsub = ps
+
+	suite.openAiClient = oai.NewMockClient(ctrl)
+	suite.providerManager = oai.NewMockProviderManager(ctrl)
+
+	suite.providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
 	filestoreMock := filestore.NewMockFileStore(ctrl)
 	extractorMock := extract.NewMockExtractor(ctrl)
@@ -64,13 +69,13 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
 	c, err := NewController(context.Background(), ControllerOptions{
-		Config:       cfg,
-		Store:        suite.store,
-		Janitor:      janitor.NewJanitor(config.Janitor{}),
-		OpenAIClient: suite.openAiClient,
-		Filestore:    filestoreMock,
-		Extractor:    extractorMock,
-		RAG:          suite.rag,
+		Config:          cfg,
+		Store:           suite.store,
+		Janitor:         janitor.NewJanitor(config.Janitor{}),
+		ProviderManager: suite.providerManager,
+		Filestore:       filestoreMock,
+		Extractor:       extractorMock,
+		RAG:             suite.rag,
 	})
 	suite.NoError(err)
 
