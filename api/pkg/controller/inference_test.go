@@ -10,6 +10,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -34,7 +35,7 @@ type ControllerSuite struct {
 	openAiClient    *oai.MockClient
 	rag             *rag.MockRAG
 	user            *types.User
-	providerManager *oai.MockProviderManager
+	providerManager *manager.MockProviderManager
 
 	controller *Controller
 }
@@ -50,7 +51,7 @@ func (suite *ControllerSuite) SetupTest() {
 	suite.pubsub = ps
 
 	suite.openAiClient = oai.NewMockClient(ctrl)
-	suite.providerManager = oai.NewMockProviderManager(ctrl)
+	suite.providerManager = manager.NewMockProviderManager(ctrl)
 
 	suite.providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
