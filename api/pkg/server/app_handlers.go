@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 )
 
@@ -126,6 +127,11 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 	// if this is a github app - then initialise it
 	switch app.AppSource {
 	case types.AppSourceHelix:
+		err = s.validateTriggers(app.Config.Helix.Triggers)
+		if err != nil {
+			return nil, system.NewHTTPError400(err.Error())
+		}
+
 		// Validate and default tools
 		for idx := range app.Config.Helix.Assistants {
 			assistant := &app.Config.Helix.Assistants[idx]
@@ -215,6 +221,25 @@ func (s *HelixAPIServer) createApp(_ http.ResponseWriter, r *http.Request) (*typ
 
 func (s *HelixAPIServer) validateKnowledge(k *types.AssistantKnowledge) error {
 	return knowledge.Validate(k)
+}
+
+func (s *HelixAPIServer) validateTriggers(triggers []types.Trigger) error {
+	// If it's cron, check that it runs not more than once every 90 seconds
+	for _, trigger := range triggers {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+			cronSchedule, err := cron.ParseStandard(trigger.Cron.Schedule)
+			if err != nil {
+				return fmt.Errorf("invalid cron schedule: %w", err)
+			}
+
+			nextRun := cronSchedule.Next(time.Now())
+			secondRun := cronSchedule.Next(nextRun)
+			if secondRun.Sub(nextRun) < 90*time.Second {
+				return fmt.Errorf("cron trigger must not run more than once per 90 seconds")
+			}
+		}
+	}
+	return nil
 }
 
 // ensureKnowledge creates or updates knowledge config in the database
@@ -353,6 +378,11 @@ func (s *HelixAPIServer) updateApp(_ http.ResponseWriter, r *http.Request) (*typ
 		if existing.Owner != user.ID {
 			return nil, system.NewHTTPError403("you do not have permission to update this app")
 		}
+	}
+
+	err = s.validateTriggers(update.Config.Helix.Triggers)
+	if err != nil {
+		return nil, system.NewHTTPError400(err.Error())
 	}
 
 	update.Updated = time.Now()
