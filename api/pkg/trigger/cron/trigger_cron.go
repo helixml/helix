@@ -76,12 +76,16 @@ func (c *Cron) Start(ctx context.Context) error {
 		}
 	}()
 
+	wg.Wait()
+
 	return nil
 }
 
 func (c *Cron) startScheduler(ctx context.Context) error {
 	// start the scheduler
 	c.cron.Start()
+
+	log.Info().Msg("started app cron scheduler")
 
 	// Block until the context is done
 	<-ctx.Done()
