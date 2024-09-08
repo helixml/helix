@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	model "github.com/helixml/helix/api/pkg/model"
 	openai "github.com/lukemarsden/go-openai2"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -68,4 +69,19 @@ func (m *MockClient) CreateChatCompletionStream(ctx context.Context, request ope
 func (mr *MockClientMockRecorder) CreateChatCompletionStream(ctx, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChatCompletionStream", reflect.TypeOf((*MockClient)(nil).CreateChatCompletionStream), ctx, request)
+}
+
+// ListModels mocks base method.
+func (m *MockClient) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListModels", ctx)
+	ret0, _ := ret[0].([]model.OpenAIModel)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListModels indicates an expected call of ListModels.
+func (mr *MockClientMockRecorder) ListModels(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockClient)(nil).ListModels), ctx)
 }

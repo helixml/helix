@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -25,16 +26,17 @@ import (
 )
 
 type ControllerOptions struct {
-	Config               *config.ServerConfig
-	Store                store.Store
-	PubSub               pubsub.PubSub
-	Extractor            extract.Extractor
-	RAG                  rag.RAG
-	GPTScriptExecutor    gptscript.Executor
-	Filestore            filestore.FileStore
-	Janitor              *janitor.Janitor
-	Notifier             notification.Notifier
-	OpenAIClient         openai.Client
+	Config            *config.ServerConfig
+	Store             store.Store
+	PubSub            pubsub.PubSub
+	Extractor         extract.Extractor
+	RAG               rag.RAG
+	GPTScriptExecutor gptscript.Executor
+	Filestore         filestore.FileStore
+	Janitor           *janitor.Janitor
+	Notifier          notification.Notifier
+	// OpenAIClient         openai.Client
+	ProviderManager      manager.ProviderManager
 	DataprepOpenAIClient openai.Client
 }
 
@@ -43,7 +45,8 @@ type Controller struct {
 	Options      ControllerOptions
 	ToolsPlanner tools.Planner
 
-	openAIClient         openai.Client
+	providerManager manager.ProviderManager
+
 	dataprepOpenAIClient openai.Client
 
 	newRagClient func(settings *types.RAGSettings) rag.RAG
@@ -83,6 +86,10 @@ func NewController(
 	if options.Janitor == nil {
 		return nil, fmt.Errorf("janitor is required")
 	}
+	if options.ProviderManager == nil {
+		return nil, fmt.Errorf("provider manager is required")
+	}
+
 	models, err := model.GetModels()
 	if err != nil {
 		return nil, err
@@ -91,7 +98,7 @@ func NewController(
 	controller := &Controller{
 		Ctx:                  ctx,
 		Options:              options,
-		openAIClient:         options.OpenAIClient,
+		providerManager:      options.ProviderManager,
 		dataprepOpenAIClient: options.DataprepOpenAIClient,
 		sessionQueue:         []*types.Session{},
 		sessionSummaryQueue:  []*types.SessionSummary{},
@@ -103,7 +110,12 @@ func NewController(
 		schedulingDecisions: []*types.GlobalSchedulingDecision{},
 	}
 
-	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, options.OpenAIClient)
+	toolsOpenAIClient, err := controller.getClient(ctx, options.Config.Inference.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tools client: %v", err)
+	}
+
+	planner, err := tools.NewChainStrategy(options.Config, options.Store, options.GPTScriptExecutor, toolsOpenAIClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools planner: %v", err)
 	}

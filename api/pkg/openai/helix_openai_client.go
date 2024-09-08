@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -22,6 +23,99 @@ type HelixClient interface {
 var _ HelixClient = &InternalHelixServer{}
 
 var chatCompletionTimeout = 180 * time.Second
+
+func (c *InternalHelixServer) ListModels(ctx context.Context) ([]model.OpenAIModel, error) {
+	return HelixModels, nil
+}
+
+var HelixModels = []model.OpenAIModel{
+	{
+		ID:          "helix-3.5",
+		Object:      "model",
+		OwnedBy:     "helix",
+		Name:        "Helix 3.5",
+		Description: "Llama3 8B, fast and good for everyday tasks",
+	},
+	{
+		ID:          "helix-4",
+		Object:      "model",
+		OwnedBy:     "helix",
+		Name:        "Helix 4",
+		Description: "Llama3 70B, smarter but a bit slower",
+	},
+	{
+		ID:          "helix-mixtral",
+		Object:      "model",
+		OwnedBy:     "helix",
+		Name:        "Helix Mixtral",
+		Description: "Mistral 8x7B MoE, we rely on this for some use cases",
+	},
+	{
+		ID:          "helix-json",
+		Object:      "model",
+		OwnedBy:     "helix",
+		Name:        "Helix JSON",
+		Description: "Nous-Hermes 2 Theta, for function calling & JSON output",
+	},
+	{
+		ID:          "helix-small",
+		Object:      "model",
+		OwnedBy:     "helix",
+		Name:        "Helix Small",
+		Description: "Phi-3 Mini 3.8B, fast and memory efficient",
+	},
+	// ollama spellings
+	// TODO: make these dynamic by having the runners report which models
+	// they were configured with, and union them
+	{
+		ID:      "llama3:instruct",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "llama3:70b",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "mixtral:instruct",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "adrienbrault/nous-hermes2theta-llama3-8b:q8_0",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "phi3:instruct",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "llama3:8b-instruct-fp16",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "llama3:8b-instruct-q6_K",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+	{
+		ID:      "llama3:8b-instruct-q8_0",
+		Object:  "model",
+		OwnedBy: "helix",
+		Hide:    true,
+	},
+}
 
 func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, chatCompletionTimeout)

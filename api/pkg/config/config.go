@@ -41,7 +41,7 @@ func LoadServerConfig() (ServerConfig, error) {
 }
 
 type Inference struct {
-	Provider Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
+	Provider types.Provider `envconfig:"INFERENCE_PROVIDER" default:"helix" description:"One of helix, openai, or togetherai"`
 }
 
 // Providers is used to configure the various AI providers that we use
@@ -65,14 +65,6 @@ type Helix struct {
 	OwnerID   string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_ID" default:"helix-internal"` // Will be used for sesions
 	OwnerType string `envconfig:"TOOLS_PROVIDER_HELIX_OWNER_TYPE" default:"system"`       // Will be used for sesions
 }
-
-type Provider string
-
-const (
-	ProviderOpenAI     Provider = "openai"
-	ProviderTogetherAI Provider = "togetherai"
-	ProviderHelix      Provider = "helix"
-)
 
 type Tools struct {
 	Enabled bool `envconfig:"TOOLS_ENABLED" default:"true"` // Enable/disable tools for the server
@@ -266,8 +258,8 @@ type GitHub struct {
 }
 
 type FineTuning struct {
-	Enabled  bool     `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
-	Provider Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
+	Enabled  bool           `envconfig:"FINETUNING_ENABLED" default:"true" description:"Enable QA pairs."` // Enable/disable QA pairs for the server
+	Provider types.Provider `envconfig:"FINETUNING_PROVIDER" default:"togetherai" description:"Which LLM provider to use for QA pairs."`
 	// Suggestions based on provider:
 	// - Together AI: meta-llama/Llama-3-8b-chat-hf
 	// - Helix: llama3:instruct
@@ -275,9 +267,9 @@ type FineTuning struct {
 }
 
 type Apps struct {
-	Enabled  bool     `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
-	Provider Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
-	Model    string   `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
+	Enabled  bool           `envconfig:"APPS_ENABLED" default:"true" description:"Enable apps."` // Enable/disable apps for the server
+	Provider types.Provider `envconfig:"APPS_PROVIDER" default:"togetherai" description:"Which LLM provider to use for apps."`
+	Model    string         `envconfig:"APPS_MODEL" default:"mistralai/Mixtral-8x7B-Instruct-v0.1" description:"Which LLM model to use for apps."` // gpt-4-1106-preview
 }
 
 type GPTScript struct {
