@@ -68,7 +68,7 @@ func (t *TriggerManager) runDiscord(ctx context.Context) {
 }
 
 func (t *TriggerManager) runCron(ctx context.Context) {
-	cronTrigger, err := cron.New(t.cfg, t.store)
+	cronTrigger, err := cron.New(t.cfg, t.store, t.controller)
 	if err != nil {
 		log.Err(err).Msg("failed to create cron trigger")
 		return
