@@ -48,7 +48,9 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
 
-		clients[types.ProviderOpenAI] = &providerClient{client: openaiClient}
+		loggedClient := logger.Wrap(cfg, types.ProviderOpenAI, openaiClient, logStores...)
+
+		clients[types.ProviderOpenAI] = &providerClient{client: loggedClient}
 	}
 
 	if cfg.Providers.TogetherAI.APIKey != "" {
@@ -60,11 +62,16 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, 
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL)
 
-		clients[types.ProviderTogetherAI] = &providerClient{client: togetherAiClient}
+		loggedClient := logger.Wrap(cfg, types.ProviderTogetherAI, togetherAiClient, logStores...)
+
+		clients[types.ProviderTogetherAI] = &providerClient{client: loggedClient}
 	}
 
 	// Always configure Helix provider too
-	clients[types.ProviderHelix] = &providerClient{client: helixInference}
+
+	loggedClient := logger.Wrap(cfg, types.ProviderHelix, helixInference, logStores...)
+
+	clients[types.ProviderHelix] = &providerClient{client: loggedClient}
 
 	return &MultiClientManager{
 		clients:   clients,
