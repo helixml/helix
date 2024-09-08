@@ -34,14 +34,16 @@ type LoggingMiddleware struct {
 	client    oai.Client
 	logStores []LogStore
 	wg        sync.WaitGroup
+	provider  types.Provider
 }
 
-func Wrap(cfg *config.ServerConfig, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
+func Wrap(cfg *config.ServerConfig, provider types.Provider, client oai.Client, logStores ...LogStore) *LoggingMiddleware {
 	return &LoggingMiddleware{
 		cfg:       cfg,
 		logStores: logStores,
 		client:    client,
 		wg:        sync.WaitGroup{},
+		provider:  provider,
 	}
 }
 
@@ -191,6 +193,16 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		step = &oai.Step{}
 	}
 
+	log.Debug().
+		Str("owner_id", vals.OwnerID).
+		Str("model", req.Model).
+		Str("provider", string(m.provider)).
+		Str("step", string(step.Step)).
+		Int("prompt_tokens", resp.Usage.PromptTokens).
+		Int("completion_tokens", resp.Usage.CompletionTokens).
+		Int("total_tokens", resp.Usage.TotalTokens).
+		Msg("logging LLM call")
+
 	llmCall := &types.LLMCall{
 		SessionID:        vals.SessionID,
 		InteractionID:    vals.InteractionID,
@@ -199,7 +211,7 @@ func (m *LoggingMiddleware) logLLMCall(ctx context.Context, req *openai.ChatComp
 		OriginalRequest:  vals.OriginalRequest,
 		Request:          reqBts,
 		Response:         respBts,
-		Provider:         string(m.cfg.Inference.Provider),
+		Provider:         string(m.provider),
 		DurationMs:       durationMs,
 		PromptTokens:     int64(resp.Usage.PromptTokens),
 		CompletionTokens: int64(resp.Usage.CompletionTokens),
