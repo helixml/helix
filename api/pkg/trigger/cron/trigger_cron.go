@@ -96,7 +96,7 @@ func (c *Cron) startScheduler(ctx context.Context) error {
 }
 
 func (c *Cron) reconcileCronApps(ctx context.Context) error {
-	apps, err := c.store.ListApps(ctx, &store.ListAppsQuery{})
+	apps, err := c.listApps(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
@@ -221,7 +221,9 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			},
 		}
 
-		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{}, openai.ChatCompletionRequest{
+		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{
+			ID: app.Owner,
+		}, openai.ChatCompletionRequest{
 			Stream:   false,
 			Messages: messages,
 		},
