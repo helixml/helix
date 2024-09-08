@@ -243,7 +243,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	if err != nil {
 		return err
 	}
-	dataprepOpenAIClient = logger.Wrap(cfg, dataprepOpenAIClient, logStores...)
+	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, logStores...)
 
 	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
 		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
