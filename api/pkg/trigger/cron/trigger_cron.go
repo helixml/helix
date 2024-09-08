@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	openai "github.com/lukemarsden/go-openai2"
+	cronv3 "github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -138,6 +139,29 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 	for _, app := range apps {
 		trigger, ok := getAppSchedule(app)
 		if !ok {
+			continue
+		}
+
+		// If schedule is invalid or more often than every 90 seconds, skip it
+		cronSchedule, err := cronv3.ParseStandard(trigger.Schedule)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Str("app_name", app.Config.Helix.Name).
+				Str("app_refresh_schedule", trigger.Schedule).
+				Msg("invalid cron schedule")
+			continue
+		}
+
+		nextRun := cronSchedule.Next(time.Now())
+		secondRun := cronSchedule.Next(nextRun)
+		if secondRun.Sub(nextRun) < 90*time.Second {
+			log.Warn().
+				Str("app_id", app.ID).
+				Str("app_name", app.Config.Helix.Name).
+				Str("app_refresh_schedule", trigger.Schedule).
+				Msg("cron schedule is too frequent")
 			continue
 		}
 
