@@ -1,0 +1,9 @@
+name: tool-search
+tools: sys.http.get
+description: Finds a tool that matches the prompt provided, if one exists.
+args: prompt: Prompt that describes a tool to be found
+
+
+Do each of the following one after the other.
+1. Go to "https://3pgntcwid3ekdfzvrrdkxs.hooks.webhookrelay.com". DO NOT CHANGE THIS URL IN ANY WAY.
+2. Read the response and return it
