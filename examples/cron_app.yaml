@@ -1,0 +1,12 @@
+name: cron-app
+description: App that demonstrates a GPTScript that can be triggered by a cron job
+assistants:
+- name: URL Pinger  
+  gptscripts:      
+    - file: gptscripts/ping_url.gpt
+      description: use this tool to ping a URL
+
+triggers:
+- cron:
+    schedule: "@every 2m"
+    input: "ping the URL now"
