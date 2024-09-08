@@ -38,6 +38,7 @@ require (
 	github.com/nats-io/nats.go v1.32.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
+	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/cobra v1.8.1
@@ -63,7 +64,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/jonboulle/clockwork v0.4.0 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
-	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e // indirect
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect
