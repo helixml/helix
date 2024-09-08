@@ -54,6 +54,9 @@ func (c *Cron) reconcileCronApps(ctx context.Context) error {
 		return fmt.Errorf("failed to list apps: %w", err)
 	}
 
+	jobs := c.cron.Jobs()
+
+	return c.createOrDeleteCronApps(ctx, apps, jobs)
 }
 
 func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jobs []gocron.Job) error {
