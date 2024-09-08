@@ -1,4 +1,4 @@
-package openai
+package manager
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/logger"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -20,13 +22,13 @@ type GetClientRequest struct {
 // ProviderManager returns an OpenAI compatible client based on provider
 type ProviderManager interface {
 	// GetClient returns a client for the given provider
-	GetClient(ctx context.Context, req *GetClientRequest) (Client, error)
+	GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error)
 	// ListProviders returns a list of providers that are available
 	ListProviders(ctx context.Context) ([]types.Provider, error)
 }
 
 type providerClient struct {
-	client Client
+	client openai.Client
 }
 
 type MultiClientManager struct {
@@ -34,7 +36,7 @@ type MultiClientManager struct {
 	clientsMu *sync.RWMutex
 }
 
-func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiClientManager {
+func NewProviderManager(cfg *config.ServerConfig, helixInference openai.Client, logStores ...logger.LogStore) *MultiClientManager {
 	clients := make(map[types.Provider]*providerClient)
 
 	if cfg.Providers.OpenAI.APIKey != "" {
@@ -42,7 +44,7 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiC
 			Str("base_url", cfg.Providers.OpenAI.BaseURL).
 			Msg("initializing OpenAI client")
 
-		openaiClient := New(
+		openaiClient := openai.New(
 			cfg.Providers.OpenAI.APIKey,
 			cfg.Providers.OpenAI.BaseURL)
 
@@ -54,7 +56,7 @@ func NewProviderManager(cfg *config.ServerConfig, helixInference Client) *MultiC
 			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
 			Msg("using TogetherAI provider for controller inference")
 
-		togetherAiClient := New(
+		togetherAiClient := openai.New(
 			cfg.Providers.TogetherAI.APIKey,
 			cfg.Providers.TogetherAI.BaseURL)
 
@@ -82,7 +84,7 @@ func (m *MultiClientManager) ListProviders(ctx context.Context) ([]types.Provide
 	return providers, nil
 }
 
-func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (Client, error) {
+func (m *MultiClientManager) GetClient(ctx context.Context, req *GetClientRequest) (openai.Client, error) {
 	m.clientsMu.RLock()
 	defer m.clientsMu.RUnlock()
 

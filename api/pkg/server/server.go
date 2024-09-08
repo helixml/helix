@@ -19,6 +19,7 @@ import (
 	"github.com/helixml/helix/api/pkg/gptscript"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
@@ -60,7 +61,7 @@ type HelixAPIServer struct {
 	Janitor           *janitor.Janitor
 	authMiddleware    *authMiddleware
 	pubsub            pubsub.PubSub
-	providerManager   openai.ProviderManager
+	providerManager   manager.ProviderManager
 	gptScriptExecutor gptscript.Executor
 	inferenceServer   openai.HelixServer // Helix OpenAI server
 	knowledgeManager  knowledge.KnowledgeManager
@@ -72,7 +73,7 @@ func NewServer(
 	store store.Store,
 	ps pubsub.PubSub,
 	gptScriptExecutor gptscript.Executor,
-	providerManager openai.ProviderManager,
+	providerManager manager.ProviderManager,
 	inferenceServer openai.HelixServer,
 	authenticator auth.Authenticator,
 	stripe *stripe.Stripe,

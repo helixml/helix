@@ -10,6 +10,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 )
@@ -39,7 +40,7 @@ func (apiServer *HelixAPIServer) listModels(rw http.ResponseWriter, r *http.Requ
 		provider = apiServer.Cfg.Inference.Provider
 	}
 
-	client, err := apiServer.providerManager.GetClient(r.Context(), &openai.GetClientRequest{
+	client, err := apiServer.providerManager.GetClient(r.Context(), &manager.GetClientRequest{
 		Provider: provider,
 	})
 	if err != nil {
