@@ -80,6 +80,7 @@ func (m *MockReadCloser) Close() error {
 	}
 	return nil
 }
+
 func TestCreateInferenceModelInstance(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -93,6 +94,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 
 	// Create a mock commander
 	mockCommander := NewMockCommander(ctrl)
+
 	mockCommander.EXPECT().LookPath("ollama").Return("ollama", nil)
 	mockCommander.EXPECT().CommandContext(gomock.Any(), "ollama", "serve").Return(cmd)
 	// Swap out the commander for the mock
@@ -102,6 +104,7 @@ func TestCreateInferenceModelInstance(t *testing.T) {
 	mockFreePortFinder := NewMockFreePortFinder(ctrl)
 	port, err := freeport.GetFreePort()
 	assert.NoError(t, err)
+
 	mockFreePortFinder.EXPECT().GetFreePort().Return(port, nil)
 	// Swap out the free port finder for the mock
 	freePortFinder = mockFreePortFinder

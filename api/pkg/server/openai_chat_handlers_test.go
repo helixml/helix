@@ -22,6 +22,7 @@ import (
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/janitor"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -69,16 +70,19 @@ func (suite *OpenAIChatSuite) SetupTest() {
 
 	cfg := &config.ServerConfig{}
 	cfg.Tools.Enabled = false
-	cfg.Inference.Provider = config.ProviderTogetherAI
+	cfg.Inference.Provider = types.ProviderTogetherAI
+
+	providerManager := manager.NewMockProviderManager(ctrl)
+	providerManager.EXPECT().GetClient(gomock.Any(), gomock.Any()).Return(suite.openAiClient, nil).AnyTimes()
 
 	c, err := controller.NewController(context.Background(), controller.ControllerOptions{
-		Config:       cfg,
-		Store:        suite.store,
-		Janitor:      janitor.NewJanitor(config.Janitor{}),
-		OpenAIClient: suite.openAiClient,
-		Filestore:    filestoreMock,
-		Extractor:    extractorMock,
-		RAG:          suite.rag,
+		Config:          cfg,
+		Store:           suite.store,
+		Janitor:         janitor.NewJanitor(config.Janitor{}),
+		ProviderManager: providerManager,
+		Filestore:       filestoreMock,
+		Extractor:       extractorMock,
+		RAG:             suite.rag,
 	})
 	suite.NoError(err)
 

@@ -232,6 +232,7 @@ func (s *HelixAPIServer) startChatSessionHandler(rw http.ResponseWriter, req *ht
 			AppID:       startReq.AppID,
 			AssistantID: startReq.AssistantID,
 			RAGSourceID: startReq.RAGSourceID,
+			Provider:    startReq.Provider,
 		}
 	)
 
@@ -501,6 +502,10 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 				Done:          false,
 			},
 		})
+		if err != nil {
+			log.Error().Err(err).Msg("failed to marshal message")
+			return
+		}
 
 		err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
 		if err != nil {
@@ -524,6 +529,10 @@ func (s *HelixAPIServer) legacyStreamUpdates(user *types.User, session *types.Se
 			Done:          true,
 		},
 	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to marshal message")
+		return
+	}
 
 	err = s.pubsub.Publish(ctx, pubsub.GetSessionQueue(user.ID, session.ID), bts)
 	if err != nil {

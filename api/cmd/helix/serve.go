@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
@@ -224,23 +225,25 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
-	controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
-	if err != nil {
-		return err
-	}
+	// controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
+	// if err != nil {
+	// 	return err
+	// }
 
 	logStores := []logger.LogStore{
 		store,
 		// TODO: bigquery
 	}
 
-	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
+	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
+
+	// controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
 	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
 	if err != nil {
 		return err
 	}
-	dataprepOpenAIClient = logger.Wrap(cfg, dataprepOpenAIClient, logStores...)
+	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, logStores...)
 
 	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
 		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
@@ -260,7 +263,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Filestore:            fs,
 		Janitor:              janitor,
 		Notifier:             notifier,
-		OpenAIClient:         controllerOpenAIClient,
+		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
 	}
 
@@ -294,7 +297,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
+	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
 	if err != nil {
 		return err
 	}
