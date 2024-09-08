@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-co-op/gocron/v2"
+	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/store"
@@ -55,6 +56,94 @@ func (c *Cron) reconcileCronApps(ctx context.Context) error {
 
 }
 
+func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jobs []gocron.Job) error {
+	appsMap := make(map[string]*types.App) // app id to app
+	jobsMap := make(map[string]gocron.Job) // app id to job
+
+	for _, app := range apps {
+		appsMap[app.ID] = app
+	}
+
+	for _, job := range jobs {
+		jobsMap[job.Name()] = job
+
+		// If the job is not in the knowledges list, remove it
+		if _, ok := appsMap[job.Name()]; !ok {
+			log.Info().
+				Str("job_id", job.ID().String()).
+				Strs("job_tags", job.Tags()).
+				Msg("removing job")
+
+			err := c.cron.RemoveJob(job.ID())
+			if err != nil {
+				return fmt.Errorf("failed to remove job: %w", err)
+			}
+		}
+	}
+
+	for _, app := range apps {
+
+		appSchedule := getAppSchedule(app)
+
+		job, ok := jobsMap[app.ID]
+		if !ok {
+			log.Info().
+				Str("app_id", app.ID).
+				Str("app_name", app.Config.Helix.Name).
+				Str("app_refresh_schedule", appSchedule).
+				Msg("adding cron job to the scheduler")
+
+			// job doesn't exist, create it
+			_, err := c.cron.NewJob(
+				gocron.CronJob(appSchedule, true),
+				c.getCronAppTask(ctx, app.ID),
+				c.getCronAppOptions(app)...,
+			)
+			if err != nil {
+				log.Error().
+					Err(err).
+					Str("app_id", app.ID).
+					Str("app_name", app.Config.Helix.Name).
+					Str("app_refresh_schedule", appSchedule).
+					Msg("failed to create job")
+			}
+		} else {
+			// Job exists, check schedule and update if needed
+			currentSchedule := getCronJobSchedule(job)
+
+			if currentSchedule != appSchedule {
+				log.Info().
+					Str("app_id", app.ID).
+					Str("app_name", app.Config.Helix.Name).
+					Str("app_refresh_schedule", appSchedule).
+					Str("current_schedule", currentSchedule).
+					Msg("updating cron job schedule")
+
+				_, err := c.cron.Update(
+					job.ID(),
+					gocron.CronJob(appSchedule, true),
+					c.getCronAppTask(ctx, app.ID),
+					c.getCronAppOptions(app)...,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to remove job: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
+	return gocron.NewTask(func() {
+		log.Info().
+			Str("app_id", appID).
+			Msg("running app cron job")
+
+	})
+}
+
 func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
 	apps, err := c.store.ListApps(ctx, &store.ListAppsQuery{})
 	if err != nil {
@@ -90,7 +179,17 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 	}
 }
 
-func getAppSchedule(job gocron.Job) string {
+func getAppSchedule(app *types.App) string {
+	for _, trigger := range app.Config.Helix.Triggers {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+			return trigger.Cron.Schedule
+		}
+	}
+
+	return ""
+}
+
+func getCronJobSchedule(job gocron.Job) string {
 	tags := job.Tags()
 
 	// current schedule
