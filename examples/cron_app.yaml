@@ -8,5 +8,5 @@ assistants:
 
 triggers:
 - cron:
-    schedule: "@every 2m"
+    schedule: "@every 3m"
     input: "ping the URL now"
