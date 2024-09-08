@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-co-op/gocron/v2"
 
@@ -71,4 +72,35 @@ func (c *Cron) listApps(ctx context.Context) ([]*types.App, error) {
 	}
 
 	return filteredApps, nil
+}
+
+func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
+	var schedule string
+
+	for _, trigger := range app.Config.Helix.Triggers {
+		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
+			schedule = trigger.Cron.Schedule
+			break
+		}
+	}
+
+	return []gocron.JobOption{
+		gocron.WithName(app.ID),
+		gocron.WithTags(fmt.Sprintf("schedule:%s", schedule)),
+	}
+}
+
+func getAppSchedule(job gocron.Job) string {
+	tags := job.Tags()
+
+	// current schedule
+	var currentSchedule string
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "schedule:") {
+			currentSchedule = strings.TrimPrefix(tag, "schedule:")
+			return currentSchedule
+		}
+	}
+
+	return currentSchedule
 }
