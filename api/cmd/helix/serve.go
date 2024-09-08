@@ -20,6 +20,7 @@ import (
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/logger"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/server"
@@ -224,19 +225,19 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
-	providerManager := openai.NewProviderManager(cfg, helixInference)
-
-	controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
-	if err != nil {
-		return err
-	}
+	// controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
+	// if err != nil {
+	// 	return err
+	// }
 
 	logStores := []logger.LogStore{
 		store,
 		// TODO: bigquery
 	}
 
-	controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
+	providerManager := manager.NewProviderManager(cfg, helixInference, logStores...)
+
+	// controllerOpenAIClient = logger.Wrap(cfg, controllerOpenAIClient, logStores...)
 
 	dataprepOpenAIClient, err := createDataPrepOpenAIClient(cfg, helixInference)
 	if err != nil {

@@ -133,41 +133,6 @@ func generateEnvHelpText(cfg interface{}, prefix string) string {
 	return helpTextBuilder.String()
 }
 
-func createOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) (openai.Client, error) {
-	switch cfg.Inference.Provider {
-	case types.ProviderOpenAI:
-		if cfg.Providers.OpenAI.APIKey == "" {
-			return nil, errors.New("OpenAI API key (OPENAI_API_KEY) is required")
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.OpenAI.BaseURL).
-			Msg("using OpenAI provider for controller inference")
-
-		return openai.New(
-			cfg.Providers.OpenAI.APIKey,
-			cfg.Providers.OpenAI.BaseURL), nil
-
-	case types.ProviderTogetherAI:
-		if cfg.Providers.TogetherAI.APIKey == "" {
-			return nil, errors.New("TogetherAI API key (TOGETHER_API_KEY) is required")
-		}
-		log.Info().
-			Str("base_url", cfg.Providers.TogetherAI.BaseURL).
-			Msg("using TogetherAI provider for controller inference")
-
-		return openai.New(
-			cfg.Providers.TogetherAI.APIKey,
-			cfg.Providers.TogetherAI.BaseURL), nil
-
-	case types.ProviderHelix:
-		log.Info().Msg("using Helix provider for inference")
-		return helixInference, nil
-
-	default:
-		return nil, errors.New("unknown inference provider")
-	}
-}
-
 func createDataPrepOpenAIClient(cfg *config.ServerConfig, helixInference openai.Client) (openai.Client, error) {
 	switch cfg.FineTuning.Provider {
 	case types.ProviderOpenAI:

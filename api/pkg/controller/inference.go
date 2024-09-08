@@ -6,6 +6,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	oai "github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/prompts"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -145,7 +146,7 @@ func (c *Controller) getClient(ctx context.Context, provider types.Provider) (oa
 		provider = c.Options.Config.Inference.Provider
 	}
 
-	client, err := c.providerManager.GetClient(ctx, &oai.GetClientRequest{
+	client, err := c.providerManager.GetClient(ctx, &manager.GetClientRequest{
 		Provider: provider,
 	})
 	if err != nil {

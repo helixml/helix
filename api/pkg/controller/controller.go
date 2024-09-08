@@ -15,6 +15,7 @@ import (
 	"github.com/helixml/helix/api/pkg/model"
 	"github.com/helixml/helix/api/pkg/notification"
 	"github.com/helixml/helix/api/pkg/openai"
+	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
@@ -35,7 +36,7 @@ type ControllerOptions struct {
 	Janitor           *janitor.Janitor
 	Notifier          notification.Notifier
 	// OpenAIClient         openai.Client
-	ProviderManager      openai.ProviderManager
+	ProviderManager      manager.ProviderManager
 	DataprepOpenAIClient openai.Client
 }
 
@@ -44,7 +45,7 @@ type Controller struct {
 	Options      ControllerOptions
 	ToolsPlanner tools.Planner
 
-	providerManager openai.ProviderManager
+	providerManager manager.ProviderManager
 
 	dataprepOpenAIClient openai.Client
 
