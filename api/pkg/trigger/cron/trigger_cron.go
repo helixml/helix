@@ -6,29 +6,33 @@ import (
 	"strings"
 
 	"github.com/go-co-op/gocron/v2"
+	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/helixml/helix/api/pkg/config"
+	"github.com/helixml/helix/api/pkg/controller"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
 type Cron struct {
-	cfg   *config.ServerConfig
-	store store.Store
-	cron  gocron.Scheduler
+	cfg        *config.ServerConfig
+	store      store.Store
+	controller *controller.Controller
+	cron       gocron.Scheduler
 }
 
-func New(cfg *config.ServerConfig, store store.Store) (*Cron, error) {
+func New(cfg *config.ServerConfig, store store.Store, controller *controller.Controller) (*Cron, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
 	return &Cron{
-		cfg:   cfg,
-		store: store,
-		cron:  s,
+		cfg:        cfg,
+		store:      store,
+		controller: controller,
+		cron:       s,
 	}, nil
 }
 
@@ -86,19 +90,19 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 
 	for _, app := range apps {
 
-		appSchedule := getAppSchedule(app)
+		trigger := getAppSchedule(app)
 
 		job, ok := jobsMap[app.ID]
 		if !ok {
 			log.Info().
 				Str("app_id", app.ID).
 				Str("app_name", app.Config.Helix.Name).
-				Str("app_refresh_schedule", appSchedule).
+				Str("app_refresh_schedule", trigger.Schedule).
 				Msg("adding cron job to the scheduler")
 
 			// job doesn't exist, create it
 			_, err := c.cron.NewJob(
-				gocron.CronJob(appSchedule, true),
+				gocron.CronJob(trigger.Schedule, true),
 				c.getCronAppTask(ctx, app.ID),
 				c.getCronAppOptions(app)...,
 			)
@@ -107,24 +111,24 @@ func (c *Cron) createOrDeleteCronApps(ctx context.Context, apps []*types.App, jo
 					Err(err).
 					Str("app_id", app.ID).
 					Str("app_name", app.Config.Helix.Name).
-					Str("app_refresh_schedule", appSchedule).
+					Str("app_refresh_schedule", trigger.Schedule).
 					Msg("failed to create job")
 			}
 		} else {
 			// Job exists, check schedule and update if needed
 			currentSchedule := getCronJobSchedule(job)
 
-			if currentSchedule != appSchedule {
+			if currentSchedule != trigger.Schedule {
 				log.Info().
 					Str("app_id", app.ID).
 					Str("app_name", app.Config.Helix.Name).
-					Str("app_refresh_schedule", appSchedule).
+					Str("app_refresh_schedule", trigger.Schedule).
 					Str("current_schedule", currentSchedule).
 					Msg("updating cron job schedule")
 
 				_, err := c.cron.Update(
 					job.ID(),
-					gocron.CronJob(appSchedule, true),
+					gocron.CronJob(trigger.Schedule, true),
 					c.getCronAppTask(ctx, app.ID),
 					c.getCronAppOptions(app)...,
 				)
@@ -144,6 +148,48 @@ func (c *Cron) getCronAppTask(ctx context.Context, appID string) gocron.Task {
 			Str("app_id", appID).
 			Msg("running app cron job")
 
+		app, err := c.store.GetApp(ctx, appID)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", appID).
+				Msg("failed to get app")
+			return
+		}
+
+		trigger := getAppSchedule(app)
+
+		messages := []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: trigger.Input,
+			},
+		}
+
+		resp, _, err := c.controller.ChatCompletion(ctx, &types.User{}, openai.ChatCompletionRequest{
+			Stream:   false,
+			Messages: messages,
+		},
+			&controller.ChatCompletionOptions{
+				AppID: app.ID,
+			})
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("app_id", app.ID).
+				Msg("failed to run app cron job")
+			return
+		}
+
+		var respContent string
+		if len(resp.Choices) > 0 {
+			respContent = resp.Choices[0].Message.Content
+		}
+
+		log.Info().
+			Str("app_id", app.ID).
+			Str("resp_content", respContent).
+			Msg("app cron job completed")
 	})
 }
 
@@ -182,14 +228,14 @@ func (c *Cron) getCronAppOptions(app *types.App) []gocron.JobOption {
 	}
 }
 
-func getAppSchedule(app *types.App) string {
+func getAppSchedule(app *types.App) *types.CronTrigger {
 	for _, trigger := range app.Config.Helix.Triggers {
 		if trigger.Cron != nil && trigger.Cron.Schedule != "" {
-			return trigger.Cron.Schedule
+			return trigger.Cron
 		}
 	}
 
-	return ""
+	return nil
 }
 
 func getCronJobSchedule(job gocron.Job) string {
