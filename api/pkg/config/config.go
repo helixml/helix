@@ -159,7 +159,7 @@ type RAG struct {
 
 	// Typesense is used to store RAG records in a Typesense index
 	Typesense struct {
-		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://localhost:8108" description:"The URL to the Typesense server."`
+		URL    string `envconfig:"RAG_TYPESENSE_URL" default:"http://typesense:8108" description:"The URL to the Typesense server."`
 		APIKey string `envconfig:"RAG_TYPESENSE_API_KEY" default:"typesense" description:"The API key to the Typesense server."`
 	}
 
