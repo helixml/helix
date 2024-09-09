@@ -99,6 +99,13 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  typesense:
+    image: typesense/typesense:27.0
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    ports:
+      - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
 
 volumes:
   helix-postgres-db:
