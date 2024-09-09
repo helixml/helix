@@ -50,6 +50,8 @@ steps:
       from_secret: openai_base_url
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
   commands:
     - go test -v ./...
 
@@ -67,6 +69,9 @@ services:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
     POSTGRES_DB: postgres
+- name: typesense
+  image: typesense/typesense:27.0
+  command: ["--data-dir", "/data", "--api-key", "typesense"]
 
 ---
 kind: pipeline
