@@ -130,6 +130,13 @@ services:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
+  typesense:
+    image: typesense/typesense:27.0
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    ports:
+      - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   llamaindex:
     image: registry.helix.ml/helix/llamaindex:latest
     # build:
@@ -221,6 +228,7 @@ volumes:
   helix-postgres-db:
   helix-pgvector-db:
   helix-filestore:
+  helix-typesense-db:
 
 networks:
   default:
