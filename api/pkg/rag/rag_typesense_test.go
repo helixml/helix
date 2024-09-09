@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -29,6 +30,13 @@ func (suite *TypesenseTestSuite) SetupTest() {
 	cfg.Typesense.URL = "http://localhost:8108"
 	cfg.Typesense.APIKey = "typesense"
 	cfg.Typesense.Collection = collectionName
+
+	if os.Getenv("TYPESENSE_URL") != "" {
+		cfg.Typesense.URL = os.Getenv("TYPESENSE_URL")
+	}
+	if os.Getenv("TYPESENSE_API_KEY") != "" {
+		cfg.Typesense.APIKey = os.Getenv("TYPESENSE_API_KEY")
+	}
 
 	ts, err := NewTypesense(cfg)
 	suite.Require().NoError(err)
