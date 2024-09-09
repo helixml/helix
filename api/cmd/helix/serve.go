@@ -245,11 +245,28 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 	}
 	dataprepOpenAIClient = logger.Wrap(cfg, cfg.FineTuning.Provider, dataprepOpenAIClient, logStores...)
 
-	llamaindexRAG := rag.NewLlamaindex(&types.RAGSettings{
-		IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
-		QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
-		DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
-	})
+	var ragClient rag.RAG
+
+	switch cfg.RAG.DefaultRagProvider {
+	case "typesense":
+		ragSettings := &types.RAGSettings{}
+		ragSettings.Typesense.URL = cfg.RAG.Typesense.URL
+		ragSettings.Typesense.APIKey = cfg.RAG.Typesense.APIKey
+		ragClient, err = rag.NewTypesense(ragSettings)
+		if err != nil {
+			return fmt.Errorf("failed to create typesense RAG client: %v", err)
+		}
+		log.Info().Msgf("Using Typesense for RAG")
+	case "llamaindex":
+		ragClient = rag.NewLlamaindex(&types.RAGSettings{
+			IndexURL:  cfg.RAG.Llamaindex.RAGIndexingURL,
+			QueryURL:  cfg.RAG.Llamaindex.RAGQueryURL,
+			DeleteURL: cfg.RAG.Llamaindex.RAGDeleteURL,
+		})
+		log.Info().Msgf("Using Llamaindex for RAG")
+	default:
+		return fmt.Errorf("unknown RAG provider: %s", cfg.RAG.DefaultRagProvider)
+	}
 
 	var appController *controller.Controller
 
@@ -257,7 +274,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Config:               cfg,
 		Store:                store,
 		PubSub:               ps,
-		RAG:                  llamaindexRAG,
+		RAG:                  ragClient,
 		Extractor:            textExtractor,
 		GPTScriptExecutor:    gse,
 		Filestore:            fs,
@@ -279,7 +296,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, textExtractor, llamaindexRAG)
+	knowledgeReconciler, err := knowledge.New(cfg, store, fs, textExtractor, ragClient)
 	if err != nil {
 		return err
 	}
