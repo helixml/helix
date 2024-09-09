@@ -57,11 +57,13 @@ func (t *Typesense) Index(ctx context.Context, indexReq *types.SessionRAGIndexCh
 }
 
 func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*types.SessionRAGResult, error) {
+	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
-		Q:        pointer.String(q.Prompt),
-		QueryBy:  pointer.String("content"),
-		FilterBy: pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:   pointer.String("content_offset:asc"),
+		Q:             pointer.String(q.Prompt),
+		QueryBy:       pointer.String("content"),
+		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
+		SortBy:        pointer.String("content_offset:asc"),
+		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
 	}
 
 	results, err := t.client.Collection(t.collection).Documents().Search(ctx, searchParameters)
