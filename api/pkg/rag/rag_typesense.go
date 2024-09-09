@@ -3,7 +3,6 @@ package rag
 import (
 	"context"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/typesense/typesense-go/v2/typesense"
@@ -20,6 +19,8 @@ type Typesense struct {
 	client     *typesense.Client
 	collection string
 }
+
+var _ RAG = &Typesense{}
 
 func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 	client := typesense.NewClient(
@@ -68,8 +69,6 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		return nil, err
 	}
 
-	spew.Dump(results)
-
 	var ragResults []*types.SessionRAGResult
 	for _, hit := range *results.Hits {
 
@@ -85,6 +84,18 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 	}
 
 	return ragResults, nil
+}
+
+func (t *Typesense) Delete(ctx context.Context, r *types.DeleteIndexRequest) error {
+	params := &api.DeleteDocumentsParams{
+		FilterBy: pointer.String("data_entity_id:" + r.DataEntityID),
+	}
+	_, err := t.client.Collection(t.collection).Documents().Delete(ctx, params)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func getStrVariable(hit *api.SearchResultHit, key string) string {
