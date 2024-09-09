@@ -5,6 +5,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/rs/zerolog/log"
 	"github.com/typesense/typesense-go/v2/typesense"
 	"github.com/typesense/typesense-go/v2/typesense/api"
 	"github.com/typesense/typesense-go/v2/typesense/api/pointer"
@@ -71,6 +72,8 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 		return nil, err
 	}
 
+	log.Info().Int("num_results", len(*results.Hits)).Msg("typesense results")
+
 	var ragResults []*types.SessionRAGResult
 	for _, hit := range *results.Hits {
 
@@ -124,6 +127,21 @@ func getIntVariable(hit *api.SearchResultHit, key string) int {
 }
 
 func (t *Typesense) ensureCollection(ctx context.Context) error {
+	log.Info().Str("collection", t.collection).Msg("ensuring collection")
+
+	// Check if collection exists
+	collections, err := t.client.Collections().Retrieve(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, collection := range collections {
+		if collection.Name == t.collection {
+			log.Info().Str("collection", t.collection).Msg("collection already exists")
+			return nil
+		}
+	}
+
 	schema := &api.CollectionSchema{
 		Name: t.collection,
 		Fields: []api.Field{
@@ -183,7 +201,7 @@ func (t *Typesense) ensureCollection(ctx context.Context) error {
 		DefaultSortingField: pointer.String("content_offset"),
 	}
 
-	_, err := t.client.Collections().Create(ctx, schema)
+	_, err = t.client.Collections().Create(ctx, schema)
 	if err != nil {
 		return err
 	}
