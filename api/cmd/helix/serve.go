@@ -221,7 +221,16 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		gse = gptscript.NewExecutor(cfg, ps)
 	}
 
-	textExtractor := extract.NewDefaultExtractor(cfg.TextExtractor.URL)
+	var extractor extract.Extractor
+
+	switch cfg.TextExtractor.Provider {
+	case types.ExtractorTika:
+		extractor = extract.NewTikaExtractor(cfg.TextExtractor.Tika.URL)
+	case types.ExtractorUnstructured:
+		extractor = extract.NewDefaultExtractor(cfg.TextExtractor.Unstructured.URL)
+	default:
+		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
+	}
 
 	helixInference := openai.NewInternalHelixServer(cfg, ps)
 
@@ -275,7 +284,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Store:                store,
 		PubSub:               ps,
 		RAG:                  ragClient,
-		Extractor:            textExtractor,
+		Extractor:            extractor,
 		GPTScriptExecutor:    gse,
 		Filestore:            fs,
 		Janitor:              janitor,
@@ -296,7 +305,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 
 	go appController.Start(ctx)
 
-	knowledgeReconciler, err := knowledge.New(cfg, store, fs, textExtractor, ragClient)
+	knowledgeReconciler, err := knowledge.New(cfg, store, fs, extractor, ragClient)
 	if err != nil {
 		return err
 	}
