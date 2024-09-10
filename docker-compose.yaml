@@ -57,6 +57,7 @@ services:
       - POSTGRES_DATABASES=keycloak
   # postgres 15 with pgvector installed for vector database
   pgvector:
+    profiles: [full]
     image: ankane/pgvector
     restart: always
     ports:
@@ -90,6 +91,7 @@ services:
       retries: 30
     command: ["start", "--proxy", "edge"]
   llamaindex:
+    profiles: [full]
     image: registry.helix.ml/helix/llamaindex:latest
     # ports:
       # - 5000:5000
@@ -99,6 +101,17 @@ services:
       - POSTGRES_DATABASE=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_ADMIN_PASSWORD-postgres}
+  tika:
+    image: apache/tika:2.9.2.1
+    ports:
+      - 9998:9998
+  typesense:
+    image: typesense/typesense:27.0
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    ports:
+      - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
 
 volumes:
   helix-postgres-db:

@@ -50,6 +50,9 @@ steps:
       from_secret: openai_base_url
     # Database config (running in a sidecar)
     POSTGRES_HOST: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   commands:
     - go test -v ./...
 
@@ -67,6 +70,11 @@ services:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
     POSTGRES_DB: postgres
+- name: typesense
+  image: typesense/typesense:27.0
+  command: ["--data-dir", "/tmp", "--api-key", "typesense"]
+- name: tika
+  image: apache/tika:2.9.2.1  
 
 ---
 kind: pipeline

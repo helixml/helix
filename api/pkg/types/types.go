@@ -108,6 +108,12 @@ type RAGSettings struct {
 	IndexURL  string `json:"index_url" yaml:"index_url"`   // the URL of the index endpoint (defaults to Helix RAG_INDEX_URL env var)
 	QueryURL  string `json:"query_url" yaml:"query_url"`   // the URL of the query endpoint (defaults to Helix RAG_QUERY_URL env var)
 	DeleteURL string `json:"delete_url" yaml:"delete_url"` // the URL of the delete endpoint (defaults to Helix RAG_DELETE_URL env var)
+
+	Typesense struct {
+		URL        string `json:"url" yaml:"url"`
+		APIKey     string `json:"api_key" yaml:"api_key"`
+		Collection string `json:"collection" yaml:"collection"`
+	} `json:"typesense" yaml:"typesense"`
 }
 
 func (m RAGSettings) Value() (driver.Value, error) {

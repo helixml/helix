@@ -56,9 +56,9 @@ func (s *ScriptMonitorCollection) Event(event runner.Event) {
 	s.consoleMonitor.Event(event)
 }
 
-func (s *ScriptMonitorCollection) Stop(output string, err error) {
+func (s *ScriptMonitorCollection) Stop(ctx context.Context, output string, err error) {
 	s.eventMonitor.Stop(output, err)
-	s.consoleMonitor.Stop(output, err)
+	s.consoleMonitor.Stop(ctx, output, err)
 }
 
 func (s *ScriptMonitorCollection) Pause() func() {
@@ -78,18 +78,18 @@ func RunGPTScript(ctx context.Context, script *types.GptScript) (*types.GptScrip
 			MonitorFactory: &ScriptMonitorCollection{
 				eventMonitor: eventMonitor,
 				console: monitor.NewConsole(monitor.Options{
-					DisplayProgress: true,
+					DebugMessages: true,
 				}),
 			},
 		},
 		Env: os.Environ(),
 	}
 
-	gptScript, err := gptscript.New(&gptOpt)
+	gptScript, err := gptscript.New(ctx, gptOpt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize gptscript: %w", err)
 	}
-	defer gptScript.Close()
+	defer gptScript.Close(true)
 
 	var (
 		prg gptscript_types.Program
