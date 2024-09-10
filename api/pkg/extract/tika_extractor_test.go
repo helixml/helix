@@ -34,12 +34,14 @@ func TestTika_Extract(t *testing.T) {
 
 		// fmt.Println(text)
 
-		assert.Contains(t,
-			text,
-			"Start the engine, pull the clutch lever in, and shift the transmission into gear.")
+		// os.WriteFile("out_2.md", []byte(text), 0o644)
 
 		assert.Contains(t,
 			text,
-			"Check the condition of the brake pad wear indicators.")
+			"Front  Inspect the brake pads from in front")
+
+		assert.Contains(t,
+			text,
+			"Check that the side stand operates")
 	})
 }
