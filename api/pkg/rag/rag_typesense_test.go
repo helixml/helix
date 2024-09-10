@@ -123,3 +123,73 @@ func (suite *TypesenseTestSuite) TestIndexAndQuery() {
 		})
 	}
 }
+
+func (suite *TypesenseTestSuite) TestIndexQueryAndDelete() {
+	// Index sample data
+	sampleDocs := []types.SessionRAGIndexChunk{
+		{
+			DataEntityID:    "doc1",
+			DocumentGroupID: "1",
+			DocumentID:      "1",
+			Source:          "test",
+			Content:         "This is a sample document about AI.",
+			ContentOffset:   0,
+		},
+		{
+			DataEntityID:    "doc1",
+			DocumentGroupID: "1",
+			DocumentID:      "2",
+			Source:          "test",
+			Content:         "Machine learning is a subset of AI.",
+			ContentOffset:   50,
+		},
+		{
+			DataEntityID:    "doc2",
+			DocumentGroupID: "2",
+			DocumentID:      "3",
+			Source:          "test",
+			Content:         "Natural language processing is an important field in AI.",
+			ContentOffset:   0,
+		},
+	}
+
+	for _, doc := range sampleDocs {
+		err := suite.ts.Index(suite.ctx, &doc)
+		suite.Require().NoError(err)
+	}
+
+	// Wait for indexing to complete
+	time.Sleep(2 * time.Second)
+
+	// Query for documents
+	query := types.SessionRAGQuery{
+		DataEntityID: "doc1",
+		Prompt:       "AI",
+	}
+	results, err := suite.ts.Query(suite.ctx, &query)
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 2)
+
+	// Delete documents for doc1
+	deleteReq := &types.DeleteIndexRequest{
+		DataEntityID: "doc1",
+	}
+	err = suite.ts.Delete(suite.ctx, deleteReq)
+	suite.Require().NoError(err)
+
+	// Wait for deletion to complete
+	time.Sleep(2 * time.Second)
+
+	// Query again for doc1
+	results, err = suite.ts.Query(suite.ctx, &query)
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 0, "Expected no results after deletion")
+
+	// Query for doc2 (should still exist)
+	query.DataEntityID = "doc2"
+	query.Prompt = "natural language processing"
+	results, err = suite.ts.Query(suite.ctx, &query)
+	suite.Require().NoError(err)
+	suite.Require().Len(results, 1, "Expected doc2 to still exist")
+	suite.Equal("3", results[0].DocumentID)
+}
