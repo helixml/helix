@@ -10,7 +10,7 @@ import (
 )
 
 func TestTika_Extract(t *testing.T) {
-	u := os.Getenv("TIKA_URL")
+	u := os.Getenv("TEXT_EXTRACTION_TIKA_URL")
 	if u == "" {
 		u = "http://localhost:9998"
 	}
