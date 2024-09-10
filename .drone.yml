@@ -52,6 +52,7 @@ steps:
     POSTGRES_HOST: postgres
     TYPESENSE_URL: http://typesense:8108
     TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   commands:
     - go test -v ./...
 
