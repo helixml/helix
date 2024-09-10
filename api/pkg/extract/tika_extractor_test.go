@@ -12,7 +12,7 @@ import (
 func TestTika_Extract(t *testing.T) {
 	u := os.Getenv("TIKA_URL")
 	if u == "" {
-		t.Skip("TIKA_URL not set, skipping unit tests")
+		u = "http://localhost:9998"
 	}
 
 	extractor := NewTikaExtractor(u)
@@ -29,6 +29,10 @@ func TestTika_Extract(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Log(text)
+
+		// t.Error("xx")
+
+		// fmt.Println(text)
 
 		assert.Contains(t,
 			text,
