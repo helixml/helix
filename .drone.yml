@@ -72,6 +72,8 @@ services:
 - name: typesense
   image: typesense/typesense:27.0
   command: ["--data-dir", "/data", "--api-key", "typesense"]
+- name: tika
+  image: apache/tika:2.9.2.1  
 
 ---
 kind: pipeline
