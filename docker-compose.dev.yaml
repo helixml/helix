@@ -86,6 +86,7 @@ services:
   # TODO: figure out how to ship the pgvector extension with our main database
   # so we don't need to run what is essentially 2 versions of postgres
   pgvector:
+    profiles: [full]
     image: ankane/pgvector
     restart: always
     ports:
@@ -130,7 +131,19 @@ services:
       - KEY=${WEBHOOK_RELAY_KEY:-}
       - SECRET=${WEBHOOK_RELAY_SECRET:-}
       - BUCKET=${WEBHOOK_RELAY_BUCKET_GITHUB:-}
+  tika:
+    image: apache/tika:2.9.2.1
+    ports:
+      - 9998:9998
+  typesense:
+    image: typesense/typesense:27.0
+    command: ["--data-dir", "/data", "--api-key", "typesense"]
+    ports:
+      - 8108:8108
+    volumes:
+      - ${TYPESENSE_DATA:-helix-typesense-db}:/data
   llamaindex:
+    profiles: [full]
     image: registry.helix.ml/helix/llamaindex:latest
     # build:
     #   context: llamaindex
@@ -221,6 +234,7 @@ volumes:
   helix-postgres-db:
   helix-pgvector-db:
   helix-filestore:
+  helix-typesense-db:
 
 networks:
   default:

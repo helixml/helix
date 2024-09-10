@@ -25,6 +25,10 @@ func GenerateUUID() string {
 	return uuid.New().String()
 }
 
+func GenerateID() string {
+	return newID()
+}
+
 func newID() string {
 	return strings.ToLower(ulid.Make().String())
 }
