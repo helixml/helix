@@ -469,6 +469,7 @@ EOF
     if [ -n "$TOGETHER_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
 INFERENCE_PROVIDER=togetherai
+FINETUNING_PROVIDER=togetherai
 TOGETHER_API_KEY=$TOGETHER_API_KEY
 EOF
     fi
@@ -477,6 +478,7 @@ EOF
     if [ -n "$OPENAI_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
 INFERENCE_PROVIDER=openai
+FINETUNING_PROVIDER=openai
 OPENAI_API_KEY=$OPENAI_API_KEY
 EOF
     fi
