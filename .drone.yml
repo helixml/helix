@@ -71,7 +71,7 @@ services:
     POSTGRES_DB: postgres
 - name: typesense
   image: typesense/typesense:27.0
-  command: ["--data-dir", "/data", "--api-key", "typesense"]
+  command: ["--api-key", "typesense"]
 - name: tika
   image: apache/tika:2.9.2.1  
 
