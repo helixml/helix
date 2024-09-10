@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/google/go-tika/tika"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/net/html"
 )
 
@@ -31,6 +34,24 @@ func NewTikaExtractor(extractorURL string) *TikaExtractor {
 }
 
 func (e *TikaExtractor) Extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
+	resp, err := retry.DoWithData(func() (string, error) {
+		return e.extract(ctx, extractReq)
+	},
+		retry.Attempts(3),
+		retry.Delay(1*time.Second),
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retry_number", n).
+				Msg("retrying app text extraction")
+		}),
+	)
+	return resp, err
+}
+
+func (e *TikaExtractor) extract(ctx context.Context, extractReq *ExtractRequest) (string, error) {
 	if extractReq.URL == "" && len(extractReq.Content) == 0 {
 		return "", fmt.Errorf("no URL or content provided")
 	}
