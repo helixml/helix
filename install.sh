@@ -33,6 +33,7 @@ OPENAI_BASE_URL=""
 AUTO_APPROVE=false
 OLDER_GPU=false
 HF_TOKEN=""
+PROXY=https://get.helix.ml
 
 # Determine OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -44,7 +45,7 @@ case $ARCH in
 esac
 
 # Determine latest release
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
+LATEST_RELEASE=$(curl -s ${PROXY}/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
 
 # Set binary name
 BINARY_NAME="helix-${OS}-${ARCH}"
@@ -277,7 +278,7 @@ mkdir -p $INSTALL_DIR/scripts/postgres/
 # Install CLI if requested or in AUTO mode
 if [ "$CLI" = true ]; then
     echo -e "\nDownloading Helix CLI..."
-    sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
+    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/${BINARY_NAME}" -o /usr/local/bin/helix
     sudo chmod +x /usr/local/bin/helix
     echo "Helix CLI has been installed to /usr/local/bin/helix"
 fi
@@ -382,7 +383,7 @@ install_nvidia_docker() {
 if [ "$CONTROLPLANE" = true ]; then
     install_docker
     echo -e "\nDownloading docker-compose.yaml..."
-    sudo curl -L "https://github.com/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
+    sudo curl -L "${PROXY}/helixml/helix/releases/download/${LATEST_RELEASE}/docker-compose.yaml" -o $INSTALL_DIR/docker-compose.yaml
     echo "docker-compose.yaml has been downloaded to $INSTALL_DIR/docker-compose.yaml"
 
     # Create database creation script
