@@ -1,3 +1,4 @@
+# For more information visit: https://docs.helix.ml/helix/private-deployment/environment-variables/
 envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
@@ -9,6 +10,8 @@ envVariables:
   # Runners
   RUNNER_TOKEN: oh-hallo-insecure-token
   # LLM providers
+  INFERENCE_PROVIDER: "togetherai" # Valid values: togetherai, openai, helix
+  FINETUNING_PROVIDER: "togetherai" # It's likely you want to use the same provider for both
   OPENAI_API_KEY: ""
   TOGETHER_API_KEY: ""
   # Keycloak location
