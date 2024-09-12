@@ -560,11 +560,11 @@ EOF
                 echo "Creating Caddyfile..."
                 # Strip https:// and port from API_HOST
                 CADDY_HOST=$(echo "$API_HOST" | sed -e 's/^https:\/\///' -e 's/:.*//')
-                cat << EOF > "$CADDYFILE"
+                sudo bash -c "cat << EOF > \"$CADDYFILE\"
 $CADDY_HOST {
     reverse_proxy localhost:8080
 }
-EOF
+EOF"
                 echo "Caddyfile has been created at $CADDYFILE"
                 echo "Please start Caddy manually after starting the Docker Compose stack:"
                 echo "sudo systemctl restart caddy"
