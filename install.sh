@@ -478,7 +478,7 @@ EOF
             echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
             AUTODETECTED_LLM=true
         else
-            echo "Ollama not detected on localhost. Start it and re-run the installer if you want to use it, or set --together-api-key or --openai-api-key and --openai-base-url. See --help for details."
+            echo "Ollama not detected on localhost. Note that Helix will be non-functional without an LLM provider or GPU runner attached. If you want to use Ollama, start it and re-run the installer so that it can be detected, attach a GPU runner, or set --together-api-key or --openai-api-key and --openai-base-url. See --help for details."
         fi
     fi
 
