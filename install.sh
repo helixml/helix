@@ -545,7 +545,7 @@ EOF
             echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
         else
             . /etc/os-release
-            if [[ "$ID" != "ubuntu" ]]; then
+            if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
                 echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
             else
                 echo "Installing Caddy..."
