@@ -463,7 +463,7 @@ SERVER_URL=${API_HOST}
 
 # Optional integrations:
 
-## External LLM provider
+## LLM provider
 EOF
 
     # Add TogetherAI configuration if token is provided
@@ -487,6 +487,14 @@ EOF
     if [ -n "$OPENAI_BASE_URL" ]; then
         cat << EOF >> "$ENV_FILE"
 OPENAI_BASE_URL=$OPENAI_BASE_URL
+EOF
+    fi
+    # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
+    # TODO: fix this by making the default FINETUNING_PROVIDER to helix in helix itself
+    if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ]; then
+        cat << EOF >> "$ENV_FILE"
+FINETUNING_PROVIDER=helix
+INFERENCE_PROVIDER=helix
 EOF
     fi
 
