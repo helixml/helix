@@ -117,6 +117,7 @@ volumes:
   helix-postgres-db:
   helix-pgvector-db:
   helix-filestore:
+  helix-typesense-db:
 
 networks:
   default:
