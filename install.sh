@@ -565,6 +565,11 @@ $CADDY_HOST {
     reverse_proxy localhost:8080
 }
 EOF"
+# Ollama on Linux TODO:
+# TODO test this sudo above
+# TODO docker bridge ip instead of host.docker.internal
+# TODO: add Environment="OLLAMA_HOST=0.0.0.0" to /etc/systemd/system/ollama.service
+
                 echo "Caddyfile has been created at $CADDYFILE"
                 echo "Please start Caddy manually after starting the Docker Compose stack:"
                 echo "sudo systemctl restart caddy"
