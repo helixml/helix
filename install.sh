@@ -466,6 +466,22 @@ SERVER_URL=${API_HOST}
 ## LLM provider
 EOF
 
+    AUTODETECTED_LLM=false
+    # If user hasn't specified LLM provider, check if Ollama is running on localhost:11434
+    if [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_BASE_URL" ] && [ -z "$TOGETHER_API_KEY" ]; then
+        echo "No LLM provider specified. Checking if Ollama is running on localhost:11434..."
+        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
+            echo "Ollama (or another OpenAI compatible API) detected on localhost:11434. Configuring Helix to use it."
+            echo "OPENAI_API_KEY=ollama" >> "$ENV_FILE"
+            echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_FILE"
+            echo "INFERENCE_PROVIDER=openai" >> "$ENV_FILE"
+            echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
+            AUTODETECTED_LLM=true
+        else
+            echo "Ollama not detected on localhost. Note that Helix will be non-functional without an LLM provider or GPU runner attached. If you want to use Ollama, start it and re-run the installer so that it can be detected, attach a GPU runner, or set --together-api-key or --openai-api-key and --openai-base-url. See --help for details."
+        fi
+    fi
+
     # Add TogetherAI configuration if token is provided
     if [ -n "$TOGETHER_API_KEY" ]; then
         cat << EOF >> "$ENV_FILE"
@@ -491,7 +507,7 @@ EOF
     fi
     # Set default FINETUNING_PROVIDER to helix if neither OpenAI nor TogetherAI are specified
     # TODO: fix this by making the default FINETUNING_PROVIDER to helix in helix itself
-    if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ]; then
+    if [ -z "$OPENAI_API_KEY" ] && [ -z "$TOGETHER_API_KEY" ] && [ "$AUTODETECTED_LLM" = false ]; then
         cat << EOF >> "$ENV_FILE"
 FINETUNING_PROVIDER=helix
 INFERENCE_PROVIDER=helix
