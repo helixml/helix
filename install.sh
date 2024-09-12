@@ -511,7 +511,7 @@ EOF
     echo ".env file has been created at $ENV_FILE"
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
     echo "│ You can now 'cd $INSTALL_DIR'"
-    echo "│ and run 'docker compose up -d' to start Helix                             │"
+    echo "│ and run 'docker compose up -d --remove-orphans' to start/upgrade Helix    │"
     echo "│ Helix will be available at $API_HOST"
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 
