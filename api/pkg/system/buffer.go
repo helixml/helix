@@ -30,6 +30,9 @@ func (b *LimitedBuffer) Write(p []byte) (n int, err error) {
 	// If new length exceeds limit, discard the earliest bytes.
 	if newLen > b.limit {
 		discard := newLen - b.limit
+		if discard > len(b.buf) {
+			discard = len(b.buf)
+		}
 		b.buf = append(b.buf[discard:], p...)
 	} else {
 		b.buf = append(b.buf, p...)
