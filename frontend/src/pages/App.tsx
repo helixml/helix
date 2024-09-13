@@ -27,6 +27,7 @@ import SendIcon from '@mui/icons-material/Send';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Link from '@mui/material/Link';
 import Avatar from '@mui/material/Avatar';
+import ModelPicker from '../components/create/ModelPicker'
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -156,6 +157,8 @@ const App: FC = () => {
   const [image, setImage] = useState('');
 
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
+
+  const [model, setModel] = useState('');
 
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
@@ -373,6 +376,7 @@ const App: FC = () => {
             system_prompt: systemPrompt,
             tools: tools,
             knowledge: knowledgeSources,
+            model: model,
           })),
         },
         secrets,
@@ -431,7 +435,7 @@ const App: FC = () => {
         console.error('Unknown error:', error);
       }
     }
-  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate]);
+  }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
   const onInference = async () => {
     if(!app) return
@@ -545,6 +549,7 @@ const App: FC = () => {
     setSystemPrompt(app.config.helix.assistants[0]?.system_prompt || '');
     setAvatar(app.config.helix.avatar || '');
     setImage(app.config.helix.image || '');
+    setModel(app.config.helix.assistants[0]?.model || '');
     setHasLoaded(true);
   }, [app])
 
@@ -893,6 +898,13 @@ const App: FC = () => {
                       label="Description"
                       helperText="Enter a short description of what this app does"
                     />
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
+                      <ModelPicker
+                        model={model}
+                        onSetModel={setModel}
+                      />
+                    </Box>
                     <TextField
                       sx={{ mb: 3 }}
                       id="app-instructions"
