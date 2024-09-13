@@ -1,0 +1,3 @@
+FROM ubuntu:24.04
+RUN apt update && apt install -y curl sudo
+RUN curl -sL -O https://get.helix.ml/install.sh && bash install.sh -y --cli
