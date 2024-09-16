@@ -45,7 +45,7 @@ case $ARCH in
 esac
 
 # Determine latest release
-LATEST_RELEASE=$(curl -s ${PROXY}/repos/helixml/helix/releases/latest | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p')
+LATEST_RELEASE=$(curl -s ${PROXY}/latest.txt)
 
 # Set binary name
 BINARY_NAME="helix-${OS}-${ARCH}"
