@@ -89,8 +89,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
-      const url = new URL(source.source.web.urls[0]);
-      return url.hostname;
+      try {
+        const url = new URL(source.source.web.urls[0]);
+        return url.hostname;
+      } catch {
+        return source.source.web.urls[0];
+      }    
     } else if (source.source.filestore?.path) {
       return source.source.filestore.path;
     }
