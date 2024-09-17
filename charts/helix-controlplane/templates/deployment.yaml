@@ -60,7 +60,14 @@ spec:
             - name: RAG_INDEX_URL
               value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/chunk
             - name: RAG_QUERY_URL
-              value: http://{{ include "helix-controlplane.fullname" . }}-llamaindex:5000/api/v1/rag/query
+              value: http://{{ include "helix-controlplane.fullname" .
+              }}-llamaindex:5000/api/v1/rag/query
+            - name: RAG_TYPESENSE_URL
+              value: http://{{ include "helix-controlplane.fullname" . }}-typesense:8108
+            - name: RAG_TYPESENSE_API_KEY
+              value: {{ .Values.typesense.apiKey }}
+            - name: TEXT_EXTRACTION_TIKA_URL
+              value: http://{{ include "helix-controlplane.fullname" . }}-tika:9998/tika 
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
