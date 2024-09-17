@@ -386,6 +386,91 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Blocking() {
 	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
 }
 
+func (suite *OpenAIChatSuite) TestChatCompletions_App_HelixModel() {
+	suite.server.Cfg.Inference.Provider = "helix"
+
+	app := &types.App{
+		Global: true,
+		Config: types.AppConfig{
+			Helix: types.AppHelixConfig{
+				Assistants: []types.AssistantConfig{
+					{
+						SystemPrompt: "you are very custom assistant",
+						Model:        "helix-3.5",
+					},
+				},
+			},
+		},
+	}
+
+	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
+
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{		
+		"stream": false,
+		"messages": [
+			{
+				"role": "system",
+				"content": "You are a helpful assistant."
+			},
+			{
+				"role": "user",
+				"content": "tell me about oceans!"
+			}
+		]
+	}`))
+	suite.NoError(err)
+
+	req = req.WithContext(suite.authCtx)
+
+	rec := httptest.NewRecorder()
+
+	suite.openAiClient.EXPECT().CreateChatCompletion(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (oai.ChatCompletionResponse, error) {
+			suite.Equal("llama3:instruct", req.Model)
+
+			suite.Require().Equal(2, len(req.Messages))
+
+			suite.Equal("system", req.Messages[0].Role)
+			suite.Equal("you are very custom assistant", req.Messages[0].Content)
+
+			suite.Equal("user", req.Messages[1].Role)
+
+			vals, ok := openai.GetContextValues(ctx)
+			suite.True(ok)
+			suite.Equal("user_id", vals.OwnerID)
+			suite.Equal("n/a", vals.SessionID)
+			suite.Equal("n/a", vals.InteractionID)
+
+			return oai.ChatCompletionResponse{
+				Model: "llama3:instruct",
+				Choices: []oai.ChatCompletionChoice{
+					{
+						Message: oai.ChatCompletionMessage{
+							Role:    "assistant",
+							Content: "**model-result**",
+						},
+						FinishReason: "stop",
+					},
+				},
+			}, nil
+		})
+
+	// Begin the chat
+	suite.server.createChatCompletion(rec, req)
+
+	suite.Equal(http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp oai.ChatCompletionResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	suite.NoError(err)
+
+	suite.Equal("llama3:instruct", resp.Model)
+	require.Equal(suite.T(), 1, len(resp.Choices), "should contain 1 choice")
+	suite.Equal(oai.FinishReasonStop, resp.Choices[0].FinishReason)
+	suite.Equal("assistant", resp.Choices[0].Message.Role)
+	suite.Equal("**model-result**", resp.Choices[0].Message.Content)
+}
+
 func (suite *OpenAIChatSuite) TestChatCompletions_AppRag_Blocking() {
 
 	const (
