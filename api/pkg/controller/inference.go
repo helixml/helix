@@ -54,6 +54,13 @@ func (c *Controller) ChatCompletion(ctx context.Context, user *types.User, req o
 
 	if assistant.Model != "" {
 		req.Model = assistant.Model
+
+		modelName, err := types.ProcessModelName(string(c.Options.Config.Inference.Provider), req.Model, types.SessionModeInference, types.SessionTypeText, false, false)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid model name '%s': %w", req.Model, err)
+		}
+
+		req.Model = modelName.String()
 	}
 
 	if assistant.RAGSourceID != "" {
