@@ -684,6 +684,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_AppFromAuth_Blocking() {
 }
 
 func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
+	suite.server.Cfg.Inference.Provider = "helix"
 
 	app := &types.App{
 		Global: true,
@@ -692,6 +693,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 				Assistants: []types.AssistantConfig{
 					{
 						SystemPrompt: "you are very custom assistant",
+						Model:        "helix-3.5",
 					},
 				},
 			},
@@ -700,8 +702,7 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.store.EXPECT().GetApp(gomock.Any(), "app123").Return(app, nil).Times(1)
 
-	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{
-		"model": "mistralai/Mistral-7B-Instruct-v0.1",
+	req, err := http.NewRequest("POST", "/v1/chat/completions?app_id=app123", bytes.NewBufferString(`{	
 		"stream": true,
 		"messages": [
 			{
@@ -725,6 +726,8 @@ func (suite *OpenAIChatSuite) TestChatCompletions_App_Streaming() {
 
 	suite.openAiClient.EXPECT().CreateChatCompletionStream(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, req oai.ChatCompletionRequest) (*oai.ChatCompletionStream, error) {
+			suite.Equal("llama3:instruct", req.Model)
+
 			vals, ok := openai.GetContextValues(ctx)
 			suite.True(ok)
 			suite.Equal("user_id", vals.OwnerID)
