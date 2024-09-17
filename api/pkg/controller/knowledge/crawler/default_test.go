@@ -61,3 +61,24 @@ func TestDefault_Crawl(t *testing.T) {
 
 	t.Logf("docs: %d", len(docs))
 }
+
+func TestDefault_CrawlSingle(t *testing.T) {
+	k := &types.Knowledge{
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				URLs: []string{"https://www.theguardian.com/uk-news/2024/sep/13/plans-unveiled-for-cheaper-high-speed-alternative-to-scrapped-hs2-northern-leg"},
+				Crawler: &types.WebsiteCrawler{
+					Enabled: false, // Will do single URL
+				},
+			},
+		},
+	}
+
+	d, err := NewDefault(k)
+	require.NoError(t, err)
+
+	docs, err := d.Crawl(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, len(docs))
+}

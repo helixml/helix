@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -45,6 +46,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	var (
+		maxPages    int32
 		maxDepth    int
 		userAgent   string
 		pageCounter atomic.Int32
@@ -60,6 +62,13 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		userAgent = defaultUserAgent
 	} else {
 		userAgent = d.knowledge.Source.Web.Crawler.UserAgent
+	}
+
+	if !d.knowledge.Source.Web.Crawler.Enabled {
+		maxPages = 1
+	} else {
+		// TODO: make configurable
+		maxPages = defaultMaxPages
 	}
 
 	pageCounter.Store(0)
@@ -106,6 +115,8 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 		// Extract and convert content to markdown
 		content, err := e.DOM.Find("body").Html()
+
+		os.WriteFile("article.html", []byte(content), os.ModePerm)
 		if err == nil {
 			markdown, err := converter.ConvertString(content)
 			if err == nil {
@@ -120,7 +131,7 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 	// Add this new OnHTML callback to find and visit links
 	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		if pageCounter.Load() >= defaultMaxPages {
+		if pageCounter.Load() >= maxPages {
 			log.Warn().
 				Str("knowledge_id", d.knowledge.ID).
 				Msg("Max pages reached")
