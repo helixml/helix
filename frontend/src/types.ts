@@ -527,6 +527,7 @@ export interface IAssistantConfig {
 }
 
 export interface IKnowledgeSource {
+  id: string;
   name: string;
   description?: string;
   rag_settings: {
@@ -772,4 +773,11 @@ export interface PaginatedLLMCalls {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+}
+
+export interface IKnowledge {
+  id: string;
+  name: string;
+  state: string;
+  // ... other fields as needed
 }

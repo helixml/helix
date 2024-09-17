@@ -161,12 +161,16 @@ const App: FC = () => {
   const [model, setModel] = useState('');
 
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
-    setKnowledgeSources(updatedKnowledge);
+    const knowledgeWithIds = updatedKnowledge.map(k => ({
+      ...k,
+      id: k.id || uuidv4(), // Assign a new ID if one doesn't exist
+    }));
+    setKnowledgeSources(knowledgeWithIds);
     setApp(prevApp => {
       if (!prevApp) return prevApp;
       const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
         ...assistant,
-        knowledge: updatedKnowledge,
+        knowledge: knowledgeWithIds,
       }));
       return {
         ...prevApp,
@@ -1006,6 +1010,7 @@ const App: FC = () => {
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
                       disabled={isReadOnly}
+                      appId={app?.id || ''}
                     />
                     {knowledgeErrors && showErrors && (
                       <Alert severity="error" sx={{ mt: 2 }}>

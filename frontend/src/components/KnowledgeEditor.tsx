@@ -1,4 +1,5 @@
-import React, { FC, useState, useEffect } from 'react';
+import React, { FC, useState, useEffect, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import {
   Box,
   Button,
@@ -16,21 +17,68 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  CircularProgress,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { IKnowledgeSource } from '../types';
+import { IKnowledgeSource, IKnowledge } from '../types';
+import useApi from '../hooks/useApi';
+
+// Debounce function
+const debounce = (func: Function, delay: number) => {
+  let timeoutId: NodeJS.Timeout;
+  return (...args: any[]) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  };
+};
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
   disabled: boolean;
+  appId: string; // Add this prop
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled, appId }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
+  const [knowledgeStates, setKnowledgeStates] = useState<{ [key: string]: string }>({});
+  const api = useApi();
+
+  const fetchKnowledgeStates = useCallback(async () => {
+    if (!appId) return;
+    try {
+      const response = await api.get<IKnowledge[]>(`/api/v1/knowledge?app_id=${appId}`);
+      console.log('Knowledge API response:', response);
+      if (response) {
+        const states = response.reduce((acc, knowledge) => {
+          console.log('Processing knowledge:', knowledge);
+          acc[knowledge.name] = knowledge.state; // Use name instead of id
+          return acc;
+        }, {} as { [key: string]: string });
+        console.log('Processed knowledge states:', states);
+        setKnowledgeStates(states);
+      }
+    } catch (error) {
+      console.error('Error fetching knowledge states:', error);
+    }
+  }, [appId, api]);
+
+  const debouncedFetchKnowledgeStates = useCallback(
+    debounce(fetchKnowledgeStates, 1000),
+    [fetchKnowledgeStates]
+  );
+
+  useEffect(() => {
+    debouncedFetchKnowledgeStates();
+    // Set up an interval to fetch the states every 10 seconds
+    const intervalId = setInterval(debouncedFetchKnowledgeStates, 10000);
+    
+    // Clean up the interval on component unmount
+    return () => clearInterval(intervalId);
+  }, [debouncedFetchKnowledgeStates]);
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -53,7 +101,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
-        source: { web: { urls: [], crawler: { enabled: false } } },
+        id: uuidv4(), // Add this line to generate a new ID
+        source: { web: { urls: [], crawler: { enabled: true } } },
         refresh_schedule: '',
         name: '',
         rag_settings: {
@@ -95,6 +144,19 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       return source.source.filestore.path;
     }
     return 'No source specified';
+  };
+
+  const getStateColor = (state: string) => {
+    switch (state) {
+      case 'ready':
+        return 'success.main';
+      case 'indexing':
+        return 'warning.main';
+      case 'failed':
+        return 'error.main';
+      default:
+        return 'text.secondary';
+    }
   };
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
@@ -157,12 +219,32 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             helperText={errors[index]}
           />
         )}
+        <Box sx={{ display: 'flex', mb: 3, alignItems: 'center', mt: 1 }}>
+          <Typography variant="body2" sx={{ mr: 1 }}>
+            State:
+          </Typography>
+          {knowledgeStates[source.name] ? ( // Use name instead of id
+            <Typography
+              variant="body2"
+              sx={{ color: getStateColor(knowledgeStates[source.name]) }}
+            >
+              {knowledgeStates[source.name]}
+            </Typography>
+          ) : (
+            <CircularProgress size={16} />
+          )}
+        </Box>
+        {/* Update debug information */}
+        {/* <Typography variant="caption">Debug - Source Name: {source.name}, State: {knowledgeStates[source.name] || 'unknown'}</Typography> */}
       </>
     );
   };
 
   return (
     <Box>
+      {/* Debug information */}
+      {/* <Typography variant="caption">Debug - Knowledge States: {JSON.stringify(knowledgeStates)}</Typography> */}
+      
       {knowledgeSources.map((source, index) => (
         <Accordion
           key={index}
@@ -174,7 +256,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             sx={{ display: 'flex', alignItems: 'center' }}
           >
             <Typography sx={{ flexGrow: 1 }}>
-              Knowledge Source ({getSourcePreview(source)})
+              Knowledge Source: {source.name} ({getSourcePreview(source)})
             </Typography>
             <IconButton
               onClick={(e) => {
