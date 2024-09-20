@@ -258,7 +258,7 @@ func TestCheckForStaleModelInstances(t *testing.T) {
 
 		// Create a new model that requires more memory and Run the function
 		err := runner.checkForStaleModelInstances(context.Background(), m, types.SessionModeInference)
-		assert.NoError(t, err)
+		assert.Error(t, err)
 
 		// Print all schedulingDecisions
 		fmt.Println(runner.schedulingDecisions)
