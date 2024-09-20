@@ -10,6 +10,10 @@ import (
 )
 
 func Validate(k *types.AssistantKnowledge) error {
+	if k.Name == "" {
+		return fmt.Errorf("knowledge name is required")
+	}
+
 	if k.RefreshSchedule != "" {
 		cronSchedule, err := cron.ParseStandard(k.RefreshSchedule)
 		if err != nil {
