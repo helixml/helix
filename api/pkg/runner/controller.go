@@ -122,7 +122,8 @@ type Runner struct {
 	warmupSessions     []types.Session
 	warmupSessionMutex sync.Mutex
 
-	nextRequestMutex sync.Mutex
+	nextRequestMutex       sync.Mutex
+	nextGlobalRequestMutex sync.Mutex
 }
 
 func NewRunner(
@@ -383,6 +384,7 @@ func (r *Runner) checkForStaleModelInstances(_ context.Context, newModel model.M
 			"uh-oh, we didn't free as much memory as we needed to for %.2f GiB model by %.2f GiB; stales=%+v, allModels=%+v",
 			GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed), stales, allModels,
 		))
+		return fmt.Errorf("uh-oh, we didn't free as much memory as we needed to for %.2f GiB model by %.2f GiB", GiB(int64(newSessionMemory)), GiB(requiredMemoryFreed))
 	}
 	return nil
 }

@@ -46,6 +46,9 @@ func (r *Runner) warmupInference(ctx context.Context) error {
 }
 
 func (r *Runner) pollInferenceRequests(ctx context.Context) error {
+	r.nextGlobalRequestMutex.Lock()
+	defer r.nextGlobalRequestMutex.Unlock()
+
 	// Query for the next global inference request
 	request, err := r.getNextGlobalLLMInferenceRequest(ctx)
 	if err != nil {
@@ -97,6 +100,9 @@ func (r *Runner) createInferenceModelInstance(ctx context.Context, request *type
 		&InferenceModelInstanceConfig{
 			ResponseHandler: r.handleInferenceResponse,
 			GetNextRequest: func() (*types.RunnerLLMInferenceRequest, error) {
+				r.nextGlobalRequestMutex.Lock()
+				defer r.nextGlobalRequestMutex.Unlock()
+
 				queryParams := url.Values{}
 
 				queryParams.Add("model_name", string(modelInstance.Filter().ModelName))
