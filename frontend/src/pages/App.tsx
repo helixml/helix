@@ -160,6 +160,57 @@ const App: FC = () => {
 
   const [model, setModel] = useState('');
 
+  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
+  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  const fetchKnowledge = useCallback(async () => {
+    if (!app?.id) return;
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 5000) return; // Prevent fetching more than once every 5 seconds
+    
+    lastFetchTimeRef.current = now;
+    try {
+      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
+      if (knowledge) {
+        setKnowledgeList(knowledge);
+      }
+    } catch (error) {
+      console.error('Failed to fetch knowledge:', error);
+      snackbar.error('Failed to fetch knowledge');
+    }
+  }, [api, snackbar, app?.id]);
+
+  // Fetch knowledge initially when the app is loaded
+  useEffect(() => {
+    if (app?.id) {
+      fetchKnowledge();
+    }
+  }, [app?.id, fetchKnowledge]);
+
+  // Set up periodic fetching
+  useEffect(() => {
+    const scheduleFetch = () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+      fetchKnowledgeTimeoutRef.current = setTimeout(() => {
+        fetchKnowledge();
+        scheduleFetch(); // Schedule the next fetch
+      }, 5); // 5 seconds
+    };
+
+    if (app?.id) {
+      scheduleFetch();
+    }
+
+    return () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+    };
+  }, [app?.id, fetchKnowledge]);
+
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
     setApp(prevApp => {
@@ -1006,6 +1057,7 @@ const App: FC = () => {
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
                       disabled={isReadOnly}
+                      knowledgeList={knowledgeList}
                     />
                     {knowledgeErrors && showErrors && (
                       <Alert severity="error" sx={{ mt: 2 }}>
