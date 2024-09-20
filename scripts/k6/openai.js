@@ -1,23 +1,39 @@
-import http from "k6/http";
 import { check, sleep } from "k6";
+import http from "k6/http";
 
+
+const test_data = [
+  "What is the capital of Australia?",
+  "How does a blockchain work?",
+  "Who was the first president of the United States?",
+  "What are the stages of the water cycle?",
+  "How do you solve a quadratic equation?",
+  "What is the theory of evolution by natural selection?",
+  "What causes earthquakes?",
+  "What is the difference between renewable and non-renewable energy sources?",
+  "How do vaccines work?",
+  "What is the significance of the Magna Carta?",
+]
 
 // Simulated user behavior.
 // To run the script:
 // k6 run --vus 10 --duration 300s scripts/k6/openai.js
 export default function () {
   let data = {
-    model: "helix-3.5",
-    stream: false,
-    messages: [
-      {role: "user", content: "why is the sky blue?"}
+    "model": "llama3:instruct",
+    "messages": [
+      {
+        "role": "user",
+        "content": test_data[Math.floor(Math.random() * test_data.length)]
+      },
     ],
+    stream: false,
   };
 
   let res = http.post("http://localhost:8080/v1/chat/completions", JSON.stringify(data), {
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer hl-0-B1syFafXf0faEAjXGv1iaqAnSCdmCD3Z4BeN_a6xI=',
+      'Authorization': 'Bearer ' + __ENV.HELIX_API_KEY,
     },
   });
 
