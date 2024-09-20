@@ -16,6 +16,7 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  Chip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -26,9 +27,10 @@ interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
   disabled: boolean;
+  knowledgeList: IKnowledgeSource[];
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled, knowledgeList }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
 
@@ -62,9 +64,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
+        id: '',
         source: { web: { urls: [], crawler: { enabled: false } } },
         refresh_schedule: '',
         name: '',
+        state: '',
         rag_settings: {
             results_count: 0,
             chunk_size: 0
@@ -106,6 +110,34 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       return source.source.filestore.path;
     }
     return 'No source specified';
+  };
+
+  const getKnowledgeState = (source: IKnowledgeSource): string | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge?.state;
+  };
+
+  const renderKnowledgeState = (state: string | undefined) => {
+    if (!state) return null;
+    
+    let color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default";
+    switch (state.toLowerCase()) {
+      case 'ready':
+        color = 'success';
+        break;
+      case 'pending':
+        color = 'info';
+        break;
+      case 'indexing':
+        color = 'info';
+        break;
+      case 'error':
+        color = 'error';
+        break;
+      // Add more cases as needed
+    }
+
+    return <Chip label={state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
@@ -186,6 +218,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           >
             <Typography sx={{ flexGrow: 1 }}>
               Knowledge Source ({getSourcePreview(source)})
+              {renderKnowledgeState(getKnowledgeState(source))}
             </Typography>
             <IconButton
               onClick={(e) => {
