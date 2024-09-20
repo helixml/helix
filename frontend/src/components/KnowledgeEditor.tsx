@@ -65,14 +65,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
         id: '',
-        source: { web: { urls: [], crawler: { enabled: false } } },
+        source: { web: { urls: [], crawler: { enabled: true } } },
         refresh_schedule: '',
         name: '',
         state: '',
         rag_settings: {
             results_count: 0,
             chunk_size: 0
-        }
+        },
     };
     onUpdate([...knowledgeSources, newSource]);
     setExpanded(`panel${knowledgeSources.length}`);
