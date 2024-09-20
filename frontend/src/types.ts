@@ -527,12 +527,14 @@ export interface IAssistantConfig {
 }
 
 export interface IKnowledgeSource {
+  id: string;
   name: string;
   description?: string;
   rag_settings: {
     results_count: number;
     chunk_size: number;
   };
+  state: string;
   source: {
     helix_drive?: {
       path: string;
