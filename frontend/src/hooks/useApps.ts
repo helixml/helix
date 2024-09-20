@@ -124,7 +124,7 @@ export const useApps = () => {
         app_source,
         config,
       }, {}, {
-        snackbar: false, // We'll handle snackbar messages in the component
+        snackbar: true, // We'll handle snackbar messages in the component
       });
       console.log("useApps: Create result:", result);
       if (!result) {
@@ -146,7 +146,7 @@ export const useApps = () => {
       const url = `/api/v1/apps/${id}`;
       console.log("useApps: Request URL:", url);
       const result = await api.put<IAppUpdate, IApp>(url, updatedApp, {}, {
-        snackbar: false,
+        snackbar: true,
       });
       console.log("useApps: Update result:", JSON.stringify(result, null, 2));
       if (!result) {

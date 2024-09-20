@@ -421,19 +421,19 @@ const App: FC = () => {
       }
 
       if (!result) {
-        snackbar.error('Failed to update app: No result returned');
-        return;
+        throw new Error('No result returned from the server');
       }
 
       snackbar.success(isNewApp ? 'App created' : 'App updated');
     } catch (error: unknown) {
       if (error instanceof Error) {
-        snackbar.error('Error in app operation: ' + error.message);
+        // snackbar.error(`Error in app operation: ${error.message}`);
         console.error('Full error:', error);
       } else {
-        snackbar.error('An unknown error occurred during the app operation');
+        // snackbar.error('An unknown error occurred during the app operation');
         console.error('Unknown error:', error);
       }
+      return; // Exit the function early if there's an error
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 

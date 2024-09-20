@@ -47,6 +47,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.refresh_schedule = ''; // Empty string for one-off
     }
 
+    // Update the name based on the source
+    if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
+      newSource.name = newSource.source.web.urls.join(', ');
+    } else if (newSource.source.filestore?.path) {
+      newSource.name = newSource.source.filestore.path;
+    } else {
+      newSource.name = 'Unnamed Source';
+    }
+
     newSources[index] = newSource;
     onUpdate(newSources);
   };
@@ -77,8 +86,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         newErrors[index] = "At least one URL or a filestore path must be specified.";
       }
     });
-    console.log('xxxx')
-    console.log(Object.keys(newErrors).length)
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
