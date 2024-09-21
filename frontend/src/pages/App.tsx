@@ -28,6 +28,10 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Link from '@mui/material/Link';
 import Avatar from '@mui/material/Avatar';
 import ModelPicker from '../components/create/ModelPicker'
+import Switch from '@mui/material/Switch';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import debounce from 'lodash/debounce';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -78,6 +82,7 @@ import {
   ISessionType,
   IApp,
   IKnowledgeSource,
+  IKnowledgeSearchResult,
 } from '../types'
 
 const isHelixApp = (app: IApp): boolean => {
@@ -163,6 +168,9 @@ const App: FC = () => {
   const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
+
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
 
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
@@ -1349,6 +1357,17 @@ const App: FC = () => {
                     border: '2px solid #fff',
                   }}
                 />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isSearchMode}
+                      onChange={(e) => setIsSearchMode(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label="Search Mode"
+                  sx={{ mb: 2, color: 'white' }}
+                />
                 <Box
                   sx={{
                     width: '100%',
@@ -1364,11 +1383,11 @@ const App: FC = () => {
                     fullWidth
                     inputRef={textFieldRef}
                     autoFocus
-                    label={`Message ${name || 'Helix'}`}
-                    helperText="Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"
+                    label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+                    helperText={isSearchMode ? "Search the knowledge base" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    multiline={true}
+                    multiline={!isSearchMode}
                     onKeyDown={handleKeyDown}
                     sx={{
                       '& .MuiInputBase-root': {
@@ -1379,61 +1398,83 @@ const App: FC = () => {
                       },
                     }}
                   />
-                  <Button
-                    id="sendButton"
-                    variant='contained'
-                    onClick={ onInference }
-                    sx={{
-                      color: themeConfig.darkText,
-                      ml: 2,
-                      mb: 3,
-                    }}
-                    endIcon={<SendIcon />}
-                  >
-                    Send
-                  </Button>
+                  {!isSearchMode && (
+                    <Button
+                      id="sendButton"
+                      variant='contained'
+                      onClick={onInference}
+                      sx={{
+                        color: themeConfig.darkText,
+                        ml: 2,
+                        mb: 3,
+                      }}
+                      endIcon={<SendIcon />}
+                    >
+                      Send
+                    </Button>
+                  )}
                 </Box>
               </Box>
               <Box
                 sx={{
                   position: 'relative',
                   zIndex: 2,
+                  overflowY: 'auto',
+                  maxHeight: 'calc(100vh - 300px)',
                 }}
               >
-                {
+                {isSearchMode ? (
+                  searchResults.map((result, index) => (
+                    <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                      <CardContent>
+                        <Typography variant="h6" color="white">
+                          Knowledge ID: {result.KnowledgeID}
+                        </Typography>
+                        {result.Results.map((chunk, chunkIndex) => (
+                          <Box
+                            key={chunkIndex}
+                            sx={{
+                              mt: 1,
+                              p: 1,
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                              borderRadius: '4px',
+                              '&:hover': {
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                              },
+                            }}
+                          >
+                            <Tooltip title={chunk.Content} placement="top">
+                              <Typography variant="body2" color="white">
+                                Source: {chunk.Source}
+                              </Typography>
+                            </Tooltip>
+                            <Typography variant="body2" color="white">
+                              Excerpt: {chunk.Content.substring(0, 50)}...
+                            </Typography>
+                          </Box>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
                   session.data && (
-                    <>
-                      {
-                        session.data?.interactions.map((interaction: any, i: number) => {
-                          const interactionsLength = session.data?.interactions.length || 0
-                          const isLastInteraction = i == interactionsLength - 1
-                          const isLive = isLastInteraction && !interaction.finished
-
-                          if(!session.data) return null
-                          return (
-                            <Interaction
-                              key={ i }
-                              serverConfig={ account.serverConfig }
-                              interaction={ interaction }
-                              session={ session.data }
-                            >
-                              {
-                                isLive && (
-                                  <InteractionLiveStream
-                                    session_id={ session.data.id }
-                                    interaction={ interaction }
-                                    session={ session.data }
-                                    serverConfig={ account.serverConfig }
-                                  />
-                                )
-                              }
-                            </Interaction>
-                          )   
-                        })
-                      }
-                    </>
+                    <Interaction
+                      key={session.data.interactions.length - 1}
+                      serverConfig={account.serverConfig}
+                      interaction={session.data.interactions[session.data.interactions.length - 1]}
+                      session={session.data}
+                    >
+                      {!session.data.interactions[session.data.interactions.length - 1].finished && (
+                        <InteractionLiveStream
+                          session_id={session.data.id}
+                          interaction={session.data.interactions[session.data.interactions.length - 1]}
+                          session={session.data}
+                          serverConfig={account.serverConfig}
+                        />
+                      )}
+                    </Interaction>
                   )
-                }
+                )}
               </Box>
             </Grid>
           </Grid>
