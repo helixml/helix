@@ -7,6 +7,8 @@ import (
 
 	"github.com/sourcegraph/conc/pool"
 
+	"sort"
+
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
@@ -81,6 +83,16 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// Sort the results
+	sort.Slice(results, func(i, j int) bool {
+		// First, sort by number of entries (descending order)
+		if len(results[i].Results) != len(results[j].Results) {
+			return len(results[i].Results) > len(results[j].Results)
+		}
+		// If number of entries is the same, sort by knowledge ID alphabetically
+		return results[i].KnowledgeID < results[j].KnowledgeID
+	})
 
 	return results, nil
 }
