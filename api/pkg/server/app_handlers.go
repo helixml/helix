@@ -253,6 +253,10 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		}
 	}
 
+	// Used to track which knowledges are declared in the app config
+	// so we can delete knowledges that are no longer specified
+	foundKnowledge := make(map[string]bool)
+
 	for _, k := range knowledge {
 		existing, err := s.Store.LookupKnowledge(ctx, &store.LookupKnowledgeQuery{
 			AppID: app.ID,
@@ -261,7 +265,7 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				// Create new knowledge
-				_, err = s.Store.CreateKnowledge(ctx, &types.Knowledge{
+				created, err := s.Store.CreateKnowledge(ctx, &types.Knowledge{
 					AppID:           app.ID,
 					Name:            k.Name,
 					Description:     k.Description,
@@ -276,9 +280,12 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 				if err != nil {
 					return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 				}
-				return nil
+				// OK, continue
+				foundKnowledge[created.ID] = true
+				continue
+			} else {
+				return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 			}
-			return fmt.Errorf("failed to create knowledge '%s': %w", k.Name, err)
 		}
 
 		// Update existing knowledge
@@ -291,6 +298,25 @@ func (s *HelixAPIServer) ensureKnowledge(ctx context.Context, app *types.App) er
 		_, err = s.Store.UpdateKnowledge(ctx, existing)
 		if err != nil {
 			return fmt.Errorf("failed to update knowledge '%s': %w", existing.Name, err)
+		}
+
+		foundKnowledge[existing.ID] = true
+	}
+
+	existingKnowledge, err := s.Store.ListKnowledge(ctx, &store.ListKnowledgeQuery{
+		AppID: app.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list knowledge for app '%s': %w", app.ID, err)
+	}
+
+	for _, k := range existingKnowledge {
+		if !foundKnowledge[k.ID] {
+			// Delete knowledge that is no longer specified in the app config
+			err = s.deleteKnowledgeAndVersions(k)
+			if err != nil {
+				return fmt.Errorf("failed to delete knowledge '%s': %w", k.Name, err)
+			}
 		}
 	}
 
