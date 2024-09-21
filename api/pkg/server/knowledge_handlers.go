@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -99,50 +100,61 @@ func (s *HelixAPIServer) deleteKnowledge(_ http.ResponseWriter, r *http.Request)
 		return nil, system.NewHTTPError403("you do not have permission to delete this knowledge")
 	}
 
-	versions, err := s.Store.ListKnowledgeVersions(r.Context(), &store.ListKnowledgeVersionQuery{
-		KnowledgeID: id,
-	})
+	err = s.deleteKnowledgeAndVersions(existing)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
 
+	return existing, nil
+}
+
+func (s *HelixAPIServer) deleteKnowledgeAndVersions(k *types.Knowledge) error {
+	ctx := context.Background()
+
+	versions, err := s.Store.ListKnowledgeVersions(ctx, &store.ListKnowledgeVersionQuery{
+		KnowledgeID: k.ID,
+	})
+	if err != nil {
+		return err
+	}
+
 	// Get rag client
-	ragClient, err := s.Controller.GetRagClient(r.Context(), existing)
+	ragClient, err := s.Controller.GetRagClient(ctx, k)
 	if err != nil {
 		log.Error().Err(err).Msg("error getting rag client")
 	} else {
-		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
-			DataEntityID: existing.GetDataEntityID(),
+		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
+			DataEntityID: k.GetDataEntityID(),
 		})
 		if err != nil {
 			log.Warn().
 				Err(err).
-				Str("knowledge_id", existing.ID).
-				Str("data_entity_id", existing.GetDataEntityID()).
+				Str("knowledge_id", k.ID).
+				Str("data_entity_id", k.GetDataEntityID()).
 				Msg("error deleting knowledge")
 		}
 	}
 
 	// Delete all versions from the store
 	for _, version := range versions {
-		err = ragClient.Delete(r.Context(), &types.DeleteIndexRequest{
+		err = ragClient.Delete(ctx, &types.DeleteIndexRequest{
 			DataEntityID: version.GetDataEntityID(),
 		})
 		if err != nil {
 			log.Warn().
 				Err(err).
-				Str("knowledge_id", existing.ID).
-				Str("data_entity_id", existing.GetDataEntityID()).
+				Str("knowledge_id", k.ID).
+				Str("data_entity_id", k.GetDataEntityID()).
 				Msg("error deleting knowledge version")
 		}
 	}
 
-	err = s.Store.DeleteKnowledge(r.Context(), id)
+	err = s.Store.DeleteKnowledge(ctx, k.ID)
 	if err != nil {
-		return nil, system.NewHTTPError500(err.Error())
+		return err
 	}
 
-	return existing, nil
+	return nil
 }
 
 func (s *HelixAPIServer) refreshKnowledge(_ http.ResponseWriter, r *http.Request) (*types.Knowledge, *system.HTTPError) {
