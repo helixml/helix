@@ -183,6 +183,8 @@ const App: FC = () => {
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
   const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
 
+  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
     const now = Date.now();
@@ -193,6 +195,7 @@ const App: FC = () => {
       const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
       if (knowledge) {
         setKnowledgeList(knowledge);
+        setHasKnowledgeSources(knowledge.length > 0);
       }
     } catch (error) {
       console.error('Failed to fetch knowledge:', error);
@@ -1447,7 +1450,7 @@ const App: FC = () => {
                     inputRef={textFieldRef}
                     autoFocus
                     label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-                    helperText={isSearchMode ? "Search the knowledge base, see what we will use to answer your questions" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
+                    helperText={isSearchMode ? "" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
                     value={inputValue}
                     onChange={(e) => {
                       setInputValue(e.target.value);
@@ -1457,6 +1460,7 @@ const App: FC = () => {
                     }}
                     multiline={!isSearchMode}
                     onKeyDown={handleKeyDown}
+                    disabled={isSearchMode && !hasKnowledgeSources}
                     sx={{
                       '& .MuiInputBase-root': {
                         backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -1492,50 +1496,54 @@ const App: FC = () => {
                 }}
               >
                 {isSearchMode ? (
-                  searchResults && searchResults.length > 0 ? (
-                    searchResults.map((result, index) => (
-                      <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                        <CardContent>
-                          <Typography variant="h6" color="white">
-                            Knowledge: {result.knowledge.name}
-                          </Typography>
-                          <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
-                            Search completed in: {result.duration_ms}ms
-                          </Typography>
-                          {result.results.length > 0 ? (
-                            result.results.map((chunk, chunkIndex) => (
-                              <Tooltip title={chunk.content} arrow key={chunkIndex}>
-                                <Box
-                                  sx={{
-                                    mt: 1,
-                                    p: 1,
-                                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    '&:hover': {
-                                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                    },
-                                  }}
-                                  onClick={() => handleChunkClick(chunk)}
-                                >
-                                  <Typography variant="body2" color="white">
-                                    Source: {chunk.source}
-                                    <br />
-                                    Content: {chunk.content.substring(0, 50)}...
-                                  </Typography>
-                                </Box>
-                              </Tooltip>
-                            ))
-                          ) : (
-                            <Typography variant="body2" color="white">
-                              No matches found for this query.
+                  hasKnowledgeSources ? (
+                    searchResults && searchResults.length > 0 ? (
+                      searchResults.map((result, index) => (
+                        <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                          <CardContent>
+                            <Typography variant="h6" color="white">
+                              Knowledge: {result.knowledge.name}
                             </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))
+                            <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                              Search completed in: {result.duration_ms}ms
+                            </Typography>
+                            {result.results.length > 0 ? (
+                              result.results.map((chunk, chunkIndex) => (
+                                <Tooltip title={chunk.content} arrow key={chunkIndex}>
+                                  <Box
+                                    sx={{
+                                      mt: 1,
+                                      p: 1,
+                                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      '&:hover': {
+                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                      },
+                                    }}
+                                    onClick={() => handleChunkClick(chunk)}
+                                  >
+                                    <Typography variant="body2" color="white">
+                                      Source: {chunk.source}
+                                      <br />
+                                      Content: {chunk.content.substring(0, 50)}...
+                                    </Typography>
+                                  </Box>
+                                </Tooltip>
+                              ))
+                            ) : (
+                              <Typography variant="body2" color="white">
+                                No matches found for this query.
+                              </Typography>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <Typography variant="body1" color="white">No search results found.</Typography>
+                    )
                   ) : (
-                    <Typography variant="body1" color="white">No search results found.</Typography>
+                    <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
                   )
                 ) : (
                   session.data && (

@@ -38,7 +38,8 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 	)
 
 	if len(knowledges) == 0 {
-		return results, nil
+		// Make an empty results list
+		return []*types.KnowledgeSearchResult{}, nil
 	}
 
 	pool := pool.New().
