@@ -32,6 +32,13 @@ import Switch from '@mui/material/Switch';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import debounce from 'lodash/debounce';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import IconButton from '@mui/material/IconButton';
+import CloseIcon from '@mui/icons-material/Close';
+import Markdown from '../components/session/Markdown';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -83,6 +90,7 @@ import {
   IApp,
   IKnowledgeSource,
   IKnowledgeSearchResult,
+  ISessionRAGResult,
 } from '../types'
 
 const isHelixApp = (app: IApp): boolean => {
@@ -173,6 +181,7 @@ const App: FC = () => {
   const lastFetchTimeRef = useRef<number>(0);
 
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
+  const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
 
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
@@ -918,6 +927,21 @@ const App: FC = () => {
     });
   };
 
+  const handleChunkClick = (chunk: ISessionRAGResult) => {
+    setSelectedChunk(chunk);
+  };
+
+  const handleCloseDialog = () => {
+    setSelectedChunk(null);
+  };
+
+  const handleCopyContent = () => {
+    if (selectedChunk) {
+      navigator.clipboard.writeText(selectedChunk.content);
+      snackbar.success('Content copied to clipboard');
+    }
+  };
+
   return (
     <Page
       breadcrumbs={[
@@ -1487,18 +1511,18 @@ const App: FC = () => {
                                   p: 1,
                                   border: '1px solid rgba(255, 255, 255, 0.3)',
                                   borderRadius: '4px',
+                                  cursor: 'pointer',
                                   '&:hover': {
                                     backgroundColor: 'rgba(255, 255, 255, 0.1)',
                                   },
                                 }}
+                                onClick={() => handleChunkClick(chunk)}
                               >
-                                <Tooltip title={chunk.content} placement="top">                                
-                                  <Typography variant="body2" color="white">
-                                    Source: {chunk.source}
-                                    <br />
-                                    Content: {chunk.content.substring(0, 50)}...
-                                  </Typography>                                                                
-                                </Tooltip>                              
+                                <Typography variant="body2" color="white">
+                                  Source: {chunk.source}
+                                  <br />
+                                  Content: {chunk.content.substring(0, 50)}...
+                                </Typography>
                               </Box>
                             ))
                           ) : (
@@ -1536,6 +1560,55 @@ const App: FC = () => {
           </Grid>
         </Box>
       </Container>
+      <Dialog
+        open={selectedChunk !== null}
+        onClose={handleCloseDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Content Details
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseDialog}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedChunk && (
+            <>
+              <Typography variant="subtitle1" gutterBottom>
+                Source: {selectedChunk.source}
+              </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Document ID: {selectedChunk.document_id}
+              </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Document Group ID: {selectedChunk.document_group_id}
+              </Typography>
+              <Typography variant="h6" gutterBottom>
+                Content:
+              </Typography>
+              <Markdown
+                text={selectedChunk.content}
+              />                   
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCopyContent} startIcon={<ContentCopyIcon />}>
+            Copy Content
+          </Button>
+          <Button onClick={handleCloseDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }
