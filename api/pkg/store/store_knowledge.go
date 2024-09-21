@@ -122,6 +122,7 @@ type ListKnowledgeQuery struct {
 	Owner     string
 	OwnerType types.OwnerType
 	State     types.KnowledgeState
+	ID        string // Knowledge ID to search for
 	AppID     string
 }
 
@@ -140,6 +141,10 @@ func (s *PostgresStore) ListKnowledge(ctx context.Context, q *ListKnowledgeQuery
 
 	if q.AppID != "" {
 		query = query.Where("app_id = ?", q.AppID)
+	}
+
+	if q.ID != "" {
+		query = query.Where("id = ?", q.ID)
 	}
 
 	var knowledgeList []*types.Knowledge
