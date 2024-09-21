@@ -153,7 +153,7 @@ const App: FC = () => {
 
   const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
-  const [tabValue, setTabValue] = useState(() => parseInt(searchParams.get('tabValue') || '0', 10));
+  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
 
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const themeConfig = useThemeConfig()
@@ -908,11 +908,11 @@ const App: FC = () => {
     });
   };
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
     setTabValue(newValue);
     setSearchParams(prev => {
       const newParams = new URLSearchParams(prev.toString());
-      newParams.set('tabValue', newValue.toString());
+      newParams.set('tab', newValue);
       window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
       return newParams;
     });
@@ -960,16 +960,16 @@ const App: FC = () => {
           <Grid container spacing={2}>
             <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
               <Tabs value={tabValue} onChange={handleTabChange}>
-                <Tab label="Settings" />
-                <Tab label="Knowledge" />
-                <Tab label="Integrations" />
-                <Tab label="GPTScripts" />
-                <Tab label="API Keys" />
-                <Tab label="Developers" />
+                <Tab label="Settings" value="settings" />
+                <Tab label="Knowledge" value="knowledge" />
+                <Tab label="Integrations" value="integrations" />
+                <Tab label="GPTScripts" value="gptscripts" />
+                <Tab label="API Keys" value="apikeys" />
+                <Tab label="Developers" value="developers" />
               </Tabs>
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                {tabValue === 0 && (
+                {tabValue === 'settings' && (
                   <Box sx={{ mt: 2 }}>
                     {/* Settings content */}
                     <TextField
@@ -1095,7 +1095,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 1 && (
+                {tabValue === 'knowledge' && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="h6" sx={{ mb: 2 }}>
                       Knowledge Sources
@@ -1114,7 +1114,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 2 && (
+                {tabValue === 'integrations' && (
                   <Box sx={{ mt: 2 }}>
                     {/* Integrations (API Tools) content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
@@ -1155,7 +1155,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 3 && (
+                {tabValue === 'gptscripts' && (
                   <Box sx={{ mt: 2 }}>
                     {/* GPTScripts content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
@@ -1226,7 +1226,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 4 && (
+                {tabValue === 'apikeys' && (
                   <Box sx={{ mt: 2 }}>
                     {/* API Keys content */}
                     <Typography variant="subtitle1" sx={{mb: 1}}>
@@ -1278,7 +1278,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 5 && (
+                {tabValue === 'developers' && (
                   <Box sx={{ mt: 2 }}>
                     {/* AISpec (App Configuration) content */}
                     <Typography variant="h6" sx={{mb: 1}}>
@@ -1527,144 +1527,6 @@ const App: FC = () => {
           </Grid>
         </Box>
       </Container>
-      {
-        showBigSchema && (
-          <Window
-            title="Schema"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setShowBigSchema(false)}
-          >
-            <Box
-              sx={{
-                p: 2,
-                height: '100%',
-              }}
-            >
-              <TextField
-                error={showErrors && !schema}
-                value={schema}
-                onChange={(e) => setSchema(e.target.value)}
-                fullWidth
-                multiline
-                disabled
-                label="App Configuration"
-                helperText={showErrors && !schema ? "Please enter a schema" : ""}
-                sx={{ height: '100%' }} // Set the height to '100%'
-              />
-            </Box>
-          </Window>
-        )
-      }
-      {
-        gptScript && (
-          <Window
-            title="Run GPT Script"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setGptScript(undefined)}
-          >
-            <Row>
-              <Typography variant="body1" sx={{mt: 2, mb: 2}}>
-                Enter your input and click "Run" to execute the script.
-              </Typography>
-            </Row>
-            <Row center sx={{p: 2}}>
-              <Cell sx={{mr: 2}}>
-                <TextField
-                  value={gptScriptInput}
-                  onChange={(e) => setGptScriptInput(e.target.value)}
-                  fullWidth
-                  id="gpt-script-input"
-                  name="gpt-script-input"
-                  label="Script Input (optional)"
-                  sx={{
-                    minWidth: '400px'
-                  }}
-                />
-              </Cell>
-              <Cell>
-                <Button
-                  sx={{width: '200px'}}
-                  variant="contained"
-                  color="primary"
-                  endIcon={ <PlayCircleOutlineIcon /> }
-                  onClick={ onExecuteScript }
-                >
-                  Run
-                </Button>
-              </Cell>
-            </Row>
-            
-            {
-              gptScriptError && (
-                <Row center sx={{p: 2}}>
-                  <Alert severity="error">{ gptScriptError }</Alert>
-                </Row>
-              )
-            }
-
-            {
-              gptScriptOutput && (
-                <Row center sx={{p: 2}}>
-                  <TextView data={ gptScriptOutput } scrolling />
-                </Row>
-              )
-            }
-            
-          </Window>
-        )
-      }
-      {
-        deletingAPIKey && (
-          <DeleteConfirmWindow
-            title="this API key"
-            onSubmit={async () => {
-              const res = await api.delete(`/api/v1/api_keys`, {
-                params: {
-                  key: deletingAPIKey,
-                },
-              }, {
-                snackbar: true,
-              })
-              if(!res) return
-              snackbar.success('API Key deleted')
-              account.loadApiKeys({
-                types: 'app',
-                app_id: params.app_id,
-              })
-              setDeletingAPIKey('')
-            }}
-            onCancel={() => {
-              setDeletingAPIKey('')
-            }}
-          />
-        )
-      }
-      {editingTool && (
-        <Window
-          title={`${editingTool.id ? 'Edit' : 'Add'} ${editingTool.tool_type === 'api' ? 'API Tool' : 'GPT Script'}`}
-          fullHeight
-          size="lg"
-          open
-          withCancel
-          cancelTitle="Close"
-          onCancel={() => setEditingTool(null)}
-        >
-          <ToolEditor
-            initialData={editingTool}
-            onSave={editingTool.tool_type === 'api' ? onSaveApiTool : onSaveGptScript}
-            onCancel={() => setEditingTool(null)}
-            isReadOnly={isReadOnly}
-          />
-        </Window>
-      )}
     </Page>
   )
 }
