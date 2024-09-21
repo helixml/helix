@@ -70,8 +70,8 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 			}
 
 			results = append(results, &types.KnowledgeSearchResult{
-				KnowledgeID: knowledge.ID,
-				Results:     resp,
+				Knowledge: knowledge,
+				Results:   resp,
 			})
 			resultsMu.Unlock()
 
@@ -91,7 +91,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 			return len(results[i].Results) > len(results[j].Results)
 		}
 		// If number of entries is the same, sort by knowledge ID alphabetically
-		return results[i].KnowledgeID < results[j].KnowledgeID
+		return results[i].Knowledge.ID < results[j].Knowledge.ID
 	})
 
 	return results, nil

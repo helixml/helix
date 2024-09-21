@@ -205,6 +205,6 @@ type CrawledDocument struct {
 }
 
 type KnowledgeSearchResult struct {
-	KnowledgeID string              `json:"knowledge_id"`
-	Results     []*SessionRAGResult `json:"results"`
+	Knowledge *Knowledge          `json:"knowledge"`
+	Results   []*SessionRAGResult `json:"results"`
 }
