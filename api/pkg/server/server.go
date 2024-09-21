@@ -312,7 +312,7 @@ func (apiServer *HelixAPIServer) registerRoutes(_ context.Context) (*mux.Router,
 	authRouter.HandleFunc("/apps/github/{id}", system.Wrapper(apiServer.updateGithubApp)).Methods("PUT")
 	authRouter.HandleFunc("/apps/{id}", system.Wrapper(apiServer.deleteApp)).Methods("DELETE")
 
-	authRouter.HandleFunc("/search", system.Wrapper(apiServer.listKnowledge)).Methods("GET")
+	authRouter.HandleFunc("/search", system.Wrapper(apiServer.knowledgeSearch)).Methods("GET")
 
 	authRouter.HandleFunc("/knowledge", system.Wrapper(apiServer.listKnowledge)).Methods("GET")
 	authRouter.HandleFunc("/knowledge/{id}", system.Wrapper(apiServer.getKnowledge)).Methods("GET")
