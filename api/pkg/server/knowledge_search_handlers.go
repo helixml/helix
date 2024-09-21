@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/sourcegraph/conc/pool"
+
+	"sort"
 
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -35,7 +38,8 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 	)
 
 	if len(knowledges) == 0 {
-		return results, nil
+		// Make an empty results list
+		return []*types.KnowledgeSearchResult{}, nil
 	}
 
 	pool := pool.New().
@@ -51,6 +55,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 		}
 
 		pool.Go(func() error {
+			start := time.Now()
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -63,9 +68,14 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 			}
 
 			resultsMu.Lock()
+			if len(resp) == 0 {
+				resp = []*types.SessionRAGResult{}
+			}
+
 			results = append(results, &types.KnowledgeSearchResult{
-				KnowledgeID: knowledge.ID,
-				Results:     resp,
+				Knowledge:  knowledge,
+				Results:    resp,
+				DurationMs: time.Since(start).Milliseconds(),
 			})
 			resultsMu.Unlock()
 
@@ -77,6 +87,16 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return nil, system.NewHTTPError500(err.Error())
 	}
+
+	// Sort the results
+	sort.Slice(results, func(i, j int) bool {
+		// First, sort by number of entries (descending order)
+		if len(results[i].Results) != len(results[j].Results) {
+			return len(results[i].Results) > len(results[j].Results)
+		}
+		// If number of entries is the same, sort by knowledge ID alphabetically
+		return results[i].Knowledge.ID < results[j].Knowledge.ID
+	})
 
 	return results, nil
 }
