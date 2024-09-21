@@ -63,6 +63,10 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 			}
 
 			resultsMu.Lock()
+			if len(resp) == 0 {
+				resp = []*types.SessionRAGResult{}
+			}
+
 			results = append(results, &types.KnowledgeSearchResult{
 				KnowledgeID: knowledge.ID,
 				Results:     resp,
