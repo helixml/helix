@@ -203,3 +203,8 @@ type CrawledDocument struct {
 	SourceURL   string
 	Content     string
 }
+
+type KnowledgeSearchResult struct {
+	KnowledgeID string
+	Results     []*SessionRAGResult
+}
