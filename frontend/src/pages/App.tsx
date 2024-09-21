@@ -1381,7 +1381,7 @@ const App: FC = () => {
                       color="primary"
                     />
                   }
-                  label="Search Mode"
+                  label="Knowledge Search"
                   sx={{ mb: 2, color: 'white' }}
                 />
                 <Box
@@ -1400,7 +1400,7 @@ const App: FC = () => {
                     inputRef={textFieldRef}
                     autoFocus
                     label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-                    helperText={isSearchMode ? "Search the knowledge base" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
+                    helperText={isSearchMode ? "Search the knowledge base, see what we will use to answer your questions" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
                     value={inputValue}
                     onChange={(e) => {
                       setInputValue(e.target.value);
