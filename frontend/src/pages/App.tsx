@@ -1450,7 +1450,7 @@ const App: FC = () => {
                       <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
                         <CardContent>
                           <Typography variant="h6" color="white">
-                            Knowledge ID: {result.knowledge_id}
+                            Knowledge: {result.knowledge.name}
                           </Typography>
                           {result.results.map((chunk, chunkIndex) => (
                             <Box
