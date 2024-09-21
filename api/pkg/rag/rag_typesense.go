@@ -2,9 +2,11 @@ package rag
 
 import (
 	"context"
+	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
 
+	"github.com/avast/retry-go/v4"
 	"github.com/rs/zerolog/log"
 	"github.com/typesense/typesense-go/v2/typesense"
 	"github.com/typesense/typesense-go/v2/typesense/api"
@@ -40,7 +42,19 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		collection: collection,
 	}
 
-	err := t.ensureCollection(context.Background())
+	err := retry.Do(func() error {
+		return t.ensureCollection(context.Background())
+	},
+		retry.Attempts(3),
+		retry.Delay(5*time.Second),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retries", n).
+				Msg("retrying to create collection")
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}

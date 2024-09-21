@@ -529,6 +529,7 @@ export interface IAssistantConfig {
 export interface IKnowledgeSource {
   id: string;
   name: string;
+  version: string;
   description?: string;
   rag_settings: {
     results_count: number;
