@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/sourcegraph/conc/pool"
 
@@ -53,6 +54,7 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 		}
 
 		pool.Go(func() error {
+			start := time.Now()
 			resp, err := client.Query(ctx, &types.SessionRAGQuery{
 				Prompt:            prompt,
 				DataEntityID:      knowledge.GetDataEntityID(),
@@ -70,8 +72,9 @@ func (s *HelixAPIServer) knowledgeSearch(_ http.ResponseWriter, r *http.Request)
 			}
 
 			results = append(results, &types.KnowledgeSearchResult{
-				Knowledge: knowledge,
-				Results:   resp,
+				Knowledge:  knowledge,
+				Results:    resp,
+				DurationMs: time.Since(start).Milliseconds(),
 			})
 			resultsMu.Unlock()
 
