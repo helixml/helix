@@ -1586,7 +1586,11 @@ const App: FC = () => {
           {selectedChunk && (
             <>
               <Typography variant="subtitle1" gutterBottom>
-                Source: {selectedChunk.source}
+                Source: {selectedChunk.source.startsWith('http://') || selectedChunk.source.startsWith('https://') ? (
+                  <Link href={selectedChunk.source} target="_blank" rel="noopener noreferrer">
+                    {selectedChunk.source}
+                  </Link>
+                ) : selectedChunk.source}
               </Typography>
               <Typography variant="subtitle2" gutterBottom>
                 Document ID: {selectedChunk.document_id}
