@@ -1465,14 +1465,13 @@ const App: FC = () => {
                                 },
                               }}
                             >
-                              <Tooltip title={chunk.content} placement="top">
+                              <Tooltip title={chunk.content} placement="top">                                
                                 <Typography variant="body2" color="white">
                                   Source: {chunk.source}
-                                </Typography>
-                              </Tooltip>
-                              <Typography variant="body2" color="white">
-                                {/* Excerpt: {chunk.Content.substring(0, 50)}... */}
-                              </Typography>
+                                  <br />
+                                  Content: {chunk.content.substring(0, 50)}...
+                                </Typography>                                                                
+                              </Tooltip>                              
                             </Box>
                           ))}
                         </CardContent>
