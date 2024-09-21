@@ -1595,11 +1595,21 @@ const App: FC = () => {
                 Document Group ID: {selectedChunk.document_group_id}
               </Typography>
               <Typography variant="h6" gutterBottom>
-                Content:
+                Chunk content:
               </Typography>
-              <Markdown
-                text={selectedChunk.content}
-              />                   
+              <TextField                
+                value={ selectedChunk.content }                
+                disabled={true}
+                fullWidth
+                multiline
+                rows={10}
+                id="content-details"
+                name="content-details"
+                label="Content Details"                
+                InputProps={{
+                  style: { fontFamily: 'monospace' }
+                }}
+              />
             </>
           )}
         </DialogContent>
