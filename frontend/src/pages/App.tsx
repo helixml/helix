@@ -1475,6 +1475,9 @@ const App: FC = () => {
                           <Typography variant="h6" color="white">
                             Knowledge: {result.knowledge.name}
                           </Typography>
+                          <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                            Search completed in: {result.duration_ms}ms
+                          </Typography>
                           {result.results.length > 0 ? (
                             result.results.map((chunk, chunkIndex) => (
                               <Box

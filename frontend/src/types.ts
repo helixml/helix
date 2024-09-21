@@ -576,6 +576,7 @@ export interface IKnowledgeSource {
 export interface IKnowledgeSearchResult {
   knowledge: IKnowledgeSource;
   results: ISessionRAGResult[];
+  duration_ms: number;
 }
 
 export interface ISessionRAGResult {
