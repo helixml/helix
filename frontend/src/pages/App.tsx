@@ -151,7 +151,10 @@ const App: FC = () => {
   const [tools, setTools] = useState<ITool[]>([]);
   const [isNewApp, setIsNewApp] = useState(false);
 
-  const [tabValue, setTabValue] = useState(0);
+  const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
+  const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
+  const [tabValue, setTabValue] = useState(() => parseInt(searchParams.get('tabValue') || '0', 10));
+
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const themeConfig = useThemeConfig()
 
@@ -169,7 +172,6 @@ const App: FC = () => {
   const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTimeRef = useRef<number>(0);
 
-  const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
 
   const fetchKnowledge = useCallback(async () => {
@@ -895,6 +897,27 @@ const App: FC = () => {
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
 
+  const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newIsSearchMode = event.target.checked;
+    setIsSearchMode(newIsSearchMode);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString());
+      newParams.set('isSearchMode', newIsSearchMode.toString());
+      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
+      return newParams;
+    });
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString());
+      newParams.set('tabValue', newValue.toString());
+      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
+      return newParams;
+    });
+  };
+
   return (
     <Page
       breadcrumbs={[
@@ -936,7 +959,7 @@ const App: FC = () => {
         <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
-              <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+              <Tabs value={tabValue} onChange={handleTabChange}>
                 <Tab label="Settings" />
                 <Tab label="Knowledge" />
                 <Tab label="Integrations" />
@@ -1377,7 +1400,7 @@ const App: FC = () => {
                   control={
                     <Switch
                       checked={isSearchMode}
-                      onChange={(e) => setIsSearchMode(e.target.checked)}
+                      onChange={handleSearchModeChange}
                       color="primary"
                     />
                   }
