@@ -530,6 +530,22 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
+  const onSearch = async (query: string) => {
+    const newSearchResults = await api.get('/api/v1/search', {
+      params: {
+        app_id: app?.id,
+        knowledge_id: knowledgeSources[0]?.id,
+        prompt: query,
+      }
+    })
+    if (!newSearchResults || !Array.isArray(newSearchResults)) {
+      snackbar.error('No results found or invalid response');
+      setSearchResults([]);
+      return;
+    }
+    setSearchResults(newSearchResults);
+  }
+
   const validateApiSchemas = (app: IApp): string[] => {
     const errors: string[] = [];
     app.config.helix.assistants.forEach((assistant, assistantIndex) => {
@@ -1386,7 +1402,12 @@ const App: FC = () => {
                     label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
                     helperText={isSearchMode ? "Search the knowledge base" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
                     value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
+                    onChange={(e) => {
+                      setInputValue(e.target.value);
+                      if (isSearchMode) {
+                        onSearch(e.target.value);
+                      }
+                    }}
                     multiline={!isSearchMode}
                     onKeyDown={handleKeyDown}
                     sx={{
@@ -1424,38 +1445,42 @@ const App: FC = () => {
                 }}
               >
                 {isSearchMode ? (
-                  searchResults.map((result, index) => (
-                    <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                      <CardContent>
-                        <Typography variant="h6" color="white">
-                          Knowledge ID: {result.KnowledgeID}
-                        </Typography>
-                        {result.Results.map((chunk, chunkIndex) => (
-                          <Box
-                            key={chunkIndex}
-                            sx={{
-                              mt: 1,
-                              p: 1,
-                              border: '1px solid rgba(255, 255, 255, 0.3)',
-                              borderRadius: '4px',
-                              '&:hover': {
-                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                              },
-                            }}
-                          >
-                            <Tooltip title={chunk.Content} placement="top">
+                  searchResults && searchResults.length > 0 ? (
+                    searchResults.map((result, index) => (
+                      <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                        <CardContent>
+                          <Typography variant="h6" color="white">
+                            Knowledge ID: {result.knowledge_id}
+                          </Typography>
+                          {result.results.map((chunk, chunkIndex) => (
+                            <Box
+                              key={chunkIndex}
+                              sx={{
+                                mt: 1,
+                                p: 1,
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                borderRadius: '4px',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                },
+                              }}
+                            >
+                              <Tooltip title={chunk.content} placement="top">
+                                <Typography variant="body2" color="white">
+                                  Source: {chunk.source}
+                                </Typography>
+                              </Tooltip>
                               <Typography variant="body2" color="white">
-                                Source: {chunk.Source}
+                                {/* Excerpt: {chunk.Content.substring(0, 50)}... */}
                               </Typography>
-                            </Tooltip>
-                            <Typography variant="body2" color="white">
-                              Excerpt: {chunk.Content.substring(0, 50)}...
-                            </Typography>
-                          </Box>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  ))
+                            </Box>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    ))
+                  ) : (
+                    <Typography variant="body1" color="white">No search results found.</Typography>
+                  )
                 ) : (
                   session.data && (
                     <Interaction
