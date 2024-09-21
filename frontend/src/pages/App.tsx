@@ -188,7 +188,7 @@ const App: FC = () => {
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
     const now = Date.now();
-    if (now - lastFetchTimeRef.current < 5000) return; // Prevent fetching more than once every 5 seconds
+    if (now - lastFetchTimeRef.current < 3000) return; // Prevent fetching more than once every 3 seconds
     
     lastFetchTimeRef.current = now;
     try {
@@ -219,7 +219,7 @@ const App: FC = () => {
       fetchKnowledgeTimeoutRef.current = setTimeout(() => {
         fetchKnowledge();
         scheduleFetch(); // Schedule the next fetch
-      }, 5); // 5 seconds
+      }, 3000); // 3 seconds
     };
 
     if (app?.id) {
