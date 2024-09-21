@@ -254,6 +254,12 @@ const App: FC = () => {
     });
   }, []);
 
+  const handleRefreshKnowledge = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
+      snackbar: true,
+    });
+  }, [api]);
+
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
     let initialApp: IApp | null = null;
@@ -1130,6 +1136,7 @@ const App: FC = () => {
                     <KnowledgeEditor
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
+                      onRefresh={handleRefreshKnowledge}
                       disabled={isReadOnly}
                       knowledgeList={knowledgeList}
                     />
