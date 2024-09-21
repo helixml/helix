@@ -1615,7 +1615,7 @@ const App: FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCopyContent} startIcon={<ContentCopyIcon />}>
-            Copy Content
+            Copy
           </Button>
           <Button onClick={handleCloseDialog}>Close</Button>
         </DialogActions>
