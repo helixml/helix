@@ -75,6 +75,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         source: { web: { urls: [], crawler: { enabled: true } } },
         refresh_schedule: '',
         name: '',
+        version: '',
         state: '',
         rag_settings: {
             results_count: 0,
@@ -132,6 +133,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const getKnowledgeState = (source: IKnowledgeSource): string | undefined => {
     const knowledge = knowledgeList.find(k => k.name === source.name);
     return knowledge?.state;
+  };
+
+  const getKnowledgeVersion = (source: IKnowledgeSource): string | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge?.version;
   };
 
   const renderKnowledgeState = (state: string | undefined) => {
@@ -233,10 +239,15 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             expandIcon={<ExpandMoreIcon />}
             sx={{ display: 'flex', alignItems: 'center' }}
           >
-            <Typography sx={{ flexGrow: 1 }}>
-              Knowledge Source ({getSourcePreview(source)})
-              {renderKnowledgeState(getKnowledgeState(source))}
-            </Typography>
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography>
+                Knowledge Source ({getSourcePreview(source)})
+                {renderKnowledgeState(getKnowledgeState(source))}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                Version: {getKnowledgeVersion(source) || 'N/A'}
+              </Typography>
+            </Box>
             <Tooltip title="Refresh knowledge and reindex data">
               <IconButton
                 onClick={(e) => {
