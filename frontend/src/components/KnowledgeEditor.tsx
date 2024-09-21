@@ -18,6 +18,7 @@ import {
   Radio,
   Chip,
   Snackbar,
+  Tooltip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -236,16 +237,18 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               Knowledge Source ({getSourcePreview(source)})
               {renderKnowledgeState(getKnowledgeState(source))}
             </Typography>
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                refreshSource(index);
-              }}
-              disabled={disabled}
-              sx={{ mr: 1 }}
-            >
-              <RefreshIcon />
-            </IconButton>
+            <Tooltip title="Refresh knowledge and reindex data">
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  refreshSource(index);
+                }}
+                disabled={disabled}
+                sx={{ mr: 1 }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
             <IconButton
               onClick={(e) => {
                 e.stopPropagation();
