@@ -573,6 +573,19 @@ export interface IKnowledgeSource {
   refresh_schedule?: string;
 }
 
+export interface IKnowledgeSearchResult {
+  knowledge: IKnowledgeSource;
+  results: ISessionRAGResult[];
+  duration_ms: number;
+}
+
+export interface ISessionRAGResult {
+  content: string;
+  source: string;
+  document_id: string;
+  document_group_id: string;
+  // Add any other properties that your API returns
+}
 
 export interface IAppHelixConfig {
   name: string;
