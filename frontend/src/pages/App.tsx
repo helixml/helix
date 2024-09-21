@@ -1475,28 +1475,34 @@ const App: FC = () => {
                           <Typography variant="h6" color="white">
                             Knowledge: {result.knowledge.name}
                           </Typography>
-                          {result.results.map((chunk, chunkIndex) => (
-                            <Box
-                              key={chunkIndex}
-                              sx={{
-                                mt: 1,
-                                p: 1,
-                                border: '1px solid rgba(255, 255, 255, 0.3)',
-                                borderRadius: '4px',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                },
-                              }}
-                            >
-                              <Tooltip title={chunk.content} placement="top">                                
-                                <Typography variant="body2" color="white">
-                                  Source: {chunk.source}
-                                  <br />
-                                  Content: {chunk.content.substring(0, 50)}...
-                                </Typography>                                                                
-                              </Tooltip>                              
-                            </Box>
-                          ))}
+                          {result.results.length > 0 ? (
+                            result.results.map((chunk, chunkIndex) => (
+                              <Box
+                                key={chunkIndex}
+                                sx={{
+                                  mt: 1,
+                                  p: 1,
+                                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                                  borderRadius: '4px',
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                  },
+                                }}
+                              >
+                                <Tooltip title={chunk.content} placement="top">                                
+                                  <Typography variant="body2" color="white">
+                                    Source: {chunk.source}
+                                    <br />
+                                    Content: {chunk.content.substring(0, 50)}...
+                                  </Typography>                                                                
+                                </Tooltip>                              
+                              </Box>
+                            ))
+                          ) : (
+                            <Typography variant="body2" color="white">
+                              No matches found for this query.
+                            </Typography>
+                          )}
                         </CardContent>
                       </Card>
                     ))
