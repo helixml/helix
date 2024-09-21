@@ -536,6 +536,7 @@ export interface IKnowledgeSource {
     chunk_size: number;
   };
   state: string;
+  message?: string;
   source: {
     helix_drive?: {
       path: string;
