@@ -135,16 +135,27 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return knowledge?.state;
   };
 
+  const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge;
+  };
+
   const getKnowledgeVersion = (source: IKnowledgeSource): string | undefined => {
     const knowledge = knowledgeList.find(k => k.name === source.name);
     return knowledge?.version;
   };
 
-  const renderKnowledgeState = (state: string | undefined) => {
-    if (!state) return null;
+  const getKnowledgeMessage = (source: IKnowledgeSource): string | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge?.message;
+  };
+
+
+  const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
+    if (!knowledge) return null;
     
     let color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default";
-    switch (state.toLowerCase()) {
+    switch (knowledge.state.toLowerCase()) {
       case 'ready':
         color = 'success';
         break;
@@ -160,7 +171,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       // Add more cases as needed
     }
 
-    return <Chip label={state} color={color} size="small" sx={{ ml: 1 }} />;
+    if (knowledge.message) {
+      // Showing tooltip with error message
+      return <Tooltip title={knowledge.message}><Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} /></Tooltip>;
+    }
+
+    return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
@@ -242,7 +258,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             <Box sx={{ flexGrow: 1 }}>
               <Typography>
                 Knowledge Source ({getSourcePreview(source)})
-                {renderKnowledgeState(getKnowledgeState(source))}
+                {renderKnowledgeState(getKnowledge(source))}
               </Typography>
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
                 Version: {getKnowledgeVersion(source) || 'N/A'}
