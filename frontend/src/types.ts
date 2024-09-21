@@ -574,13 +574,13 @@ export interface IKnowledgeSource {
 }
 
 export interface IKnowledgeSearchResult {
-  KnowledgeID: string;
-  Results: ISessionRAGResult[];
+  knowledge_id: string;
+  results: ISessionRAGResult[];
 }
 
 export interface ISessionRAGResult {
-  Content: string;
-  Source: string;
+  content: string;
+  source: string;
   // Add any other properties that your API returns
 }
 
