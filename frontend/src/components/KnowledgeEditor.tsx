@@ -21,16 +21,18 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { IKnowledgeSource } from '../types';
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
+  onRefresh: (id: string) => void;
   disabled: boolean;
   knowledgeList: IKnowledgeSource[];
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled, knowledgeList }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, disabled, knowledgeList }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
 
@@ -81,6 +83,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const deleteSource = (index: number) => {
     const newSources = knowledgeSources.filter((_, i) => i !== index);
     onUpdate(newSources);
+  };
+
+  const refreshSource = (index: number) => {
+    // Find ID of knowledge source
+    const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
+    if (knowledge) {
+      onRefresh(knowledge.id);
+    }
   };
 
   const validateSources = () => {
@@ -220,6 +230,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               Knowledge Source ({getSourcePreview(source)})
               {renderKnowledgeState(getKnowledgeState(source))}
             </Typography>
+            <IconButton
+              onClick={(e) => {
+                e.stopPropagation();
+                refreshSource(index);
+              }}
+              disabled={disabled}
+              sx={{ mr: 1 }}
+            >
+              <RefreshIcon />
+            </IconButton>
             <IconButton
               onClick={(e) => {
                 e.stopPropagation();
