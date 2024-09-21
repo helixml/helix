@@ -1504,26 +1504,27 @@ const App: FC = () => {
                           </Typography>
                           {result.results.length > 0 ? (
                             result.results.map((chunk, chunkIndex) => (
-                              <Box
-                                key={chunkIndex}
-                                sx={{
-                                  mt: 1,
-                                  p: 1,
-                                  border: '1px solid rgba(255, 255, 255, 0.3)',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  '&:hover': {
-                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                  },
-                                }}
-                                onClick={() => handleChunkClick(chunk)}
-                              >
-                                <Typography variant="body2" color="white">
-                                  Source: {chunk.source}
-                                  <br />
-                                  Content: {chunk.content.substring(0, 50)}...
-                                </Typography>
-                              </Box>
+                              <Tooltip title={chunk.content} arrow key={chunkIndex}>
+                                <Box
+                                  sx={{
+                                    mt: 1,
+                                    p: 1,
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    '&:hover': {
+                                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    },
+                                  }}
+                                  onClick={() => handleChunkClick(chunk)}
+                                >
+                                  <Typography variant="body2" color="white">
+                                    Source: {chunk.source}
+                                    <br />
+                                    Content: {chunk.content.substring(0, 50)}...
+                                  </Typography>
+                                </Box>
+                              </Tooltip>
                             ))
                           ) : (
                             <Typography variant="body2" color="white">
