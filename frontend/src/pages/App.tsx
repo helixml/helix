@@ -420,7 +420,7 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
-  const onSave = useCallback(async () => {
+  const onSave = useCallback(async (quiet: boolean = false) => {
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -502,8 +502,9 @@ const App: FC = () => {
       if (!result) {
         throw new Error('No result returned from the server');
       }
-
-      snackbar.success(isNewApp ? 'App created' : 'App updated');
+      if (!quiet) {
+        snackbar.success(isNewApp ? 'App created' : 'App updated');
+      }
     } catch (error: unknown) {
       if (error instanceof Error) {
         // snackbar.error(`Error in app operation: ${error.message}`);
@@ -520,7 +521,7 @@ const App: FC = () => {
     if(!app) return
     
     // Save the app before sending the message
-    await onSave();
+    await onSave(true);
     
     session.setData(undefined)
     const sessionChatRequest = {
@@ -539,15 +540,13 @@ const App: FC = () => {
         },
       }]
     }
-    loading.setLoading(true)
+    
     const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
     if(!newSessionData) {
-      loading.setLoading(false)
       return
     }
     setInputValue('')
-    session.loadSession(newSessionData.id)
-    loading.setLoading(false)
+    session.loadSession(newSessionData.id)    
   }
 
   const onSearch = async (query: string) => {
@@ -1376,7 +1375,7 @@ const App: FC = () => {
                   type="button"
                   color="secondary"
                   variant="contained"
-                  onClick={ onSave }
+                  onClick={ () => onSave(false) }
                   disabled={isReadOnly}
                 >
                   Save
