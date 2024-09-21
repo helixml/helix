@@ -249,16 +249,18 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteSource(index);
-              }}
-              disabled={disabled}
-              sx={{ mr: 1 }}
-            >
-              <DeleteIcon />
-            </IconButton>
+            <Tooltip title="Delete this knowledge source">
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteSource(index);
+                }}
+                disabled={disabled}
+                sx={{ mr: 1 }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
           </AccordionSummary>
           <AccordionDetails>
             {renderSourceInput(source, index)}
