@@ -130,11 +130,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     return 'No source specified';
   };
 
-  const getKnowledgeState = (source: IKnowledgeSource): string | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge?.state;
-  };
-
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
     const knowledge = knowledgeList.find(k => k.name === source.name);
     return knowledge;
@@ -144,12 +139,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     const knowledge = knowledgeList.find(k => k.name === source.name);
     return knowledge?.version;
   };
-
-  const getKnowledgeMessage = (source: IKnowledgeSource): string | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge?.message;
-  };
-
 
   const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
     if (!knowledge) return null;
