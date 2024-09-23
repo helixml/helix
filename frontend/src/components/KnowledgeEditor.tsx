@@ -43,7 +43,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const snackbar = useSnackbar(); // Use the snackbar hook
 
   const default_max_depth = 10;
-  const default_max_pages = 200;
+  const default_max_pages = 500;
   const default_readability = true;
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
@@ -71,6 +71,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     newSource.source.web!.crawler!.enabled = true;
+
+    // Ensure default values for max_depth and max_pages
+    if (newSource.source.web?.crawler) {
+      newSource.source.web.crawler.max_depth = newSource.source.web.crawler.max_depth || default_max_depth;
+      newSource.source.web.crawler.max_pages = newSource.source.web.crawler.max_pages || default_max_pages;
+    }
 
     newSources[index] = newSource;
     onUpdate(newSources);
@@ -253,8 +259,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 fullWidth
                 label="Max Depth"
                 type="number"
-                value={source.source.web?.crawler?.max_depth ?? 10}
+                value={source.source.web?.crawler?.max_depth || default_max_depth}
                 onChange={(e) => {
+                  const value = parseInt(e.target.value) || default_max_depth;
                   handleSourceUpdate(index, {
                     source: {
                       web: {
@@ -262,7 +269,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                         crawler: {
                           enabled: true,
                           ...source.source.web?.crawler,
-                          max_depth: parseInt(e.target.value) || 10
+                          max_depth: value
                         }
                       }
                     }
@@ -274,8 +281,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 fullWidth
                 label="Max Pages"
                 type="number"
-                value={source.source.web?.crawler?.max_pages ?? 500}
+                value={source.source.web?.crawler?.max_pages || default_max_pages}
                 onChange={(e) => {
+                  const value = parseInt(e.target.value) || default_max_pages;
                   handleSourceUpdate(index, {
                     source: {
                       web: {
@@ -283,7 +291,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                         crawler: {
                           enabled: true,
                           ...source.source.web?.crawler,
-                          max_pages: parseInt(e.target.value) || 500
+                          max_pages: value
                         }
                       }
                     }
