@@ -47,6 +47,7 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 		splitter := textsplitter.NewMarkdownTextSplitter(
 			textsplitter.WithChunkSize(k.RAGSettings.ChunkSize),
 			textsplitter.WithChunkOverlap(k.RAGSettings.ChunkOverflow),
+			textsplitter.WithCodeBlocks(true),
 		)
 
 		for _, d := range data {
