@@ -6,36 +6,36 @@ For example if the payload fragment looks like this:
 
 ```
 ...
-  --------------------------5683f7544dff7b07
-  Content-Disposition: form-data; name="username"
+--------------------------5683f7544dff7b07
+Content-Disposition: form-data; name="username"
 
-  John
-  --------------------------5683f7544dff7b07
-  ...
+John
+--------------------------5683f7544dff7b07
+...
 ```
 
 Then to get `username` value (which is `John`) you will need to:
 
 ```
 -- import "json" package when working with JSON
-  local json = require("json")
+local json = require("json")
 
-  -- values can be accessed through 'r.RequestFormData' object. Since
-  -- there can be multiple values for each key, you also need to
-  -- specify that it's the first element of the list:
-  local username = r.RequestFormData.username[1]
-  local first_name = r.RequestFormData.first_name[1]
+-- values can be accessed through 'r.RequestFormData' object. Since
+-- there can be multiple values for each key, you also need to
+-- specify that it's the first element of the list:
+local username = r.RequestFormData.username[1]
+local first_name = r.RequestFormData.first_name[1]
 
-  -- transforming form data into JSON
-  local json_payload = {
-    username = username,
-    first_name = first_name
-  }
+-- transforming form data into JSON
+local json_payload = {
+  username = username,
+  first_name = first_name
+}
 
-  local encoded_payload, err = json.encode(json_payload)
-  if err then error(err) end
+local encoded_payload, err = json.encode(json_payload)
+if err then error(err) end
 
-  r:SetRequestBody(encoded_payload)
+r:SetRequestBody(encoded_payload)
 ```
 
 [**Prerequisites**](#Prerequisites)
