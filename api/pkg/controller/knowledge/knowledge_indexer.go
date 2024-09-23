@@ -289,7 +289,6 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		for {
 			select {
 			case <-ctx.Done():
-				fmt.Println("done")
 				return
 			case <-ticker.C:
 				current := int(progress.Load())
