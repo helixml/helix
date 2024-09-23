@@ -553,7 +553,7 @@ export interface IKnowledgeSource {
       path: string;
     };
     web?: {
-      urls: string[];
+      urls?: string[];
       excludes?: string[];
       auth?: {
         username: string;
@@ -565,10 +565,10 @@ export interface IKnowledgeSource {
           api_url: string;
         };
         enabled: boolean;
-        max_depth: number;
-        max_pages: number;
+        max_depth?: number;
+        max_pages?: number;
         user_agent?: string;
-        readability: boolean;
+        readability?: boolean;
       };
     };
     text?: string;
