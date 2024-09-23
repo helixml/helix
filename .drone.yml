@@ -316,6 +316,42 @@ depends_on:
 ---
 kind: pipeline
 type: docker
+name: build-typesense_baked_models
+
+volumes:
+  - name: dockersocket
+    host:
+      path: /var/run/docker.sock
+
+steps:
+- name: publish-typesense_baked_models
+  image: plugins/docker
+  pull: always
+  settings:
+    dockerfile: Dockerfile.typesense
+    auto_tag: true
+    daemon_off: true
+    registry: registry.helix.ml
+    repo: registry.helix.ml/helix/typesense
+    username: admin
+    password:
+      from_secret: helix_registry_password
+  volumes:
+  - name: dockersocket
+    path: /var/run/docker.sock
+  when:
+    branch:
+    - main
+    event:
+    - tag
+    - push
+
+depends_on:
+- default
+
+---
+kind: pipeline
+type: docker
 name: build-llamaindex
 
 volumes:

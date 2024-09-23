@@ -136,7 +136,9 @@ services:
     ports:
       - 9998:9998
   typesense:
-    image: typesense/typesense:27.0
+    build:
+      context: .
+      dockerfile: Dockerfile.typesense
     command: ["--data-dir", "/data", "--api-key", "typesense"]
     ports:
       - 8108:8108
