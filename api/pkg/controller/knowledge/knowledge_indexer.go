@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -185,6 +186,27 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 	pool := pool.New().
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
 		WithErrors()
+
+	progress := atomic.Int32{}
+
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+		var lastProgress int
+
+		for {
+			select {
+			case <-ticker.C:
+				current := int(progress.Load())
+				// If we have progress, update the progress
+				if current != lastProgress {
+					r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data", current)
+					lastProgress = int(current)
+				}
+			}
+		}
+	}()
 
 	for _, d := range data {
 		d := d
