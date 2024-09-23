@@ -17,7 +17,7 @@ image:
   pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
-  
+
 tika:
   enabled: true
   image:
@@ -28,8 +28,8 @@ typesense:
   enabled: true
   apiKey: typesense
   image:
-    repository: typesense/typesense
-    tag: "27.0"
+    repository: registry.helix.ml/helix/typesense
+    tag: "latest"
   persistence:
     ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
     ##
