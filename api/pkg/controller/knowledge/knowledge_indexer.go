@@ -189,6 +189,9 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 	progress := atomic.Int32{}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -197,6 +200,8 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-ticker.C:
 				current := int(progress.Load())
 				// If we have progress, update the progress
