@@ -565,8 +565,10 @@ export interface IKnowledgeSource {
           api_url: string;
         };
         enabled: boolean;
-        max_depth?: number;
+        max_depth: number;
+        max_pages: number;
         user_agent?: string;
+        readability: boolean;
       };
     };
     text?: string;
