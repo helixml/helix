@@ -248,54 +248,54 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
         {sourceType === 'web' && (
           <>
-            <TextField
-              fullWidth
-              label="Max Depth"
-              type="number"
-              value={source.source.web?.crawler?.max_depth}
-              onChange={(e) => {
-                handleSourceUpdate(index, {
-                  source: {
-                    web: {
-                      ...source.source.web,
-                      crawler: {
-                        enabled: true,
-                        ...source.source.web?.crawler,
-                        max_depth: parseInt(e.target.value)
+            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              <TextField
+                fullWidth
+                label="Max Depth"
+                type="number"
+                value={source.source.web?.crawler?.max_depth ?? 10}
+                onChange={(e) => {
+                  handleSourceUpdate(index, {
+                    source: {
+                      web: {
+                        ...source.source.web,
+                        crawler: {
+                          enabled: true,
+                          ...source.source.web?.crawler,
+                          max_depth: parseInt(e.target.value) || 10
+                        }
                       }
                     }
-                  }
-                });
-              }}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Max Pages"
-              type="number"
-              value={source.source.web?.crawler?.max_pages}
-              onChange={(e) => {
-                handleSourceUpdate(index, {
-                  source: {
-                    web: {
-                      ...source.source.web,
-                      crawler: {
-                        enabled: true,
-                        ...source.source.web?.crawler,
-                        max_pages: parseInt(e.target.value)
+                  });
+                }}
+                disabled={disabled}
+              />
+              <TextField
+                fullWidth
+                label="Max Pages"
+                type="number"
+                value={source.source.web?.crawler?.max_pages ?? 500}
+                onChange={(e) => {
+                  handleSourceUpdate(index, {
+                    source: {
+                      web: {
+                        ...source.source.web,
+                        crawler: {
+                          enabled: true,
+                          ...source.source.web?.crawler,
+                          max_pages: parseInt(e.target.value) || 500
+                        }
                       }
                     }
-                  }
-                });
-              }}
-              disabled={disabled}
-              sx={{ mb: 2 }}
-            />
+                  });
+                }}
+                disabled={disabled}
+              />
+            </Box>
             <FormControlLabel
               control={
                 <Switch
-                  checked={source.source.web?.crawler?.readability}
+                  checked={source.source.web?.crawler?.readability ?? true}
                   onChange={(e) => {
                     handleSourceUpdate(index, {
                       source: {
