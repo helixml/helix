@@ -14,8 +14,16 @@ func TestValidate(t *testing.T) {
 		expectError bool
 	}{
 		{
+			name: "Empty name",
+			knowledge: &types.AssistantKnowledge{
+				Name: "",
+			},
+			expectError: true,
+		},
+		{
 			name: "Valid cron schedule",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "0 0 * * *", // Every 24 hours
 			},
 			expectError: false,
@@ -23,6 +31,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid cron schedule - too frequent",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "*/5 * * * *", // Every 5 minutes
 			},
 			expectError: true,
@@ -30,6 +39,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid humanized schedule - too frequent",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "@every 5m",
 			},
 			expectError: true,
@@ -37,6 +47,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Valid humanized schedule",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "@every 15m",
 			},
 			expectError: false,
@@ -44,6 +55,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Invalid cron syntax",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "invalid cron",
 			},
 			expectError: true,
@@ -51,6 +63,7 @@ func TestValidate(t *testing.T) {
 		{
 			name: "Empty schedule",
 			knowledge: &types.AssistantKnowledge{
+				Name:            "Test",
 				RefreshSchedule: "",
 			},
 			expectError: false,

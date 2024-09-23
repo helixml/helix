@@ -1,0 +1,24 @@
+{{- if and .Values.typesense.persistence.enabled (not .Values.typesense.persistence.existingClaim) -}}
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-typesense-pvc  
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: typesense
+spec:
+  accessModes:
+  {{- range .Values.typesense.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.typesense.persistence.size | quote }}
+  {{- if .Values.typesense.persistence.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.typesense.persistence.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.typesense.persistence.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.typesense.persistence.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.typesense.persistence "global" .Values.global) | nindent 2 }}
+{{- end -}}

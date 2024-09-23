@@ -159,7 +159,7 @@ type TextExtractor struct {
 }
 
 type RAG struct {
-	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"20" description:"The number of concurrent indexing tasks."`
+	IndexingConcurrency int `envconfig:"RAG_INDEXING_CONCURRENCY" default:"1" description:"The number of concurrent indexing tasks."`
 
 	// DefaultRagProvider is the default RAG provider to use if not specified
 	DefaultRagProvider string `envconfig:"RAG_DEFAULT_PROVIDER" default:"typesense" description:"The default RAG provider to use if not specified."`
