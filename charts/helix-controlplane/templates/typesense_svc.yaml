@@ -1,0 +1,19 @@
+{{- if .Values.typesense.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "helix-controlplane.fullname" . }}-typesense
+  labels:
+    {{- include "helix-controlplane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: typesense
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8108
+      targetPort: 8108
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: typesense
+    {{- include "helix-controlplane.selectorLabels" . | nindent 4 }}
+{{- end }}

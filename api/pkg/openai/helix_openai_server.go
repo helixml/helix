@@ -69,6 +69,7 @@ func (c *InternalHelixServer) GetNextLLMInferenceRequest(ctx context.Context, fi
 	c.queue = append(c.queue[:index], c.queue[index+1:]...)
 
 	c.addSchedulingDecision(filter, runnerID, runnerID, req.SessionID, req.InteractionID)
+	log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(queue)", len(c.queue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
 
 	return req, nil
 }

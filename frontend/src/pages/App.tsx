@@ -28,6 +28,17 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Link from '@mui/material/Link';
 import Avatar from '@mui/material/Avatar';
 import ModelPicker from '../components/create/ModelPicker'
+import Switch from '@mui/material/Switch';
+import Card from '@mui/material/Card';
+import CardContent from '@mui/material/CardContent';
+import debounce from 'lodash/debounce';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import IconButton from '@mui/material/IconButton';
+import CloseIcon from '@mui/icons-material/Close';
+import Markdown from '../components/session/Markdown';
 
 import Page from '../components/system/Page'
 import JsonWindowLink from '../components/widgets/JsonWindowLink'
@@ -78,6 +89,8 @@ import {
   ISessionType,
   IApp,
   IKnowledgeSource,
+  IKnowledgeSearchResult,
+  ISessionRAGResult,
 } from '../types'
 
 const isHelixApp = (app: IApp): boolean => {
@@ -146,7 +159,10 @@ const App: FC = () => {
   const [tools, setTools] = useState<ITool[]>([]);
   const [isNewApp, setIsNewApp] = useState(false);
 
-  const [tabValue, setTabValue] = useState(0);
+  const [searchParams, setSearchParams] = useState(() => new URLSearchParams(window.location.search));
+  const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
+  const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
+
   const textFieldRef = useRef<HTMLTextAreaElement>()
   const themeConfig = useThemeConfig()
 
@@ -159,6 +175,63 @@ const App: FC = () => {
   const [knowledgeErrors, setKnowledgeErrors] = useState<boolean>(false);
 
   const [model, setModel] = useState('');
+
+  const [knowledgeList, setKnowledgeList] = useState<IKnowledgeSource[]>([]);
+  const fetchKnowledgeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
+
+  const [searchResults, setSearchResults] = useState<IKnowledgeSearchResult[]>([]);
+  const [selectedChunk, setSelectedChunk] = useState<ISessionRAGResult | null>(null);
+
+  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
+
+  const fetchKnowledge = useCallback(async () => {
+    if (!app?.id) return;
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 3000) return; // Prevent fetching more than once every 3 seconds
+    
+    lastFetchTimeRef.current = now;
+    try {
+      const knowledge = await api.get<IKnowledgeSource[]>(`/api/v1/knowledge?app_id=${app.id}`);
+      if (knowledge) {
+        setKnowledgeList(knowledge);
+        setHasKnowledgeSources(knowledge.length > 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch knowledge:', error);
+      snackbar.error('Failed to fetch knowledge');
+    }
+  }, [api, snackbar, app?.id]);
+
+  // Fetch knowledge initially when the app is loaded
+  useEffect(() => {
+    if (app?.id) {
+      fetchKnowledge();
+    }
+  }, [app?.id, fetchKnowledge]);
+
+  // Set up periodic fetching
+  useEffect(() => {
+    const scheduleFetch = () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+      fetchKnowledgeTimeoutRef.current = setTimeout(() => {
+        fetchKnowledge();
+        scheduleFetch(); // Schedule the next fetch
+      }, 3000); // 3 seconds
+    };
+
+    if (app?.id) {
+      scheduleFetch();
+    }
+
+    return () => {
+      if (fetchKnowledgeTimeoutRef.current) {
+        clearTimeout(fetchKnowledgeTimeoutRef.current);
+      }
+    };
+  }, [app?.id, fetchKnowledge]);
 
   const handleKnowledgeUpdate = useCallback((updatedKnowledge: IKnowledgeSource[]) => {
     setKnowledgeSources(updatedKnowledge);
@@ -180,6 +253,12 @@ const App: FC = () => {
       };
     });
   }, []);
+
+  const handleRefreshKnowledge = useCallback((id: string) => {
+    api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
+      snackbar: true,
+    });
+  }, [api]);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -341,7 +420,7 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
-  const onSave = useCallback(async () => {
+  const onSave = useCallback(async (quiet: boolean = false) => {
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -421,19 +500,20 @@ const App: FC = () => {
       }
 
       if (!result) {
-        snackbar.error('Failed to update app: No result returned');
-        return;
+        throw new Error('No result returned from the server');
       }
-
-      snackbar.success(isNewApp ? 'App created' : 'App updated');
+      if (!quiet) {
+        snackbar.success(isNewApp ? 'App created' : 'App updated');
+      }
     } catch (error: unknown) {
       if (error instanceof Error) {
-        snackbar.error('Error in app operation: ' + error.message);
+        // snackbar.error(`Error in app operation: ${error.message}`);
         console.error('Full error:', error);
       } else {
-        snackbar.error('An unknown error occurred during the app operation');
+        // snackbar.error('An unknown error occurred during the app operation');
         console.error('Unknown error:', error);
       }
+      return; // Exit the function early if there's an error
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
@@ -441,7 +521,7 @@ const App: FC = () => {
     if(!app) return
     
     // Save the app before sending the message
-    await onSave();
+    await onSave(true);
     
     session.setData(undefined)
     const sessionChatRequest = {
@@ -460,15 +540,29 @@ const App: FC = () => {
         },
       }]
     }
-    loading.setLoading(true)
+    
     const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
     if(!newSessionData) {
-      loading.setLoading(false)
       return
     }
     setInputValue('')
-    session.loadSession(newSessionData.id)
-    loading.setLoading(false)
+    session.loadSession(newSessionData.id)    
+  }
+
+  const onSearch = async (query: string) => {
+    const newSearchResults = await api.get('/api/v1/search', {
+      params: {
+        app_id: app?.id,
+        knowledge_id: knowledgeSources[0]?.id,
+        prompt: query,
+      }
+    })
+    if (!newSearchResults || !Array.isArray(newSearchResults)) {
+      snackbar.error('No results found or invalid response');
+      setSearchResults([]);
+      return;
+    }
+    setSearchResults(newSearchResults);
   }
 
   const validateApiSchemas = (app: IApp): string[] => {
@@ -820,6 +914,42 @@ const App: FC = () => {
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
 
+  const handleSearchModeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newIsSearchMode = event.target.checked;
+    setIsSearchMode(newIsSearchMode);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString());
+      newParams.set('isSearchMode', newIsSearchMode.toString());
+      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
+      return newParams;
+    });
+  };
+
+  const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {
+    setTabValue(newValue);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev.toString());
+      newParams.set('tab', newValue);
+      window.history.replaceState({}, '', `${window.location.pathname}?${newParams}`);
+      return newParams;
+    });
+  };
+
+  const handleChunkClick = (chunk: ISessionRAGResult) => {
+    setSelectedChunk(chunk);
+  };
+
+  const handleCloseDialog = () => {
+    setSelectedChunk(null);
+  };
+
+  const handleCopyContent = () => {
+    if (selectedChunk) {
+      navigator.clipboard.writeText(selectedChunk.content);
+      snackbar.success('Content copied to clipboard');
+    }
+  };
+
   return (
     <Page
       breadcrumbs={[
@@ -861,17 +991,17 @@ const App: FC = () => {
         <Box sx={{ height: 'calc(100vh - 100px)', width: '100%', flexGrow: 1, p: 2 }}>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6} sx={{borderRight: '1px solid #303047'}}>
-              <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-                <Tab label="Settings" />
-                <Tab label="Knowledge" />
-                <Tab label="Integrations" />
-                <Tab label="GPTScripts" />
-                <Tab label="API Keys" />
-                <Tab label="Developers" />
+              <Tabs value={tabValue} onChange={handleTabChange}>
+                <Tab label="Settings" value="settings" />
+                <Tab label="Knowledge" value="knowledge" />
+                <Tab label="Integrations" value="integrations" />
+                <Tab label="GPTScripts" value="gptscripts" />
+                <Tab label="API Keys" value="apikeys" />
+                <Tab label="Developers" value="developers" />
               </Tabs>
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
-                {tabValue === 0 && (
+                {tabValue === 'settings' && (
                   <Box sx={{ mt: 2 }}>
                     {/* Settings content */}
                     <TextField
@@ -997,7 +1127,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 1 && (
+                {tabValue === 'knowledge' && (
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="h6" sx={{ mb: 2 }}>
                       Knowledge Sources
@@ -1005,7 +1135,9 @@ const App: FC = () => {
                     <KnowledgeEditor
                       knowledgeSources={knowledgeSources}
                       onUpdate={handleKnowledgeUpdate}
+                      onRefresh={handleRefreshKnowledge}
                       disabled={isReadOnly}
+                      knowledgeList={knowledgeList}
                     />
                     {knowledgeErrors && showErrors && (
                       <Alert severity="error" sx={{ mt: 2 }}>
@@ -1015,7 +1147,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 2 && (
+                {tabValue === 'integrations' && (
                   <Box sx={{ mt: 2 }}>
                     {/* Integrations (API Tools) content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
@@ -1056,7 +1188,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 3 && (
+                {tabValue === 'gptscripts' && (
                   <Box sx={{ mt: 2 }}>
                     {/* GPTScripts content */}
                     <Typography variant="h6" sx={{ mb: 1 }}>
@@ -1127,7 +1259,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 4 && (
+                {tabValue === 'apikeys' && (
                   <Box sx={{ mt: 2 }}>
                     {/* API Keys content */}
                     <Typography variant="subtitle1" sx={{mb: 1}}>
@@ -1179,7 +1311,7 @@ const App: FC = () => {
                   </Box>
                 )}
 
-                {tabValue === 5 && (
+                {tabValue === 'developers' && (
                   <Box sx={{ mt: 2 }}>
                     {/* AISpec (App Configuration) content */}
                     <Typography variant="h6" sx={{mb: 1}}>
@@ -1243,7 +1375,7 @@ const App: FC = () => {
                   type="button"
                   color="secondary"
                   variant="contained"
-                  onClick={ onSave }
+                  onClick={ () => onSave(false) }
                   disabled={isReadOnly}
                 >
                   Save
@@ -1297,6 +1429,17 @@ const App: FC = () => {
                     border: '2px solid #fff',
                   }}
                 />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isSearchMode}
+                      onChange={handleSearchModeChange}
+                      color="primary"
+                    />
+                  }
+                  label="Knowledge Search"
+                  sx={{ mb: 2, color: 'white' }}
+                />
                 <Box
                   sx={{
                     width: '100%',
@@ -1312,12 +1455,18 @@ const App: FC = () => {
                     fullWidth
                     inputRef={textFieldRef}
                     autoFocus
-                    label={`Message ${name || 'Helix'}`}
-                    helperText="Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"
+                    label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
+                    helperText={isSearchMode ? "" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
                     value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    multiline={true}
+                    onChange={(e) => {
+                      setInputValue(e.target.value);
+                      if (isSearchMode) {
+                        onSearch(e.target.value);
+                      }
+                    }}
+                    multiline={!isSearchMode}
                     onKeyDown={handleKeyDown}
+                    disabled={isSearchMode && !hasKnowledgeSources}
                     sx={{
                       '& .MuiInputBase-root': {
                         backgroundColor: 'rgba(0, 0, 0, 0.9)',
@@ -1327,204 +1476,168 @@ const App: FC = () => {
                       },
                     }}
                   />
-                  <Button
-                    id="sendButton"
-                    variant='contained'
-                    onClick={ onInference }
-                    sx={{
-                      color: themeConfig.darkText,
-                      ml: 2,
-                      mb: 3,
-                    }}
-                    endIcon={<SendIcon />}
-                  >
-                    Send
-                  </Button>
+                  {!isSearchMode && (
+                    <Button
+                      id="sendButton"
+                      variant='contained'
+                      onClick={onInference}
+                      sx={{
+                        color: themeConfig.darkText,
+                        ml: 2,
+                        mb: 3,
+                      }}
+                      endIcon={<SendIcon />}
+                    >
+                      Send
+                    </Button>
+                  )}
                 </Box>
               </Box>
               <Box
                 sx={{
                   position: 'relative',
                   zIndex: 2,
+                  overflowY: 'auto',
+                  maxHeight: 'calc(100vh - 300px)',
                 }}
               >
-                {
-                  session.data && (
-                    <>
-                      {
-                        session.data?.interactions.map((interaction: any, i: number) => {
-                          const interactionsLength = session.data?.interactions.length || 0
-                          const isLastInteraction = i == interactionsLength - 1
-                          const isLive = isLastInteraction && !interaction.finished
-
-                          if(!session.data) return null
-                          return (
-                            <Interaction
-                              key={ i }
-                              serverConfig={ account.serverConfig }
-                              interaction={ interaction }
-                              session={ session.data }
-                            >
-                              {
-                                isLive && (
-                                  <InteractionLiveStream
-                                    session_id={ session.data.id }
-                                    interaction={ interaction }
-                                    session={ session.data }
-                                    serverConfig={ account.serverConfig }
-                                  />
-                                )
-                              }
-                            </Interaction>
-                          )   
-                        })
-                      }
-                    </>
+                {isSearchMode ? (
+                  hasKnowledgeSources ? (
+                    searchResults && searchResults.length > 0 ? (
+                      searchResults.map((result, index) => (
+                        <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+                          <CardContent>
+                            <Typography variant="h6" color="white">
+                              Knowledge: {result.knowledge.name}
+                            </Typography>
+                            <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
+                              Search completed in: {result.duration_ms}ms
+                            </Typography>
+                            {result.results.length > 0 ? (
+                              result.results.map((chunk, chunkIndex) => (
+                                <Tooltip title={chunk.content} arrow key={chunkIndex}>
+                                  <Box
+                                    sx={{
+                                      mt: 1,
+                                      p: 1,
+                                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      '&:hover': {
+                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                      },
+                                    }}
+                                    onClick={() => handleChunkClick(chunk)}
+                                  >
+                                    <Typography variant="body2" color="white">
+                                      Source: {chunk.source}
+                                      <br />
+                                      Content: {chunk.content.substring(0, 50)}...
+                                    </Typography>
+                                  </Box>
+                                </Tooltip>
+                              ))
+                            ) : (
+                              <Typography variant="body2" color="white">
+                                No matches found for this query.
+                              </Typography>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    ) : (
+                      <Typography variant="body1" color="white">No search results found.</Typography>
+                    )
+                  ) : (
+                    <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
                   )
-                }
+                ) : (
+                  session.data && (
+                    <Interaction
+                      key={session.data.interactions.length - 1}
+                      serverConfig={account.serverConfig}
+                      interaction={session.data.interactions[session.data.interactions.length - 1]}
+                      session={session.data}
+                    >
+                      {!session.data.interactions[session.data.interactions.length - 1].finished && (
+                        <InteractionLiveStream
+                          session_id={session.data.id}
+                          interaction={session.data.interactions[session.data.interactions.length - 1]}
+                          session={session.data}
+                          serverConfig={account.serverConfig}
+                        />
+                      )}
+                    </Interaction>
+                  )
+                )}
               </Box>
             </Grid>
           </Grid>
         </Box>
       </Container>
-      {
-        showBigSchema && (
-          <Window
-            title="Schema"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setShowBigSchema(false)}
+      <Dialog
+        open={selectedChunk !== null}
+        onClose={handleCloseDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Content Details
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseDialog}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
           >
-            <Box
-              sx={{
-                p: 2,
-                height: '100%',
-              }}
-            >
-              <TextField
-                error={showErrors && !schema}
-                value={schema}
-                onChange={(e) => setSchema(e.target.value)}
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedChunk && (
+            <>
+              <Typography variant="subtitle1" gutterBottom>
+                Source: {selectedChunk.source.startsWith('http://') || selectedChunk.source.startsWith('https://') ? (
+                  <Link href={selectedChunk.source} target="_blank" rel="noopener noreferrer">
+                    {selectedChunk.source}
+                  </Link>
+                ) : selectedChunk.source}
+              </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Document ID: {selectedChunk.document_id}
+              </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Document Group ID: {selectedChunk.document_group_id}
+              </Typography>
+              <Typography variant="h6" gutterBottom>
+                Chunk content:
+              </Typography>
+              <TextField                
+                value={ selectedChunk.content }                
+                disabled={true}
                 fullWidth
                 multiline
-                disabled
-                label="App Configuration"
-                helperText={showErrors && !schema ? "Please enter a schema" : ""}
-                sx={{ height: '100%' }} // Set the height to '100%'
+                rows={10}
+                id="content-details"
+                name="content-details"
+                label="Content Details"                
+                InputProps={{
+                  style: { fontFamily: 'monospace' }
+                }}
               />
-            </Box>
-          </Window>
-        )
-      }
-      {
-        gptScript && (
-          <Window
-            title="Run GPT Script"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setGptScript(undefined)}
-          >
-            <Row>
-              <Typography variant="body1" sx={{mt: 2, mb: 2}}>
-                Enter your input and click "Run" to execute the script.
-              </Typography>
-            </Row>
-            <Row center sx={{p: 2}}>
-              <Cell sx={{mr: 2}}>
-                <TextField
-                  value={gptScriptInput}
-                  onChange={(e) => setGptScriptInput(e.target.value)}
-                  fullWidth
-                  id="gpt-script-input"
-                  name="gpt-script-input"
-                  label="Script Input (optional)"
-                  sx={{
-                    minWidth: '400px'
-                  }}
-                />
-              </Cell>
-              <Cell>
-                <Button
-                  sx={{width: '200px'}}
-                  variant="contained"
-                  color="primary"
-                  endIcon={ <PlayCircleOutlineIcon /> }
-                  onClick={ onExecuteScript }
-                >
-                  Run
-                </Button>
-              </Cell>
-            </Row>
-            
-            {
-              gptScriptError && (
-                <Row center sx={{p: 2}}>
-                  <Alert severity="error">{ gptScriptError }</Alert>
-                </Row>
-              )
-            }
-
-            {
-              gptScriptOutput && (
-                <Row center sx={{p: 2}}>
-                  <TextView data={ gptScriptOutput } scrolling />
-                </Row>
-              )
-            }
-            
-          </Window>
-        )
-      }
-      {
-        deletingAPIKey && (
-          <DeleteConfirmWindow
-            title="this API key"
-            onSubmit={async () => {
-              const res = await api.delete(`/api/v1/api_keys`, {
-                params: {
-                  key: deletingAPIKey,
-                },
-              }, {
-                snackbar: true,
-              })
-              if(!res) return
-              snackbar.success('API Key deleted')
-              account.loadApiKeys({
-                types: 'app',
-                app_id: params.app_id,
-              })
-              setDeletingAPIKey('')
-            }}
-            onCancel={() => {
-              setDeletingAPIKey('')
-            }}
-          />
-        )
-      }
-      {editingTool && (
-        <Window
-          title={`${editingTool.id ? 'Edit' : 'Add'} ${editingTool.tool_type === 'api' ? 'API Tool' : 'GPT Script'}`}
-          fullHeight
-          size="lg"
-          open
-          withCancel
-          cancelTitle="Close"
-          onCancel={() => setEditingTool(null)}
-        >
-          <ToolEditor
-            initialData={editingTool}
-            onSave={editingTool.tool_type === 'api' ? onSaveApiTool : onSaveGptScript}
-            onCancel={() => setEditingTool(null)}
-            isReadOnly={isReadOnly}
-          />
-        </Window>
-      )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCopyContent} startIcon={<ContentCopyIcon />}>
+            Copy
+          </Button>
+          <Button onClick={handleCloseDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   )
 }

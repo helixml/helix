@@ -3,7 +3,7 @@ envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
   # Database
-  POSTGRES_HOST: helix-postgresql
+  POSTGRES_HOST: my-helix-controlplane-postgresql
   POSTGRES_USER: helix
   POSTGRES_PASSWORD: oh-hallo-insecure-password
   POSTGRES_DATABASE: helix
@@ -15,7 +15,7 @@ envVariables:
   OPENAI_API_KEY: ""
   TOGETHER_API_KEY: ""
   # Keycloak location
-  KEYCLOAK_URL: http://keycloak:8888/auth
+  KEYCLOAK_URL: http://keycloak:80/auth
   # How Keycloak redirects the users on login, should be user facing
   KEYCLOAK_FRONTEND_URL: http://localhost:8080/auth
   KEYCLOAK_USER: "admin"

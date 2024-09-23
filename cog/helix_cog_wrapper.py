@@ -10,6 +10,7 @@ import time
 import json
 import shutil
 import tempfile
+import urllib
 from pathlib import Path
 
 # we get copied into the cog-sdxl folder so assume these modules are available

@@ -16,21 +16,30 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  Chip,
+  Snackbar,
+  Tooltip,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { IKnowledgeSource } from '../types';
+import MuiAlert, { AlertProps } from '@mui/material/Alert';
+import useSnackbar from '../hooks/useSnackbar'; // Import the useSnackbar hook
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
   onUpdate: (updatedKnowledge: IKnowledgeSource[]) => void;
+  onRefresh: (id: string) => void;
   disabled: boolean;
+  knowledgeList: IKnowledgeSource[];
 }
 
-const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, disabled }) => {
+const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate, onRefresh, disabled, knowledgeList }) => {
   const [expanded, setExpanded] = useState<string | false>(false);
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
+  const snackbar = useSnackbar(); // Use the snackbar hook
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
@@ -47,19 +56,31 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.refresh_schedule = ''; // Empty string for one-off
     }
 
+    // Update the name based on the source
+    if (newSource.source.web?.urls && newSource.source.web.urls.length > 0) {
+      newSource.name = newSource.source.web.urls.join(', ');
+    } else if (newSource.source.filestore?.path) {
+      newSource.name = newSource.source.filestore.path;
+    } else {
+      newSource.name = 'Unnamed Source';
+    }
+
     newSources[index] = newSource;
     onUpdate(newSources);
   };
 
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
-        source: { web: { urls: [], crawler: { enabled: false } } },
+        id: '',
+        source: { web: { urls: [], crawler: { enabled: true } } },
         refresh_schedule: '',
         name: '',
+        version: '',
+        state: '',
         rag_settings: {
             results_count: 0,
             chunk_size: 0
-        }
+        },
     };
     onUpdate([...knowledgeSources, newSource]);
     setExpanded(`panel${knowledgeSources.length}`);
@@ -70,6 +91,16 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     onUpdate(newSources);
   };
 
+  const refreshSource = (index: number) => {
+    // Find ID of knowledge source
+    const knowledge = knowledgeList.find(k => k.name === knowledgeSources[index].name);
+    if (knowledge) {
+      onRefresh(knowledge.id);
+      // Show success message using snackbar
+      snackbar.success('Knowledge refresh initiated. This may take a few minutes.');
+    }
+  };
+
   const validateSources = () => {
     const newErrors: { [key: number]: string } = {};
     knowledgeSources.forEach((source, index) => {      
@@ -77,8 +108,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         newErrors[index] = "At least one URL or a filestore path must be specified.";
       }
     });
-    console.log('xxxx')
-    console.log(Object.keys(newErrors).length)
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -89,12 +118,54 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const getSourcePreview = (source: IKnowledgeSource): string => {
     if (source.source.web?.urls && source.source.web.urls.length > 0) {
-      const url = new URL(source.source.web.urls[0]);
-      return url.hostname;
+      try {
+        const url = new URL(source.source.web.urls[0]);
+        return url.hostname;
+      } catch {
+        return source.source.web.urls[0];
+      }    
     } else if (source.source.filestore?.path) {
       return source.source.filestore.path;
     }
     return 'No source specified';
+  };
+
+  const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge;
+  };
+
+  const getKnowledgeVersion = (source: IKnowledgeSource): string | undefined => {
+    const knowledge = knowledgeList.find(k => k.name === source.name);
+    return knowledge?.version;
+  };
+
+  const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
+    if (!knowledge) return null;
+    
+    let color: "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" = "default";
+    switch (knowledge.state.toLowerCase()) {
+      case 'ready':
+        color = 'success';
+        break;
+      case 'pending':
+        color = 'info';
+        break;
+      case 'indexing':
+        color = 'info';
+        break;
+      case 'error':
+        color = 'error';
+        break;
+      // Add more cases as needed
+    }
+
+    if (knowledge.message) {
+      // Showing tooltip with error message
+      return <Tooltip title={knowledge.message}><Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} /></Tooltip>;
+    }
+
+    return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
   };
 
   const renderSourceInput = (source: IKnowledgeSource, index: number) => {
@@ -173,19 +244,39 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             expandIcon={<ExpandMoreIcon />}
             sx={{ display: 'flex', alignItems: 'center' }}
           >
-            <Typography sx={{ flexGrow: 1 }}>
-              Knowledge Source ({getSourcePreview(source)})
-            </Typography>
-            <IconButton
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteSource(index);
-              }}
-              disabled={disabled}
-              sx={{ mr: 1 }}
-            >
-              <DeleteIcon />
-            </IconButton>
+            <Box sx={{ flexGrow: 1 }}>
+              <Typography>
+                Knowledge Source ({getSourcePreview(source)})
+                {renderKnowledgeState(getKnowledge(source))}
+              </Typography>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                Version: {getKnowledgeVersion(source) || 'N/A'}
+              </Typography>
+            </Box>
+            <Tooltip title="Refresh knowledge and reindex data">
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  refreshSource(index);
+                }}
+                disabled={disabled}
+                sx={{ mr: 1 }}
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Delete this knowledge source">
+              <IconButton
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteSource(index);
+                }}
+                disabled={disabled}
+                sx={{ mr: 1 }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
           </AccordionSummary>
           <AccordionDetails>
             {renderSourceInput(source, index)}
