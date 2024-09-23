@@ -103,6 +103,7 @@ type Store interface {
 	GetKnowledge(ctx context.Context, id string) (*types.Knowledge, error)
 	LookupKnowledge(ctx context.Context, q *LookupKnowledgeQuery) (*types.Knowledge, error)
 	UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) (*types.Knowledge, error)
+	UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, percent int) error
 	ListKnowledge(ctx context.Context, q *ListKnowledgeQuery) ([]*types.Knowledge, error)
 	DeleteKnowledge(ctx context.Context, id string) error
 

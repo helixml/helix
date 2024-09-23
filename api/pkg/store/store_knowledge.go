@@ -118,6 +118,17 @@ func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Kn
 	return s.GetKnowledge(ctx, knowledge.ID)
 }
 
+func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, percent int) error {
+	if id == "" {
+		return fmt.Errorf("id not specified")
+	}
+
+	return s.gdb.WithContext(ctx).Model(&types.Knowledge{}).Where("id = ?", id).Updates(&types.Knowledge{
+		State:           state,
+		ProgressPercent: percent,
+	}).Error
+}
+
 type ListKnowledgeQuery struct {
 	Owner     string
 	OwnerType types.OwnerType

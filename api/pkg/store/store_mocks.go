@@ -7,8 +7,7 @@ package store
 import (
 	context "context"
 	reflect "reflect"
-
-
+	
 	types "github.com/helixml/helix/api/pkg/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -686,6 +685,20 @@ func (m *MockStore) UpdateKnowledge(ctx context.Context, knowledge *types.Knowle
 func (mr *MockStoreMockRecorder) UpdateKnowledge(ctx, knowledge interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledge", reflect.TypeOf((*MockStore)(nil).UpdateKnowledge), ctx, knowledge)
+}
+
+// UpdateKnowledgeState mocks base method.
+func (m *MockStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, percent int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateKnowledgeState", ctx, id, state, percent)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateKnowledgeState indicates an expected call of UpdateKnowledgeState.
+func (mr *MockStoreMockRecorder) UpdateKnowledgeState(ctx, id, state, percent interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateKnowledgeState", reflect.TypeOf((*MockStore)(nil).UpdateKnowledgeState), ctx, id, state, percent)
 }
 
 // UpdateSession mocks base method.
