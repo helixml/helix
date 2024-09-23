@@ -85,6 +85,8 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	start := time.Now()
 
+	r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing", 0)
+
 	data, err := r.getIndexingData(ctx, k)
 	if err != nil {
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
@@ -94,6 +96,8 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Str("knowledge_id", k.ID).
 		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("indexing data loaded")
+
+	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data", 0)
 
 	start = time.Now()
 
@@ -250,6 +254,10 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	}
 
 	return pool.Wait()
+}
+
+func (r *Reconciler) updateProgress(k *types.Knowledge, state types.KnowledgeState, message string, percent int) error {
+	return r.store.UpdateKnowledgeState(context.Background(), k.ID, state, message, percent)
 }
 
 func getDocumentID(contents []byte) string {
