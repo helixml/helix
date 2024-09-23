@@ -1,0 +1,413 @@
+<html lang="en"><head><link rel="manifest" href="/manifest.json">
+  <title>
+        Convert multipart form into JSON</title>
+  <meta charset="utf-8">
+  <meta name="description" content="Parsing multipart form data inside the Webhook Relay Function">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+  
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://webhookrelay.com/v1/examples/transform/multipart-form-data/">
+  <meta property="og:title" content="Convert multipart form into JSON — Web Relay">
+  <meta property="og:description" content="Parsing multipart form data inside the Webhook Relay Function - ">
+  <meta property="og:image" content="https://webhookrelay.com/images/logo.png ">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Convert multipart form into JSON — Web Relay">
+  <meta name="twitter:description" content="Expose applications running on your local web server, on any network with an Internet connection without having public IP, opening ports or configuring DNS">
+  <meta name="twitter:image" content="https://webhookrelay.com/images/logo.png">
+  <link rel="apple-touch-icon" sizes="72x72" href="/images/icons/icon-72x72.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="/images/icons/icon-144x144.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/images/icons/icon-152x152.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/images/icons/icon-192x192.png">
+  <link rel="icon" type="image/png" sizes="72x72" href="/images/icons/icon-72x72.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/images/icons/icon-96x96.png">
+  <meta name="msapplication-TileImage" content="/images/icons/icon-144x144.png">
+  <link rel="icon" href="/images/logo.png" type="image/png">
+  <link href="/images/icons/favicon.ico" rel="shortcut icon" type="image/x-icon">
+  <meta name="msapplication-TileColor" content="#2979ff">
+  <meta name="theme-color" content="#2979ff">
+  <meta name="msapplication-config" content="browserconfig.xml">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="canonical" href="https://webhookrelay.com/v1/examples/transform/multipart-form-data/">
+  
+  <link rel="stylesheet" href="/css/simple.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsearch.js@2/dist/cdn/docsearch.min.css">
+  
+  <link rel="stylesheet" href="/css/page.css">
+  
+  <body class="font-inter antialiased bg-white text-gray-900 tracking-tight" data-aos-easing="ease-out-cubic" data-aos-duration="700" data-aos-delay="0">
+  
+  <div class="flex flex-col min-h-screen overflow-hidden">
+  
+  <header class="fixed w-full z-30 md:bg-opacity-90 transition duration-300 ease-in-out bg-white blur shadow-lg" x-data="{ top: true }" @scroll.window="top = window.pageYOffset > 10 ? false : true" :class="{ 'bg-white blur shadow-lg' : !top }">
+  <div class="max-w-6xl mx-auto px-5 sm:px-6">
+  <div class="flex items-center justify-between h-16 md:h-20">
+  
+  <div class="flex-shrink-0 mr-4">
+  
+  <a href="/" style="outline: none;">
+  <img class="h-12 w-12" alt="Webhook Relay" src="/images/logo.png">
+  </a>
+  <a class="block" href="/" aria-label="WHR" style="outline: none;">
+  
+  </a>
+  </div>
+  
+  <nav class="hidden md:flex md:flex-grow">
+  
+  <ul class="flex flex-grow justify-end flex-wrap items-center">
+  <li>
+  <a class="text-gray-600 hover:text-gray-900 px-3 lg:px-5 py-2 flex items-center transition duration-150 ease-in-out" href="/pricing" style="outline: none;">Pricing</a>
+  </li>
+  <li>
+  <a class="text-gray-600 hover:text-gray-900 px-3 lg:px-5 py-2 flex items-center transition duration-150 ease-in-out" href="/blog" style="outline: none;">Blog</a>
+  </li>
+  <li class="relative" x-data="{ open: false }" @mouseenter="open = true" @mouseleave="open = false">
+  <a class="text-gray-600 hover:text-gray-900 px-3 lg:px-5 py-2 flex items-center transition duration-150 ease-in-out" href="#0" aria-haspopup="true" :aria-expanded="open" @focus="open = true" @focusout="open = false" @click.prevent="" style="outline: none;">
+  Resources
+  <svg class="w-3 h-3 fill-current text-gray-400 cursor-pointer ml-1 flex-shrink-0" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+  <path d="M10.28 4.305L5.989 8.598 1.695 4.305A1 1 0 00.28 5.72l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z"></path>
+  </svg>
+  </a>
+  
+  <ul class="origin-top-right absolute top-full right-0 w-40 bg-white py-2 ml-4 rounded shadow-lg" x-show="open" x-transition:enter="transition ease-out duration-200 transform" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-out duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" style="display: none;">
+  <li>
+  <a class="font-medium text-sm text-gray-600 hover:text-gray-900 flex py-2 px-5 leading-tight" href="/v1/installation" @focus="open = true" @focusout="open = false" style="outline: none;">Installation</a>
+  </li>
+  <li>
+  <a class="font-medium text-sm text-gray-600 hover:text-gray-900 flex py-2 px-5 leading-tight" href="/v1/examples" @focus="open = true" @focusout="open = false" style="outline: none;">Examples</a>
+  </li>
+  <li>
+  <a class="font-medium text-sm text-gray-600 hover:text-gray-900 flex py-2 px-5 leading-tight" href="/v1/tutorials" @focus="open = true" @focusout="open = false" style="outline: none;">Tutorials</a>
+  </li>
+  <li>
+  <a class="font-medium text-sm text-gray-600 hover:text-gray-900 flex py-2 px-5 leading-tight" target="_blank" rel="noopener" href="https://docs.webhookrelay.com/" @focus="open = true" @focusout="open = false" style="outline: none;">Documentation</a>
+  </li>
+  </ul>
+  </li>
+  </ul>
+  
+  <ul class="flex flex-grow justify-end flex-wrap items-center">
+  <li>
+  <a class="font-medium text-gray-600 hover:text-gray-900 px-5 py-3 flex items-center transition duration-150 ease-in-out" rel="noopener" target="_blank" href="https://my.webhookrelay.com/login" style="outline: none;">Sign in</a>
+  </li>
+  <li>
+  <a class="btn-sm text-gray-200 bg-gray-900 hover:bg-gray-800 ml-3" rel="noopener" target="_blank" href="https://my.webhookrelay.com/register" style="outline: none;">
+  <span>Get Started</span>
+  <svg class="w-3 h-3 fill-current text-gray-400 flex-shrink-0 ml-2 -mr-1" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11.707 5.293L7 .586 5.586 2l3 3H0v2h8.586l-3 3L7 11.414l4.707-4.707a1 1 0 000-1.414z" fill-rule="nonzero"></path>
+  </svg>
+  </a>
+  </li>
+  </ul>
+  </nav>
+  
+  <div class="flex md:hidden" x-data="{ expanded: false }">
+  
+  <button class="hamburger" :class="{ 'active': expanded }" @click.stop="expanded = !expanded" aria-controls="mobile-nav" :aria-expanded="expanded" style="outline: none;">
+  <span class="sr-only">Menu</span>
+  <svg class="w-6 h-6 fill-current text-gray-900" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <rect y="4" width="24" height="2"></rect>
+  <rect y="11" width="24" height="2"></rect>
+  <rect y="18" width="24" height="2"></rect>
+  </svg>
+  </button>
+  
+  <nav id="mobile-nav" class="absolute top-full h-screen pb-16 z-20 left-0 w-full overflow-scroll bg-white transition-all duration-300 ease-in-out" @click.away="expanded = false" @keydown.escape.window="expanded = false" x-show="expanded" x-transition:enter="transition ease-out duration-200 transform" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-out duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" style="display: none;">
+  <ul class="px-5 py-2">
+  <li>
+  <a class="flex text-gray-600 hover:text-gray-900 py-2" href="/pricing" style="outline: none;">Pricing</a>
+  </li>
+  <li>
+  <a class="flex text-gray-600 hover:text-gray-900 py-2" href="/v1/tutorials" style="outline: none;">Tutorials</a>
+  </li>
+  <li>
+  <a class="flex text-gray-600 hover:text-gray-900 py-2" href="/v1/examples" style="outline: none;">Examples</a>
+  </li>
+  <li>
+  <a class="flex text-gray-600 hover:text-gray-900 py-2" href="/blog" style="outline: none;">Blog</a>
+  </li>
+  <li class="py-2 my-2 border-t border-b border-gray-200">
+  <span class="flex text-gray-600 hover:text-gray-900 py-2">Resources</span>
+  <ul class="pl-4">
+  <li>
+  <a class="text-sm flex font-medium text-gray-600 hover:text-gray-900 py-2" href="https://docs.webhookrelay.com" target="_blank" style="outline: none;">Documentation</a>
+  </li>
+  <li>
+  <a class="text-sm flex font-medium text-gray-600 hover:text-gray-900 py-2" href="https://github.com/webhookrelay" target="_blank" style="outline: none;">GitHub</a>
+  </li>
+  </ul>
+  </li>
+  <li>
+  <a class="flex font-medium w-full text-gray-600 hover:text-gray-900 py-2 justify-center" rel="noopener" target="_blank" href="https://my.webhookrelay.com/login" style="outline: none;">Sign in</a>
+  </li>
+  <li>
+  <a class="btn-sm text-gray-200 bg-gray-900 hover:bg-gray-800 w-full my-2" rel="noopener" target="_blank" href="https://my.webhookrelay.com/register" style="outline: none;">
+  <span>Sign up</span>
+  <svg class="w-3 h-3 fill-current text-gray-400 flex-shrink-0 ml-2 -mr-1" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11.707 5.293L7 .586 5.586 2l3 3H0v2h8.586l-3 3L7 11.414l4.707-4.707a1 1 0 000-1.414z" fill="#999" fill-rule="nonzero"></path>
+  </svg>
+  </a>
+  </li>
+  </ul>
+  </nav>
+  </div>
+  </div>
+  </div>
+  </header>
+  <main class="flex-grow">
+  <section>
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+  <div class="pt-32 pb-12 md:pt-40 md:pb-20">
+  <div class="max-w-3xl mx-auto lg:max-w-none">
+  <article>
+  
+  <header class="max-w-3xl mx-auto mb-20">
+  
+  <h1 class="h2 text-center mb-4">Convert multipart form into JSON</h1>
+  </header>
+  
+  <div class="lg:flex lg:justify-between ml-10" data-sticky-container="">
+  
+  <div>
+  
+  <div class="content markdown text-base text-gray-600">
+  <p class="mb-8">Webhook Relay detects multipart/formdata requests and automatically parses them so your function can use it. Parsed form data can be accessed through <code>r.RequestFormData</code> variable. You can use Webhook Relay to receive a form and convert it into any kind of JSON that can be sent to another API.</p>
+  <a href="#Using-decoded-values" class="headerlink text-gray-900 mb-4 mt-8" style="scroll-margin-top: 100px; outline: none;" using="" decoded="" values"=""><h2 id="Using-decoded-values" class="h2">Using decoded values</h2></a><p class="mb-8">For example if the payload fragment looks like this:</p>
+  <pre class=" language-bash"><code class="language-bash"><span class="token punctuation">..</span>.
+  --------------------------5683f7544dff7b07
+  Content-Disposition: form-data<span class="token punctuation">;</span> name<span class="token operator">=</span><span class="token string">"username"</span>
+  
+  John
+  --------------------------5683f7544dff7b07
+  <span class="token punctuation">..</span>.</code></pre>
+  <p class="mb-8">Then to get <code>username</code> value (which is <code>John</code>) you will need to:</p>
+  <pre class=" language-lua"><code class="language-lua"><span class="token comment" spellcheck="true">-- import "json" package when working with JSON</span>
+  <span class="token keyword">local</span> json <span class="token operator">=</span> <span class="token function">require</span><span class="token punctuation">(</span><span class="token string">"json"</span><span class="token punctuation">)</span>
+  
+  <span class="token comment" spellcheck="true">-- values can be accessed through 'r.RequestFormData' object. Since </span>
+  <span class="token comment" spellcheck="true">-- there can be multiple values for each key, you also need to </span>
+  <span class="token comment" spellcheck="true">-- specify that it's the first element of the list:</span>
+  <span class="token keyword">local</span> username <span class="token operator">=</span> r<span class="token punctuation">.</span>RequestFormData<span class="token punctuation">.</span>username<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span>
+  <span class="token keyword">local</span> first_name <span class="token operator">=</span> r<span class="token punctuation">.</span>RequestFormData<span class="token punctuation">.</span>first_name<span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span>
+  
+  <span class="token comment" spellcheck="true">-- transforming form data into JSON</span>
+  <span class="token keyword">local</span> json_payload <span class="token operator">=</span> <span class="token punctuation">{</span>
+    username <span class="token operator">=</span> username<span class="token punctuation">,</span>
+    first_name <span class="token operator">=</span> first_name
+  <span class="token punctuation">}</span>
+  
+  <span class="token keyword">local</span> encoded_payload<span class="token punctuation">,</span> err <span class="token operator">=</span> json<span class="token punctuation">.</span><span class="token function">encode</span><span class="token punctuation">(</span>json_payload<span class="token punctuation">)</span>
+  <span class="token keyword">if</span> err <span class="token keyword">then</span> <span class="token function">error</span><span class="token punctuation">(</span>err<span class="token punctuation">)</span> <span class="token keyword">end</span>
+  
+  r<span class="token punctuation">:</span><span class="token function">SetRequestBody</span><span class="token punctuation">(</span>encoded_payload<span class="token punctuation">)</span></code></pre>
+  <a href="#Prerequisites" class="headerlink text-gray-900 mb-4 mt-8" style="scroll-margin-top: 100px; outline: none;" prerequisites"=""><h2 id="Prerequisites" class="h2">Prerequisites</h2></a><p class="mb-8">For the decoding to work, Webhook Relay expects a header <code>Content-Type</code> that includes <code>multipart/form-data</code> and the boundary.</p>
+  </div>
+  
+  <div class="mt-8">
+  <hr class="w-full h-px pt-px bg-gray-200 border-0 mt-8 mb-8">
+  <a class="flex justify-between items-center p-4 rounded border border-gray-200 transition duration-300 ease-in-out bg-white shadow-md hover:shadow-lg mb-4" href="/v1/examples" style="outline: none;">
+  <div>
+  <div class="text-normal font-medium mb-1 text-gray-900">
+  Check out more examples
+  </div>
+  <div class="text-sm text-gray-600">
+  See more examples on developing with webhooks locally and integrating with third-party services.
+  </div>
+  </div>
+  <svg class="w-4 h-4 fill-current text-blue-600 flex-shrink-0 ml-6" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <path d="M9.3 14.7l-1.4-1.4L12.2 9H0V7h12.2L7.9 2.7l1.4-1.4L16 8z"></path>
+  </svg>
+  </a>
+  </div>
+  </div>
+  
+  
+  <aside class="relative hidden lg:block w-64 ml-20 flex-shrink-0">
+  <span style="display: block; width: 256px; height: 83px;"><div data-sticky="" data-margin-top="100" data-sticky-for="768" data-sticky-wrap="" style="position: fixed; width: 256px; left: 1160px; top: 100px;">
+  <h4 class="text-sm font-bold leading-snug tracking-tight mb-4">CONTENTS</h4>
+  <ul class="font-medium -my-1"><li class="py-1">
+  <a class="flex items-center hover:underline" href="#Using-decoded-values" style="outline: none;">
+  <svg class="w-4 h-4 fill-current text-gray-400 mr-3 flex-shrink-0" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <path d="M7.3 8.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0zM7.3 14.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0zM.3 9.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0z"></path>
+  </svg>
+  <span class="text-xs">Using decoded values</span>
+  </a>
+  </li><li class="py-1">
+  <a class="flex items-center hover:underline" href="#Prerequisites" style="outline: none;">
+  <svg class="w-4 h-4 fill-current text-gray-400 mr-3 flex-shrink-0" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <path d="M7.3 8.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0zM7.3 14.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0zM.3 9.7c-.4-.4-.4-1 0-1.4l7-7c.4-.4 1-.4 1.4 0 .4.4.4 1 0 1.4l-7 7c-.4.4-1 .4-1.4 0z"></path>
+  </svg>
+  <span class="text-xs">Prerequisites</span>
+  </a>
+  </li></ul>
+  </div></span>
+  </aside>
+  </div>
+  
+  </article>
+  </div>
+  </div>
+  </div>
+  </section>
+  </main>
+  
+  <footer>
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+  
+  <div class="grid sm:grid-cols-12 gap-8 py-8 md:py-12 border-t border-gray-200">
+  
+  <div class="sm:col-span-12 lg:col-span-3">
+  <div class="mb-2">
+  
+  <a href="/" style="outline: none;">
+  <img class="w-8 h-8" alt="Webhook Relay" src="/images/logo.png">
+  </a>
+  </div>
+  <div class="text-sm text-gray-600">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/tos" style="outline: none;">Terms</a> · <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/privacy" style="outline: none;">Privacy Policy</a>
+  </div>
+  </div>
+  
+  <div class="sm:col-span-6 md:col-span-3 lg:col-span-2">
+  <h6 class="text-gray-800 font-medium mb-2">Products</h6>
+  <ul class="text-sm">
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/examples/local-dev/receiving-webhooks-on-localhost/" style="outline: none;">Webhook Forwarding</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/examples/local-dev/demoing-your-website/" style="outline: none;">Bidirectional Tunneling</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/cron/" style="outline: none;">Cron Webhooks</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/installation/kubernetes/index.html" style="outline: none;">Kubernetes Operator</a>
+  </li>
+  
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/installation/" style="outline: none;">Command-line Client</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/hmac-verification/" style="outline: none;">HMAC Verifier</a>
+  </li>
+  </ul>
+  </div>
+  
+  <div class="sm:col-span-6 md:col-span-3 lg:col-span-2">
+  <h6 class="text-gray-800 font-medium mb-2">Resources</h6>
+  <ul class="text-sm">
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="https://docs.webhookrelay.com/" style="outline: none;">Documentation</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/tutorials" style="outline: none;">Tutorials &amp; Guides</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/blog" style="outline: none;">Blog</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/v1/platform/" rel="noopener" style="outline: none;">Security and Tech</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/api-reference/" style="outline: none;">API Reference</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="https://github.com/webhookrelay/webhookrelay-go" rel="noopener" target="_blank" style="outline: none;">SDK</a>
+  </li>
+  </ul>
+  </div>
+  
+  <div class="sm:col-span-6 md:col-span-3 lg:col-span-2">
+  <h6 class="text-gray-800 font-medium mb-2">Company</h6>
+  <ul class="text-sm">
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/" style="outline: none;">Home</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/about/" style="outline: none;">About</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/contact/" style="outline: none;">Contact</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/careers/" style="outline: none;">Careers</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/esla/" style="outline: none;">ESLA</a>
+  </li>
+  <li class="mb-2">
+  <a class="text-gray-600 hover:text-gray-900 transition duration-150 ease-in-out" href="/gdpr/" style="outline: none;">GDPR</a>
+  </li>
+  </ul>
+  </div>
+  
+  <div class="sm:col-span-6 md:col-span-3 lg:col-span-3">
+  <h6 class="text-gray-800 font-medium mb-2">Subscribe</h6>
+  <p class="text-sm text-gray-600 mb-4">Get the latest news and articles to your inbox every month.</p>
+  <form id="newsletter-form" action="https://events.hooks.webhookrelay.com/subscribe" method="post">
+  <div class="flex flex-wrap mb-4">
+  <div class="w-full">
+  <label name="email" class="block text-sm sr-only" for="newsletter">Email</label>
+  <div class="relative flex items-center max-w-xs">
+  <input id="newsletter" name="email" type="email" class="form-input w-full text-gray-800 px-3 py-2 pr-12 text-sm" placeholder="Your email" required="" style="outline: none;">
+  <input id="gotcha" name="gotcha" style="display: none; outline: none;" placeholder="Your message">
+  <button type="submit" class="absolute inset-0 left-auto" aria-label="Subscribe" style="outline: none;">
+  <span class="absolute inset-0 right-auto w-px -ml-px my-2 bg-gray-300" aria-hidden="true"></span>
+  <svg class="w-3 h-3 fill-current text-blue-600 mx-3 flex-shrink-0" viewBox="0 0 12 12" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11.707 5.293L7 .586 5.586 2l3 3H0v2h8.586l-3 3L7 11.414l4.707-4.707a1 1 0 000-1.414z" fill-rule="nonzero"></path>
+  </svg>
+  </button>
+  </div>
+  
+  
+  </div>
+  </div>
+  </form>
+  </div>
+  </div>
+  
+  <div class="md:flex md:items-center md:justify-between py-4 md:py-8 border-t border-gray-200">
+  
+  <ul class="flex mb-4 md:order-1 md:ml-4 md:mb-0">
+  <li>
+  <a class="flex justify-center items-center text-gray-600 hover:text-gray-900 bg-white hover:bg-white-100 rounded-full shadow transition duration-150 ease-in-out" target="_blank" rel="noopener" href="https://twitter.com/webhookrelay" aria-label="Twitter" style="outline: none;">
+  <svg class="w-8 h-8 fill-current" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <path d="M24 11.5c-.6.3-1.2.4-1.9.5.7-.4 1.2-1 1.4-1.8-.6.4-1.3.6-2.1.8-.6-.6-1.5-1-2.4-1-1.7 0-3.2 1.5-3.2 3.3 0 .3 0 .5.1.7-2.7-.1-5.2-1.4-6.8-3.4-.3.5-.4 1-.4 1.7 0 1.1.6 2.1 1.5 2.7-.5 0-1-.2-1.5-.4 0 1.6 1.1 2.9 2.6 3.2-.3.1-.6.1-.9.1-.2 0-.4 0-.6-.1.4 1.3 1.6 2.3 3.1 2.3-1.1.9-2.5 1.4-4.1 1.4H8c1.5.9 3.2 1.5 5 1.5 6 0 9.3-5 9.3-9.3v-.4c.7-.5 1.3-1.1 1.7-1.8z"></path>
+  </svg>
+  </a>
+  </li>
+  <li class="ml-4">
+  <a class="flex justify-center items-center text-gray-600 hover:text-gray-900 bg-white hover:bg-white-100 rounded-full shadow transition duration-150 ease-in-out" target="_blank" rel="noopener" href="https://github.com/webhookrelay" aria-label="Github" style="outline: none;">
+  <svg class="w-8 h-8 fill-current" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <path d="M16 8.2c-4.4 0-8 3.6-8 8 0 3.5 2.3 6.5 5.5 7.6.4.1.5-.2.5-.4V22c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.3 1.9.9 2.3.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4 0-.9.3-1.6.8-2.1-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8.6-.2 1.3-.3 2-.3s1.4.1 2 .3c1.5-1 2.2-.8 2.2-.8.4 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.1 0 3.1-1.9 3.7-3.7 3.9.3.4.6.9.6 1.6v2.2c0 .2.1.5.6.4 3.2-1.1 5.5-4.1 5.5-7.6-.1-4.4-3.7-8-8.1-8z"></path>
+  </svg>
+  </a>
+  </li>
+  <li class="ml-4">
+  <a class="flex justify-center items-center text-gray-600 hover:text-gray-900 bg-white hover:bg-white-100 rounded-full shadow transition duration-150 ease-in-out" target="_blank" rel="noopener" href="https://www.facebook.com/webhookrelay" aria-label="Facebook" style="outline: none;">
+  <svg class="w-8 h-8 fill-current" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14.023 24L14 17h-3v-3h3v-2c0-2.7 1.672-4 4.08-4 1.153 0 2.144.086 2.433.124v2.821h-1.67c-1.31 0-1.563.623-1.563 1.536V14H21l-1 3h-2.72v7h-3.257z"></path>
+  </svg>
+  </a>
+  </li>
+  </ul>
+  
+  <div class="text-sm text-gray-600 mr-4">© 2024 AppScension Ltd. All rights reserved.</div>
+  </div>
+  </div>
+  </footer>
+  </div>
+  <script src="/js/jquery.min.js"></script>
+  <script src="/js/simple.js"></script>
+  <script src="/js/common.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fastclick/1.0.6/fastclick.min.js"></script>
+  <script>
+            document.addEventListener('DOMContentLoaded', function () {
+              FastClick.attach(document.body)
+            }, false)
+          </script>
+  <script async="" defer="" src="https://sa.webhookrelay.com/latest.js"></script>
+  <noscript><img src="https://sa.webhookrelay.com/noscript.gif" alt=""/></noscript>
+  
+  <div style="position: relative;" id="zp-8-3-3-apollo-root-apollo_everywhere"></div></body></html>
