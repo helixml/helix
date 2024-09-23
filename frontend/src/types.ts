@@ -537,6 +537,7 @@ export interface IKnowledgeSource {
   };
   state: string;
   message?: string;
+  progress_percent?: number;
   source: {
     helix_drive?: {
       path: string;

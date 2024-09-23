@@ -380,6 +380,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 Knowledge Source ({getSourcePreview(source)})
                 {renderKnowledgeState(getKnowledge(source))}
               </Typography>
+              {getKnowledge(source)?.progress_percent && (
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Progress: {getKnowledge(source)?.progress_percent}%
+                </Typography>
+              )}
               <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
                 Version: {getKnowledgeVersion(source) || 'N/A'}
               </Typography>
