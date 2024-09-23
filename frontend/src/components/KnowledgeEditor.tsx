@@ -41,6 +41,10 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
 
+  const default_max_depth = 10;
+  const default_max_pages = 200;
+  const default_readability = true;
+
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
   };
@@ -72,7 +76,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
         id: '',
-        source: { web: { urls: [], crawler: { enabled: true } } },
+        source: { web: { urls: [], crawler: { 
+          enabled: true,
+          max_depth: default_max_depth,
+          max_pages: default_max_pages,
+          readability: default_readability
+        } } },
         refresh_schedule: '',
         name: '',
         version: '',
@@ -182,7 +191,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               let newSource: Partial<IKnowledgeSource> = {
                 source: newSourceType === 'filestore'
                   ? { filestore: { path: '' } }
-                  : { web: { urls: [], crawler: { enabled: false } } }
+                  : { web: { urls: [], crawler: { 
+                    enabled: true,
+                    max_depth: default_max_depth,
+                    max_pages: default_max_pages,
+                    readability: default_readability
+                  } } }
               };
               handleSourceUpdate(index, newSource);
             }}
