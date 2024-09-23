@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -137,8 +136,6 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
 			return
 		}
-
-		os.WriteFile("article.html", []byte(doc.Content), os.ModePerm)
 
 		crawledDocs = append(crawledDocs, doc)
 
