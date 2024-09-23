@@ -118,7 +118,7 @@ func (s *PostgresStore) UpdateKnowledge(ctx context.Context, knowledge *types.Kn
 	return s.GetKnowledge(ctx, knowledge.ID)
 }
 
-func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, percent int) error {
+func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, state types.KnowledgeState, message string, percent int) error {
 	if id == "" {
 		return fmt.Errorf("id not specified")
 	}
@@ -126,6 +126,7 @@ func (s *PostgresStore) UpdateKnowledgeState(ctx context.Context, id string, sta
 	return s.gdb.WithContext(ctx).Model(&types.Knowledge{}).Where("id = ?", id).Updates(&types.Knowledge{
 		State:           state,
 		ProgressPercent: percent,
+		Message:         message,
 	}).Error
 }
 
