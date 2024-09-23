@@ -292,30 +292,32 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 disabled={disabled}
               />
             </Box>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={source.source.web?.crawler?.readability ?? true}
-                  onChange={(e) => {
-                    handleSourceUpdate(index, {
-                      source: {
-                        web: {
-                          ...source.source.web,
-                          crawler: {
-                            enabled: true,
-                            ...source.source.web?.crawler,
-                            readability: e.target.checked
+            <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites.">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={source.source.web?.crawler?.readability ?? true}
+                    onChange={(e) => {
+                      handleSourceUpdate(index, {
+                        source: {
+                          web: {
+                            ...source.source.web,
+                            crawler: {
+                              enabled: true,
+                              ...source.source.web?.crawler,
+                              readability: e.target.checked
+                            }
                           }
                         }
-                      }
-                    });
-                  }}
-                  disabled={disabled}
-                />
-              }
-              label="Enable Readability"
-              sx={{ mb: 2 }}
-            />
+                      });
+                    }}
+                    disabled={disabled}
+                  />
+                }
+                label="Enable Readability"
+                sx={{ mb: 2 }}
+              />
+            </Tooltip>
           </>
         )}
 
