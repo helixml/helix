@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -81,4 +82,29 @@ func TestDefault_CrawlSingle(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, len(docs))
+}
+
+func TestDefault_ParseWithCodeBlock_WithReadability(t *testing.T) {
+	k := &types.Knowledge{
+		Source: types.KnowledgeSource{
+			Web: &types.KnowledgeSourceWeb{
+				Crawler: &types.WebsiteCrawler{
+					Readability: true,
+				},
+			},
+		},
+	}
+	d, err := NewDefault(k)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile("../readability/testdata/example_code_block.html")
+	require.NoError(t, err)
+
+	doc, err := d.convertHTMLToMarkdown(string(content), &types.CrawledDocument{})
+	require.NoError(t, err)
+
+	// Assert specific lines
+	assert.Contains(t, doc.Content, "Webhook Relay detects multipart/formdata requests and automatically")
+	assert.Contains(t, doc.Content, `Content-Disposition: form-data; name="username"`)
+	assert.Contains(t, doc.Content, "local encoded_payload, err = json.encode(json_payload)")
 }
