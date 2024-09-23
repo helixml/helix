@@ -13,6 +13,7 @@ import (
 	"github.com/gocolly/colly/v2"
 	"github.com/rs/zerolog/log"
 
+	"github.com/helixml/helix/api/pkg/controller/knowledge/readability"
 	"github.com/helixml/helix/api/pkg/types"
 )
 
@@ -27,11 +28,16 @@ const (
 // and convert the content to markdown
 type Default struct {
 	knowledge *types.Knowledge
+
+	converter *md.Converter
+	parser    readability.Parser
 }
 
 func NewDefault(k *types.Knowledge) (*Default, error) {
 	return &Default{
 		knowledge: k,
+		converter: md.NewConverter("", true, nil),
+		parser:    readability.NewParser(),
 	}, nil
 }
 
@@ -67,8 +73,15 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	if !d.knowledge.Source.Web.Crawler.Enabled {
 		maxPages = 1
 	} else {
-		// TODO: make configurable
-		maxPages = defaultMaxPages
+		if d.knowledge.Source.Web.Crawler.MaxPages > 500 {
+			maxPages = 500
+		}
+
+		if d.knowledge.Source.Web.Crawler.MaxPages == 0 {
+			maxPages = defaultMaxPages
+		} else {
+			maxPages = int32(d.knowledge.Source.Web.Crawler.MaxPages)
+		}
 	}
 
 	pageCounter.Store(0)
@@ -96,7 +109,6 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 	}
 
 	var crawledDocs []*types.CrawledDocument
-	converter := md.NewConverter("", true, nil)
 
 	collector.OnHTML("html", func(e *colly.HTMLElement) {
 		log.Trace().
@@ -115,14 +127,18 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 
 		// Extract and convert content to markdown
 		content, err := e.DOM.Find("body").Html()
-
-		os.WriteFile("article.html", []byte(content), os.ModePerm)
-		if err == nil {
-			markdown, err := converter.ConvertString(content)
-			if err == nil {
-				doc.Content = strings.TrimSpace(markdown)
-			}
+		if err != nil {
+			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error getting body HTML")
+			return
 		}
+
+		doc, err = d.convertHTMLToMarkdown(content, doc)
+		if err != nil {
+			log.Warn().Err(err).Str("url", e.Request.URL.String()).Msg("Error converting HTML to markdown")
+			return
+		}
+
+		os.WriteFile("article.html", []byte(doc.Content), os.ModePerm)
 
 		crawledDocs = append(crawledDocs, doc)
 
@@ -171,4 +187,37 @@ func (d *Default) Crawl(ctx context.Context) ([]*types.CrawledDocument, error) {
 		Msg("finished crawling the website")
 
 	return crawledDocs, nil
+}
+
+func (d *Default) convertHTMLToMarkdown(content string, doc *types.CrawledDocument) (*types.CrawledDocument, error) {
+	if !d.knowledge.Source.Web.Crawler.Readability {
+		// If readability is turned off, try to convert HTML directly
+		markdown, err := d.converter.ConvertString(content)
+		if err != nil {
+			return nil, err
+		}
+
+		doc.Content = strings.TrimSpace(markdown)
+
+		return doc, nil
+	}
+
+	ctx := context.Background()
+
+	// If we have readability enabled, use the readability parser
+	article, err := d.parser.Parse(ctx, content, doc.SourceURL)
+	if err != nil {
+		return nil, err
+	}
+
+	markdown, err := d.converter.ConvertString(article.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	doc.Content = strings.TrimSpace(markdown)
+	doc.Title = article.Title
+	doc.Description = article.Excerpt
+
+	return doc, nil
 }
