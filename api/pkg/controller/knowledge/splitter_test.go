@@ -15,6 +15,7 @@ func TestSplitData_Markdown(t *testing.T) {
 	require.NoError(t, err)
 
 	k := &types.Knowledge{}
+	k.RAGSettings.ChunkSize = 2000
 
 	chunks, err := splitData(k, []*indexerData{{
 		Source: "example_code.md",
