@@ -2,7 +2,6 @@ package readability
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"strings"
 
@@ -40,10 +39,6 @@ func (p *DefaultParser) Parse(ctx context.Context, content, u string) (*Article,
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("title ", article.Title)
-	fmt.Println("byline ", article.Byline)
-	fmt.Println("excerpt ", article.Excerpt)
 
 	return &Article{
 		Title:   article.Title,
