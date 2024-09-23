@@ -19,6 +19,7 @@ import {
   Chip,
   Snackbar,
   Tooltip,
+  Switch,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -51,7 +52,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
     const newSources = [...knowledgeSources];
-    let newSource = { ...newSources[index], ...updatedSource };
+    let newSource = { ...newSources[index], ...updatedSource };    
 
     // Ensure refresh_schedule is always a valid cron expression or empty string
     if (newSource.refresh_schedule === 'custom') {
@@ -68,6 +69,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     } else {
       newSource.name = 'Unnamed Source';
     }
+
+    newSource.source.web!.crawler!.enabled = true;
 
     newSources[index] = newSource;
     onUpdate(newSources);
@@ -193,9 +196,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   ? { filestore: { path: '' } }
                   : { web: { urls: [], crawler: { 
                     enabled: true,
-                    max_depth: default_max_depth,
-                    max_pages: default_max_pages,
-                    readability: default_readability
+                    max_depth: 0,
+                    max_pages: 0,
+                    readability: false
                   } } }
               };
               handleSourceUpdate(index, newSource);
@@ -240,6 +243,110 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             sx={{ mb: 2 }}
             error={!!errors[index]}
             helperText={errors[index]}
+          />
+        )}
+
+        {sourceType === 'web' && (
+          <>
+            <TextField
+              fullWidth
+              label="Max Depth"
+              type="number"
+              value={source.source.web?.crawler?.max_depth}
+              onChange={(e) => {
+                handleSourceUpdate(index, {
+                  source: {
+                    web: {
+                      ...source.source.web,
+                      crawler: {
+                        enabled: true,
+                        ...source.source.web?.crawler,
+                        max_depth: parseInt(e.target.value)
+                      }
+                    }
+                  }
+                });
+              }}
+              disabled={disabled}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              fullWidth
+              label="Max Pages"
+              type="number"
+              value={source.source.web?.crawler?.max_pages}
+              onChange={(e) => {
+                handleSourceUpdate(index, {
+                  source: {
+                    web: {
+                      ...source.source.web,
+                      crawler: {
+                        enabled: true,
+                        ...source.source.web?.crawler,
+                        max_pages: parseInt(e.target.value)
+                      }
+                    }
+                  }
+                });
+              }}
+              disabled={disabled}
+              sx={{ mb: 2 }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={source.source.web?.crawler?.readability}
+                  onChange={(e) => {
+                    handleSourceUpdate(index, {
+                      source: {
+                        web: {
+                          ...source.source.web,
+                          crawler: {
+                            enabled: true,
+                            ...source.source.web?.crawler,
+                            readability: e.target.checked
+                          }
+                        }
+                      }
+                    });
+                  }}
+                  disabled={disabled}
+                />
+              }
+              label="Enable Readability"
+              sx={{ mb: 2 }}
+            />
+          </>
+        )}
+
+        <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Scrape Interval</InputLabel>
+          <Select
+            value={source.refresh_schedule === '' ? 'One off' : 
+                   (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
+            onChange={(e) => {
+              let newSchedule = e.target.value;
+              if (newSchedule === 'One off') newSchedule = '';
+              if (newSchedule === 'custom') newSchedule = '0 0 * * *';
+              handleSourceUpdate(index, { refresh_schedule: newSchedule });
+            }}
+            disabled={disabled}
+          >
+            <MenuItem value="One off">One off</MenuItem>
+            <MenuItem value="@hourly">Hourly</MenuItem>
+            <MenuItem value="@daily">Daily</MenuItem>
+            <MenuItem value="custom">Custom (cron)</MenuItem>
+          </Select>
+        </FormControl>
+        {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
+          <TextField
+            fullWidth
+            label="Custom Cron Schedule"
+            value={source.refresh_schedule}
+            onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
+            disabled={disabled}
+            sx={{ mb: 2 }}
+            helperText="Enter a valid cron expression (default: daily at midnight)"
           />
         )}
       </>
@@ -294,36 +401,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           </AccordionSummary>
           <AccordionDetails>
             {renderSourceInput(source, index)}
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Scrape Interval</InputLabel>
-              <Select
-                value={source.refresh_schedule === '' ? 'One off' : 
-                       (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
-                onChange={(e) => {
-                  let newSchedule = e.target.value;
-                  if (newSchedule === 'One off') newSchedule = '';
-                  if (newSchedule === 'custom') newSchedule = '0 0 * * *';
-                  handleSourceUpdate(index, { refresh_schedule: newSchedule });
-                }}
-                disabled={disabled}
-              >
-                <MenuItem value="One off">One off</MenuItem>
-                <MenuItem value="@hourly">Hourly</MenuItem>
-                <MenuItem value="@daily">Daily</MenuItem>
-                <MenuItem value="custom">Custom (cron)</MenuItem>
-              </Select>
-            </FormControl>
-            {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
-              <TextField
-                fullWidth
-                label="Custom Cron Schedule"
-                value={source.refresh_schedule}
-                onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
-                disabled={disabled}
-                sx={{ mb: 2 }}
-                helperText="Enter a valid cron expression (default: daily at midnight)"
-              />
-            )}
           </AccordionDetails>
         </Accordion>
       ))}
