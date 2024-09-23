@@ -438,13 +438,13 @@ func (i *AxolotlModelInstance) Start(ctx context.Context) error {
 		defer close(i.finishChan)
 
 		if err = cmd.Wait(); err != nil {
-			log.Error().Msgf("Command ended with an error: %v\n", err.Error())
 
 			// we are currently running a session and we got an error from the Python process
 			// this normally means that a job caused an error so let's tell the api
 			// that this interaction has it's Error field set
 
 			errstr := string(stderrBuf.Bytes())
+			log.Error().Msgf("Command ended with an error (%s): %s\n", err.Error(), errstr)
 			if i.currentSession != nil {
 				i.errorSession(i.currentSession, fmt.Errorf("%s from cmd - %s", err.Error(), errstr))
 			}
