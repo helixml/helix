@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Create directory and symlink if necessary
 mkdir -p /data/models
