@@ -23,6 +23,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -232,7 +233,10 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		return fmt.Errorf("unknown extractor: %s", cfg.TextExtractor.Provider)
 	}
 
-	helixInference := openai.NewInternalHelixServer(cfg, ps)
+	// Must use the same allocator for both new LLM requests and old sessions
+	scheduler := scheduler.NewScheduler(cfg)
+
+	helixInference := openai.NewInternalHelixServer(cfg, ps, scheduler)
 
 	// controllerOpenAIClient, err := createOpenAIClient(cfg, helixInference)
 	// if err != nil {
@@ -291,6 +295,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		Notifier:             notifier,
 		ProviderManager:      providerManager,
 		DataprepOpenAIClient: dataprepOpenAIClient,
+		Scheduler:            scheduler,
 	}
 
 	appController, err = controller.NewController(ctx, controllerOptions)
@@ -323,7 +328,7 @@ func serve(cmd *cobra.Command, cfg *config.ServerConfig) error {
 		},
 	)
 
-	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler)
+	server, err := server.NewServer(cfg, store, ps, gse, providerManager, helixInference, keycloakAuthenticator, stripe, appController, janitor, knowledgeReconciler, scheduler)
 	if err != nil {
 		return err
 	}

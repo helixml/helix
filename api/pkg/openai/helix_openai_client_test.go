@@ -11,11 +11,16 @@ import (
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/types"
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	gomock "go.uber.org/mock/gomock"
+)
+
+const (
+	runnerID = "runner1"
 )
 
 func TestHelixClientTestSuite(t *testing.T) {
@@ -40,9 +45,14 @@ func (suite *HelixClientTestSuite) SetupTest() {
 
 	suite.pubsub = pubsub
 
-	cfg := &config.ServerConfig{}
-
-	suite.srv = NewInternalHelixServer(cfg, pubsub)
+	cfg, _ := config.LoadServerConfig()
+	scheduler := scheduler.NewScheduler(&cfg)
+	scheduler.UpdateRunner(&types.RunnerState{
+		ID:          runnerID,
+		TotalMemory: 9999999999,
+	})
+	suite.Require().NoError(err)
+	suite.srv = NewInternalHelixServer(&cfg, pubsub, scheduler)
 }
 
 func (suite *HelixClientTestSuite) Test_CreateChatCompletion_ValidateQueue() {
@@ -278,7 +288,7 @@ func startFakeRunner(t *testing.T, srv *InternalHelixServer, responses []*types.
 		case <-ctx.Done():
 			return
 		default:
-			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, "runner1")
+			req, err := srv.GetNextLLMInferenceRequest(ctx, types.InferenceRequestFilter{}, runnerID)
 			require.NoError(t, err)
 
 			if req == nil {

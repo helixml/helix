@@ -9,6 +9,7 @@ import (
 
 	"github.com/helixml/helix/api/pkg/data"
 	"github.com/helixml/helix/api/pkg/model"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
@@ -153,38 +154,63 @@ func (c *Controller) ShiftSessionQueue(ctx context.Context, filter types.Session
 	c.sessionQueueMtx.Lock()
 	defer c.sessionQueueMtx.Unlock()
 
-	sessionIndex := c.getMatchingSessionFilterIndex(ctx, filter)
-
-	if sessionIndex >= 0 {
-		session := c.sessionQueue[sessionIndex]
-
-		log.Debug().
-			Msgf("🔵 scheduler hit query: %+v", filter)
-		log.Debug().
-			Msgf("🔵 scheduler hit session: %+v", session)
-
-		c.sessionQueue = append(c.sessionQueue[:sessionIndex], c.sessionQueue[sessionIndex+1:]...)
-		c.sessionSummaryQueue = append(c.sessionSummaryQueue[:sessionIndex], c.sessionSummaryQueue[sessionIndex+1:]...)
-
-		if len(session.Interactions) == 0 {
-			return nil, fmt.Errorf("no interactions found")
-		}
-
-		session, err := data.UpdateAssistantInteraction(session, func(targetInteraction *types.Interaction) (*types.Interaction, error) {
-			targetInteraction.Scheduled = time.Now()
-			return targetInteraction, nil
-		})
-
+	// Schedule all new sessions in the queue, until we run out of runners
+	taken := 0
+	for _, session := range c.sessionQueue {
+		log.Info().Str("session_id", session.ID).Msg("scheduling session")
+		work, err := scheduler.NewSessonWorkload(session)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("creating session workload: %w", err)
 		}
 
-		c.addSchedulingDecision(filter, runnerID, session)
-		c.WriteSession(session)
-		return session, nil
+		err = c.scheduler.Schedule(work)
+		if err != nil {
+			retry, err := scheduler.ErrorHandlingStrategy(err, work)
+
+			// If we can retry, break out of the loop and try again later
+			if retry {
+				break
+			}
+
+			// If we can't retry, write an error to the request and continue so it takes it off
+			// the queue
+			errSession := work.Session()
+			errSession.Interactions = append(errSession.Interactions, &types.Interaction{
+				Creator: types.CreatorTypeSystem,
+				Error:   err.Error(),
+				Message: "Error scheduling session",
+			})
+			_, err = c.Options.Store.UpdateSession(ctx, *errSession)
+			if err != nil {
+				log.Error().Err(err).Msg("error updating session")
+			}
+		}
+		taken++
+	}
+	c.sessionQueue = c.sessionQueue[taken:]
+	c.sessionSummaryQueue = c.sessionSummaryQueue[taken:]
+
+	// Default to requesting warm work
+	newWorkOnly := false
+
+	// Only get new work if the filter has a memory requirement (see runner/controller.go)
+	if filter.Memory != 0 {
+		newWorkOnly = true
 	}
 
-	return nil, nil
+	// Now for this runner, get work
+	req, err := c.scheduler.WorkForRunner(runnerID, scheduler.WorkloadTypeSession, newWorkOnly)
+	if err != nil {
+		return nil, fmt.Errorf("error getting work for runner: %w", err)
+	}
+
+	if req == nil {
+		return nil, nil
+	}
+
+	c.addSchedulingDecision(filter, runnerID, req.Session())
+	log.Info().Str("runnerID", runnerID).Interface("filter", filter).Interface("req", req).Int("len(sessionQueue)", len(c.sessionQueue)).Msgf("🟠 helix_openai_server GetNextLLMInferenceRequest END")
+	return req.Session(), nil
 }
 
 // TODO: remove

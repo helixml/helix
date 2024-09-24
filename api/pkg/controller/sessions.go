@@ -842,6 +842,11 @@ func (c *Controller) AddSessionToQueue(session *types.Session) {
 }
 
 func (c *Controller) HandleRunnerResponse(ctx context.Context, taskResponse *types.RunnerTaskResponse) (*types.RunnerTaskResponse, error) {
+	err := c.scheduler.Release(taskResponse.SessionID)
+	if err != nil {
+		log.Error().Err(err).Msgf("error releasing session: %s", taskResponse.SessionID)
+	}
+
 	session, err := c.Options.Store.GetSession(ctx, taskResponse.SessionID)
 	if err != nil {
 		return nil, err
