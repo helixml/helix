@@ -257,8 +257,14 @@ const App: FC = () => {
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
       snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after the refresh is initiated
+      fetchKnowledge();
+    }).catch((error) => {
+      console.error('Error refreshing knowledge:', error);
+      snackbar.error('Failed to refresh knowledge');
     });
-  }, [api]);
+  }, [api, fetchKnowledge, snackbar]);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
