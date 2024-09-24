@@ -19,6 +19,7 @@ import {
   Chip,
   Snackbar,
   Tooltip,
+  Switch,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -41,13 +42,17 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
 
+  const default_max_depth = 10;
+  const default_max_pages = 500;
+  const default_readability = true;
+
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
     setExpanded(isExpanded ? panel : false);
   };
 
   const handleSourceUpdate = (index: number, updatedSource: Partial<IKnowledgeSource>) => {
     const newSources = [...knowledgeSources];
-    let newSource = { ...newSources[index], ...updatedSource };
+    let newSource = { ...newSources[index], ...updatedSource };    
 
     // Ensure refresh_schedule is always a valid cron expression or empty string
     if (newSource.refresh_schedule === 'custom') {
@@ -65,6 +70,14 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.name = 'Unnamed Source';
     }
 
+    newSource.source.web!.crawler!.enabled = true;
+
+    // Ensure default values for max_depth and max_pages
+    if (newSource.source.web?.crawler) {
+      newSource.source.web.crawler.max_depth = newSource.source.web.crawler.max_depth || default_max_depth;
+      newSource.source.web.crawler.max_pages = newSource.source.web.crawler.max_pages || default_max_pages;
+    }
+
     newSources[index] = newSource;
     onUpdate(newSources);
   };
@@ -72,7 +85,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const addNewSource = () => {
     const newSource: IKnowledgeSource = {
         id: '',
-        source: { web: { urls: [], crawler: { enabled: true } } },
+        source: { web: { urls: [], crawler: { 
+          enabled: true,
+          max_depth: default_max_depth,
+          max_pages: default_max_pages,
+          readability: default_readability
+        } } },
         refresh_schedule: '',
         name: '',
         version: '',
@@ -131,13 +149,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge;
-  };
-
-  const getKnowledgeVersion = (source: IKnowledgeSource): string | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge?.version;
+    return knowledgeList.find(k => k.name === source.name);
   };
 
   const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
@@ -149,8 +161,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         color = 'success';
         break;
       case 'pending':
-        color = 'info';
-        break;
       case 'indexing':
         color = 'info';
         break;
@@ -161,7 +171,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     if (knowledge.message) {
-      // Showing tooltip with error message
       return <Tooltip title={knowledge.message}><Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} /></Tooltip>;
     }
 
@@ -182,7 +191,12 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               let newSource: Partial<IKnowledgeSource> = {
                 source: newSourceType === 'filestore'
                   ? { filestore: { path: '' } }
-                  : { web: { urls: [], crawler: { enabled: false } } }
+                  : { web: { urls: [], crawler: { 
+                    enabled: true,
+                    max_depth: 0,
+                    max_pages: 0,
+                    readability: false
+                  } } }
               };
               handleSourceUpdate(index, newSource);
             }}
@@ -228,91 +242,186 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             helperText={errors[index]}
           />
         )}
+
+        {sourceType === 'web' && (
+          <>
+            <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+              <TextField
+                fullWidth
+                label="Max Depth"
+                type="number"
+                value={source.source.web?.crawler?.max_depth || default_max_depth}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || default_max_depth;
+                  handleSourceUpdate(index, {
+                    source: {
+                      web: {
+                        ...source.source.web,
+                        crawler: {
+                          enabled: true,
+                          ...source.source.web?.crawler,
+                          max_depth: value
+                        }
+                      }
+                    }
+                  });
+                }}
+                disabled={disabled}
+              />
+              <TextField
+                fullWidth
+                label="Max Pages"
+                type="number"
+                value={source.source.web?.crawler?.max_pages || default_max_pages}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || default_max_pages;
+                  handleSourceUpdate(index, {
+                    source: {
+                      web: {
+                        ...source.source.web,
+                        crawler: {
+                          enabled: true,
+                          ...source.source.web?.crawler,
+                          max_pages: value
+                        }
+                      }
+                    }
+                  });
+                }}
+                disabled={disabled}
+              />
+            </Box>
+            <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={source.source.web?.crawler?.readability ?? true}
+                    onChange={(e) => {
+                      handleSourceUpdate(index, {
+                        source: {
+                          web: {
+                            ...source.source.web,
+                            crawler: {
+                              enabled: true,
+                              ...source.source.web?.crawler,
+                              readability: e.target.checked
+                            }
+                          }
+                        }
+                      });
+                    }}
+                    disabled={disabled}
+                  />
+                }
+                label="Filter out headers, footers, etc."
+                sx={{ mb: 2 }}
+              />
+            </Tooltip>
+          </>
+        )}
+
+        <FormControl fullWidth sx={{ mb: 2 }}>
+          <InputLabel>Scrape Interval</InputLabel>
+          <Select
+            value={source.refresh_schedule === '' ? 'One off' : 
+                   (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
+            onChange={(e) => {
+              let newSchedule = e.target.value;
+              if (newSchedule === 'One off') newSchedule = '';
+              if (newSchedule === 'custom') newSchedule = '0 0 * * *';
+              handleSourceUpdate(index, { refresh_schedule: newSchedule });
+            }}
+            disabled={disabled}
+          >
+            <MenuItem value="One off">One off</MenuItem>
+            <MenuItem value="@hourly">Hourly</MenuItem>
+            <MenuItem value="@daily">Daily</MenuItem>
+            <MenuItem value="custom">Custom (cron)</MenuItem>
+          </Select>
+        </FormControl>
+        {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
+          <TextField
+            fullWidth
+            label="Custom Cron Schedule"
+            value={source.refresh_schedule}
+            onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
+            disabled={disabled}
+            sx={{ mb: 2 }}
+            helperText="Enter a valid cron expression (default: daily at midnight)"
+          />
+        )}
       </>
     );
   };
 
   return (
     <Box>
-      {knowledgeSources.map((source, index) => (
-        <Accordion
-          key={index}
-          expanded={expanded === `panel${index}`}
-          onChange={handleChange(`panel${index}`)}
-        >
-          <AccordionSummary 
-            expandIcon={<ExpandMoreIcon />}
-            sx={{ display: 'flex', alignItems: 'center' }}
+      {knowledgeSources.map((source, index) => {
+        const knowledge = getKnowledge(source);
+        
+        return (
+          <Accordion
+            key={index}
+            expanded={expanded === `panel${index}`}
+            onChange={handleChange(`panel${index}`)}
           >
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography>
-                Knowledge Source ({getSourcePreview(source)})
-                {renderKnowledgeState(getKnowledge(source))}
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                Version: {getKnowledgeVersion(source) || 'N/A'}
-              </Typography>
-            </Box>
-            <Tooltip title="Refresh knowledge and reindex data">
-              <IconButton
-                onClick={(e) => {
-                  e.stopPropagation();
-                  refreshSource(index);
-                }}
-                disabled={disabled}
-                sx={{ mr: 1 }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete this knowledge source">
-              <IconButton
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteSource(index);
-                }}
-                disabled={disabled}
-                sx={{ mr: 1 }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </AccordionSummary>
-          <AccordionDetails>
-            {renderSourceInput(source, index)}
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Scrape Interval</InputLabel>
-              <Select
-                value={source.refresh_schedule === '' ? 'One off' : 
-                       (source.refresh_schedule === '@hourly' || source.refresh_schedule === '@daily' ? source.refresh_schedule : 'custom')}
-                onChange={(e) => {
-                  let newSchedule = e.target.value;
-                  if (newSchedule === 'One off') newSchedule = '';
-                  if (newSchedule === 'custom') newSchedule = '0 0 * * *';
-                  handleSourceUpdate(index, { refresh_schedule: newSchedule });
-                }}
-                disabled={disabled}
-              >
-                <MenuItem value="One off">One off</MenuItem>
-                <MenuItem value="@hourly">Hourly</MenuItem>
-                <MenuItem value="@daily">Daily</MenuItem>
-                <MenuItem value="custom">Custom (cron)</MenuItem>
-              </Select>
-            </FormControl>
-            {source.refresh_schedule !== '' && source.refresh_schedule !== '@hourly' && source.refresh_schedule !== '@daily' && (
-              <TextField
-                fullWidth
-                label="Custom Cron Schedule"
-                value={source.refresh_schedule}
-                onChange={(e) => handleSourceUpdate(index, { refresh_schedule: e.target.value })}
-                disabled={disabled}
-                sx={{ mb: 2 }}
-                helperText="Enter a valid cron expression (default: daily at midnight)"
-              />
-            )}
-          </AccordionDetails>
-        </Accordion>
-      ))}
+            <AccordionSummary 
+              expandIcon={<ExpandMoreIcon />}
+              sx={{ display: 'flex', alignItems: 'center' }}
+            >
+              <Box sx={{ flexGrow: 1 }}>
+                <Typography>
+                  Knowledge Source ({getSourcePreview(source)})
+                  {renderKnowledgeState(knowledge)}
+                </Typography>
+                {knowledge?.state === 'indexing' && (
+                  <>
+                    {knowledge?.progress_percent && knowledge.progress_percent > 0 ? (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                        Progress: {knowledge.progress_percent}% {knowledge.message ? `(${knowledge.message})` : ''}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                        Fetching data...
+                      </Typography>
+                    )}
+                  </>
+                )}
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Version: {knowledge?.version || 'N/A'}
+                </Typography>
+              </Box>
+              <Tooltip title="Refresh knowledge and reindex data">
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshSource(index);
+                  }}
+                  disabled={disabled}
+                  sx={{ mr: 1 }}
+                >
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete this knowledge source">
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSource(index);
+                  }}
+                  disabled={disabled}
+                  sx={{ mr: 1 }}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Tooltip>
+            </AccordionSummary>
+            <AccordionDetails>
+              {renderSourceInput(source, index)}
+            </AccordionDetails>
+          </Accordion>
+        );
+      })}
       <Button
         variant="outlined"
         startIcon={<AddIcon />}

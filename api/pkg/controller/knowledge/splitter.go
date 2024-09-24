@@ -40,11 +40,14 @@ func splitData(k *types.Knowledge, data []*indexerData) ([]*text.DataPrepTextSpl
 	default:
 		log.Info().
 			Str("knowledge_id", k.ID).
+			Int("chunk_size", k.RAGSettings.ChunkSize).
+			Int("chunk_overlap", k.RAGSettings.ChunkOverflow).
 			Msgf("splitting data with markdown text splitter")
 
 		splitter := textsplitter.NewMarkdownTextSplitter(
 			textsplitter.WithChunkSize(k.RAGSettings.ChunkSize),
 			textsplitter.WithChunkOverlap(k.RAGSettings.ChunkOverflow),
+			textsplitter.WithCodeBlocks(true),
 		)
 
 		for _, d := range data {

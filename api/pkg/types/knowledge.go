@@ -42,8 +42,9 @@ type Knowledge struct {
 	Owner     string    `json:"owner" gorm:"index"` // User ID
 	OwnerType OwnerType `json:"owner_type"`         // e.g. user, system, org
 
-	State   KnowledgeState `json:"state"`
-	Message string         `json:"message"` // Set if something wrong happens
+	State           KnowledgeState `json:"state"`
+	Message         string         `json:"message"` // Set if something wrong happens
+	ProgressPercent int            `json:"progress_percent"`
 
 	// AppID through which the knowledge was created
 	AppID string `json:"app_id" gorm:"index"`
@@ -156,9 +157,11 @@ type KnowledgeSourceWeb struct {
 type WebsiteCrawler struct {
 	Firecrawl *Firecrawl `json:"firecrawl" yaml:"firecrawl"`
 
-	Enabled   bool   `json:"enabled" yaml:"enabled"`
-	MaxDepth  int    `json:"max_depth" yaml:"max_depth"` // Limit crawl depth to avoid infinite crawling
-	UserAgent string `json:"user_agent" yaml:"user_agent"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	MaxDepth    int    `json:"max_depth" yaml:"max_depth"` // Limit crawl depth to avoid infinite crawling
+	MaxPages    int    `json:"max_pages" yaml:"max_pages"` // Limit number of pages to crawl to avoid infinite crawling (max 500 by default)
+	UserAgent   string `json:"user_agent" yaml:"user_agent"`
+	Readability bool   `json:"readability" yaml:"readability"` // Apply readability middleware to the HTML content
 }
 
 type Firecrawl struct {
