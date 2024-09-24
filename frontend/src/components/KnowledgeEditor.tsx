@@ -375,9 +375,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                   {renderKnowledgeState(knowledge)}
                 </Typography>
                 {knowledge?.state === 'indexing' && knowledge?.progress_percent && (
-                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                    Progress: {knowledge.progress_percent}% {knowledge.message ? `| ${knowledge.message}` : ''}
-                  </Typography>
+                  <>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                      Progress: {knowledge.progress_percent}% {knowledge.message ? `(${knowledge.message})` : ''}
+                    </Typography>                    
+                  </>
                 )}
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
                   Version: {knowledge?.version || 'N/A'}
