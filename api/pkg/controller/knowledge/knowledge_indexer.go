@@ -213,7 +213,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 				fmt.Println("total", totalItems)
 				// If we have progress, update the progress
 				if percentage != lastProgress {
-					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data (%d/%d)", current, totalItems), percentage)
+					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d", current, totalItems), percentage)
 					lastProgress = percentage
 				}
 			}
@@ -296,7 +296,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 				// If we have progress, update the progress
 				if percentage != lastProgress {
-					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data (%d/%d chunks)", current, totalItems), percentage)
+					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d chunks", current, totalItems), percentage)
 					lastProgress = percentage
 				}
 			}
