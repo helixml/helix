@@ -352,43 +352,6 @@ depends_on:
 ---
 kind: pipeline
 type: docker
-name: build-llamaindex
-
-volumes:
-  - name: dockersocket
-    host:
-      path: /var/run/docker.sock
-
-steps:
-- name: publish-llamaindex
-  image: plugins/docker
-  pull: always
-  settings:
-    dockerfile: llamaindex/Dockerfile
-    context: llamaindex
-    auto_tag: true
-    daemon_off: true
-    registry: registry.helix.ml
-    repo: registry.helix.ml/helix/llamaindex
-    username: admin
-    password:
-      from_secret: helix_registry_password
-  volumes:
-  - name: dockersocket
-    path: /var/run/docker.sock
-  when:
-    branch:
-    - main
-    event:
-    - tag
-    - push
-
-depends_on:
-- default
-
----
-kind: pipeline
-type: docker
 name: build-demos
 
 volumes:
