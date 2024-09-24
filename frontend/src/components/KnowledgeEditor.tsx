@@ -291,7 +291,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                 disabled={disabled}
               />
             </Box>
-            <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites.">
+            <Tooltip title="If enabled, Helix will attempt to first extract content from the webpage. This is recommended for all documentation websites. If you are missing content, try disabling this.">
               <FormControlLabel
                 control={
                   <Switch
@@ -313,7 +313,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
                     disabled={disabled}
                   />
                 }
-                label="Enable Readability"
+                label="Filter out headers, footers, etc."
                 sx={{ mb: 2 }}
               />
             </Tooltip>
