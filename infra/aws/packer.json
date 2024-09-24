@@ -1,0 +1,32 @@
+{
+    "variables": {
+      "aws_region": "us-east-1",
+      "source_ami": "ami-0c55b159cbfafe1f0",
+      "instance_type": "t2.micro",
+      "ssh_username": "ubuntu",
+      "ami_name": "helix-{{timestamp}}"
+    },
+    "builders": [
+      {
+        "type": "amazon-ebs",
+        "region": "{{user `aws_region`}}",
+        "source_ami": "{{user `source_ami`}}",
+        "instance_type": "{{user `instance_type`}}",
+        "ssh_username": "{{user `ssh_username`}}",
+        "ami_name": "{{user `ami_name`}}",
+        "associate_public_ip_address": true
+      }
+    ],
+    "provisioners": [
+      {
+        "type": "shell",
+        "inline": [
+          "sudo apt-get update",
+          "sudo apt-get install -y curl",
+          "curl -sL -O https://get.helix.ml/install.sh",
+          "chmod +x install.sh",
+          "sudo ./install.sh"
+        ]
+      }
+    ]
+  }

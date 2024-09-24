@@ -1,0 +1,30 @@
+{
+    "variables": {
+      "project_id": "{{env `GCP_PROJECT_ID`}}",
+      "source_image_family": "ubuntu-2204-lts",
+      "image_name": "helix-{{timestamp}}"
+    },
+    "builders": [
+      {
+        "type": "googlecompute",
+        "project_id": "{{user `project_id`}}",
+        "source_image_family": "{{user `source_image_family`}}",
+        "zone": "us-central1-a",
+        "image_name": "{{user `image_name`}}",
+        "ssh_username": "packer",
+        "machine_type": "e2-medium"
+      }
+    ],
+    "provisioners": [
+      {
+        "type": "shell",
+        "inline": [
+          "sudo apt-get update",
+          "sudo apt-get install -y curl",
+          "curl -sL -O https://get.helix.ml/install.sh",
+          "chmod +x install.sh",
+          "sudo ./install.sh"
+        ]
+      }
+    ]
+  }
