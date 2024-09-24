@@ -21,6 +21,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/server/spa"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/stripe"
@@ -66,6 +67,7 @@ type HelixAPIServer struct {
 	inferenceServer   openai.HelixServer // Helix OpenAI server
 	knowledgeManager  knowledge.KnowledgeManager
 	router            *mux.Router
+	scheduler         scheduler.Scheduler
 }
 
 func NewServer(
@@ -80,6 +82,7 @@ func NewServer(
 	controller *controller.Controller,
 	janitor *janitor.Janitor,
 	knowledgeManager knowledge.KnowledgeManager,
+	scheduler scheduler.Scheduler,
 ) (*HelixAPIServer, error) {
 	if cfg.WebServer.URL == "" {
 		return nil, fmt.Errorf("server url is required")
@@ -116,6 +119,7 @@ func NewServer(
 		providerManager:  providerManager,
 		pubsub:           ps,
 		knowledgeManager: knowledgeManager,
+		scheduler:        scheduler,
 	}, nil
 }
 

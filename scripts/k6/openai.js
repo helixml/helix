@@ -24,7 +24,7 @@ export default function () {
     "messages": [
       {
         "role": "user",
-        "content": test_data[Math.floor(Math.random() * test_data.length)]
+        "content": test_data[Math.floor(Math.random() * test_data.length)] + " Your answer must be shorter than 30 words."
       },
     ],
     stream: false,

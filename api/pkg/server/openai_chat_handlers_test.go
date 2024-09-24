@@ -25,6 +25,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 )
@@ -83,6 +84,7 @@ func (suite *OpenAIChatSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
+		Scheduler:       scheduler.NewScheduler(cfg),
 	})
 	suite.NoError(err)
 

@@ -53,7 +53,7 @@ func (apiServer *HelixAPIServer) runnerLLMInferenceRequestHandler(res http.Respo
 		Older:     olderDuration,
 	}, runnerID)
 
-	return nextReq, nil
+	return nextReq, err
 }
 
 func (apiServer *HelixAPIServer) getNextRunnerSession(res http.ResponseWriter, req *http.Request) (*types.Session, error) {
@@ -188,6 +188,8 @@ func (apiServer *HelixAPIServer) handleRunnerMetrics(res http.ResponseWriter, re
 	if err != nil {
 		return nil, err
 	}
+
+	apiServer.scheduler.UpdateRunner(runnerState)
 
 	runnerState, err = apiServer.Controller.AddRunnerMetrics(req.Context(), runnerState)
 	if err != nil {

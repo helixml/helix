@@ -12,6 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/system"
 	"github.com/helixml/helix/api/pkg/types"
+	"github.com/rs/zerolog/log"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -180,10 +181,18 @@ func (c *InternalHelixServer) CreateChatCompletion(ctx context.Context, request 
 	select {
 	case <-doneCh:
 	case <-ctx.Done():
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
 		return openai.ChatCompletionResponse{}, fmt.Errorf("timeout waiting for runner response")
 	}
 
 	if respError != nil {
+		err := c.scheduler.Release(requestID)
+		if err != nil {
+			log.Error().Err(err).Msg("error releasing allocation")
+		}
 		return openai.ChatCompletionResponse{}, respError
 	}
 

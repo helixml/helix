@@ -13,6 +13,7 @@ import (
 	"github.com/helixml/helix/api/pkg/openai/manager"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/rag"
+	"github.com/helixml/helix/api/pkg/scheduler"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
@@ -69,6 +70,8 @@ func (suite *ControllerSuite) SetupTest() {
 	cfg.Tools.Enabled = false
 	cfg.Inference.Provider = types.ProviderTogetherAI
 
+	scheduler := scheduler.NewScheduler(cfg)
+
 	c, err := NewController(context.Background(), ControllerOptions{
 		Config:          cfg,
 		Store:           suite.store,
@@ -77,6 +80,7 @@ func (suite *ControllerSuite) SetupTest() {
 		Filestore:       filestoreMock,
 		Extractor:       extractorMock,
 		RAG:             suite.rag,
+		Scheduler:       scheduler,
 	})
 	suite.NoError(err)
 
