@@ -275,7 +275,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		WithCancelOnError()
 
 	progress := atomic.Int32{}
-	totalItems := int32(len(data))
+	totalItems := int32(len(chunks))
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -296,7 +296,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 
 				// If we have progress, update the progress
 				if percentage != lastProgress {
-					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data (%d/%d)", current, totalItems), percentage)
+					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data (%d/%d chunks)", current, totalItems), percentage)
 					lastProgress = percentage
 				}
 			}
