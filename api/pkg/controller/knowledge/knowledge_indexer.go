@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -85,6 +86,8 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 
 	start := time.Now()
 
+	r.updateProgress(k, types.KnowledgeStateIndexing, "retrieving data for indexing", 0)
+
 	data, err := r.getIndexingData(ctx, k)
 	if err != nil {
 		return fmt.Errorf("failed to get indexing data, error: %w", err)
@@ -94,6 +97,8 @@ func (r *Reconciler) indexKnowledge(ctx context.Context, k *types.Knowledge, ver
 		Str("knowledge_id", k.ID).
 		Float64("elapsed_seconds", elapsed.Seconds()).
 		Msg("indexing data loaded")
+
+	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data", 0)
 
 	start = time.Now()
 
@@ -182,10 +187,42 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
 		WithErrors()
 
+	progress := atomic.Int32{}
+	totalItems := int32(len(data))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		var lastProgress int
+
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Println("done")
+				return
+			case <-ticker.C:
+				current := int(progress.Load())
+				percentage := int(float32(current) / float32(totalItems) * 100)
+
+				// If we have progress, update the progress
+				if percentage != lastProgress {
+					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d", current, totalItems), percentage)
+					lastProgress = percentage
+				}
+			}
+		}
+	}()
+
 	for _, d := range data {
 		d := d
 
 		pool.Go(func() error {
+			defer progress.Add(1)
+
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 				DataEntityID:    types.GetDataEntityID(k.ID, version),
 				Filename:        d.Source,
@@ -198,6 +235,7 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 			if err != nil {
 				return fmt.Errorf("failed to index data from source %s, error: %w", d.Source, err)
 			}
+			fmt.Println("CHUNK COMPLETED")
 			return nil
 		})
 	}
@@ -206,6 +244,9 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 	if err != nil {
 		return fmt.Errorf("failed to index data, error: %w", err)
 	}
+
+	// Ensure we update to 100% when done
+	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100)
 
 	// All good, nothing else to do
 	return nil
@@ -230,9 +271,40 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
 		WithCancelOnError()
 
+	progress := atomic.Int32{}
+	totalItems := int32(len(chunks))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		var lastProgress int
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				current := int(progress.Load())
+				percentage := int(float32(current) / float32(len(chunks)) * 100)
+
+				// If we have progress, update the progress
+				if percentage != lastProgress {
+					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d chunks", current, totalItems), percentage)
+					lastProgress = percentage
+				}
+			}
+		}
+	}()
+
 	for _, chunk := range chunks {
 		chunk := chunk
 		pool.Go(func(ctx context.Context) error {
+			defer progress.Add(1)
+
 			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
 				DataEntityID:    types.GetDataEntityID(k.ID, version),
 				Filename:        chunk.Filename,
@@ -249,7 +321,19 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		})
 	}
 
-	return pool.Wait()
+	err = pool.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to index data, error: %w", err)
+	}
+
+	// Ensure we update to 100% when done
+	r.updateProgress(k, types.KnowledgeStateIndexing, "indexing data completed", 100)
+
+	return nil
+}
+
+func (r *Reconciler) updateProgress(k *types.Knowledge, state types.KnowledgeState, message string, percent int) error {
+	return r.store.UpdateKnowledgeState(context.Background(), k.ID, state, message, percent)
 }
 
 func getDocumentID(contents []byte) string {

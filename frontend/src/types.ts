@@ -537,6 +537,7 @@ export interface IKnowledgeSource {
   };
   state: string;
   message?: string;
+  progress_percent?: number;
   source: {
     helix_drive?: {
       path: string;
@@ -553,7 +554,7 @@ export interface IKnowledgeSource {
       path: string;
     };
     web?: {
-      urls: string[];
+      urls?: string[];
       excludes?: string[];
       auth?: {
         username: string;
@@ -566,7 +567,9 @@ export interface IKnowledgeSource {
         };
         enabled: boolean;
         max_depth?: number;
+        max_pages?: number;
         user_agent?: string;
+        readability?: boolean;
       };
     };
     text?: string;

@@ -127,6 +127,8 @@ func (suite *IndexerSuite) TestIndex() {
 		},
 	)
 
+	suite.store.EXPECT().UpdateKnowledgeState(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 	suite.store.EXPECT().CreateKnowledgeVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, k *types.KnowledgeVersion) (*types.KnowledgeVersion, error) {
 			suite.Equal(version, k.Version, "version should be set to the version we got from the data entity id")

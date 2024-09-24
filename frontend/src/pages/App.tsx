@@ -188,7 +188,7 @@ const App: FC = () => {
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
     const now = Date.now();
-    if (now - lastFetchTimeRef.current < 3000) return; // Prevent fetching more than once every 3 seconds
+    if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
     lastFetchTimeRef.current = now;
     try {
@@ -219,7 +219,7 @@ const App: FC = () => {
       fetchKnowledgeTimeoutRef.current = setTimeout(() => {
         fetchKnowledge();
         scheduleFetch(); // Schedule the next fetch
-      }, 3000); // 3 seconds
+      }, 2000); // 2 seconds
     };
 
     if (app?.id) {
@@ -257,8 +257,14 @@ const App: FC = () => {
   const handleRefreshKnowledge = useCallback((id: string) => {
     api.post(`/api/v1/knowledge/${id}/refresh`, null, {}, {
       snackbar: true,
+    }).then(() => {
+      // Call fetchKnowledge immediately after the refresh is initiated
+      fetchKnowledge();
+    }).catch((error) => {
+      console.error('Error refreshing knowledge:', error);
+      snackbar.error('Failed to refresh knowledge');
     });
-  }, [api]);
+  }, [api, fetchKnowledge, snackbar]);
 
   useEffect(() => {
     console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
@@ -1638,6 +1644,144 @@ const App: FC = () => {
           <Button onClick={handleCloseDialog}>Close</Button>
         </DialogActions>
       </Dialog>
+      {
+        showBigSchema && (
+          <Window
+            title="Schema"
+            fullHeight
+            size="lg"
+            open
+            withCancel
+            cancelTitle="Close"
+            onCancel={() => setShowBigSchema(false)}
+          >
+            <Box
+              sx={{
+                p: 2,
+                height: '100%',
+              }}
+            >
+              <TextField
+                error={showErrors && !schema}
+                value={schema}
+                onChange={(e) => setSchema(e.target.value)}
+                fullWidth
+                multiline
+                disabled
+                label="App Configuration"
+                helperText={showErrors && !schema ? "Please enter a schema" : ""}
+                sx={{ height: '100%' }} // Set the height to '100%'
+              />
+            </Box>
+          </Window>
+        )
+      }
+      {
+        gptScript && (
+          <Window
+            title="Run GPT Script"
+            fullHeight
+            size="lg"
+            open
+            withCancel
+            cancelTitle="Close"
+            onCancel={() => setGptScript(undefined)}
+          >
+            <Row>
+              <Typography variant="body1" sx={{mt: 2, mb: 2}}>
+                Enter your input and click "Run" to execute the script.
+              </Typography>
+            </Row>
+            <Row center sx={{p: 2}}>
+              <Cell sx={{mr: 2}}>
+                <TextField
+                  value={gptScriptInput}
+                  onChange={(e) => setGptScriptInput(e.target.value)}
+                  fullWidth
+                  id="gpt-script-input"
+                  name="gpt-script-input"
+                  label="Script Input (optional)"
+                  sx={{
+                    minWidth: '400px'
+                  }}
+                />
+              </Cell>
+              <Cell>
+                <Button
+                  sx={{width: '200px'}}
+                  variant="contained"
+                  color="primary"
+                  endIcon={ <PlayCircleOutlineIcon /> }
+                  onClick={ onExecuteScript }
+                >
+                  Run
+                </Button>
+              </Cell>
+            </Row>
+            
+            {
+              gptScriptError && (
+                <Row center sx={{p: 2}}>
+                  <Alert severity="error">{ gptScriptError }</Alert>
+                </Row>
+              )
+            }
+
+            {
+              gptScriptOutput && (
+                <Row center sx={{p: 2}}>
+                  <TextView data={ gptScriptOutput } scrolling />
+                </Row>
+              )
+            }
+            
+          </Window>
+        )
+      }
+      {
+        deletingAPIKey && (
+          <DeleteConfirmWindow
+            title="this API key"
+            onSubmit={async () => {
+              const res = await api.delete(`/api/v1/api_keys`, {
+                params: {
+                  key: deletingAPIKey,
+                },
+              }, {
+                snackbar: true,
+              })
+              if(!res) return
+              snackbar.success('API Key deleted')
+              account.loadApiKeys({
+                types: 'app',
+                app_id: params.app_id,
+              })
+              setDeletingAPIKey('')
+            }}
+            onCancel={() => {
+              setDeletingAPIKey('')
+            }}
+          />
+        )
+      }
+      {editingTool && (
+        <Window
+          title={`${editingTool.id ? 'Edit' : 'Add'} ${editingTool.tool_type === 'api' ? 'API Tool' : 'GPT Script'}`}
+          fullHeight
+          size="lg"
+          open
+          withCancel
+          cancelTitle="Close"
+          onCancel={() => setEditingTool(null)}
+        >
+          <ToolEditor
+            initialData={editingTool}
+            onSave={editingTool.tool_type === 'api' ? onSaveApiTool : onSaveGptScript}
+            onCancel={() => setEditingTool(null)}
+            isReadOnly={isReadOnly}
+          />
+        </Window>
+      )}
     </Page>
   )
 }
