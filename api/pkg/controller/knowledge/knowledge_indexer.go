@@ -208,9 +208,6 @@ func (r *Reconciler) indexDataDirectly(ctx context.Context, k *types.Knowledge, 
 				current := int(progress.Load())
 				percentage := int(float32(current) / float32(totalItems) * 100)
 
-				fmt.Println("progress", percentage)
-				fmt.Println("current", current)
-				fmt.Println("total", totalItems)
 				// If we have progress, update the progress
 				if percentage != lastProgress {
 					r.updateProgress(k, types.KnowledgeStateIndexing, fmt.Sprintf("indexing data %d/%d", current, totalItems), percentage)
