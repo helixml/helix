@@ -149,13 +149,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   };
 
   const getKnowledge = (source: IKnowledgeSource): IKnowledgeSource | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge;
-  };
-
-  const getKnowledgeVersion = (source: IKnowledgeSource): string | undefined => {
-    const knowledge = knowledgeList.find(k => k.name === source.name);
-    return knowledge?.version;
+    return knowledgeList.find(k => k.name === source.name);
   };
 
   const renderKnowledgeState = (knowledge: IKnowledgeSource | undefined) => {
@@ -167,8 +161,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         color = 'success';
         break;
       case 'pending':
-        color = 'info';
-        break;
       case 'indexing':
         color = 'info';
         break;
@@ -179,7 +171,6 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     if (knowledge.message) {
-      // Showing tooltip with error message
       return <Tooltip title={knowledge.message}><Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} /></Tooltip>;
     }
 
@@ -365,60 +356,64 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
 
   return (
     <Box>
-      {knowledgeSources.map((source, index) => (
-        <Accordion
-          key={index}
-          expanded={expanded === `panel${index}`}
-          onChange={handleChange(`panel${index}`)}
-        >
-          <AccordionSummary 
-            expandIcon={<ExpandMoreIcon />}
-            sx={{ display: 'flex', alignItems: 'center' }}
+      {knowledgeSources.map((source, index) => {
+        const knowledge = getKnowledge(source);
+        
+        return (
+          <Accordion
+            key={index}
+            expanded={expanded === `panel${index}`}
+            onChange={handleChange(`panel${index}`)}
           >
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography>
-                Knowledge Source ({getSourcePreview(source)})
-                {renderKnowledgeState(getKnowledge(source))}
-              </Typography>
-              {getKnowledge(source)?.state === 'indexing' && getKnowledge(source)?.progress_percent && (
-                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                  Progress: {getKnowledge(source)?.progress_percent}%
+            <AccordionSummary 
+              expandIcon={<ExpandMoreIcon />}
+              sx={{ display: 'flex', alignItems: 'center' }}
+            >
+              <Box sx={{ flexGrow: 1 }}>
+                <Typography>
+                  Knowledge Source ({getSourcePreview(source)})
+                  {renderKnowledgeState(knowledge)}
                 </Typography>
-              )}
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                Version: {getKnowledgeVersion(source) || 'N/A'}
-              </Typography>
-            </Box>
-            <Tooltip title="Refresh knowledge and reindex data">
-              <IconButton
-                onClick={(e) => {
-                  e.stopPropagation();
-                  refreshSource(index);
-                }}
-                disabled={disabled}
-                sx={{ mr: 1 }}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete this knowledge source">
-              <IconButton
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteSource(index);
-                }}
-                disabled={disabled}
-                sx={{ mr: 1 }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Tooltip>
-          </AccordionSummary>
-          <AccordionDetails>
-            {renderSourceInput(source, index)}
-          </AccordionDetails>
-        </Accordion>
-      ))}
+                {knowledge?.state === 'indexing' && knowledge?.progress_percent && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                    Progress: {knowledge.progress_percent}% {knowledge.message ? `| ${knowledge.message}` : ''}
+                  </Typography>
+                )}
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                  Version: {knowledge?.version || 'N/A'}
+                </Typography>
+              </Box>
+              <Tooltip title="Refresh knowledge and reindex data">
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    refreshSource(index);
+                  }}
+                  disabled={disabled}
+                  sx={{ mr: 1 }}
+                >
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete this knowledge source">
+                <IconButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSource(index);
+                  }}
+                  disabled={disabled}
+                  sx={{ mr: 1 }}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Tooltip>
+            </AccordionSummary>
+            <AccordionDetails>
+              {renderSourceInput(source, index)}
+            </AccordionDetails>
+          </Accordion>
+        );
+      })}
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
