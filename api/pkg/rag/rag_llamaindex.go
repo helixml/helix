@@ -42,7 +42,13 @@ func NewLlamaindex(settings *types.RAGSettings) *Llamaindex {
 	}
 }
 
-func (l *Llamaindex) Index(ctx context.Context, indexReq *types.SessionRAGIndexChunk) error {
+func (l *Llamaindex) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
+	if len(indexReqs) == 0 {
+		return fmt.Errorf("no index requests provided")
+	}
+
+	indexReq := indexReqs[0]
+
 	logger := log.With().
 		Str("llamaindex_index_url", l.indexURL).
 		Str("data_entity_id", indexReq.DataEntityID).
