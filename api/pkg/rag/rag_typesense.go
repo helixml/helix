@@ -91,10 +91,31 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 	return t, nil
 }
 
-func (t *Typesense) Index(ctx context.Context, indexReq *types.SessionRAGIndexChunk) error {
-	_, err := t.client.Collection(t.collection).Documents().Create(ctx, indexReq)
-	if err != nil {
+func (t *Typesense) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
+	if len(indexReqs) == 0 {
+		return fmt.Errorf("no index requests provided")
+	}
+
+	if len(indexReqs) == 1 {
+		_, err := t.client.Collection(t.collection).Documents().Create(ctx, indexReqs[0])
 		return err
+	}
+
+	// For multiple index requests, we need to use the import API
+
+	params := &api.ImportDocumentsParams{
+		Action:    pointer.String("create"),
+		BatchSize: pointer.Int(len(indexReqs)),
+	}
+
+	var docs []interface{}
+	for _, indexReq := range indexReqs {
+		docs = append(docs, indexReq)
+	}
+
+	_, err := t.client.Collection(t.collection).Documents().Import(ctx, docs, params)
+	if err != nil {
+		return fmt.Errorf("error importing documents: %w", err)
 	}
 
 	return nil
