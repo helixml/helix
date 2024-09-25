@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/types"
@@ -32,6 +33,32 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		typesense.WithNumRetries(3),
 	)
 
+	err := retry.Do(func() error {
+		healthy, err := client.Health(context.Background(), 5*time.Second)
+		if err != nil {
+			return err
+		}
+
+		if healthy {
+			return nil
+		}
+
+		return fmt.Errorf("typesense is not healthy yet")
+	},
+		retry.Attempts(0),
+		retry.Delay(2*time.Second),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retries", n).
+				Msg("waiting for typesense to come up")
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	collection := settings.Typesense.Collection
 	if collection == "" {
 		collection = defaultCollection
@@ -42,7 +69,7 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		collection: collection,
 	}
 
-	err := retry.Do(func() error {
+	err = retry.Do(func() error {
 		return t.ensureCollection(context.Background())
 	},
 		retry.Attempts(3),
@@ -52,7 +79,7 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 			log.Warn().
 				Err(err).
 				Uint("retries", n).
-				Msg("retrying to create collection")
+				Msg("retrying to connect to typesense")
 		}),
 	)
 	if err != nil {
