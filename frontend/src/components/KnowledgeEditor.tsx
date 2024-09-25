@@ -70,7 +70,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.name = 'Unnamed Source';
     }
 
-    newSource.source.web!.crawler!.enabled = true;
+    if (newSource.source.web && newSource.source.web.crawler) {
+      newSource.source.web.crawler.enabled = true;
+    }
 
     // Ensure default values for max_depth and max_pages
     if (newSource.source.web?.crawler) {
