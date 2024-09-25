@@ -99,7 +99,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         state: '',
         rag_settings: {
             results_count: 0,
-            chunk_size: 0
+            chunk_size: 0,
+            chunk_overflow: 0,
         },
     };
     onUpdate([...knowledgeSources, newSource]);
