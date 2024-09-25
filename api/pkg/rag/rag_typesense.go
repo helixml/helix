@@ -92,6 +92,23 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 }
 
 func (t *Typesense) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
+	err := retry.Do(func() error {
+		return t.index(context.Background(), indexReqs...)
+	},
+		retry.Attempts(5),
+		retry.Delay(5*time.Second),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retries", n).
+				Msg("retrying to index documents in typesense")
+		}),
+	)
+	return err
+}
+
+func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
 	if len(indexReqs) == 0 {
 		return fmt.Errorf("no index requests provided")
 	}
