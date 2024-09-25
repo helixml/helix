@@ -246,6 +246,60 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
           />
         )}
 
+        
+        <>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <TextField
+              fullWidth
+              label="Results Count (optional)"
+              type="number"
+              value={source.rag_settings.results_count}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    results_count: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+            <TextField
+              fullWidth
+              label="Chunk Size (optional)"
+              type="number"              
+              value={source.rag_settings.chunk_size}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    chunk_size: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+            <TextField
+              fullWidth
+              label="Chunk Overflow (optional)"
+              type="number"
+              value={source.rag_settings.chunk_overflow}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    chunk_overflow: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+          </Box>
+        </>
+
         {sourceType === 'web' && (
           <>
             <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
