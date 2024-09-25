@@ -59,6 +59,8 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		return nil, err
 	}
 
+	log.Info().Msg("typesense is up")
+
 	collection := settings.Typesense.Collection
 	if collection == "" {
 		collection = defaultCollection
