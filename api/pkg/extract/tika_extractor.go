@@ -90,34 +90,16 @@ func (e *TikaExtractor) extract(ctx context.Context, extractReq *ExtractRequest)
 
 	client := tika.NewClient(e.httpClient, e.extractorURL)
 
-	parsed, err := client.Parse(ctx, bytes.NewReader(extractReq.Content))
+	hdr := http.Header{}
+	hdr.Set("Accept", "text/plain")
+
+	parsed, err := client.ParseWithHeader(ctx, bytes.NewReader(extractReq.Content), hdr)
 	if err != nil {
 		return "", err
 	}
 
-	// os.WriteFile("out_raw.html", []byte(parsed), 0o644)
-
-	// Parsed content is returned as a sequence of XHTML SAX events.
-	// XHTML is used to express structured content of the document.
-	// The overall structure of the generated event stream is (with indenting added for clarity):
-	// <html xmlns="http://www.w3.org/1999/xhtml">
-	//   <head>
-	// 	<title>...</title>
-	// </head>
-	// <body>
-	// 	...
-	// </body>
-	// </html>
-	// Ref: https://tika.apache.org/3.0.0-BETA2/parser.html
 	return parsed, nil
-	// return e.convertXHTMLToMarkdown(ctx, parsed)
 }
-
-// func (e *TikaExtractor) convertXHTMLToMarkdown(ctx context.Context, parsed string) (string, error) {
-// 	converter := md.NewConverter("", true, nil)
-
-// 	return converter.ConvertString(parsed)
-// }
 
 func (e *TikaExtractor) convertXHTMLToMarkdown(ctx context.Context, parsed string) (string, error) {
 	// Create an HTML tokenizer
