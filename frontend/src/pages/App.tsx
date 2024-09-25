@@ -118,7 +118,6 @@ const removeEmptyValues = (obj: any): any => {
 };
 
 const App: FC = () => {
-  console.log('App component rendering');
   const loading = useLoading()
   const account = useAccount()
   const apps = useApps()
@@ -267,7 +266,7 @@ const App: FC = () => {
   }, [api, fetchKnowledge, snackbar]);
 
   useEffect(() => {
-    console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
+    // console.log('app useEffect called', { app_id: params.app_id, apps_data: apps.data });
     let initialApp: IApp | null = null;
     if (params.app_id === "new") {
       const now = new Date();
@@ -626,17 +625,17 @@ const App: FC = () => {
   ])
 
   useEffect(() => {
-    console.log('App useEffect triggered', { app, hasLoaded });
+    // console.log('App useEffect triggered', { app, hasLoaded });
     if (!app) return;
-    console.log('Setting app data', {
-      name: app.config.helix.name || '',
-      description: app.config.helix.description || '',
-      schema: JSON.stringify(app.config, null, 4),
-      secrets: app.config.secrets || {},
-      allowedDomains: app.config.allowed_domains || [],
-      shared: app.shared,
-      global: app.global,
-    });
+    // console.log('Setting app data', {
+    //   name: app.config.helix.name || '',
+    //   description: app.config.helix.description || '',
+    //   schema: JSON.stringify(app.config, null, 4),
+    //   secrets: app.config.secrets || {},
+    //   allowedDomains: app.config.allowed_domains || [],
+    //   shared: app.shared,
+    //   global: app.global,
+    // });
     setName(app.config.helix.name || '');
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
@@ -654,7 +653,6 @@ const App: FC = () => {
   }, [app])
 
   useWebsocket(sessionID, (parsedData) => {
-    console.log('Websocket event', parsedData)
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
       session.setData(newSession)
@@ -879,13 +877,10 @@ const App: FC = () => {
   }, [app, snackbar]);
 
   useEffect(() => {
-    if (app && app.config.helix) {
-      console.log('Initial assistants:', app.config.helix.assistants);
+    if (app && app.config.helix) {      
       const allTools = app.config.helix.assistants.flatMap(assistant => {
-        console.log('Assistant:', assistant);
         return assistant.tools || [];
-      });
-      console.log('All tools:', allTools);
+      });      
       setDisplayedTools(allTools);
     }
   }, [app]);
@@ -911,10 +906,7 @@ const App: FC = () => {
     } else {
       snackbar.error('No API key available');
     }
-  }, [account.apiKeys, snackbar]);
-
-  console.log('Current app state:', app);
-  console.log('Displayed tools:', displayedTools);
+  }, [account.apiKeys, snackbar]);  
 
   if(!account.user) return null
   if(!app) return null
@@ -1559,21 +1551,36 @@ const App: FC = () => {
                   )
                 ) : (
                   session.data && (
-                    <Interaction
-                      key={session.data.interactions.length - 1}
-                      serverConfig={account.serverConfig}
-                      interaction={session.data.interactions[session.data.interactions.length - 1]}
-                      session={session.data}
-                    >
-                      {!session.data.interactions[session.data.interactions.length - 1].finished && (
-                        <InteractionLiveStream
-                          session_id={session.data.id}
-                          interaction={session.data.interactions[session.data.interactions.length - 1]}
-                          session={session.data}
-                          serverConfig={account.serverConfig}
-                        />
-                      )}
-                    </Interaction>
+                    <>
+                      {
+                        session.data?.interactions.map((interaction: any, i: number) => {
+                          const interactionsLength = session.data?.interactions.length || 0
+                          const isLastInteraction = i == interactionsLength - 1
+                          const isLive = isLastInteraction && !interaction.finished
+
+                          if(!session.data) return null
+                          return (
+                            <Interaction
+                              key={ i }
+                              serverConfig={ account.serverConfig }
+                              interaction={ interaction }
+                              session={ session.data }
+                            >
+                              {
+                                isLive && (
+                                  <InteractionLiveStream
+                                    session_id={ session.data.id }
+                                    interaction={ interaction }
+                                    session={ session.data }
+                                    serverConfig={ account.serverConfig }
+                                  />
+                                )
+                              }
+                            </Interaction>
+                          )   
+                        })
+                      }
+                    </>
                   )
                 )}
               </Box>
