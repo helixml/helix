@@ -13,7 +13,6 @@ import (
 	"github.com/avast/retry-go/v4"
 	"github.com/google/go-tika/tika"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/net/html"
 )
 
 // TikaExtractor is the default, llamaindex based text extractor
@@ -99,78 +98,4 @@ func (e *TikaExtractor) extract(ctx context.Context, extractReq *ExtractRequest)
 	}
 
 	return parsed, nil
-}
-
-func (e *TikaExtractor) convertXHTMLToMarkdown(ctx context.Context, parsed string) (string, error) {
-	// Create an HTML tokenizer
-	tokenizer := html.NewTokenizer(strings.NewReader(parsed))
-
-	var markdown strings.Builder
-	var inBody bool
-	var inParagraph bool
-	var inList bool
-	var listType string
-
-	for {
-		tokenType := tokenizer.Next()
-		switch tokenType {
-		case html.ErrorToken:
-			if tokenizer.Err() == io.EOF {
-				return markdown.String(), nil
-			}
-			return "", tokenizer.Err()
-
-		case html.StartTagToken, html.SelfClosingTagToken:
-			token := tokenizer.Token()
-			switch token.Data {
-			case "body":
-				inBody = true
-			case "p":
-				if inBody {
-					markdown.WriteString("\n\n")
-					inParagraph = true
-				}
-			case "br":
-				markdown.WriteString("\n")
-			case "h1", "h2", "h3", "h4", "h5", "h6":
-				markdown.WriteString("\n\n" + strings.Repeat("#", int(token.Data[1]-'0')) + " ")
-			case "ul", "ol":
-				inList = true
-				listType = token.Data
-			case "li":
-				if inList {
-					markdown.WriteString("\n")
-					if listType == "ul" {
-						markdown.WriteString("- ")
-					} else {
-						markdown.WriteString("1. ") // For simplicity, always use '1.' for ordered lists
-					}
-				}
-			}
-
-		case html.EndTagToken:
-			token := tokenizer.Token()
-			switch token.Data {
-			case "body":
-				inBody = false
-			case "p":
-				inParagraph = false
-			case "ul", "ol":
-				inList = false
-				listType = ""
-				markdown.WriteString("\n")
-			}
-
-		case html.TextToken:
-			if inBody {
-				text := strings.TrimSpace(string(tokenizer.Text()))
-				if text != "" {
-					markdown.WriteString(text)
-					if inParagraph {
-						markdown.WriteString(" ")
-					}
-				}
-			}
-		}
-	}
 }
