@@ -478,23 +478,26 @@ EOF
             echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
             AUTODETECTED_LLM=true
         else
-	    echo "Ollama not detected on localhost."
 	    echo
-     	    echo "Note that Helix will be non-functional without an LLM provider or GPU runner attached."
-	    echo
-            echo "You have 4 options:"
-	    echo
-            echo "USE OLLAMA LOCALLY"
-            echo "If you want to use Ollama, start it and re-run the installer so that it can be detected"
-	    echo
-            echo "ATTACH YOUR OWN GPU"
-            echo "You can attach a GPU runner (instructions printed below)"
-	    echo
-            echo "USE TOGETHER.AI"
-     	    echo "You can re-run the installer with --together-api-key (see --help for details)"
-	    echo
-            echo "USE EXTERNAL OPENAI COMPATIBLE LLM"
-	    echo "You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
+	    echo " > Ollama not detected on localhost."
+	    echo " > "
+     	    echo " > Note that Helix will be non-functional without an LLM provider or GPU runner attached."
+	    echo " > "
+            echo " > You have 4 options:"
+	    echo " > "
+            echo " > USE OLLAMA LOCALLY"
+            echo " > If you want to use Ollama, start it and re-run the installer so that it can be detected"
+	    echo " > "
+            echo " > ATTACH YOUR OWN GPU"
+            echo " > You can attach a GPU runner (instructions printed below)"
+	    echo " > "
+            echo " > USE TOGETHER.AI"
+     	    echo " > You can re-run the installer with --together-api-key (see --help for details)"
+	    echo " > "
+            echo " > USE EXTERNAL OPENAI COMPATIBLE LLM"
+	    echo " > "
+	    echo " > You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
+     	    echo
         fi
     fi
 
@@ -550,9 +553,13 @@ EOF
 
     echo ".env file has been created at $ENV_FILE"
     echo "┌───────────────────────────────────────────────────────────────────────────┐"
-    echo "│ You can now 'cd $INSTALL_DIR'"
-    echo "│ and run 'docker compose up -d --remove-orphans' to start/upgrade Helix    │"
-    echo "│ Helix will be available at $API_HOST"
+    echo "│ You can now:"
+    echo "|"
+    echo "| cd $INSTALL_DIR"
+    echo "| docker compose up -d --remove-orphans"
+    echo "|"
+    echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
+    echo "| This will take a minute or so to boot."
     echo "└───────────────────────────────────────────────────────────────────────────┘"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
