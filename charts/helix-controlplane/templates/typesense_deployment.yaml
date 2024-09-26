@@ -34,11 +34,11 @@ spec:
       serviceAccountName: {{ include "helix-controlplane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:        
+      containers:
         - name: typesense
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.typesense.image.repository }}:{{ .Values.typesense.image.tag }}"
+          image: "{{ .Values.typesense.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -49,12 +49,12 @@ spec:
               value: /data
             - name: TYPESENSE_API_KEY
               value: {{ .Values.typesense.apiKey }}
-          {{- if .Values.typesense.persistence.enabled }} 
+          {{- if .Values.typesense.persistence.enabled }}
           volumeMounts:
             - name: typesense-storage
               mountPath: /data
           {{- end }}
-      {{- if .Values.typesense.persistence.enabled }} 
+      {{- if .Values.typesense.persistence.enabled }}
       volumes:
       - name: typesense-storage
         persistentVolumeClaim:
