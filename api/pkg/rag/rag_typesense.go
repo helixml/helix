@@ -142,9 +142,9 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
 		Q:             pointer.String(q.Prompt),
-		QueryBy:       pointer.String("embedding"),
+		QueryBy:       pointer.String("embedding,content"),
 		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:        pointer.String("content_offset:asc"),
+		SortBy:        pointer.String("_text_match:desc,_vector_distance:asc"),
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
 	}
 
