@@ -300,7 +300,7 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 	batches := convertChunksIntoBatches(chunks, 100)
 
 	for _, batch := range batches {
-		defer progress.Add(1)
+		defer progress.Add(int32(len(batch)))
 
 		// Convert the chunks into index chunks
 		indexChunks := convertTextSplitterChunks(k, version, batch)
@@ -308,9 +308,8 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		// Index the chunks batch
 		err := ragClient.Index(ctx, indexChunks...)
 		if err != nil {
-			return fmt.Errorf("failed to index chunk, error: %w", err)
+			return fmt.Errorf("failed to index chunks, error: %w", err)
 		}
-		return nil
 	}
 
 	// Ensure we update to 100% when done
@@ -350,6 +349,7 @@ func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSiz
 }
 
 func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
+
 	var indexChunks []*types.SessionRAGIndexChunk
 
 	for _, chunk := range chunks {
