@@ -135,6 +135,14 @@ services:
     image: apache/tika:2.9.2.1
     ports:
       - 9998:9998
+  typense-ui:
+    image: ghcr.io/bfritscher/typesense-dashboard:latest
+    ports:
+      - 8877:80
+    volumes:
+      - ./scripts/config.json:/srv/config.json
+    depends_on:
+      - typesense
   typesense:
     build:
       context: .
