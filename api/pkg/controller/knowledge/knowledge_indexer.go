@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sourcegraph/conc/pool"
 
+	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/rag"
 	"github.com/helixml/helix/api/pkg/store"
 	"github.com/helixml/helix/api/pkg/system"
@@ -267,10 +268,6 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		Int("chunks", len(chunks)).
 		Msg("submitting chunks into the rag server")
 
-	pool := pool.New().WithContext(ctx).
-		WithMaxGoroutines(r.config.RAG.IndexingConcurrency).
-		WithCancelOnError()
-
 	progress := atomic.Int32{}
 	totalItems := int32(len(chunks))
 
@@ -300,30 +297,19 @@ func (r *Reconciler) indexDataWithChunking(ctx context.Context, k *types.Knowled
 		}
 	}()
 
-	for _, chunk := range chunks {
-		chunk := chunk
-		pool.Go(func(ctx context.Context) error {
-			defer progress.Add(1)
+	batches := convertChunksIntoBatches(chunks, 100)
 
-			err := ragClient.Index(ctx, &types.SessionRAGIndexChunk{
-				DataEntityID:    types.GetDataEntityID(k.ID, version),
-				Filename:        chunk.Filename,
-				Source:          chunk.Filename, // For backwards compatibility
-				DocumentID:      chunk.DocumentID,
-				DocumentGroupID: chunk.DocumentGroupID,
-				ContentOffset:   chunk.Index,
-				Content:         chunk.Text,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to index chunk, error: %w", err)
-			}
-			return nil
-		})
-	}
+	for _, batch := range batches {
+		defer progress.Add(int32(len(batch)))
 
-	err = pool.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to index data, error: %w", err)
+		// Convert the chunks into index chunks
+		indexChunks := convertTextSplitterChunks(k, version, batch)
+
+		// Index the chunks batch
+		err := ragClient.Index(ctx, indexChunks...)
+		if err != nil {
+			return fmt.Errorf("failed to index chunks, error: %w", err)
+		}
 	}
 
 	// Ensure we update to 100% when done
@@ -349,4 +335,34 @@ func getDocumentID(contents []byte) string {
 type indexerData struct {
 	Source string
 	Data   []byte
+}
+
+func convertChunksIntoBatches(chunks []*text.DataPrepTextSplitterChunk, batchSize int) [][]*text.DataPrepTextSplitterChunk {
+	batches := make([][]*text.DataPrepTextSplitterChunk, 0, (len(chunks)+batchSize-1)/batchSize)
+
+	for batchSize < len(chunks) {
+		chunks, batches = chunks[batchSize:], append(batches, chunks[0:batchSize:batchSize])
+	}
+	batches = append(batches, chunks)
+
+	return batches
+}
+
+func convertTextSplitterChunks(k *types.Knowledge, version string, chunks []*text.DataPrepTextSplitterChunk) []*types.SessionRAGIndexChunk {
+
+	var indexChunks []*types.SessionRAGIndexChunk
+
+	for _, chunk := range chunks {
+		indexChunks = append(indexChunks, &types.SessionRAGIndexChunk{
+			DataEntityID:    types.GetDataEntityID(k.ID, version),
+			Filename:        chunk.Filename,
+			Source:          chunk.Filename, // For backwards compatibility
+			DocumentID:      chunk.DocumentID,
+			DocumentGroupID: chunk.DocumentGroupID,
+			ContentOffset:   chunk.Index,
+			Content:         chunk.Text,
+		})
+	}
+
+	return indexChunks
 }

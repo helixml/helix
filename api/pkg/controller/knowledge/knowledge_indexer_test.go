@@ -2,11 +2,13 @@ package knowledge
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller/knowledge/crawler"
+	"github.com/helixml/helix/api/pkg/dataprep/text"
 	"github.com/helixml/helix/api/pkg/extract"
 	"github.com/helixml/helix/api/pkg/filestore"
 	"github.com/helixml/helix/api/pkg/rag"
@@ -145,4 +147,41 @@ func (suite *IndexerSuite) TestIndex() {
 
 	// Wait for the goroutines to finish
 	suite.reconciler.wg.Wait()
+}
+
+func Test_convertChunksIntoBatches(t *testing.T) {
+	type args struct {
+		chunks    []*text.DataPrepTextSplitterChunk
+		batchSize int
+	}
+	tests := []struct {
+		name string
+		args args
+		want [][]*text.DataPrepTextSplitterChunk
+	}{
+		{
+			name: "1 chunk",
+			args: args{
+				chunks:    []*text.DataPrepTextSplitterChunk{{Text: "1"}},
+				batchSize: 1,
+			},
+			want: [][]*text.DataPrepTextSplitterChunk{{{Text: "1"}}},
+		},
+		// 10 chunks, batch size 3
+		{
+			name: "10 chunks, batch size 3",
+			args: args{
+				chunks:    []*text.DataPrepTextSplitterChunk{{Text: "1"}, {Text: "2"}, {Text: "3"}, {Text: "4"}, {Text: "5"}, {Text: "6"}, {Text: "7"}, {Text: "8"}, {Text: "9"}, {Text: "10"}},
+				batchSize: 3,
+			},
+			want: [][]*text.DataPrepTextSplitterChunk{{{Text: "1"}, {Text: "2"}, {Text: "3"}}, {{Text: "4"}, {Text: "5"}, {Text: "6"}}, {{Text: "7"}, {Text: "8"}, {Text: "9"}}, {{Text: "10"}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := convertChunksIntoBatches(tt.args.chunks, tt.args.batchSize); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("convertChunksIntoBatches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

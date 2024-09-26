@@ -91,10 +91,48 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 	return t, nil
 }
 
-func (t *Typesense) Index(ctx context.Context, indexReq *types.SessionRAGIndexChunk) error {
-	_, err := t.client.Collection(t.collection).Documents().Create(ctx, indexReq)
-	if err != nil {
+func (t *Typesense) Index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
+	err := retry.Do(func() error {
+		return t.index(context.Background(), indexReqs...)
+	},
+		retry.Attempts(5),
+		retry.Delay(5*time.Second),
+		retry.LastErrorOnly(true),
+		retry.OnRetry(func(n uint, err error) {
+			log.Warn().
+				Err(err).
+				Uint("retries", n).
+				Msg("retrying to index documents in typesense")
+		}),
+	)
+	return err
+}
+
+func (t *Typesense) index(ctx context.Context, indexReqs ...*types.SessionRAGIndexChunk) error {
+	if len(indexReqs) == 0 {
+		return fmt.Errorf("no index requests provided")
+	}
+
+	if len(indexReqs) == 1 {
+		_, err := t.client.Collection(t.collection).Documents().Create(ctx, indexReqs[0])
 		return err
+	}
+
+	// For multiple index requests, we need to use the import API
+
+	params := &api.ImportDocumentsParams{
+		Action:    pointer.String("create"),
+		BatchSize: pointer.Int(len(indexReqs)),
+	}
+
+	var docs []interface{}
+	for _, indexReq := range indexReqs {
+		docs = append(docs, indexReq)
+	}
+
+	_, err := t.client.Collection(t.collection).Documents().Import(ctx, docs, params)
+	if err != nil {
+		return fmt.Errorf("error importing documents: %w", err)
 	}
 
 	return nil
@@ -104,9 +142,9 @@ func (t *Typesense) Query(ctx context.Context, q *types.SessionRAGQuery) ([]*typ
 	// TODO: implement hybrid search https://typesense.org/docs/26.0/api/vector-search.html#hybrid-search
 	searchParameters := &api.SearchCollectionParams{
 		Q:             pointer.String(q.Prompt),
-		QueryBy:       pointer.String("content"),
+		QueryBy:       pointer.String("embedding,content"),
 		FilterBy:      pointer.String("data_entity_id:" + q.DataEntityID),
-		SortBy:        pointer.String("content_offset:asc"),
+		SortBy:        pointer.String("_text_match:desc,_vector_distance:asc"),
 		ExcludeFields: pointer.String("embedding"), // Don't return the raw floating point numbers in the vector field in the search API response, to save on network bandwidth.
 	}
 

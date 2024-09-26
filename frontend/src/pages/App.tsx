@@ -1625,6 +1625,9 @@ const App: FC = () => {
               <Typography variant="subtitle2" gutterBottom>
                 Document Group ID: {selectedChunk.document_group_id}
               </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Chunk characters: {selectedChunk.content.length}
+              </Typography>
               <Typography variant="h6" gutterBottom>
                 Chunk content:
               </Typography>
