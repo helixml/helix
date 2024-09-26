@@ -29,7 +29,6 @@ typesense:
   apiKey: typesense
   image:
     repository: registry.helix.ml/helix/typesense
-    tag: "latest"
   persistence:
     ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
     ##
@@ -72,7 +71,6 @@ llamaindex:
   enabled: false
   image:
     repository: registry.helix.ml/helix/llamaindex
-    tag: "latest"
   persistence:
     ## @param backend.persistence.enabled Enable persistence using Persistent Volume Claims
     ##
@@ -114,7 +112,6 @@ gptscript:
   enabled: true
   image:
     repository: registry.helix.ml/helix/gptscript-runner
-    tag: "latest"
   replicas: 2
   concurrency: 20
   maxTasks: 0 # unlimited
@@ -193,7 +190,7 @@ readinessProbe:
 # uploads and generated images, finetunes and models are stored here.
 volumes:
   - name: data
-    
+
 # pvc:
 #   enabled: true
 #   accessModes:

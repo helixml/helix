@@ -57,7 +57,7 @@ spec:
         - name: llamaindex
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.llamaindex.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.llamaindex.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
