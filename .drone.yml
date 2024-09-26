@@ -13,6 +13,38 @@ steps:
     GITHUB_TOKEN:
       from_secret: github_token
   commands:
+    - go build
+
+- name: build-frontend
+  image: node:21-alpine
+  commands:
+    - cd frontend
+    - yarn install
+    - yarn build
+
+- name: unit-test
+  image: golang:1.22.5-alpine3.19
+  environment:
+    OPENAI_API_KEY:
+      from_secret: openai_tools
+    TOGETHER_API_KEY:
+      from_secret: openai_api_key
+    TOGETHER_BASE_URL:
+      from_secret: openai_base_url
+    # Database config (running in a sidecar)
+    POSTGRES_HOST: postgres
+    TYPESENSE_URL: http://typesense:8108
+    TYPESENSE_API_KEY: typesense
+    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
+  commands:
+    - go test -v ./...
+
+- name: release-backend
+  image: golang:1.22.5-alpine3.19
+  environment:
+    GITHUB_TOKEN:
+      from_secret: github_token
+  commands:
     - go install github.com/mitchellh/gox@latest
     - |
       if [ -n "$DRONE_TAG" ]; then
@@ -38,33 +70,6 @@ steps:
         echo "No tag present, skipping release upload"
       fi
 
-
-- name: unit-test
-  image: golang:1.22.5-alpine3.19
-  environment:
-    OPENAI_API_KEY:
-      from_secret: openai_tools
-    TOGETHER_API_KEY:
-      from_secret: openai_api_key
-    TOGETHER_BASE_URL:
-      from_secret: openai_base_url
-    # Database config (running in a sidecar)
-    POSTGRES_HOST: postgres
-    TYPESENSE_URL: http://typesense:8108
-    TYPESENSE_API_KEY: typesense
-    TEXT_EXTRACTION_TIKA_URL: http://tika:9998
-  commands:
-    - go test -v ./...
-  when:
-    event:
-    - push
-
-- name: build-frontend
-  image: node:21-alpine
-  commands:
-    - cd frontend
-    - yarn install
-    - yarn build
 
 services:
 - name: postgres
