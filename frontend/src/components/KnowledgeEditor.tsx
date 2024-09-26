@@ -42,8 +42,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
   const [errors, setErrors] = useState<{ [key: number]: string }>({});
   const snackbar = useSnackbar(); // Use the snackbar hook
 
-  const default_max_depth = 10;
-  const default_max_pages = 500;
+  const default_max_depth = 1;
+  const default_max_pages = 5;
   const default_readability = true;
 
   const handleChange = (panel: string) => (event: React.SyntheticEvent, isExpanded: boolean) => {
