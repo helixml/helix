@@ -7,9 +7,9 @@ package rag
 import (
 	context "context"
 	reflect "reflect"
-	
-	types "github.com/helixml/helix/api/pkg/types"
+
 	gomock "go.uber.org/mock/gomock"
+	types "github.com/helixml/helix/api/pkg/types"
 )
 
 // MockRAG is a mock of RAG interface.
@@ -50,17 +50,22 @@ func (mr *MockRAGMockRecorder) Delete(ctx, req interface{}) *gomock.Call {
 }
 
 // Index mocks base method.
-func (m *MockRAG) Index(ctx context.Context, req *types.SessionRAGIndexChunk) error {
+func (m *MockRAG) Index(ctx context.Context, req ...*types.SessionRAGIndexChunk) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Index", ctx, req)
+	varargs := []interface{}{ctx}
+	for _, a := range req {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Index", varargs...)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Index indicates an expected call of Index.
-func (mr *MockRAGMockRecorder) Index(ctx, req interface{}) *gomock.Call {
+func (mr *MockRAGMockRecorder) Index(ctx interface{}, req ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Index", reflect.TypeOf((*MockRAG)(nil).Index), ctx, req)
+	varargs := append([]interface{}{ctx}, req...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Index", reflect.TypeOf((*MockRAG)(nil).Index), varargs...)
 }
 
 // Query mocks base method.

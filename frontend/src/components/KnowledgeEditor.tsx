@@ -70,7 +70,9 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
       newSource.name = 'Unnamed Source';
     }
 
-    newSource.source.web!.crawler!.enabled = true;
+    if (newSource.source.web && newSource.source.web.crawler) {
+      newSource.source.web.crawler.enabled = true;
+    }
 
     // Ensure default values for max_depth and max_pages
     if (newSource.source.web?.crawler) {
@@ -97,7 +99,8 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
         state: '',
         rag_settings: {
             results_count: 0,
-            chunk_size: 0
+            chunk_size: 0,
+            chunk_overflow: 0,
         },
     };
     onUpdate([...knowledgeSources, newSource]);
@@ -242,6 +245,60 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
             helperText={errors[index]}
           />
         )}
+
+        
+        <>
+          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+            <TextField
+              fullWidth
+              label="Results Count (optional)"
+              type="number"
+              value={source.rag_settings.results_count}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    results_count: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+            <TextField
+              fullWidth
+              label="Chunk Size (optional)"
+              type="number"              
+              value={source.rag_settings.chunk_size}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    chunk_size: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+            <TextField
+              fullWidth
+              label="Chunk Overflow (optional)"
+              type="number"
+              value={source.rag_settings.chunk_overflow}
+              onChange={(e) => {
+                const value = parseInt(e.target.value);
+                handleSourceUpdate(index, {
+                  rag_settings: {
+                    ...source.rag_settings,
+                    chunk_overflow: value
+                  }
+                });
+              }}
+              disabled={disabled}
+            />
+          </Box>
+        </>
 
         {sourceType === 'web' && (
           <>
