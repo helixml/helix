@@ -55,6 +55,9 @@ steps:
     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   commands:
     - go test -v ./...
+  when:
+    event:
+    - push
 
 - name: build-frontend
   image: node:21-alpine
