@@ -31,6 +31,7 @@ func NewTypesense(settings *types.RAGSettings) (*Typesense, error) {
 		typesense.WithServer(settings.Typesense.URL),
 		typesense.WithAPIKey(settings.Typesense.APIKey),
 		typesense.WithNumRetries(3),
+		typesense.WithConnectionTimeout(300*time.Second),
 	)
 
 	err := retry.Do(func() error {
