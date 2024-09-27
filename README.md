@@ -14,7 +14,7 @@
 </p>
 
 
-# HelixML
+# HelixML ;)
 
 [👥 Discord](https://discord.gg/VJftd844GE)
 
