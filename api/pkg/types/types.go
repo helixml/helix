@@ -843,6 +843,7 @@ type ToolType string
 const (
 	ToolTypeAPI       ToolType = "api"
 	ToolTypeGPTScript ToolType = "gptscript"
+	ToolTypeZapier    ToolType = "zapier"
 )
 
 type Tool struct {
@@ -944,6 +945,14 @@ type AssistantGPTScript struct {
 	Content     string `json:"content" yaml:"content"`
 }
 
+type AssistantZapier struct {
+	Name          string `json:"name" yaml:"name"`
+	Description   string `json:"description" yaml:"description"`
+	APIKey        string `json:"api_key" yaml:"api_key"`
+	Model         string `json:"model" yaml:"model"`
+	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
+}
+
 type AssistantAPI struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description" yaml:"description"`
@@ -990,6 +999,9 @@ type AssistantConfig struct {
 
 	// the list of gpt scripts this assistant will use
 	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+
+	Zapier []AssistantZapier `json:"zapier" yaml:"zapier"`
+
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because
