@@ -11,8 +11,8 @@ import (
 
 	oai "github.com/helixml/helix/api/pkg/openai"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type IsActionableResponse struct {

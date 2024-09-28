@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
 
@@ -70,8 +70,8 @@ const (
 )
 
 type ResponseFormat struct {
-	Type   ResponseFormatType     `json:"type"`
-	Schema map[string]interface{} `json:"schema"`
+	Type       ResponseFormatType                             `json:"type"`
+	JSONSchema *openai.ChatCompletionResponseFormatJSONSchema `json:"schema"`
 }
 
 type InteractionMessage struct {
@@ -863,6 +863,7 @@ type Tool struct {
 type ToolConfig struct {
 	API       *ToolApiConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
+	Zapier    *ToolZapierConfig    `json:"zapier"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -911,6 +912,11 @@ type ToolApiAction struct {
 type ToolGPTScriptConfig struct {
 	Script    string `json:"script"`     // Program code
 	ScriptURL string `json:"script_url"` // URL to download the script
+}
+
+type ToolZapierConfig struct {
+	APIKey string `json:"api_key"`
+	Model  string `json:"model"`
 }
 
 // SessionToolBinding used to add tools to sessions

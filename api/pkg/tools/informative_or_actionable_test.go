@@ -11,8 +11,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/kelseyhightower/envconfig"
-	oai "github.com/lukemarsden/go-openai2"
-	openai_ext "github.com/lukemarsden/go-openai2"
+	oai "github.com/sashabaranov/go-openai"
+	openai_ext "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"
 )
