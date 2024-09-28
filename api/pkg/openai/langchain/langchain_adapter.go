@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	openai "github.com/sashabaranov/go-openai"
 
@@ -16,14 +19,15 @@ var _ llms.Model = (*LangchainAdapter)(nil)
 
 type LangchainAdapter struct {
 	client helix_openai.Client
-	// model  string
+	model  string
 
 	CallbacksHandler callbacks.Handler
 }
 
-func New(client helix_openai.Client) (*LangchainAdapter, error) {
+func New(client helix_openai.Client, model string) (*LangchainAdapter, error) {
 	return &LangchainAdapter{
 		client: client,
+		model:  model,
 	}, nil
 }
 
@@ -44,17 +48,12 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 	chatMsgs := make([]openai.ChatCompletionMessage, 0, len(messages))
 
 	for _, mc := range messages {
-		msg := openai.ChatCompletionMessage{
-			Role: string(mc.Role),
-		}
+		msg := openai.ChatCompletionMessage{}
 
 		for _, part := range mc.Parts {
 			switch p := part.(type) {
 			case llms.TextContent:
-				msg.MultiContent = append(msg.MultiContent, openai.ChatMessagePart{
-					Type: openai.ChatMessagePartTypeText,
-					Text: p.Text,
-				})
+				msg.Content = p.Text
 			case llms.ImageURLContent:
 				msg.MultiContent = append(msg.MultiContent, openai.ChatMessagePart{
 					Type:     openai.ChatMessagePartTypeImageURL,
@@ -73,6 +72,16 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		}
 
 		switch mc.Role {
+		case llms.ChatMessageTypeSystem:
+			msg.Role = openai.ChatMessageRoleSystem
+		case llms.ChatMessageTypeAI:
+			msg.Role = openai.ChatMessageRoleAssistant
+		case llms.ChatMessageTypeHuman:
+			msg.Role = openai.ChatMessageRoleUser
+		case llms.ChatMessageTypeGeneric:
+			msg.Role = openai.ChatMessageRoleUser
+		case llms.ChatMessageTypeFunction:
+			msg.Role = openai.ChatMessageRoleFunction
 		case llms.ChatMessageTypeTool:
 			// Here we extract tool calls from the message and populate the ToolCalls field.
 			// parse mc.Parts (which should have one entry of type ToolCallResponse) and populate msg.Content and msg.ToolCallID
@@ -100,8 +109,14 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		seed = opts.Seed
 	}
 
+	model := a.model
+
+	if opts.Model != "" {
+		model = opts.Model
+	}
+
 	req := openai.ChatCompletionRequest{
-		Model:    opts.Model,
+		Model:    model,
 		Stop:     opts.StopWords,
 		Messages: chatMsgs,
 		// TODO:
@@ -145,10 +160,17 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		req.Tools = append(req.Tools, t)
 	}
 
+	spew.Dump(req)
+
 	result, err := a.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat completion: %w", err)
 	}
+
+	ts := time.Now()
+
+	os.WriteFile(ts.String()+".req.json", []byte(spew.Sprint(req)), 0o644)
+	os.WriteFile(ts.String()+".result.json", []byte(spew.Sprint(result)), 0o644)
 
 	if len(result.Choices) == 0 {
 		return nil, errors.New("no response")
