@@ -915,8 +915,9 @@ type ToolGPTScriptConfig struct {
 }
 
 type ToolZapierConfig struct {
-	APIKey string `json:"api_key"`
-	Model  string `json:"model"`
+	APIKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	MaxIterations int    `json:"max_iterations"`
 }
 
 // SessionToolBinding used to add tools to sessions
