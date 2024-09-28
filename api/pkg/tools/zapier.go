@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	helix_langchain "github.com/helixml/helix/api/pkg/openai/langchain"
+	"github.com/helixml/helix/api/pkg/openai/transport"
 	"github.com/helixml/helix/api/pkg/types"
 	"github.com/rs/zerolog/log"
 
@@ -78,7 +79,44 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, h
 }
 
 func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
-	return nil, fmt.Errorf("not implemented")
+	downstream, downstreamWriter, err := transport.NewOpenAIStreamingAdapter(openai.ChatCompletionRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create streaming adapter: %w", err)
+	}
+
+	go func() {
+		defer downstreamWriter.Close()
+
+		var result string
+
+		resp, err := c.RunZapierAction(ctx, tool, history, action)
+		if err != nil {
+			log.Err(err).
+				Str("action", action).
+				Str("tool", tool.Name).
+				Str("model", tool.Config.Zapier.Model).
+				Msg("error running zapier action")
+			result = err.Error()
+		} else {
+			if resp.Error != "" {
+				result = resp.Error
+			} else {
+				result = resp.Message
+			}
+		}
+
+		transport.WriteChatCompletionStream(downstreamWriter, &openai.ChatCompletionStreamResponse{
+			Choices: []openai.ChatCompletionStreamChoice{
+				{
+					Delta: openai.ChatCompletionStreamChoiceDelta{
+						Content: result,
+					},
+				},
+			},
+		})
+	}()
+
+	return downstream, nil
 }
 
 func (c *ChainStrategy) newClient(tool *types.Tool) (*oai.LLM, error) {
