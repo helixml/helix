@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/helixml/helix/api/pkg/config"
@@ -23,12 +24,13 @@ func TestActionTestSuite(t *testing.T) {
 
 type ActionTestSuite struct {
 	suite.Suite
-	ctrl      *gomock.Controller
-	executor  *gptscript.MockExecutor
-	apiClient *openai.MockClient
-	store     *store.MockStore
-	ctx       context.Context
-	strategy  *ChainStrategy
+	ctrl         *gomock.Controller
+	executor     *gptscript.MockExecutor
+	apiClient    *openai.MockClient
+	store        *store.MockStore
+	ctx          context.Context
+	strategy     *ChainStrategy
+	zapierAPIKey string
 }
 
 func (suite *ActionTestSuite) SetupTest() {
@@ -38,6 +40,8 @@ func (suite *ActionTestSuite) SetupTest() {
 
 	suite.executor = gptscript.NewMockExecutor(suite.ctrl)
 	suite.store = store.NewMockStore(suite.ctrl)
+
+	suite.zapierAPIKey = os.Getenv("ZAPIER_API_KEY")
 
 	var cfg config.ServerConfig
 	err := envconfig.Process("", &cfg)
