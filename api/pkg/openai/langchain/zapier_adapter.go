@@ -2,6 +2,7 @@ package langchain
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
@@ -15,15 +16,14 @@ var _ llms.Model = (*LangchainAdapter)(nil)
 
 type LangchainAdapter struct {
 	client helix_openai.Client
-	model  string
+	// model  string
 
 	CallbacksHandler callbacks.Handler
 }
 
-func New(client helix_openai.Client, model string) (*LangchainAdapter, error) {
+func New(client helix_openai.Client) (*LangchainAdapter, error) {
 	return &LangchainAdapter{
 		client: client,
-		model:  model,
 	}, nil
 }
 
@@ -41,12 +41,11 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		opt(&opts)
 	}
 
-	chatMsgs := make([]*openai.ChatCompletionMessage, 0, len(messages))
+	chatMsgs := make([]openai.ChatCompletionMessage, 0, len(messages))
 
 	for _, mc := range messages {
-		msg := &openai.ChatCompletionMessage{
+		msg := openai.ChatCompletionMessage{
 			Role: string(mc.Role),
-			// Content: mc.,
 		}
 
 		for _, part := range mc.Parts {
@@ -55,6 +54,20 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 				msg.MultiContent = append(msg.MultiContent, openai.ChatMessagePart{
 					Type: openai.ChatMessagePartTypeText,
 					Text: p.Text,
+				})
+			case llms.ImageURLContent:
+				msg.MultiContent = append(msg.MultiContent, openai.ChatMessagePart{
+					Type:     openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{URL: p.URL},
+				})
+			case llms.ToolCall:
+				msg.ToolCalls = append(msg.ToolCalls, openai.ToolCall{
+					ID:   p.ID,
+					Type: openai.ToolType(p.Type),
+					Function: openai.FunctionCall{
+						Name:      p.FunctionCall.Name,
+						Arguments: p.FunctionCall.Arguments,
+					},
 				})
 			}
 		}
@@ -78,14 +91,108 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 			return nil, fmt.Errorf("role %v not supported", mc.Role)
 		}
 
-		newParts, toolCalls := ExtractToolParts(msg)
-		msg.MultiContent = newParts
-		msg.ToolCalls = toolCallsFromToolCalls(toolCalls)
-
 		chatMsgs = append(chatMsgs, msg)
 	}
 
-	return nil, nil
+	var seed int
+
+	if opts.Seed > 0 {
+		seed = opts.Seed
+	}
+
+	req := openai.ChatCompletionRequest{
+		Model:    opts.Model,
+		Stop:     opts.StopWords,
+		Messages: chatMsgs,
+		// TODO:
+		// StreamingFunc:    opts.StreamingFunc,
+		Temperature:      float32(opts.Temperature),
+		MaxTokens:        opts.MaxTokens,
+		N:                opts.N,
+		FrequencyPenalty: float32(opts.FrequencyPenalty),
+		PresencePenalty:  float32(opts.PresencePenalty),
+
+		ToolChoice: opts.ToolChoice,
+		// TODO:
+		// FunctionCallBehavior: openaiclient.FunctionCallBehavior(opts.FunctionCallBehavior),
+		Seed: &seed,
+		// Metadata: opts.Metadata,
+	}
+
+	if opts.JSONMode {
+		req.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+		}
+	}
+
+	for _, fn := range opts.Functions {
+		req.Tools = append(req.Tools, openai.Tool{
+			Type: "function",
+			Function: &openai.FunctionDefinition{
+				Name:        fn.Name,
+				Description: fn.Description,
+				Parameters:  fn.Parameters,
+			},
+		})
+	}
+
+	// if opts.Tools is not empty, append them to req.Tools
+	for _, tool := range opts.Tools {
+		t, err := toolFromTool(tool)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert llms tool to openai tool: %w", err)
+		}
+		req.Tools = append(req.Tools, t)
+	}
+
+	result, err := a.client.CreateChatCompletion(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create chat completion: %w", err)
+	}
+
+	if len(result.Choices) == 0 {
+		return nil, errors.New("no response")
+	}
+
+	choices := make([]*llms.ContentChoice, len(result.Choices))
+	for i, c := range result.Choices {
+		choices[i] = &llms.ContentChoice{
+			Content:    c.Message.Content,
+			StopReason: fmt.Sprint(c.FinishReason),
+			GenerationInfo: map[string]any{
+				"CompletionTokens": result.Usage.CompletionTokens,
+				"PromptTokens":     result.Usage.PromptTokens,
+				"TotalTokens":      result.Usage.TotalTokens,
+			},
+		}
+
+		// Legacy function call handling
+		if c.FinishReason == "function_call" {
+			choices[i].FuncCall = &llms.FunctionCall{
+				Name:      c.Message.FunctionCall.Name,
+				Arguments: c.Message.FunctionCall.Arguments,
+			}
+		}
+		for _, tool := range c.Message.ToolCalls {
+			choices[i].ToolCalls = append(choices[i].ToolCalls, llms.ToolCall{
+				ID:   tool.ID,
+				Type: string(tool.Type),
+				FunctionCall: &llms.FunctionCall{
+					Name:      tool.Function.Name,
+					Arguments: tool.Function.Arguments,
+				},
+			})
+		}
+		// populate legacy single-function call field for backwards compatibility
+		if len(choices[i].ToolCalls) > 0 {
+			choices[i].FuncCall = choices[i].ToolCalls[0].FunctionCall
+		}
+	}
+	response := &llms.ContentResponse{Choices: choices}
+	if a.CallbacksHandler != nil {
+		a.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, response)
+	}
+	return response, nil
 }
 
 // ExtractToolParts extracts the tool parts from a message.
@@ -109,4 +216,22 @@ func ExtractToolParts(msg *openai.ChatCompletionMessage) ([]openai.ChatMessagePa
 		}
 	}
 	return content, toolCalls
+}
+
+// toolFromTool converts an llms.Tool to a Tool.
+func toolFromTool(t llms.Tool) (openai.Tool, error) {
+	tool := openai.Tool{
+		Type: openai.ToolType(t.Type),
+	}
+	switch t.Type {
+	case string(openai.ToolTypeFunction):
+		tool.Function = &openai.FunctionDefinition{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		}
+	default:
+		return openai.Tool{}, fmt.Errorf("tool type %v not supported", t.Type)
+	}
+	return tool, nil
 }
