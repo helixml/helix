@@ -78,7 +78,7 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, h
 }
 
 func (c *ChainStrategy) RunZapierActionStream(ctx context.Context, tool *types.Tool, history []*types.ToolHistoryMessage, action string) (*openai.ChatCompletionStream, error) {
-	return nil, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *ChainStrategy) newClient(tool *types.Tool) (*oai.LLM, error) {
