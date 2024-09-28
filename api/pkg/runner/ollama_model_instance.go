@@ -472,8 +472,9 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	last, _ := data.GetLastAssistantInteraction(interactions)
 	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
 		responseFormat = &openai.ChatCompletionResponseFormat{
-			Type:       openai.ChatCompletionResponseFormatTypeJSONObject,
-			JSONSchema: last.ResponseFormat.Schema,
+			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+			// TODO: response format
+			// JSONSchema: last.ResponseFormat.Schema,
 		}
 	}
 
