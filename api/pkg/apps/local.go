@@ -45,6 +45,7 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 	var (
 		apiTools   []*types.Tool
 		gptScripts []*types.Tool
+		zapier     []*types.Tool
 	)
 
 	for idx, assistant := range app.Assistants {
@@ -71,7 +72,20 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 			})
 		}
 
-		app.Assistants[idx].Tools = apiTools
+		for _, assistantZapier := range assistant.Zapier {
+			zapier = append(zapier, &types.Tool{
+				Name:        assistantZapier.Name,
+				Description: assistantZapier.Description,
+				ToolType:    types.ToolTypeZapier,
+				Config: types.ToolConfig{
+					Zapier: &types.ToolZapierConfig{
+						APIKey:        assistantZapier.APIKey,
+						Model:         assistantZapier.Model,
+						MaxIterations: assistantZapier.MaxIterations,
+					},
+				},
+			})
+		}
 
 		for _, script := range assistant.GPTScripts {
 			switch {
@@ -117,7 +131,9 @@ func NewLocalApp(filename string) (*LocalApp, error) {
 				}
 			}
 		}
-		// Append the gptscripts into the list
+
+		app.Assistants[idx].Tools = apiTools
+		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, zapier...)
 		app.Assistants[idx].Tools = append(app.Assistants[idx].Tools, gptScripts...)
 	}
 
