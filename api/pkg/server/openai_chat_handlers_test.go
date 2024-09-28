@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	oai "github.com/lukemarsden/go-openai2"
+	oai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/mock/gomock"

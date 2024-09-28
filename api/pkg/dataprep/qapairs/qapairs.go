@@ -14,8 +14,8 @@ import (
 	"github.com/helixml/helix/api/pkg/tools"
 	"github.com/helixml/helix/api/pkg/types"
 
-	ext_openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	ext_openai "github.com/sashabaranov/go-openai"
 	"gopkg.in/yaml.v3"
 )
 
@@ -312,8 +312,9 @@ func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user
 
 	if jsonSchema != nil {
 		req.ResponseFormat = &ext_openai.ChatCompletionResponseFormat{
-			Type:   ext_openai.ChatCompletionResponseFormatTypeJSONObject,
-			Schema: jsonSchema,
+			Type: ext_openai.ChatCompletionResponseFormatTypeJSONObject,
+			// TODO:
+			// JSONSchema: jsonSchema,
 		}
 	}
 

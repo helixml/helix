@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var (

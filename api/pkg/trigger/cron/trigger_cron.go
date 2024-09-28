@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	openai "github.com/lukemarsden/go-openai2"
 	cronv3 "github.com/robfig/cron/v3"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/controller"

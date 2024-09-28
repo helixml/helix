@@ -25,8 +25,8 @@ import (
 
 	"github.com/jmorganca/ollama/api"
 	"github.com/jmorganca/ollama/format"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 // TODO: remove, replaced by llm_ollama_model_instance
@@ -472,8 +472,8 @@ func (i *OllamaModelInstance) processInteraction(session *types.Session) error {
 	last, _ := data.GetLastAssistantInteraction(interactions)
 	if last != nil && last.ResponseFormat.Type == types.ResponseFormatTypeJSONObject {
 		responseFormat = &openai.ChatCompletionResponseFormat{
-			Type:   openai.ChatCompletionResponseFormatTypeJSONObject,
-			Schema: last.ResponseFormat.Schema,
+			Type:       openai.ChatCompletionResponseFormatTypeJSONObject,
+			JSONSchema: last.ResponseFormat.Schema,
 		}
 	}
 

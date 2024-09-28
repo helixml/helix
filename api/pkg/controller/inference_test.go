@@ -17,7 +17,7 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 	"go.uber.org/mock/gomock"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/suite"
 )
 

@@ -12,8 +12,8 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/helixml/helix/api/pkg/model"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
