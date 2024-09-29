@@ -26,6 +26,14 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, h
 
 	currentMessage := history[len(history)-1].Content
 
+	log.Info().
+		Str("action", action).
+		Str("tool", tool.Name).
+		Str("model", tool.Config.Zapier.Model).
+		Str("api_key", tool.Config.Zapier.APIKey).
+		Str("prompt", currentMessage).
+		Msg("running Zapier action")
+
 	// get all the available zapier NLA Tools
 	tks, err := zapier.Toolkit(ctx, zapier.ToolkitOpts{
 		APIKey: tool.Config.Zapier.APIKey,
