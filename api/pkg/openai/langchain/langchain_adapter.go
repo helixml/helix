@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	helix_openai "github.com/helixml/helix/api/pkg/openai"
 	openai "github.com/sashabaranov/go-openai"
 
@@ -160,17 +157,15 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		req.Tools = append(req.Tools, t)
 	}
 
-	spew.Dump(req)
-
 	result, err := a.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create chat completion: %w", err)
 	}
 
-	ts := time.Now()
+	// ts := time.Now()
 
-	os.WriteFile(ts.String()+".req.json", []byte(spew.Sprint(req)), 0o644)
-	os.WriteFile(ts.String()+".result.json", []byte(spew.Sprint(result)), 0o644)
+	// os.WriteFile(ts.String()+".req.json", []byte(spew.Sprint(req)), 0o644)
+	// os.WriteFile(ts.String()+".result.json", []byte(spew.Sprint(result)), 0o644)
 
 	if len(result.Choices) == 0 {
 		return nil, errors.New("no response")
