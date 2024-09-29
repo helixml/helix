@@ -65,6 +65,8 @@ services:
     depends_on:
       - postgres
       - keycloak
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   postgres:
     image: postgres:12.13-alpine
     restart: always
