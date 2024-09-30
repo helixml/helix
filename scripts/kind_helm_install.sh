@@ -1,4 +1,10 @@
 #!/bin/bash
+set -euo pipefail
+
+# This script can be used to test local changes to the Helix Helm chart. To do
+# this, export USE_LOCAL_HELM_CHART=1 and run the script.
+
+USE_LOCAL_HELM_CHART=${USE_LOCAL_HELM_CHART:-""}
 
 # Function to check if a command is installed
 check_command() {
@@ -24,7 +30,7 @@ check_command "kubectl"
 check_command "helm"
 
 # Check that user has TOGETHER_API_KEY set
-if [ -z "$TOGETHER_API_KEY" ]; then
+if [ -z "${TOGETHER_API_KEY:-}" ]; then
     echo "TOGETHER_API_KEY is not set. Please set it before proceeding."
     exit 1
 fi
@@ -53,6 +59,7 @@ kubectl cluster-info --context kind-$CLUSTER_NAME
 helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
   --set auth.adminUser=admin \
   --set auth.adminPassword=oh-hallo-insecure-password \
+  --set image.tag="23" \
   --set httpRelativePath="/auth/"
 
 # Wait for pod to exist
@@ -66,19 +73,37 @@ done
 echo "Waiting for Keycloak to be ready..."
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=keycloak --timeout=300s
 
-# Add the Helix Helm chart repository
-echo "Adding the Helix Helm chart repository..."
-helm repo add helix https://charts.helix.ml
-helm repo update
+if [ -n "$USE_LOCAL_HELM_CHART" ] && [ "$USE_LOCAL_HELM_CHART" != "false" ] && [ "$USE_LOCAL_HELM_CHART" != "" ]; then
+  echo "Using local Helm chart..."
 
-# Grab the latest values-example.yaml
-echo "Downloading the latest values-example.yaml..."
-curl -o $DIR/values-example.yaml https://raw.githubusercontent.com/helixml/helix/main/charts/helix-controlplane/values-example.yaml
+  # Change to the root directory of the Helix project
+  cd "$(dirname "$0")/.."
+
+  # Ensure we're in the correct directory
+  if [ ! -d "./charts/helix-controlplane" ]; then
+    echo "Error: charts/helix-controlplane directory not found. Make sure you're running this script from the root of the Helix project."
+    exit 1
+  fi
+
+  cp charts/helix-controlplane/values-example.yaml $DIR/values-example.yaml
+
+  CHART=./charts/helix-controlplane
+else
+  # Add the Helix Helm chart repository
+  echo "Adding the Helix Helm chart repository..."
+  helm repo add helix https://charts.helix.ml
+  helm repo update
+  # Grab the latest values-example.yaml
+  echo "Downloading the latest values-example.yaml..."
+  curl -o $DIR/values-example.yaml https://raw.githubusercontent.com/helixml/helix/main/charts/helix-controlplane/values-example.yaml
+
+  CHART=helix/helix-controlplane
+fi
 
 # Install Helix using Helm
 echo "Installing Helix..."
 export LATEST_RELEASE=$(curl -s https://get.helix.ml/latest.txt)
-helm upgrade --install my-helix-controlplane helix/helix-controlplane \
+helm upgrade --install my-helix-controlplane $CHART \
   -f $DIR/values-example.yaml \
   --set image.tag="${LATEST_RELEASE}" \
   --set envVariables.TOGETHER_API_KEY=${TOGETHER_API_KEY}

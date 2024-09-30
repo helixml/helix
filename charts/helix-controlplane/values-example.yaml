@@ -1,4 +1,13 @@
-# For more information visit: https://docs.helix.ml/helix/private-deployment/environment-variables/
+# For more information visit:
+# https://docs.helix.ml/helix/private-deployment/manual-install/kubernetes/ and
+# https://docs.helix.ml/helix/private-deployment/environment-variables/
+
+image:
+  # It's good practice to pin the version of the software you're running!
+  # Get this from https://get.helix.ml/latest.txt or check https://github.com/helixml/helix/releases
+  # YOU MUST SET THIS VALUE OR IT WILL NOT WORK
+  tag: ""
+
 envVariables:
   LOG_LEVEL: debug
   APP_URL: http://localhost:8080
