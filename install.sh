@@ -225,20 +225,20 @@ if [ "$AUTO" = true ]; then
     fi
     echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
     if check_nvidia_gpu; then
-        echo "NVIDIA GPU detected. Runner will be installed locally."
+        echo "🚀 NVIDIA GPU detected. Runner will be installed locally."
         echo
     elif check_ollama; then
         echo "🦙 Ollama detected. Using local Ollama for inference provider."
         echo
     else
         echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
-        echo "use it for inference. Otherwise, you need to connect a separate GPU node "
-        echo "to this controlplane, point a DNS name at this server and set --api-host, "
-        echo "for example --api-host https://helix.mycompany.com"
+        echo "use it for inference. Otherwise, you need to point a DNS name at this server "
+        echo "and set --api-host (e.g. --api-host https://helix.mycompany.com) and then "
+        echo "connect a separate GPU node to this controlplane."
         echo
-        echo "See command at the end to install runner separately on a GPU node, or pass "
-        echo "--together-api-key to connect to together.ai for LLM inference. See --help "
-        echo "for more options."
+        echo "Command will be printed at the end to install runner separately on a GPU node, "
+        echo "or pass --together-api-key to connect to together.ai for LLM inference."
+        echo "See --help for more options."
         echo
     fi
 fi
