@@ -48,14 +48,6 @@ func TestTika_Extract(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		t.Log(text)
-
-		// t.Error("xx")
-
-		// fmt.Println(text)
-
-		// os.WriteFile("out_2.md", []byte(text), 0o644)
-
 		assert.Contains(t,
 			text,
 			"Front  Inspect the brake pads from in front")
@@ -63,5 +55,27 @@ func TestTika_Extract(t *testing.T) {
 		assert.Contains(t,
 			text,
 			"Check that the side stand operates")
+	})
+
+	t.Run("ExtractContent_HR_Guide", func(t *testing.T) {
+		ctx := context.Background()
+
+		bts, err := os.ReadFile("./testdata/hr_guide.pdf")
+		require.NoError(t, err)
+
+		text, err := extractor.Extract(ctx, &ExtractRequest{
+			Content: bts,
+		})
+		require.NoError(t, err)
+
+		os.WriteFile("out.md", []byte(text), 0o644)
+
+		assert.Contains(t,
+			text,
+			"to thriving communities. And in doing so, you help build a stronger, more resilient")
+
+		assert.Contains(t,
+			text,
+			"This policy applies to bona fide non-occupational illnesses and injuries")
 	})
 }
