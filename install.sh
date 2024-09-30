@@ -453,6 +453,7 @@ EOF
     # Create .env file
     ENV_FILE="$INSTALL_DIR/.env"
     echo -e "\nCreating/updating .env file..."
+    echo
     
     # Default to localhost if it wasn't passed
     if [ -z "$API_HOST" ]; then
@@ -466,8 +467,10 @@ EOF
         DATE=$(date +%Y%m%d%H%M%S)
         cp "$ENV_FILE" "$ENV_FILE-$DATE"
         echo "Backup of .env file created: $ENV_FILE-$DATE"
+        echo
         echo "To see what changed, run:"
         echo "diff $ENV_FILE $ENV_FILE-$DATE"
+        echo
 
         KEYCLOAK_ADMIN_PASSWORD=$(grep '^KEYCLOAK_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^KEYCLOAK_ADMIN_PASSWORD=//' || generate_password)
         POSTGRES_ADMIN_PASSWORD=$(grep '^POSTGRES_ADMIN_PASSWORD=' "$ENV_FILE" | sed 's/^POSTGRES_ADMIN_PASSWORD=//' || generate_password)
@@ -511,6 +514,7 @@ EOF
         echo "No LLM provider specified. Checking if Ollama is running on localhost:11434..."
         if check_ollama; then
             echo "Ollama (or another OpenAI compatible API) detected on localhost:11434. Configuring Helix to use it."
+            echo
             echo "OPENAI_API_KEY=ollama" >> "$ENV_FILE"
             echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_FILE"
             echo "INFERENCE_PROVIDER=openai" >> "$ENV_FILE"
@@ -518,24 +522,25 @@ EOF
             AUTODETECTED_LLM=true
         else
         echo
-        echo " > Ollama not detected on localhost."
-        echo " > "
-        echo " > Note that Helix will be non-functional without an LLM provider or GPU runner attached."
-        echo " > "
-        echo " > You have 4 options:"
-        echo " > "
-        echo " > USE OLLAMA LOCALLY"
-        echo " > If you want to use Ollama, start it and re-run the installer so that it can be detected"
-        echo " > "
-        echo " > ATTACH YOUR OWN GPU"
-        echo " > You can attach a GPU runner (instructions printed below)"
-        echo " > "
-        echo " > USE TOGETHER.AI"
-        echo " > You can re-run the installer with --together-api-key (see --help for details)"
-        echo " > "
-        echo " > USE EXTERNAL OPENAI COMPATIBLE LLM"
-        echo " > "
-        echo " > You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
+        echo "┌────────────────────────────────────────────────────────────────────────────────────────────────────────"
+        echo "│ ⚠️ Ollama not detected on localhost."
+        echo "│ "
+        echo "│ Note that Helix will be non-functional without an LLM provider or GPU runner attached."
+        echo "│ "
+        echo "│ You have 4 options:"
+        echo "│ "
+        echo "│ 1. USE OLLAMA LOCALLY"
+        echo "│    If you want to use Ollama, start it and re-run the installer so that it can be detected"
+        echo "│ "
+        echo "│ 2. ATTACH YOUR OWN GPU"
+        echo "│    You can attach a GPU runner (instructions printed below)"
+        echo "│ "
+        echo "│ 3. USE TOGETHER.AI"
+        echo "│    You can re-run the installer with --together-api-key (see --help for details)"
+        echo "│ "
+        echo "│ 4. USE EXTERNAL OPENAI COMPATIBLE LLM"
+        echo "│    You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
+        echo "└────────────────────────────────────────────────────────────────────────────────────────────────────────"
         echo
         fi
     fi
@@ -591,15 +596,16 @@ EOF
 EOF
 
     echo ".env file has been created at $ENV_FILE"
-    echo "┌───────────────────────────────────────────────────────────────────────────┐"
-    echo "│ You can now:"
-    echo "|"
-    echo "| cd $INSTALL_DIR"
-    echo "| docker compose up -d --remove-orphans"
-    echo "|"
+    echo
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ You MUST now:"
+    echo "│"
+    echo "│ cd $INSTALL_DIR"
+    echo "│ docker compose up -d --remove-orphans"
+    echo "│"
     echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-    echo "| This will take a minute or so to boot."
-    echo "└───────────────────────────────────────────────────────────────────────────┘"
+    echo "│ This will take a minute or so to boot."
+    echo "└───────────────────────────────────────────────────────────────────────────"
 
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
@@ -737,12 +743,12 @@ EOF
 
     sudo chmod +x $INSTALL_DIR/runner.sh
     echo "Runner script has been created at $INSTALL_DIR/runner.sh"
-    echo "┌───────────────────────────────────────────────────────────────────────────┐"
-    echo "│ To start the runner, run:                                                 │"
-    echo "│                                                                           │"
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ To start the runner, run:"
+    echo "│"
     echo "│   sudo $INSTALL_DIR/runner.sh"
-    echo "│                                                                           │"
-    echo "└───────────────────────────────────────────────────────────────────────────┘"
+    echo "│"
+    echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
 if [ -n "$API_HOST" ] && [ "$CONTROLPLANE" = true ]; then
