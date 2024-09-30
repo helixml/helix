@@ -38,6 +38,9 @@ steps:
     TEXT_EXTRACTION_TIKA_URL: http://tika:9998
   commands:
     - go test -v ./...
+  when:
+    event:
+    - push
 
 - name: release-backend
   image: golang:1.22.5-alpine3.19

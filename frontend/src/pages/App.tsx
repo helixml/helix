@@ -652,6 +652,7 @@ const App: FC = () => {
     setHasLoaded(true);
   }, [app])
 
+  // TODO: also poll for session updates to avoid missing updates when the backend is faster than the frontend
   useWebsocket(sessionID, (parsedData) => {
     if(parsedData.type === WEBSOCKET_EVENT_TYPE_SESSION_UPDATE && parsedData.session) {
       const newSession: ISession = parsedData.session
@@ -1624,6 +1625,9 @@ const App: FC = () => {
               </Typography>
               <Typography variant="subtitle2" gutterBottom>
                 Document Group ID: {selectedChunk.document_group_id}
+              </Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Chunk characters: {selectedChunk.content.length}
               </Typography>
               <Typography variant="h6" gutterBottom>
                 Chunk content:

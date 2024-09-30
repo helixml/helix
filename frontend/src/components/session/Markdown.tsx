@@ -6,7 +6,6 @@ import {Prism as SyntaxHighlighterTS} from 'react-syntax-highlighter'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
-import detectLang from 'lang-detector'
 // you can change the theme by picking one from here
 // https://react-syntax-highlighter.github.io/react-syntax-highlighter/demo/prism.html
 import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -43,20 +42,18 @@ export const InteractionMarkdown: FC<{
           code(props) {
             const {children, className, node, ...rest} = props
             const match = /language-(\w+)/.exec(className || '')
-            let lang = match ? match[0] : ''
-
-            if(!lang) {
-              lang = (detectLang(String(children)) || '').toLowerCase()
-            }
-
-            return (
+            return match ? (
               <SyntaxHighlighter
                 {...rest}
                 PreTag="div"
-                children={String(children).replace(/\n$/, '').replace(/^\s+/, '')}
-                language={ lang }
+                children={String(children).replace(/\n$/, '')}
+                language={match[1]}
                 style={oneDark}
               />
+            ) : (
+              <code {...rest} className={className}>
+                {children}
+              </code>
             )
           }
         }}

@@ -534,6 +534,7 @@ export interface IKnowledgeSource {
   rag_settings: {
     results_count: number;
     chunk_size: number;
+    chunk_overflow: number;
   };
   state: string;
   message?: string;
