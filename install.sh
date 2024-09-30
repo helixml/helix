@@ -132,21 +132,41 @@ while [[ $# -gt 0 ]]; do
             LARGE=true
             shift
             ;;
+        --api-host=*)
+            API_HOST="${1#*=}"
+            shift
+            ;;
         --api-host)
-            API_HOST=$2
+            API_HOST="$2"
             shift 2
+            ;;
+        --runner-token=*)
+            RUNNER_TOKEN="${1#*=}"
+            shift
             ;;
         --runner-token)
             RUNNER_TOKEN="$2"
             shift 2
             ;;
+        --together-api-key=*)
+            TOGETHER_API_KEY="${1#*=}"
+            shift
+            ;;
         --together-api-key)
             TOGETHER_API_KEY="$2"
             shift 2
             ;;
+        --openai-api-key=*)
+            OPENAI_API_KEY="${1#*=}"
+            shift
+            ;;
         --openai-api-key)
             OPENAI_API_KEY="$2"
             shift 2
+            ;;
+        --openai-base-url=*)
+            OPENAI_BASE_URL="${1#*=}"
+            shift
             ;;
         --openai-base-url)
             OPENAI_BASE_URL="$2"
@@ -154,6 +174,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --older-gpu)
             OLDER_GPU=true
+            shift
+            ;;
+        --hf-token=*)
+            HF_TOKEN="${1#*=}"
             shift
             ;;
         --hf-token)
@@ -182,6 +206,16 @@ check_nvidia_gpu() {
     fi
 }
 
+
+# Function to check if Ollama is running on localhost:11434
+check_ollama() {
+    if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Adjust default values based on provided arguments and AUTO mode
 if [ "$AUTO" = true ]; then
     CLI=true
@@ -192,14 +226,19 @@ if [ "$AUTO" = true ]; then
     echo -e "Auto-install mode detected. Installing CLI and Control Plane.\n"
     if check_nvidia_gpu; then
         echo "NVIDIA GPU detected. Runner will be installed locally."
+        echo
+    elif check_ollama; then
+        echo "🦙 Ollama detected. Using local Ollama for inference provider."
+        echo
     else
-        echo "No NVIDIA GPU detected. Runner will not be installed. If you want to connect "
-        echo "an external GPU node to this controlplane, you need to point a DNS name at "
-        echo "the IP address of this server and set --api-host, for example "
-        echo "https://my-controlplane.com"
+        echo "No NVIDIA GPU or Ollama detected. Ensure Ollama is running if you want to "
+        echo "use it for inference. Otherwise, you need to connect a separate GPU node "
+        echo "to this controlplane, point a DNS name at this server and set --api-host, "
+        echo "for example --api-host https://helix.mycompany.com"
         echo
         echo "See command at the end to install runner separately on a GPU node, or pass "
-        echo "--together-api-key to connect to together.ai for LLM inference."
+        echo "--together-api-key to connect to together.ai for LLM inference. See --help "
+        echo "for more options."
         echo
     fi
 fi
@@ -470,7 +509,7 @@ EOF
     # If user hasn't specified LLM provider, check if Ollama is running on localhost:11434
     if [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_BASE_URL" ] && [ -z "$TOGETHER_API_KEY" ]; then
         echo "No LLM provider specified. Checking if Ollama is running on localhost:11434..."
-        if curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:11434/v1/models >/dev/null; then
+        if check_ollama; then
             echo "Ollama (or another OpenAI compatible API) detected on localhost:11434. Configuring Helix to use it."
             echo "OPENAI_API_KEY=ollama" >> "$ENV_FILE"
             echo "OPENAI_BASE_URL=http://host.docker.internal:11434/v1" >> "$ENV_FILE"
@@ -478,26 +517,26 @@ EOF
             echo "FINETUNING_PROVIDER=openai" >> "$ENV_FILE"
             AUTODETECTED_LLM=true
         else
-	    echo
-	    echo " > Ollama not detected on localhost."
-	    echo " > "
-     	    echo " > Note that Helix will be non-functional without an LLM provider or GPU runner attached."
-	    echo " > "
-            echo " > You have 4 options:"
-	    echo " > "
-            echo " > USE OLLAMA LOCALLY"
-            echo " > If you want to use Ollama, start it and re-run the installer so that it can be detected"
-	    echo " > "
-            echo " > ATTACH YOUR OWN GPU"
-            echo " > You can attach a GPU runner (instructions printed below)"
-	    echo " > "
-            echo " > USE TOGETHER.AI"
-     	    echo " > You can re-run the installer with --together-api-key (see --help for details)"
-	    echo " > "
-            echo " > USE EXTERNAL OPENAI COMPATIBLE LLM"
-	    echo " > "
-	    echo " > You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
-     	    echo
+        echo
+        echo " > Ollama not detected on localhost."
+        echo " > "
+        echo " > Note that Helix will be non-functional without an LLM provider or GPU runner attached."
+        echo " > "
+        echo " > You have 4 options:"
+        echo " > "
+        echo " > USE OLLAMA LOCALLY"
+        echo " > If you want to use Ollama, start it and re-run the installer so that it can be detected"
+        echo " > "
+        echo " > ATTACH YOUR OWN GPU"
+        echo " > You can attach a GPU runner (instructions printed below)"
+        echo " > "
+        echo " > USE TOGETHER.AI"
+        echo " > You can re-run the installer with --together-api-key (see --help for details)"
+        echo " > "
+        echo " > USE EXTERNAL OPENAI COMPATIBLE LLM"
+        echo " > "
+        echo " > You can re-run the installer with --openai-api-key and --openai-base-url (see --help for details)"
+        echo
         fi
     fi
 
