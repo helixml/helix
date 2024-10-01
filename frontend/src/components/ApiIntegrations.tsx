@@ -217,17 +217,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 />
               </Grid>
               <Grid item xs={12}>
-                <TextField
-                  value={editingTool.config.api?.url}
-                  onChange={(e) => updateApiConfig({ url: e.target.value })}
-                  label="URL"
-                  fullWidth
-                  error={showErrors && !editingTool.config.api?.url}
-                  helperText={showErrors && !editingTool.config.api?.url ? 'Please enter a URL' : ''}
-                  disabled={isReadOnly}
-                />
-              </Grid>
-              <Grid item xs={12}>
                 <FormControl fullWidth sx={{ mb: 2 }}>
                   <InputLabel id="schema-template-label">Example Schemas</InputLabel>
                   <Select
@@ -238,13 +227,24 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                     }}
                     disabled={isReadOnly}
                   >
-                    <MenuItem value="">
-                      <em>None</em>
+                    <MenuItem value="custom">
+                      <em>Custom</em>
                     </MenuItem>
                     <MenuItem value="coindesk">CoinDesk</MenuItem>
                     <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
                   </Select>
                 </FormControl>
+                <TextField
+                  value={editingTool.config.api?.url}
+                  onChange={(e) => updateApiConfig({ url: e.target.value })}
+                  label="URL"
+                  fullWidth
+                  error={showErrors && !editingTool.config.api?.url}
+                  helperText={showErrors && !editingTool.config.api?.url ? 'Please enter a URL' : ''}
+                  disabled={isReadOnly}
+                />
+              </Grid>
+              <Grid item xs={12}>                
                 <TextField
                   value={editingTool.config.api?.schema}
                   onChange={(e) => updateApiConfig({ schema: e.target.value })}
