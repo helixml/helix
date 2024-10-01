@@ -22,6 +22,6 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the Project itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
-- aispec_editor_role.yaml
-- aispec_viewer_role.yaml
+- aiapp_editor_role.yaml
+- aiapp_viewer_role.yaml
 

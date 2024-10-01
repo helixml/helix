@@ -14,7 +14,7 @@ resources:
   controller: true
   domain: aispec.org
   group: aispec
-  kind: AISpec
+  kind: AIApp
   path: github.com/helixml/helix/api/v1alpha1
   version: v1alpha1
 version: "3"
