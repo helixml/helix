@@ -23,10 +23,10 @@ import (
 var qapairConfig string
 
 type Prompt struct {
-	Name       string                 `yaml:"name"`
-	System     string                 `yaml:"system"`
-	User       string                 `yaml:"user"`
-	JsonSchema map[string]interface{} `yaml:"json_schema"`
+	Name       string                                             `yaml:"name"`
+	System     string                                             `yaml:"system"`
+	User       string                                             `yaml:"user"`
+	JsonSchema *ext_openai.ChatCompletionResponseFormatJSONSchema `yaml:"json_schema"`
 }
 
 type Text struct {
@@ -295,7 +295,7 @@ func loadFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
-func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user, debug string, jsonSchema map[string]interface{}) ([]types.DataPrepTextQuestionRaw, error) {
+func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user, debug string, jsonSchema *ext_openai.ChatCompletionResponseFormatJSONSchema) ([]types.DataPrepTextQuestionRaw, error) {
 	req := ext_openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []ext_openai.ChatCompletionMessage{
@@ -312,9 +312,8 @@ func chatWithModel(client openai.Client, ownerID, sessionID, model, system, user
 
 	if jsonSchema != nil {
 		req.ResponseFormat = &ext_openai.ChatCompletionResponseFormat{
-			Type: ext_openai.ChatCompletionResponseFormatTypeJSONObject,
-			// TODO:
-			// JSONSchema: jsonSchema,
+			Type:       ext_openai.ChatCompletionResponseFormatTypeJSONObject,
+			JSONSchema: jsonSchema,
 		}
 	}
 

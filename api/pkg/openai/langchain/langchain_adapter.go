@@ -162,11 +162,6 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		return nil, fmt.Errorf("failed to create chat completion: %w", err)
 	}
 
-	// ts := time.Now()
-
-	// os.WriteFile(ts.String()+".req.json", []byte(spew.Sprint(req)), 0o644)
-	// os.WriteFile(ts.String()+".result.json", []byte(spew.Sprint(result)), 0o644)
-
 	if len(result.Choices) == 0 {
 		return nil, errors.New("no response")
 	}
@@ -210,29 +205,6 @@ func (a *LangchainAdapter) GenerateContent(ctx context.Context, messages []llms.
 		a.CallbacksHandler.HandleLLMGenerateContentEnd(ctx, response)
 	}
 	return response, nil
-}
-
-// ExtractToolParts extracts the tool parts from a message.
-func ExtractToolParts(msg *openai.ChatCompletionMessage) ([]openai.ChatMessagePart, []openai.ToolCall) {
-	var content []openai.ChatMessagePart
-	var toolCalls []openai.ToolCall
-	for _, part := range msg.MultiContent {
-		switch part.Type {
-		case openai.ChatMessagePartTypeText:
-			content = append(content, openai.ChatMessagePart{
-				Type: openai.ChatMessagePartTypeText,
-				Text: part.Text,
-			})
-		case openai.ChatMessagePartTypeImageURL:
-			content = append(content, part)
-			// case llms.BinaryContent:
-			// 	content = append(content, p)
-			// TODO:
-			// case llms.ToolCall:
-			// 	toolCalls = append(toolCalls, p)
-		}
-	}
-	return content, toolCalls
 }
 
 // toolFromTool converts an llms.Tool to a Tool.
