@@ -1,5 +1,4 @@
-export const jobVacanciesSchema = `
-openapi: 3.0.0
+export const jobVacanciesSchema = `openapi: 3.0.0
 info:
   title: Job Vacancies API
   version: 1.0.0

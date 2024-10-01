@@ -1,5 +1,4 @@
-export const coindeskSchema = `
-openapi: 3.0.0
+export const coindeskSchema = `openapi: 3.0.0
 info:
   title: CoinDesk Bitcoin Price Index API
   description: This service provides current price indexes for Bitcoin in various currencies.
