@@ -109,12 +109,22 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     setSchemaTemplate(selectedTemplate);
 
     if (selectedTemplate === 'coindesk') {
-      updateApiConfig({
-        schema: coindeskSchema
+      updateEditingTool({
+        name: "CoinDesk API",
+        description: "API for CoinDesk",
+      });
+      updateApiConfig({        
+        schema: coindeskSchema,
+        url: "https://api.coindesk.com/v1"
       });
     } else if (selectedTemplate === 'jobvacancies') {
-      updateApiConfig({
-        schema: jobVacanciesSchema
+      updateEditingTool({
+        name: "Job Vacancies API",
+        description: "API for job vacancies",
+      });
+      updateApiConfig({        
+        schema: jobVacanciesSchema,
+        url: "https://demos.tryhelix.ai"
       });
     }
   };
@@ -144,7 +154,21 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             }}
           >
             <Typography variant="h6">{apiTool.name}</Typography>
-            <Typography variant="body1">{apiTool.description}</Typography>
+            <Typography variant="subtitle2" sx={{ mt: 2 }}>Description: {apiTool.description}</Typography>
+            
+            {apiTool.config.api?.actions && apiTool.config.api.actions.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="subtitle2">Actions:</Typography>
+                <ul>
+                  {apiTool.config.api.actions.map((action, index) => (
+                    <li key={index}>
+                      {action.name}: {action.method} {action.path}
+                    </li>
+                  ))}
+                </ul>
+              </Box>
+            )}
+            
             <Button
               variant="outlined"
               onClick={() => handleEditTool(apiTool)}
