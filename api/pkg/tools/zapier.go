@@ -12,6 +12,7 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 	"github.com/tmc/langchaingo/agents"
+	"github.com/tmc/langchaingo/callbacks"
 	"github.com/tmc/langchaingo/chains"
 	oai "github.com/tmc/langchaingo/llms/openai"
 	"github.com/tmc/langchaingo/tools"
@@ -42,14 +43,24 @@ func (c *ChainStrategy) RunZapierAction(ctx context.Context, tool *types.Tool, h
 		return nil, fmt.Errorf("failed to initialize Zapier integration, error: %w", err)
 	}
 
+	for _, tk := range tks {
+		tool, ok := tk.(*zapier.Tool)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert zapier tool to *zapier.Tool")
+		}
+		tool.CallbacksHandler = callbacks.LogHandler{}
+	}
+
 	agentTools := []tools.Tool{
 		// define tools here
 	}
-	// add the zapier tools to the existing agentTools
+
+	// Add Zapier tools. These are all the tools that are enabled in your
+	// Zapier NLA editor: https://actions.zapier.com/providers/
 	agentTools = append(agentTools, tks...)
 
 	iterations := 3
-	if tool.Config.Zapier.MaxIterations != 0 {
+	if tool.Config.Zapier.MaxIterations > 0 {
 		iterations = tool.Config.Zapier.MaxIterations
 	}
 
