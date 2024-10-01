@@ -204,7 +204,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <StringMapEditor
                   data={editingTool.config.api?.headers || {}}
                   onChange={(headers) => updateApiConfig({ headers })}
-                  entityTitle="headers"
+                  entityTitle="header"
                   disabled={isReadOnly}
                 />
               </Grid>
@@ -212,7 +212,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <StringMapEditor
                   data={editingTool.config.api?.query || {}}
                   onChange={(query) => updateApiConfig({ query })}
-                  entityTitle="query parameters"
+                  entityTitle="query parameter"
                   disabled={isReadOnly}
                 />
               </Grid>
