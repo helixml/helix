@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
@@ -16,20 +17,44 @@ import ClickLink from './widgets/ClickLink';
 
 interface ApiIntegrationsProps {
   tools: ITool[];
-  onAddApiTool: () => void;
   onSaveApiTool: (tool: ITool) => void;
   isReadOnly: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   tools,
-  onAddApiTool,
   onSaveApiTool,
   isReadOnly,
 }) => {
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
+
+  // Move onAddApiTool function here
+  const onAddApiTool = useCallback(() => {
+    const newTool: ITool = {
+      id: uuidv4(),
+      name: '',
+      description: '',
+      tool_type: 'api',
+      global: false,
+      config: {
+        api: {
+          url: '',
+          schema: '',
+          actions: [],
+          headers: {},
+          query: {},
+        }
+      },
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+      owner: '', // You might want to set this from a context or prop
+      owner_type: 'user',
+    };
+
+    setEditingTool(newTool);
+  }, []);
 
   const handleEditTool = (tool: ITool) => {
     setEditingTool(tool);
@@ -179,7 +204,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <StringMapEditor
                   data={editingTool.config.api?.headers || {}}
                   onChange={(headers) => updateApiConfig({ headers })}
-                  entityTitle="Headers"
+                  entityTitle="headers"
                   disabled={isReadOnly}
                 />
               </Grid>
@@ -187,7 +212,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 <StringMapEditor
                   data={editingTool.config.api?.query || {}}
                   onChange={(query) => updateApiConfig({ query })}
-                  entityTitle="Query Parameters"
+                  entityTitle="query parameters"
                   disabled={isReadOnly}
                 />
               </Grid>
