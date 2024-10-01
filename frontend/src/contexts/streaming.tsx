@@ -6,12 +6,13 @@ interface StreamingRequest {
   id: string
   buffer: string
   callbacks: ((content: string) => void)[]
+  errorCallbacks: ((error: Error) => void)[]
   completed: boolean
 }
 
 export interface IStreamingContext {
   createRequest: (messages: any[]) => Promise<string>
-  attachCallback: (id: string, callback: (content: string) => void) => void
+  attachCallback: (id: string, callback: (content: string) => void, errorCallback: (error: Error) => void) => void
   updateRequest: (id: string, chunk: string) => void
   completeRequest: (id: string) => void
   removeRequest: (id: string) => void
@@ -35,7 +36,7 @@ export const StreamingContextProvider: FC = ({ children }) => {
     const id = uuidv4()
     setRequests(prev => ({
       ...prev,
-      [id]: { id, buffer: '', callbacks: [], completed: false }
+      [id]: { id, buffer: '', callbacks: [], errorCallbacks: [], completed: false }
     }))
 
     // TODO: handle sessions and ids
@@ -58,13 +59,20 @@ export const StreamingContextProvider: FC = ({ children }) => {
 
     } catch (error) {
       console.error('Error in createRequest:', error)
+      setRequests(prev => {
+        const request = prev[id]
+        if (!request) return prev
+
+        request.errorCallbacks.forEach(callback => callback(error as Error))
+        return prev
+      })
       removeRequest(id)
     }
 
     return id
   }, [api])
 
-  const attachCallback = useCallback((id: string, callback: (content: string) => void) => {
+  const attachCallback = useCallback((id: string, callback: (content: string) => void, errorCallback: (error: Error) => void) => {
     setRequests(prev => {
       const request = prev[id]
       if (!request) return prev
@@ -78,7 +86,8 @@ export const StreamingContextProvider: FC = ({ children }) => {
         ...prev,
         [id]: {
           ...request,
-          callbacks: [...request.callbacks, callback]
+          callbacks: [...request.callbacks, callback],
+          errorCallbacks: [...request.errorCallbacks, errorCallback]
         }
       }
     })
