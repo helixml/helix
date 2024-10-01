@@ -660,32 +660,6 @@ const App: FC = () => {
     }
   })
 
-  // Update the existing onAddApiTool function
-  const onAddApiTool = useCallback(() => {
-    const newTool: ITool = {
-      id: uuidv4(),
-      name: '',
-      description: '',
-      tool_type: 'api',
-      global: false,
-      config: {
-        api: {
-          url: '',
-          schema: '',
-          actions: [],
-          headers: {},
-          query: {},
-        }
-      },
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-      owner: account.user?.id || '',
-      owner_type: 'user',
-    };
-
-    setEditingTool(newTool);
-  }, [account.user]);
-
   const onSaveApiTool = useCallback((tool: ITool) => {
     if (!app) {
       console.error('App is not initialized');
@@ -1121,7 +1095,6 @@ const App: FC = () => {
                 {tabValue === 'integrations' && (
                   <ApiIntegrations
                     tools={tools}
-                    onAddApiTool={onAddApiTool}
                     onSaveApiTool={onSaveApiTool}
                     isReadOnly={isReadOnly}
                   />
