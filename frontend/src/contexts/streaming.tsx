@@ -1,5 +1,6 @@
 import React, { FC, createContext, useContext, useState, useCallback, useMemo } from 'react'
 import { v4 as uuidv4 } from 'uuid'
+import { useApi } from '../hooks/useApi'
 
 interface StreamingRequest {
   id: string
@@ -9,7 +10,7 @@ interface StreamingRequest {
 }
 
 export interface IStreamingContext {
-  createRequest: () => string
+  createRequest: (messages: any[]) => Promise<string>
   attachCallback: (id: string, callback: (content: string) => void) => void
   updateRequest: (id: string, chunk: string) => void
   completeRequest: (id: string) => void
@@ -28,15 +29,40 @@ export const useStreamingContext = (): IStreamingContext => {
 
 export const StreamingContextProvider: FC = ({ children }) => {
   const [requests, setRequests] = useState<Record<string, StreamingRequest>>({})
+  const api = useApi()
 
-  const createRequest = useCallback(() => {
+  const createRequest = useCallback(async (messages: any[]) => {
     const id = uuidv4()
     setRequests(prev => ({
       ...prev,
       [id]: { id, buffer: '', callbacks: [], completed: false }
     }))
+
+    // TODO: handle sessions and ids
+    try {
+      const response = await api.post('/v1/chat/completions', {
+        messages,
+        stream: true
+      }, {
+        responseType: 'stream',
+        onDownloadProgress: (progressEvent) => {
+          const chunk = progressEvent.event.target.response
+          updateRequest(id, chunk)
+        }
+      })
+
+      // Handle the completion of the stream
+      response.data.on('end', () => {
+        completeRequest(id)
+      })
+
+    } catch (error) {
+      console.error('Error in createRequest:', error)
+      removeRequest(id)
+    }
+
     return id
-  }, [])
+  }, [api])
 
   const attachCallback = useCallback((id: string, callback: (content: string) => void) => {
     setRequests(prev => {
