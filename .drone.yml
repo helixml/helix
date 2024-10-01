@@ -14,6 +14,7 @@ steps:
       from_secret: github_token
   commands:
     - go build
+  depends_on: []
 
 - name: build-frontend
   image: node:21-alpine
@@ -21,6 +22,7 @@ steps:
     - cd frontend
     - yarn install
     - yarn build
+  depends_on: []
 
 - name: unit-test
   image: golang:1.22.5-alpine3.19
@@ -41,9 +43,13 @@ steps:
   when:
     event:
     - push
+  depends_on: []
 
 - name: release-backend
   image: golang:1.22.5-alpine3.19
+  when:
+    event:
+    - tag
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
@@ -72,6 +78,7 @@ steps:
       else
         echo "No tag present, skipping release upload"
       fi
+  depends_on: [build-backend, build-frontend]
 
 
 services:
