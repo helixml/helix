@@ -104,8 +104,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
     }
   };
 
-  const handleSchemaTemplateChange = (event: React.ChangeEvent<{ value: unknown }>) => {
-    const selectedTemplate = event.target.value as string;
+  const handleSchemaTemplateChange = (selectedTemplate: string) => {
     setSchemaTemplate(selectedTemplate);
 
     if (selectedTemplate === 'coindesk') {
@@ -234,7 +233,9 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                   <Select
                     labelId="schema-template-label"
                     value={schemaTemplate}
-                    onChange={handleSchemaTemplateChange}
+                    onChange={(e) => {
+                      handleSchemaTemplateChange(e.target.value);
+                    }}
                     disabled={isReadOnly}
                   >
                     <MenuItem value="">
