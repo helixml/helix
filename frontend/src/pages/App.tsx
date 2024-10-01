@@ -56,6 +56,7 @@ import ToolEditor from '../components/ToolEditor'
 import Interaction from '../components/session/Interaction'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import KnowledgeEditor from '../components/KnowledgeEditor';
+import ApiIntegrations from '../components/ApiIntegrations';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -659,6 +660,7 @@ const App: FC = () => {
     }
   })
 
+  // Update the existing onAddApiTool function
   const onAddApiTool = useCallback(() => {
     const newTool: ITool = {
       id: uuidv4(),
@@ -681,37 +683,8 @@ const App: FC = () => {
       owner_type: 'user',
     };
 
-    if (!app || !app.config.helix.assistants.length) {
-      // If there are no assistants, create one
-      setApp(prevApp => ({
-        ...prevApp!,
-        config: {
-          ...prevApp!.config,
-          helix: {
-            ...prevApp!.config.helix,
-            assistants: [{
-              id: uuidv4(),
-              name: 'Default Assistant',
-              description: 'Default Assistant',
-              avatar: '',
-              image: '',
-              model: '',
-              type: 'text',
-              system_prompt: '',
-              rag_source_id: '',
-              lora_id: '',
-              is_actionable_template: '',
-              apis: [],
-              gptscripts: [],
-              tools: [newTool],
-            }],
-          },
-        },
-      }));
-    }
-
     setEditingTool(newTool);
-  }, [account.user, app]);
+  }, [account.user]);
 
   const onSaveApiTool = useCallback((tool: ITool) => {
     if (!app) {
@@ -1146,44 +1119,12 @@ const App: FC = () => {
                 )}
 
                 {tabValue === 'integrations' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* Integrations (API Tools) content */}
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      API Tools
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddApiTool}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly}
-                    >
-                      Add API Tool
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                        <Box
-                          key={apiTool.id}
-                          sx={{
-                            p: 2,
-                            border: '1px solid #303047',
-                            mb: 2,
-                          }}
-                        >
-                          <Typography variant="h6">{apiTool.name}</Typography>
-                          <Typography variant="body1">{apiTool.description}</Typography>
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool(apiTool)}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
+                  <ApiIntegrations
+                    tools={tools}
+                    onAddApiTool={onAddApiTool}
+                    onSaveApiTool={onSaveApiTool}
+                    isReadOnly={isReadOnly}
+                  />
                 )}
 
                 {tabValue === 'gptscripts' && (
