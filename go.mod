@@ -4,6 +4,8 @@ go 1.22.5
 
 toolchain go1.22.6
 
+replace github.com/tmc/langchaingo => github.com/helixml/langchaingo v0.1.15
+
 require (
 	cloud.google.com/go/storage v1.40.0
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
@@ -33,7 +35,7 @@ require (
 	github.com/jmorganca/ollama v0.1.27
 	github.com/joho/godotenv v1.5.1
 	github.com/kelseyhightower/envconfig v1.4.0
-	github.com/lib/pq v1.10.9	
+	github.com/lib/pq v1.10.9
 	github.com/mendableai/firecrawl-go v0.0.0-20240815202540-ebd79458547a
 	github.com/nats-io/nats-server/v2 v2.10.9
 	github.com/nats-io/nats.go v1.32.0
@@ -41,6 +43,7 @@ require (
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/robfig/cron/v3 v3.0.2-0.20210106135023-bc59245fe10e
 	github.com/rs/zerolog v1.31.0
+	github.com/sashabaranov/go-openai v1.31.0
 	github.com/sourcegraph/conc v0.3.0
 	github.com/spf13/cobra v1.8.1
 	github.com/stripe/stripe-go/v76 v76.8.0
@@ -50,7 +53,7 @@ require (
 	github.com/typesense/typesense-go/v2 v2.0.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/build v0.0.0-20240223184303-90c925d5ec5f
-	google.golang.org/api v0.180.0
+	google.golang.org/api v0.183.0
 	gopkg.in/rjz/githubhook.v0 v0.0.1
 	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/datatypes v1.2.1
@@ -60,7 +63,7 @@ require (
 )
 
 require (
-	cloud.google.com/go/auth v0.4.1 // indirect
+	cloud.google.com/go/auth v0.5.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.2.0 // indirect
@@ -81,7 +84,6 @@ require (
 	github.com/oapi-codegen/runtime v1.1.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
-	github.com/sashabaranov/go-openai v1.31.0 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sony/gobreaker v0.5.0 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
@@ -105,9 +107,9 @@ require (
 )
 
 require (
-	cloud.google.com/go v0.113.0 // indirect
+	cloud.google.com/go v0.114.0 // indirect
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
-	cloud.google.com/go/iam v1.1.7 // indirect
+	cloud.google.com/go/iam v1.1.8 // indirect
 	dario.cat/mergo v1.0.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
@@ -229,7 +231,7 @@ require (
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/oauth2 v0.20.0
+	golang.org/x/oauth2 v0.21.0
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0 // indirect
@@ -237,9 +239,9 @@ require (
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.25.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
-	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240513163218-0867130af1f8 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240509183442-62759503f434 // indirect
+	google.golang.org/genproto v0.0.0-20240528184218-531527333157 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240604185151-ef581f913117 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240604185151-ef581f913117 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
