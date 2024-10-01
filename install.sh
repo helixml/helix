@@ -595,23 +595,13 @@ EOF
 # EMAIL_MAILGUN_API_KEY=REPLACE_ME
 EOF
 
-    echo ".env file has been created at $ENV_FILE"
-    echo
-    echo "┌───────────────────────────────────────────────────────────────────────────"
-    echo "│ ❗ To complete installation, you MUST now:"
-    echo "│"
-    echo "│ cd $INSTALL_DIR"
-    echo "│ docker compose up -d --remove-orphans"
-    echo "│"
-    echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
-    echo "│ This will take a minute or so to boot."
-    echo "└───────────────────────────────────────────────────────────────────────────"
-
+    CADDY=false
     # Install Caddy if API_HOST is an HTTPS URL and system is Ubuntu
     if [[ "$API_HOST" == https* ]]; then
         if [[ "$OS" != "linux" ]]; then
             echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
         else
+            CADDY=true
             . /etc/os-release
             if [[ "$ID" != "ubuntu" && "$ID" != "debian" ]]; then
                 echo "Caddy installation is only supported on Ubuntu. Please install and configure Caddy manually (check the install.sh script for details)."
@@ -640,10 +630,31 @@ EOF"
 
                 echo "Caddyfile has been created at $CADDYFILE"
                 echo "Please start Caddy manually after starting the Docker Compose stack:"
-                echo "sudo systemctl restart caddy"
             fi
         fi
     fi
+
+    echo ".env file has been created at $ENV_FILE"
+    echo
+    echo "┌───────────────────────────────────────────────────────────────────────────"
+    echo "│ ❗ To complete installation, you MUST now:"
+    echo "│"
+    if [ "$API_HOST" != "http://localhost:8080" ]; then
+        echo "│ If you haven't already, set up DNS for your domain:"
+        echo "│   - Create an A record for $(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||') pointing to your server's IP address"
+    fi
+    echo "│"
+    echo "│ Start the Helix services by running:"
+    echo "│"
+    echo "│ cd $INSTALL_DIR"
+    echo "│ docker compose up -d --remove-orphans"
+    if [ "$CADDY" = true ]; then
+        echo "│ sudo systemctl restart caddy"
+    fi
+    echo "│"
+    echo "│ to start/upgrade Helix.  Helix will be available at $API_HOST"
+    echo "│ This will take a minute or so to boot."
+    echo "└───────────────────────────────────────────────────────────────────────────"
 fi
 
 # Install runner if requested or in AUTO mode with GPU
