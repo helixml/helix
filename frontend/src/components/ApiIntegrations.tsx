@@ -230,7 +230,38 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                       disabled={isReadOnly}
                       sx={{ mr: 2 }}
                     />
-                    // ... other action fields (description, method, path) ...
+                    <TextField
+                      label="Description"
+                      value={action.description}
+                      onChange={(e) => {
+                        const newActions = [...(editingTool.config.api?.actions || [])];
+                        newActions[index].description = e.target.value;
+                        updateApiConfig({ actions: newActions });
+                      }}
+                      disabled={isReadOnly}
+                      sx={{ mr: 2 }}
+                    />
+                    <TextField
+                      label="Method"
+                      value={action.method}
+                      onChange={(e) => {
+                        const newActions = [...(editingTool.config.api?.actions || [])];
+                        newActions[index].method = e.target.value;
+                        updateApiConfig({ actions: newActions });
+                      }}
+                      disabled={isReadOnly}
+                      sx={{ mr: 2 }}
+                    />
+                    <TextField
+                      label="Path"
+                      value={action.path}
+                      onChange={(e) => {
+                        const newActions = [...(editingTool.config.api?.actions || [])];
+                        newActions[index].path = e.target.value;
+                        updateApiConfig({ actions: newActions });
+                      }}
+                      disabled={isReadOnly}
+                    />
                   </Box>
                 ))}
               </Grid>
