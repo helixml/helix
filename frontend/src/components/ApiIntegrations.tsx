@@ -14,6 +14,12 @@ import { ITool, IToolApiAction } from '../types';
 import Window from './widgets/Window';
 import StringMapEditor from './widgets/StringMapEditor';
 import ClickLink from './widgets/ClickLink';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import { coindeskSchema } from './coindesk_schema';
+import { jobVacanciesSchema } from './jobvacancies_schema';
 
 interface ApiIntegrationsProps {
   tools: ITool[];
@@ -29,6 +35,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [showBigSchema, setShowBigSchema] = useState(false);
+  const [schemaTemplate, setSchemaTemplate] = useState<string>('');
 
   // Move onAddApiTool function here
   const onAddApiTool = useCallback(() => {
@@ -93,6 +100,21 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           ...editingTool.config,
           api: { ...editingTool.config.api, ...updates },
         },
+      });
+    }
+  };
+
+  const handleSchemaTemplateChange = (event: React.ChangeEvent<{ value: unknown }>) => {
+    const selectedTemplate = event.target.value as string;
+    setSchemaTemplate(selectedTemplate);
+
+    if (selectedTemplate === 'coindesk') {
+      updateApiConfig({
+        schema: coindeskSchema
+      });
+    } else if (selectedTemplate === 'jobvacancies') {
+      updateApiConfig({
+        schema: jobVacanciesSchema
       });
     }
   };
@@ -183,6 +205,21 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 />
               </Grid>
               <Grid item xs={12}>
+                <FormControl fullWidth sx={{ mb: 2 }}>
+                  <InputLabel id="schema-template-label">Example Schemas</InputLabel>
+                  <Select
+                    labelId="schema-template-label"
+                    value={schemaTemplate}
+                    onChange={handleSchemaTemplateChange}
+                    disabled={isReadOnly}
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    <MenuItem value="coindesk">CoinDesk</MenuItem>
+                    <MenuItem value="jobvacancies">Job Vacancies</MenuItem>
+                  </Select>
+                </FormControl>
                 <TextField
                   value={editingTool.config.api?.schema}
                   onChange={(e) => updateApiConfig({ schema: e.target.value })}
