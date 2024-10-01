@@ -47,6 +47,9 @@ steps:
 
 - name: release-backend
   image: golang:1.22.5-alpine3.19
+  when:
+    event:
+    - tag
   environment:
     GITHUB_TOKEN:
       from_secret: github_token
