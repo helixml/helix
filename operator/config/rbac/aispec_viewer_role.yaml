@@ -1,0 +1,23 @@
+# permissions for end users to view aispecs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: aispec-viewer-role
+rules:
+- apiGroups:
+  - aispec.aispec.org
+  resources:
+  - aispecs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - aispec.aispec.org
+  resources:
+  - aispecs/status
+  verbs:
+  - get

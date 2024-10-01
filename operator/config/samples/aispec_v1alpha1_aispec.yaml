@@ -1,0 +1,9 @@
+apiVersion: aispec.aispec.org/v1alpha1
+kind: AISpec
+metadata:
+  labels:
+    app.kubernetes.io/name: operator
+    app.kubernetes.io/managed-by: kustomize
+  name: aispec-sample
+spec:
+  # TODO(user): Add fields here
