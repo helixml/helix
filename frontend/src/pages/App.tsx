@@ -355,7 +355,10 @@ const App: FC = () => {
   
   const validate = useCallback(() => {
     if (!app) return false;
-    if (!name) return false;
+    if (!name) {
+      setTabValue('settings');
+      return false;
+    }
     if (app.app_source === APP_SOURCE_HELIX) {
       const assistants = app.config.helix?.assistants || [];
       for (const assistant of assistants) {
