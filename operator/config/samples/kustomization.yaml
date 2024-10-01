@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- aispec_v1alpha1_aispec.yaml
+- aispec_v1alpha1_aiapp.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - aispec.aispec.org
   resources:
-  - aispecs
+  - aiapps
   verbs:
   - create
   - delete
@@ -19,13 +19,13 @@ rules:
 - apiGroups:
   - aispec.aispec.org
   resources:
-  - aispecs/finalizers
+  - aiapps/finalizers
   verbs:
   - update
 - apiGroups:
   - aispec.aispec.org
   resources:
-  - aispecs/status
+  - aiapps/status
   verbs:
   - get
   - patch

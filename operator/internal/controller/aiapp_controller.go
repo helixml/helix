@@ -27,26 +27,26 @@ import (
 	aispecv1alpha1 "github.com/helixml/helix/api/v1alpha1"
 )
 
-// AISpecReconciler reconciles a AISpec object
-type AISpecReconciler struct {
+// AIAppReconciler reconciles a AIApp object
+type AIAppReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aispecs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aispecs/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aispecs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aiapps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aiapps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=aispec.aispec.org,resources=aiapps/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the AISpec object against the actual cluster state, and then
+// the AIApp object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.0/pkg/reconcile
-func (r *AISpecReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AIAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
@@ -55,8 +55,8 @@ func (r *AISpecReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AISpecReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AIAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&aispecv1alpha1.AISpec{}).
+		For(&aispecv1alpha1.AIApp{}).
 		Complete(r)
 }

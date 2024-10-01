@@ -23,17 +23,17 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// AISpecSpec defines the desired state of AISpec
-type AISpecSpec struct {
+// AIAppSpec defines the desired state of AIApp
+type AIAppSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of AISpec. Edit aispec_types.go to remove/update
+	// Foo is an example field of AIApp. Edit aiapp_types.go to remove/update
 	Foo string `json:"foo,omitempty"`
 }
 
-// AISpecStatus defines the observed state of AISpec
-type AISpecStatus struct {
+// AIAppStatus defines the observed state of AIApp
+type AIAppStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -41,24 +41,24 @@ type AISpecStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// AISpec is the Schema for the aispecs API
-type AISpec struct {
+// AIApp is the Schema for the aiapps API
+type AIApp struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AISpecSpec   `json:"spec,omitempty"`
-	Status AISpecStatus `json:"status,omitempty"`
+	Spec   AIAppSpec   `json:"spec,omitempty"`
+	Status AIAppStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// AISpecList contains a list of AISpec
-type AISpecList struct {
+// AIAppList contains a list of AIApp
+type AIAppList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AISpec `json:"items"`
+	Items           []AIApp `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AISpec{}, &AISpecList{})
+	SchemeBuilder.Register(&AIApp{}, &AIAppList{})
 }
