@@ -1390,7 +1390,7 @@ const App: FC = () => {
                       color="primary"
                     />
                   }
-                  label="Knowledge Search"
+                  label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
                   sx={{ mb: 2, color: 'white' }}
                 />
                 <Box
