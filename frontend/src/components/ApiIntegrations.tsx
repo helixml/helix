@@ -188,7 +188,8 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           withCancel
           cancelTitle="Close"
           onCancel={() => setEditingTool(null)}
-        >
+          onSubmit={handleSaveTool}
+        >          
           <Box sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
               API Tool
@@ -376,13 +377,13 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
               >
                 Save
               </Button>
-              <Button 
+              {/* <Button 
                 variant="contained" 
                 color="secondary" 
                 onClick={() => setEditingTool(null)}
               >
                 Cancel
-              </Button>
+              </Button> */}
             </Box>
           </Box>
         </Window>
