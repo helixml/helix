@@ -11,7 +11,7 @@ interface StreamingRequest {
 }
 
 export interface IStreamingContext {
-  createRequest: (messages: any[]) => Promise<string>
+  createRequest: (messages: any[], appId?: string) => Promise<string>
   attachCallback: (id: string, callback: (content: string) => void, errorCallback: (error: Error) => void) => void
   updateRequest: (id: string, chunk: string) => void
   completeRequest: (id: string) => void
@@ -32,18 +32,18 @@ export const StreamingContextProvider: FC = ({ children }) => {
   const [requests, setRequests] = useState<Record<string, StreamingRequest>>({})
   const api = useApi()
 
-  const createRequest = useCallback(async (messages: any[]) => {
+  const createRequest = useCallback(async (messages: any[], appId?: string) => {
     const id = uuidv4()
     setRequests(prev => ({
       ...prev,
       [id]: { id, buffer: '', callbacks: [], errorCallbacks: [], completed: false }
     }))
 
-    // TODO: handle sessions and ids
     try {
-      const response = await api.post('/v1/chat/completions', {
+      const response = await api.post('/api/v1/sessions/chat', {
         messages,
-        stream: true
+        stream: true,
+        app_id: appId, // Add the app_id to the request payload
       }, {
         responseType: 'stream',
         onDownloadProgress: (progressEvent) => {

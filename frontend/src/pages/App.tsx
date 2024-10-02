@@ -66,6 +66,7 @@ import useRouter from '../hooks/useRouter'
 import useApi, { getTokenHeaders } from '../hooks/useApi'
 import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
+import { useStreamingContext } from '../contexts/streaming'
 
 import {
   IAppConfig,
@@ -77,6 +78,7 @@ import {
   IGptScriptResponse,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
+  SESSION_ORIGIN_TYPE_USER_CREATED,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ITool,
   IToolType,
@@ -91,6 +93,9 @@ import {
   IKnowledgeSource,
   IKnowledgeSearchResult,
   ISessionRAGResult,
+  ISessionOrigin,
+  ISessionOriginType,
+  ISessionMode,
 } from '../types'
 
 const isHelixApp = (app: IApp): boolean => {
@@ -128,6 +133,7 @@ const App: FC = () => {
     params,
     navigate,
   } = useRouter()
+  const streaming = useStreamingContext()
 
   const [ inputValue, setInputValue ] = useState('')
   const [ name, setName ] = useState('')
@@ -532,29 +538,144 @@ const App: FC = () => {
     await onSave(true);
     
     session.setData(undefined)
-    const sessionChatRequest = {
-      mode: SESSION_MODE_INFERENCE,
-      type: SESSION_TYPE_TEXT,
-      stream: true,
-      legacy: true,
-      app_id: app.id,
-      messages: [{
-        role: 'user',
-        content: {
-          content_type: 'text',
-          parts: [
-            inputValue,
-          ]
-        },
-      }]
-    }
+    const messages = [{
+      role: 'user',
+      content: {
+        content_type: 'text',
+        parts: [
+          inputValue,
+        ]
+      },
+    }]
     
-    const newSessionData = await api.post('/api/v1/sessions/chat', sessionChatRequest)
-    if(!newSessionData) {
-      return
+    try {
+      const streamId = await streaming.createRequest(messages, app.id)
+      setInputValue('')
+
+      streaming.attachCallback(
+        streamId,
+        (content: string) => {
+          // Update the session data with the streamed content
+          session.setData((prevSession): ISession => {
+            if (!prevSession) {
+              // what is this hellscape, surely there's a better way to do this
+              return {
+                id: streamId,
+                owner: account.user?.id || '',
+                owner_type: 'user',
+                parent_session: '',
+                parent_bot: '',
+                child_bot: '',
+                mode: SESSION_MODE_INFERENCE as ISessionMode,
+                type: SESSION_TYPE_TEXT as ISessionType,
+                model_name: '',
+                lora_dir: '',
+                config: {
+                  original_mode: 'inference',
+                  origin: {
+                    type: SESSION_ORIGIN_TYPE_USER_CREATED as ISessionOriginType,
+                  },
+                  avatar: '',
+                  priority: false,
+                  document_ids: {} as Record<string, string>,
+                  document_group_id: '',
+                  manually_review_questions: false,
+                  system_prompt: '',
+                  helix_version: '',
+                  eval_run_id: '',
+                  eval_user_score: '',
+                  eval_user_reason: '',
+                  eval_manual_score: '',
+                  eval_manual_reason: '',
+                  eval_automatic_score: '',
+                  eval_automatic_reason: '',
+                  eval_original_user_prompts: [],
+                  rag_source_data_entity_id: ''
+                },
+                interactions: [{
+                  id: uuidv4(), // Assuming you have a UUID generator function
+                  creator: 'assistant',
+                  message: content,
+                  finished: false,
+                  created: new Date().toISOString(),
+                  updated: new Date().toISOString(),
+                  scheduled: '',
+                  metadata: {},
+                  error: '',
+                  completed: '',
+                  mode: 'inference',
+                  runner: '',
+                  display_message: '',
+                  progress: 0,
+                  files: [],
+                  state: 'error',
+                  status: '',
+                  lora_dir: '',
+                  data_prep_stage: '',
+                  data_prep_limited: false,
+                  data_prep_limit: 0,
+                  data_prep_chunks: {},
+                }],
+                name: '',
+                created: new Date().toISOString(),
+                updated: new Date().toISOString(),
+              };
+            }
+            const lastInteraction = prevSession.interactions[prevSession.interactions.length - 1]
+            if (lastInteraction && lastInteraction.creator === 'assistant') {
+              return {
+                ...prevSession,
+                interactions: [
+                  ...prevSession.interactions.slice(0, -1),
+                  {
+                    ...lastInteraction,
+                    message: lastInteraction.message + content,
+                  },
+                ],
+              }
+            } else {
+              return {
+                ...prevSession,
+                interactions: [
+                  ...prevSession.interactions,
+                  {
+                    creator: 'assistant',
+                    message: content,
+                    finished: false,
+                    created: new Date().toISOString(),
+                    updated: new Date().toISOString(),
+                    scheduled: '',
+                    metadata: {},
+                    error: '',
+                    completed: '',
+                    mode: 'inference',
+                    runner: '',
+                    display_message: '',
+                    progress: 0,
+                    files: [],
+                    state: 'error',
+                    status: '',
+                    lora_dir: '',
+                    data_prep_stage: '',
+                    data_prep_limited: false,
+                    data_prep_limit: 0,
+                    data_prep_chunks: {},
+                    id: ''
+                  },
+                ],
+              }
+            }
+          })
+        },
+        (error: Error) => {
+          console.error('Streaming error:', error)
+          snackbar.error('An error occurred during the conversation')
+        }
+      )
+    } catch (error) {
+      console.error('Error starting inference:', error)
+      snackbar.error('Failed to start the conversation')
     }
-    setInputValue('')
-    session.loadSession(newSessionData.id)    
   }
 
   const onSearch = async (query: string) => {
