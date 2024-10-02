@@ -1321,17 +1321,19 @@ const App: FC = () => {
               </Box>
               
               {/* Save button placed here, underneath the tab section */}
-              <Box sx={{ mt: 2, pl: 3 }}>
-                <Button
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={ () => onSave(false) }
-                  disabled={isReadOnly}
-                >
-                  Save
-                </Button>
-              </Box>
+              {tabValue !== 'integrations' && (
+                <Box sx={{ mt: 2, pl: 3 }}>
+                  <Button
+                    type="button"
+                    color="secondary"
+                    variant="contained"
+                    onClick={ () => onSave(false) }
+                    disabled={isReadOnly}
+                  >
+                    Save
+                  </Button>
+                </Box>
+              )}
             </Grid>
             <Grid item xs={12} md={6}
               sx={{
