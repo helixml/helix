@@ -384,24 +384,6 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 </Accordion>
               </Grid>
             </Grid>
-            <Box sx={{ mt: 2 }}>
-              {/* <Button
-                variant="contained"
-                color="primary"
-                onClick={handleSaveTool}
-                disabled={isReadOnly}
-                sx={{ mr: 2 }}
-              >
-                Save
-              </Button> */}
-              {/* <Button 
-                variant="contained" 
-                color="secondary" 
-                onClick={() => setEditingTool(null)}
-              >
-                Cancel
-              </Button> */}
-            </Box>
           </Box>
         </Window>
       )}
