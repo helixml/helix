@@ -172,23 +172,25 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
             )}
             
             <Box sx={{ mt: 1 }}>
-              <Button
-                variant="outlined"
-                onClick={() => handleEditTool(apiTool)}
-                sx={{ mr: 1 }}
-                disabled={isReadOnly}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={() => onDeleteApiTool(apiTool.id)}
-                disabled={isReadOnly}
-                startIcon={<DeleteIcon />}
-              >
-                Delete
-              </Button>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  variant="outlined"
+                  onClick={() => handleEditTool(apiTool)}
+                  sx={{ mr: 1 }}
+                  disabled={isReadOnly}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => onDeleteApiTool(apiTool.id)}
+                  disabled={isReadOnly}
+                  startIcon={<DeleteIcon />}
+                >
+                  Delete
+                </Button>
+              </Box>
             </Box>
           </Box>
         ))}
