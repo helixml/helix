@@ -73,8 +73,8 @@ export const useApi = () => {
   const put = useCallback(async function<ReqT = any, ResT = any>(url: string, data: ReqT, axiosConfig?: AxiosRequestConfig, options?: IApiOptions): Promise<ResT | null> {
     if(options?.loading === true) loading.setLoading(true)
     try {
-      console.log('Sending PUT request to:', `${API_MOUNT}${url}`);
-      console.log('Request data:', data);
+      // console.log('Sending PUT request to:', `${API_MOUNT}${url}`);
+      // console.log('Request data:', data);
       const res = await axios.put<ResT>(`${API_MOUNT}${url}`, data, axiosConfig)
       if(res.status >= 400) {
         console.error(`API Error: ${res.status} ${res.statusText}`);
