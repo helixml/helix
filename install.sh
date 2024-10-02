@@ -641,8 +641,8 @@ EOF"
     echo
     echo "┌───────────────────────────────────────────────────────────────────────────"
     echo "│ ❗ To complete installation, you MUST now:"
-    echo "│"
     if [ "$API_HOST" != "http://localhost:8080" ]; then
+        echo "│"
         echo "│ If you haven't already, set up DNS for your domain:"
         echo "│   - Create an A record for $(echo "$API_HOST" | sed -E 's|^https?://||' | sed 's|:[0-9]+$||') pointing to your server's IP address"
     fi
