@@ -136,6 +136,13 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       <Typography variant="h6" sx={{ mb: 1 }}>
         API Tools
       </Typography>
+      <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+        Allow Helix to call any 3rd party API to perform tasks such as querying information or updating data. To begin:
+        <ul>    
+          <li>Find the OpenAPI schema for the API you want to use.</li>      
+          <li>Click "Add API Tool" below to add your schema, URL and any additional config such as authentication headers.</li>
+        </ul>
+      </Typography>
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
