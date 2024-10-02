@@ -27,8 +27,8 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
-  // Move onAddApiTool function here
-  const onAddApiTool = useCallback(() => {
+  // Move onAddZapierTool function here
+  const onAddZapierTool = useCallback(() => {
     const newTool: ITool = {
       id: uuidv4(),
       name: '',
@@ -97,10 +97,19 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
       <Typography variant="h6" sx={{ mb: 1 }}>
         Zapier Integrations
       </Typography>
+      <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+        Zapier integration allows you to use Zapier actions in your Helix chat and apps. To begin:
+        <ul>
+          <li>Register to <Link href="https://zapier.com/" target="_blank" rel="noopener noreferrer">Zapier</Link> and connect the apps you want to use.</li>
+          <li>Visit <Link href="https://actions.zapier.com/credentials/" target="_blank" rel="noopener noreferrer">https://actions.zapier.com/credentials/</Link> and get your API key.</li>
+          <li>Use Zapier <Link href="https://actions.zapier.com/providers/" target="_blank" rel="noopener noreferrer">Providers</Link> to enable actions that will be available to Helix.</li>
+          <li>Click "Add Zapier Integration" below to add your API key. Give it a description so that Helix can decide when to use it.</li>
+        </ul>
+      </Typography>
       <Button
         variant="outlined"
         startIcon={<AddIcon />}
-        onClick={onAddApiTool}
+        onClick={onAddZapierTool}
         sx={{ mb: 2 }}
         disabled={isReadOnly}
       >
@@ -183,7 +192,6 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
                 <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
                   Based on the description, Helix will decide when to use this integration. Be concise but descriptive.
                 </Typography>
-
               </Grid>
               <Grid item xs={12}>         
                 <TextField
