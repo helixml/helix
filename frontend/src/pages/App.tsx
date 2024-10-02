@@ -427,9 +427,7 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
-  const onSave = useCallback(async (quiet: boolean = false) => {
-    console.log('XX on save assistants:', app?.config.helix.assistants[0].tools.length);
-
+  const onSave = useCallback(async (quiet: boolean = false) => {    
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -664,46 +662,35 @@ const App: FC = () => {
     }
   })
 
-  const onSaveApiTool = useCallback((tool: ITool) => {
+  const onSaveApiTool = useCallback(async (tool: ITool) => {
     if (!app) {
       console.error('App is not initialized');
       snackbar.error('Unable to save tool: App is not initialized');
       return;
-    }
-    
-    console.log('Saving API Tool:', tool);
+    }    
 
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
+    }));
 
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
-        ...assistant,
-        tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
-      }));
+    console.log('Updated assistants:', updatedAssistants);
 
-      console.log('Updated assistants:', updatedAssistants);
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
+    const updatedApp = {
+      ...app,
+      config: {
+        ...app.config,
+        helix: {
+          ...app.config.helix,
+          assistants: updatedAssistants,
         },
-      };
-    });
+      },
+    };    
 
-    setTools(prevTools => {
-      const updatedTools = prevTools.filter(t => t.id !== tool.id);
-      return [...updatedTools, tool];
-    });
-
-    setEditingTool(null);
-
-    // Save app
-    onSave()
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }
 
     snackbar.success('API Tool saved successfully');
   }, [app, snackbar]);
