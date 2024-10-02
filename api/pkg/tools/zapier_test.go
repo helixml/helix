@@ -8,6 +8,9 @@ import (
 )
 
 func (suite *ActionTestSuite) TestAction_GetLastEmail() {
+	if suite.zapierAPIKey == "" {
+		suite.T().Skip("Skipping test because Zapier API key is not set")
+	}
 
 	history := []*types.ToolHistoryMessage{
 		{
