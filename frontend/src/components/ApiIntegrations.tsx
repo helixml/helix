@@ -145,7 +145,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
       >
         Add API Tool
       </Button>
-      <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
+      <Box sx={{ mb: 2, overflowY: 'auto' }}>
         {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
           <Box
             key={apiTool.id}
@@ -203,7 +203,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           cancelTitle="Close"
           onCancel={() => setEditingTool(null)}
           onSubmit={handleSaveTool}
-          
+
         >          
           <Box sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
