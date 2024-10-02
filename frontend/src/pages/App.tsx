@@ -697,6 +697,10 @@ const App: FC = () => {
     });
 
     setEditingTool(null);
+
+    // Save app
+    onSave()
+
     snackbar.success('API Tool saved successfully');
   }, [app, snackbar]);
 
