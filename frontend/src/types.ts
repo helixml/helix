@@ -429,7 +429,7 @@ export interface IShareSessionInstructions {
   addDocumentsMode?: boolean,
 }
 
-export type IToolType = 'api' | 'gptscript'
+export type IToolType = 'api' | 'gptscript' | 'zapier'
 
 export interface IToolApiAction {
   name: string,
