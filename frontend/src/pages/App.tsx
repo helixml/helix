@@ -8,6 +8,7 @@ import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
+import DeleteIcon from '@mui/icons-material/Delete';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
 import FormGroup from '@mui/material/FormGroup'
@@ -859,6 +860,44 @@ const App: FC = () => {
     }
   }, [account.apiKeys, snackbar]);  
 
+  const onDeleteTool = useCallback((toolId: string) => {
+    if (!app) {
+      console.error('App is not initialized');
+      snackbar.error('Unable to delete tool: App is not initialized');
+      return;
+    }
+
+    setApp(prevApp => {
+      if (!prevApp) return prevApp;
+
+      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
+        ...assistant,
+        tools: assistant.tools.filter(tool => tool.id !== toolId),
+        gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
+      }));
+
+      console.log('Updated assistants:', updatedAssistants[0].tools);
+
+      return {
+        ...prevApp,
+        config: {
+          ...prevApp.config,
+          helix: {
+            ...prevApp.config.helix,
+            assistants: updatedAssistants,
+          },
+        },
+      };
+    });
+
+    // setTools(prevTools => prevTools.filter(tool => tool.id !== toolId));
+
+    // Save app
+    onSave(true);
+
+    snackbar.success('Tool deleted successfully');
+  }, [app, snackbar, onSave]);
+
   if(!account.user) return null
   if(!app) return null
   if(!hasLoaded && params.app_id !== "new") return null
@@ -1100,6 +1139,7 @@ const App: FC = () => {
                   <ApiIntegrations
                     tools={tools}
                     onSaveApiTool={onSaveApiTool}
+                    onDeleteApiTool={onDeleteTool}  // Add this line
                     isReadOnly={isReadOnly}
                   />
                 )}
@@ -1132,29 +1172,40 @@ const App: FC = () => {
                           >
                             <Typography variant="subtitle1">{script.name}</Typography>
                             <Typography variant="body2">{script.description}</Typography>
-                            <Button
-                              variant="outlined"
-                              onClick={() => setEditingTool({
-                                id: script.file,
-                                name: script.name,
-                                description: script.description,
-                                tool_type: 'gptscript',
-                                global: false,
-                                config: {
-                                  gptscript: {
-                                    script: script.content,
-                                  }
-                                },
-                                created: '',
-                                updated: '',
-                                owner: '',
-                                owner_type: 'user',
-                              })}
-                              sx={{ mt: 1 }}
-                              disabled={isReadOnly || isGithubApp}
-                            >
-                              Edit
-                            </Button>
+                            <Box sx={{ mt: 1 }}>
+                              <Button
+                                variant="outlined"
+                                onClick={() => setEditingTool({
+                                  id: script.file,
+                                  name: script.name,
+                                  description: script.description,
+                                  tool_type: 'gptscript',
+                                  global: false,
+                                  config: {
+                                    gptscript: {
+                                      script: script.content,
+                                    }
+                                  },
+                                  created: '',
+                                  updated: '',
+                                  owner: '',
+                                  owner_type: 'user',
+                                })}
+                                sx={{ mr: 1 }}
+                                disabled={isReadOnly || isGithubApp}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={() => onDeleteTool(script.file)}
+                                disabled={isReadOnly || isGithubApp}
+                                startIcon={<DeleteIcon />}
+                              >
+                                Delete
+                              </Button>
+                            </Box>
                           </Box>
                         )) || []
                       )}
