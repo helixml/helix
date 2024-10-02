@@ -7,6 +7,7 @@ import TextField from '@mui/material/TextField';
 import Grid from '@mui/material/Grid';
 import AddIcon from '@mui/icons-material/Add';
 import { ITool } from '../types';
+import Link from '@mui/material/Link';
 import Window from './widgets/Window';
 import DeleteIcon from '@mui/icons-material/Delete';
 
@@ -32,7 +33,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
       id: uuidv4(),
       name: '',
       description: '',
-      tool_type: 'api',
+      tool_type: 'zapier',
       global: false,
       config: {
         zapier: {
@@ -173,14 +174,18 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
                 <TextField
                   value={editingTool.description}
                   onChange={(e) => updateEditingTool({ description: e.target.value })}
-                  label="Description (when to use?)"
+                  label="Description"
                   fullWidth
                   error={showErrors && !editingTool.description}
                   helperText={showErrors && !editingTool.description ? "Description is required" : ""}
                   disabled={isReadOnly}
                 />
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+                  Based on the description, Helix will decide when to use this integration. Be concise but descriptive.
+                </Typography>
+
               </Grid>
-              <Grid item xs={12}>                
+              <Grid item xs={12}>         
                 <TextField
                   value={editingTool.config.zapier?.api_key}
                   onChange={(e) => updateZapierConfig({ api_key: e.target.value })}
@@ -190,17 +195,25 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
                   helperText={showErrors && !editingTool.config.zapier?.api_key ? 'Please enter Zapier API Key' : ''}
                   disabled={isReadOnly}
                 />
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+                  To get your API key, register to Zapier and visit <Link href="https://actions.zapier.com/credentials/" target="_blank" rel="noopener noreferrer">https://actions.zapier.com/credentials/</Link>.
+                </Typography>
               </Grid>
               <Grid item xs={12}>                
                 <TextField
                   value={editingTool.config.zapier?.model}
                   onChange={(e) => updateZapierConfig({ model: e.target.value })}
                   fullWidth                  
-                  label="Strong model (i.e. 'mistralai/Mixtral-8x7B-Instruct-v0.1')"
+                  label="Model"
                   error={showErrors && !editingTool.config.zapier?.model}
                   helperText={showErrors && !editingTool.config.zapier?.model ? "Please enter a model" : ""}
                   disabled={isReadOnly}
                 />
+
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+                  Use strong models for complex tasks. GPT-4o, mistralai/Mixtral-8x7B-Instruct-v0.1, etc.
+                </Typography>
+
               </Grid>              
               <Grid item xs={12}>
                 <TextField
@@ -212,6 +225,10 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
                   helperText={showErrors && !editingTool.config.zapier?.max_iterations ? "Please enter a max iterations" : ""}
                   disabled={isReadOnly}
                 />
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1, mb: 2 }}>
+                  Zapier integration can perform multiple iterations to solve a task. Normally 1-3 is good. Set it to more
+                  for complex tasks.
+                </Typography>
               </Grid>              
             </Grid>
           </Box>
