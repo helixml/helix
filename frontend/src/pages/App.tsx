@@ -1,61 +1,25 @@
 import React, { FC, useCallback, useEffect, useState, useMemo, useRef } from 'react'
-import bluebird from 'bluebird'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import Divider from '@mui/material/Divider'
 import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import AddCircleIcon from '@mui/icons-material/AddCircle'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Checkbox from '@mui/material/Checkbox'
-import Accordion from '@mui/material/Accordion'
-import AccordionSummary from '@mui/material/AccordionSummary'
-import AccordionDetails from '@mui/material/AccordionDetails'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import AddIcon from '@mui/icons-material/Add'
 import { v4 as uuidv4 } from 'uuid';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import SendIcon from '@mui/icons-material/Send';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import Link from '@mui/material/Link';
-import Avatar from '@mui/material/Avatar';
-import ModelPicker from '../components/create/ModelPicker'
-import Switch from '@mui/material/Switch';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import debounce from 'lodash/debounce';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
-import Markdown from '../components/session/Markdown';
 
 import Page from '../components/system/Page'
-import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import TextView from '../components/widgets/TextView'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-import StringMapEditor from '../components/widgets/StringMapEditor'
-import StringArrayEditor from '../components/widgets/StringArrayEditor'
-import AppGptscriptsGrid from '../components/datagrid/AppGptscripts'
-import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
-import ToolDetail from '../components/tools/ToolDetail'
 import ToolEditor from '../components/ToolEditor'
-import Interaction from '../components/session/Interaction'
-import InteractionLiveStream from '../components/session/InteractionLiveStream'
-import KnowledgeEditor from '../components/KnowledgeEditor';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -68,9 +32,7 @@ import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
 
 import {
-  IAppConfig,
   IAssistantGPTScript,
-  IAppHelixConfigGptScript,
   IAppUpdate,
   ISession,
   IGptScriptRequest,
@@ -79,19 +41,21 @@ import {
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
   ITool,
-  IToolType,
-  IToolConfig,
-  IAppSource,
-  IOwnerType,
   APP_SOURCE_HELIX,
   APP_SOURCE_GITHUB,
-  IAssistantConfig,
-  ISessionType,
   IApp,
   IKnowledgeSource,
   IKnowledgeSearchResult,
   ISessionRAGResult,
 } from '../types'
+
+import AppSettings from '../components/app/AppSettings';
+import KnowledgeManager from '../components/app/KnowledgeManager';
+import IntegrationsManager from '../components/app/IntegrationsManager';
+import GPTScriptsManager from '../components/app/GPTScriptsManager';
+import APIKeysManager from '../components/app/APIKeysManager';
+import DeveloperView from '../components/app/DeveloperView';
+import PreviewPane from '../components/app/PreviewPane';
 
 const isHelixApp = (app: IApp): boolean => {
   return app.app_source === 'helix';
@@ -1004,370 +968,85 @@ const App: FC = () => {
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                 {tabValue === 'settings' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* Settings content */}
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-name"
-                      name="app-name"
-                      error={ showErrors && !name }
-                      value={ name }
-                      disabled={readOnly || isReadOnly}
-                      onChange={(e) => setName(e.target.value)}
-                      fullWidth
-                      label="Name"
-                      helperText="Name your app"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-description"
-                      name="app-description"
-                      value={ description }
-                      onChange={(e) => setDescription(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      rows={2}
-                      label="Description"
-                      helperText="Enter a short description of what this app does"
-                    />
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
-                      <ModelPicker
-                        model={model}
-                        onSetModel={setModel}
-                      />
-                    </Box>
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-instructions"
-                      name="app-instructions"
-                      value={ systemPrompt }
-                      onChange={(e) => setSystemPrompt(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      multiline
-                      rows={4}
-                      label="Instructions"
-                      helperText="What does this app do? How does it behave? What should it avoid doing?"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-avatar"
-                      name="app-avatar"
-                      value={ avatar }
-                      onChange={(e) => setAvatar(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      label="Avatar"
-                      helperText="URL for the app's avatar image"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-image"
-                      name="app-image"
-                      value={ image }
-                      onChange={(e) => setImage(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      label="Image"
-                      helperText="URL for the app's main image"
-                    />
-                    <Tooltip title="Share this app with other users in your organization">
-                      <FormGroup>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={ shared }
-                              onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                setShared(event.target.checked)
-                              } }
-                              disabled={isReadOnly}
-                            />
-                          }
-                          label="Shared?"
-                        />
-                      </FormGroup>
-                    </Tooltip>
-                    {account.admin && (
-                      <Tooltip title="Make this app available to all users">
-                        <FormGroup>
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={ global }
-                                onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                  setGlobal(event.target.checked)
-                                } }
-                                disabled={isReadOnly}
-                              />
-                            }
-                            label="Global?"
-                          />
-                        </FormGroup>
-                      </Tooltip>
-                    )}
-                    {/* GitHub Settings (only shown for GitHub apps) */}
-                    {app?.config.github && (
-                      <Box sx={{ mt: 3 }}>
-                        <Typography variant="subtitle1" sx={{mb: 1.5}}>GitHub Settings</Typography>
-                        <TextField
-                          label="GitHub Repo"
-                          value={app.config.github.repo}
-                          fullWidth
-                          disabled
-                          sx={{mb: 2}}
-                        />
-                        <TextField
-                          label="Last Commit Hash"
-                          value={app.config.github.hash}
-                          fullWidth
-                          disabled
-                          sx={{mb: 2}}
-                        />
-                      </Box>
-                    )}
-                  </Box>
+                  <AppSettings
+                    name={name}
+                    setName={setName}
+                    description={description}
+                    setDescription={setDescription}
+                    model={model}
+                    setModel={setModel}
+                    systemPrompt={systemPrompt}
+                    setSystemPrompt={setSystemPrompt}
+                    avatar={avatar}
+                    setAvatar={setAvatar}
+                    image={image}
+                    setImage={setImage}
+                    shared={shared}
+                    setShared={setShared}
+                    global={global}
+                    setGlobal={setGlobal}
+                    showErrors={showErrors}
+                    readOnly={readOnly}
+                    isReadOnly={isReadOnly}
+                    isAdmin={account.admin}
+                    githubSettings={app?.config.github ? {
+                      repo: app.config.github.repo,
+                      hash: app.config.github.hash,
+                    } : undefined}
+                  />
                 )}
 
                 {tabValue === 'knowledge' && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                      Knowledge Sources
-                    </Typography>
-                    <KnowledgeEditor
-                      knowledgeSources={knowledgeSources}
-                      onUpdate={handleKnowledgeUpdate}
-                      onRefresh={handleRefreshKnowledge}
-                      disabled={isReadOnly}
-                      knowledgeList={knowledgeList}
-                    />
-                    {knowledgeErrors && showErrors && (
-                      <Alert severity="error" sx={{ mt: 2 }}>
-                        Please specify at least one URL for each knowledge source.
-                      </Alert>
-                    )}
-                  </Box>
+                  <KnowledgeManager
+                    knowledgeSources={knowledgeSources}
+                    onUpdate={handleKnowledgeUpdate}
+                    onRefresh={handleRefreshKnowledge}
+                    disabled={isReadOnly}
+                    knowledgeList={knowledgeList}
+                    showErrors={showErrors}
+                    knowledgeErrors={knowledgeErrors}
+                  />
                 )}
 
                 {tabValue === 'integrations' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* Integrations (API Tools) content */}
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      API Tools
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddApiTool}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly}
-                    >
-                      Add API Tool
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                        <Box
-                          key={apiTool.id}
-                          sx={{
-                            p: 2,
-                            border: '1px solid #303047',
-                            mb: 2,
-                          }}
-                        >
-                          <Typography variant="h6">{apiTool.name}</Typography>
-                          <Typography variant="body1">{apiTool.description}</Typography>
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool(apiTool)}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
+                  <IntegrationsManager
+                    tools={tools}
+                    onAddApiTool={onAddApiTool}
+                    onEditTool={setEditingTool}
+                    isReadOnly={isReadOnly}
+                  />
                 )}
 
                 {tabValue === 'gptscripts' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* GPTScripts content */}
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      GPTScripts
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddGptScript}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly || isGithubApp}
-                    >
-                      Add GPTScript
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {app?.config.helix?.assistants?.flatMap(assistant => 
-                        assistant.gptscripts?.map((script, index) => (
-                          <Box
-                            key={`${assistant.id}-${script.file}`}
-                            sx={{
-                              p: 2,
-                              border: '1px solid #303047',
-                              mb: 2,
-                            }}
-                          >
-                            <Typography variant="subtitle1">{script.name}</Typography>
-                            <Typography variant="body2">{script.description}</Typography>
-                            <Button
-                              variant="outlined"
-                              onClick={() => setEditingTool({
-                                id: script.file,
-                                name: script.name,
-                                description: script.description,
-                                tool_type: 'gptscript',
-                                global: false,
-                                config: {
-                                  gptscript: {
-                                    script: script.content,
-                                  }
-                                },
-                                created: '',
-                                updated: '',
-                                owner: '',
-                                owner_type: 'user',
-                              })}
-                              sx={{ mt: 1 }}
-                              disabled={isReadOnly || isGithubApp}
-                            >
-                              Edit
-                            </Button>
-                          </Box>
-                        )) || []
-                      )}
-                    </Box>
-                    {/* Environment Variables */}
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                      Environment Variables
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-                      These will be available to your GPTScripts as environment variables
-                    </Typography>
-                    <StringMapEditor
-                      entityTitle="variable"
-                      disabled={ readOnly || isReadOnly }
-                      data={ secrets }
-                      onChange={ setSecrets }
-                    />
-                  </Box>
+                  <GPTScriptsManager
+                    gptScripts={app?.config.helix?.assistants?.flatMap(assistant => assistant.gptscripts || []) || []}
+                    onAddGptScript={onAddGptScript}
+                    onEditTool={setEditingTool}
+                    isReadOnly={isReadOnly}
+                    isGithubApp={isGithubApp}
+                    secrets={secrets}
+                    setSecrets={setSecrets}
+                  />
                 )}
 
                 {tabValue === 'apikeys' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* API Keys content */}
-                    <Typography variant="subtitle1" sx={{mb: 1}}>
-                      App-scoped API Keys
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-                      Using this key will automatically force all requests to use this app.
-                    </Typography>
-                    <Row>
-                      <Cell grow>
-                        <Typography variant="subtitle1" sx={{mb: 1}}>
-                          API Keys
-                        </Typography>
-                      </Cell>
-                      <Cell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          endIcon={<AddCircleIcon />}
-                          onClick={onAddAPIKey}
-                          disabled={isReadOnly}
-                        >
-                          Add API Key
-                        </Button>
-                      </Cell>
-                    </Row>
-                    <Box sx={{ height: '300px' }}>
-                      <AppAPIKeysDataGrid
-                        data={account.apiKeys}
-                        onDeleteKey={(key) => {
-                          setDeletingAPIKey(key)
-                        }}
-                      />
-                    </Box>
-                    {/* Allowed Domains */}
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                      Allowed Domains (website widget)
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
-                      The domain where your app is hosted. http://localhost and http://localhost:port are always allowed.
-                      Ensures the website chat widget can work for your custom domain.
-                    </Typography>
-                    <StringArrayEditor
-                      entityTitle="domain"
-                      disabled={ readOnly || isReadOnly }
-                      data={ allowedDomains }
-                      onChange={ setAllowedDomains }
-                    />
-                  </Box>
+                  <APIKeysManager
+                    apiKeys={account.apiKeys}
+                    onAddAPIKey={onAddAPIKey}
+                    onDeleteKey={(key) => setDeletingAPIKey(key)}
+                    allowedDomains={allowedDomains}
+                    setAllowedDomains={setAllowedDomains}
+                    isReadOnly={isReadOnly}
+                  />
                 )}
 
                 {tabValue === 'developers' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* AISpec (App Configuration) content */}
-                    <Typography variant="h6" sx={{mb: 1}}>
-                      App Configuration
-                    </Typography>
-                    <TextField
-                      error={ showErrors && !schema }
-                      value={ schema }
-                      onChange={(e) => setSchema(e.target.value)}
-                      disabled={true}
-                      fullWidth
-                      multiline
-                      rows={10}
-                      id="app-schema"
-                      name="app-schema"
-                      label="App Configuration"
-                      helperText={ showErrors && !schema ? "Please enter a schema" : "" }
-                      InputProps={{
-                        style: { fontFamily: 'monospace' }
-                      }}
-                    />
-                    <Box sx={{ textAlign: 'right', mb: 1 }}>
-                      <JsonWindowLink
-                        sx={{textDecoration: 'underline'}}
-                        data={schema}
-                      >
-                        expand
-                      </JsonWindowLink>
-                    </Box>
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                    CLI Access
-                    </Typography>
-                    <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
-                      You can also access this app configuration with the CLI command:
-                    </Typography>
-                    <Box sx={{ 
-                      backgroundColor: '#1e1e2f', 
-                      padding: '10px', 
-                      borderRadius: '4px',
-                      fontFamily: 'monospace',
-                      fontSize: '0.9rem'
-                    }}>
-                      helix app inspect {app.id}
-                    </Box>
-                    <Typography variant="body2" sx={{ mt: 2, mb: 1 }}>
-                      Don't have the CLI installed? 
-                      <Link 
-                        onClick={() => navigate('account')}
-                        sx={{ ml: 1, textDecoration: 'underline', cursor: 'pointer' }}
-                      >
-                        Install it from your account page
-                      </Link>
-                    </Typography>
-                  </Box>
+                  <DeveloperView
+                    schema={schema}
+                    showErrors={showErrors}
+                    appId={app?.id || ''}
+                    onNavigate={navigate}
+                  />
                 )}
               </Box>
               
@@ -1384,280 +1063,28 @@ const App: FC = () => {
                 </Button>
               </Box>
             </Grid>
-            <Grid item xs={12} md={6}
-              sx={{
-                position: 'relative',
-                backgroundImage: `url(${image || '/img/app-editor-swirl.webp'})`,
-                backgroundPosition: 'top',
-                backgroundRepeat: 'no-repeat',
-                backgroundSize: image ? 'cover' : 'auto', // Set 'cover' only when image is present
-                p: 2,
-                borderRight: '1px solid #303047',
-                borderBottom: '1px solid #303047',
-              }}
-            >
-              {image && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)', // 20% opacity (1 - 0.8)
-                    zIndex: 1,
-                  }}
-                />
-              )}
-              <Box
-                sx={{
-                  mb: 3,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  position: 'relative',
-                  zIndex: 2,
-                }}
-              >
-                <Typography variant="h6" sx={{mb: 2, color: 'white'}}>
-                  Preview
-                </Typography>
-                <Avatar
-                  src={avatar}
-                  sx={{
-                    width: 80,
-                    height: 80,
-                    mb: 2,
-                    border: '2px solid #fff',
-                  }}
-                />
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={isSearchMode}
-                      onChange={handleSearchModeChange}
-                      color="primary"
-                    />
-                  }
-                  label="Knowledge Search"
-                  sx={{ mb: 2, color: 'white' }}
-                />
-                <Box
-                  sx={{
-                    width: '100%',
-                    flexGrow: 0,
-                    display: 'flex',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <TextField
-                    id="textEntry"
-                    fullWidth
-                    inputRef={textFieldRef}
-                    autoFocus
-                    label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
-                    helperText={isSearchMode ? "" : "Prompt the assistant with a message, integrations and scripts are selected based on their descriptions"}
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      if (isSearchMode) {
-                        onSearch(e.target.value);
-                      }
-                    }}
-                    multiline={!isSearchMode}
-                    onKeyDown={handleKeyDown}
-                    disabled={isSearchMode && !hasKnowledgeSources}
-                    sx={{
-                      '& .MuiInputBase-root': {
-                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                      },
-                      '& .MuiFormHelperText-root': {
-                        color: 'white',
-                      },
-                    }}
-                  />
-                  {!isSearchMode && (
-                    <Button
-                      id="sendButton"
-                      variant='contained'
-                      onClick={onInference}
-                      sx={{
-                        color: themeConfig.darkText,
-                        ml: 2,
-                        mb: 3,
-                      }}
-                      endIcon={<SendIcon />}
-                    >
-                      Send
-                    </Button>
-                  )}
-                </Box>
-              </Box>
-              <Box
-                sx={{
-                  position: 'relative',
-                  zIndex: 2,
-                  overflowY: 'auto',
-                  maxHeight: 'calc(100vh - 300px)',
-                }}
-              >
-                {isSearchMode ? (
-                  hasKnowledgeSources ? (
-                    searchResults && searchResults.length > 0 ? (
-                      searchResults.map((result, index) => (
-                        <Card key={index} sx={{ mb: 2, backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-                          <CardContent>
-                            <Typography variant="h6" color="white">
-                              Knowledge: {result.knowledge.name}
-                            </Typography>
-                            <Typography variant="caption" color="rgba(255, 255, 255, 0.7)">
-                              Search completed in: {result.duration_ms}ms
-                            </Typography>
-                            {result.results.length > 0 ? (
-                              result.results.map((chunk, chunkIndex) => (
-                                <Tooltip title={chunk.content} arrow key={chunkIndex}>
-                                  <Box
-                                    sx={{
-                                      mt: 1,
-                                      p: 1,
-                                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      '&:hover': {
-                                        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                                      },
-                                    }}
-                                    onClick={() => handleChunkClick(chunk)}
-                                  >
-                                    <Typography variant="body2" color="white">
-                                      Source: {chunk.source}
-                                      <br />
-                                      Content: {chunk.content.substring(0, 50)}...
-                                    </Typography>
-                                  </Box>
-                                </Tooltip>
-                              ))
-                            ) : (
-                              <Typography variant="body2" color="white">
-                                No matches found for this query.
-                              </Typography>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))
-                    ) : (
-                      <Typography variant="body1" color="white">No search results found.</Typography>
-                    )
-                  ) : (
-                    <Typography variant="body1" color="white">Add one or more knowledge sources to start searching.</Typography>
-                  )
-                ) : (
-                  session.data && (
-                    <>
-                      {
-                        session.data?.interactions.map((interaction: any, i: number) => {
-                          const interactionsLength = session.data?.interactions.length || 0
-                          const isLastInteraction = i == interactionsLength - 1
-                          const isLive = isLastInteraction && !interaction.finished
-
-                          if(!session.data) return null
-                          return (
-                            <Interaction
-                              key={ i }
-                              serverConfig={ account.serverConfig }
-                              interaction={ interaction }
-                              session={ session.data }
-                            >
-                              {
-                                isLive && (
-                                  <InteractionLiveStream
-                                    session_id={ session.data.id }
-                                    interaction={ interaction }
-                                    session={ session.data }
-                                    serverConfig={ account.serverConfig }
-                                  />
-                                )
-                              }
-                            </Interaction>
-                          )   
-                        })
-                      }
-                    </>
-                  )
-                )}
-              </Box>
+            <Grid item xs={12} md={6}>
+              <PreviewPane
+                name={name}
+                avatar={avatar}
+                image={image}
+                isSearchMode={isSearchMode}
+                setIsSearchMode={setIsSearchMode}
+                inputValue={inputValue}
+                setInputValue={setInputValue}
+                onInference={onInference}
+                onSearch={onSearch}
+                hasKnowledgeSources={hasKnowledgeSources}
+                searchResults={searchResults}
+                session={session.data ?? null}
+                serverConfig={account.serverConfig}
+                themeConfig={themeConfig}
+                snackbar={snackbar}
+              />
             </Grid>
           </Grid>
         </Box>
       </Container>
-      <Dialog
-        open={selectedChunk !== null}
-        onClose={handleCloseDialog}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          Content Details
-          <IconButton
-            aria-label="close"
-            onClick={handleCloseDialog}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {selectedChunk && (
-            <>
-              <Typography variant="subtitle1" gutterBottom>
-                Source: {selectedChunk.source.startsWith('http://') || selectedChunk.source.startsWith('https://') ? (
-                  <Link href={selectedChunk.source} target="_blank" rel="noopener noreferrer">
-                    {selectedChunk.source}
-                  </Link>
-                ) : selectedChunk.source}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Document ID: {selectedChunk.document_id}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Document Group ID: {selectedChunk.document_group_id}
-              </Typography>
-              <Typography variant="subtitle2" gutterBottom>
-                Chunk characters: {selectedChunk.content.length}
-              </Typography>
-              <Typography variant="h6" gutterBottom>
-                Chunk content:
-              </Typography>
-              <TextField                
-                value={ selectedChunk.content }                
-                disabled={true}
-                fullWidth
-                multiline
-                rows={10}
-                id="content-details"
-                name="content-details"
-                label="Content Details"                
-                InputProps={{
-                  style: { fontFamily: 'monospace' }
-                }}
-              />
-            </>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCopyContent} startIcon={<ContentCopyIcon />}>
-            Copy
-          </Button>
-          <Button onClick={handleCloseDialog}>Close</Button>
-        </DialogActions>
-      </Dialog>
       {
         showBigSchema && (
           <Window
@@ -1731,6 +1158,7 @@ const App: FC = () => {
                   Run
                 </Button>
               </Cell>
+              
             </Row>
             
             {
