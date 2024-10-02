@@ -428,6 +428,8 @@ const App: FC = () => {
   }
 
   const onSave = useCallback(async (quiet: boolean = false) => {
+    console.log('XX on save assistants:', app?.config.helix.assistants[0].tools.length);
+
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -443,6 +445,7 @@ const App: FC = () => {
       snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
       return;
     }
+
 
     setShowErrors(false);
 
@@ -460,7 +463,7 @@ const App: FC = () => {
           assistants: app.config.helix.assistants.map(assistant => ({
             ...assistant,
             system_prompt: systemPrompt,
-            tools: tools,
+            // tools: tools,
             knowledge: knowledgeSources,
             model: model,
           })),
@@ -860,40 +863,34 @@ const App: FC = () => {
     }
   }, [account.apiKeys, snackbar]);  
 
-  const onDeleteTool = useCallback((toolId: string) => {
+  const onDeleteTool = useCallback(async (toolId: string) => {
     if (!app) {
       console.error('App is not initialized');
       snackbar.error('Unable to delete tool: App is not initialized');
       return;
     }
 
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: assistant.tools.filter(tool => tool.id !== toolId),
+      gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
+    }));
 
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
-        ...assistant,
-        tools: assistant.tools.filter(tool => tool.id !== toolId),
-        gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
-      }));
-
-      console.log('Updated assistants:', updatedAssistants[0].tools);
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
+    const updatedApp = {
+      ...app,
+      config: {
+        ...app.config,
+        helix: {
+          ...app.config.helix,
+          assistants: updatedAssistants,
         },
-      };
-    });
+      },
+    }
 
-    // setTools(prevTools => prevTools.filter(tool => tool.id !== toolId));
-
-    // Save app
-    onSave();
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }  
 
     snackbar.success('Tool deleted successfully');
   }, [app, snackbar, onSave]);
