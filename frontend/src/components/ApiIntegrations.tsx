@@ -20,16 +20,19 @@ import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import { coindeskSchema } from './coindesk_schema';
 import { jobVacanciesSchema } from './jobvacancies_schema';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 interface ApiIntegrationsProps {
   tools: ITool[];
   onSaveApiTool: (tool: ITool) => void;
+  onDeleteApiTool: (toolId: string) => void;  // Add this line
   isReadOnly: boolean;
 }
 
 const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   tools,
   onSaveApiTool,
+  onDeleteApiTool,  // Add this line
   isReadOnly,
 }) => {
   const [editingTool, setEditingTool] = useState<ITool | null>(null);
@@ -129,7 +132,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
   };
 
   return (
-    <Box sx={{ mt: 2 }}>
+    <Box sx={{ mt: 2, mr: 4 }}>
       <Typography variant="h6" sx={{ mb: 1 }}>
         API Tools
       </Typography>
@@ -168,14 +171,25 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
               </Box>
             )}
             
-            <Button
-              variant="outlined"
-              onClick={() => handleEditTool(apiTool)}
-              sx={{ mt: 1 }}
-              disabled={isReadOnly}
-            >
-              Edit
-            </Button>
+            <Box sx={{ mt: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={() => handleEditTool(apiTool)}
+                sx={{ mr: 1 }}
+                disabled={isReadOnly}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => onDeleteApiTool(apiTool.id)}
+                disabled={isReadOnly}
+                startIcon={<DeleteIcon />}
+              >
+                Delete
+              </Button>
+            </Box>
           </Box>
         ))}
       </Box>
@@ -189,6 +203,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
           cancelTitle="Close"
           onCancel={() => setEditingTool(null)}
           onSubmit={handleSaveTool}
+          
         >          
           <Box sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
@@ -368,7 +383,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
               </Grid>
             </Grid>
             <Box sx={{ mt: 2 }}>
-              <Button
+              {/* <Button
                 variant="contained"
                 color="primary"
                 onClick={handleSaveTool}
@@ -376,7 +391,7 @@ const ApiIntegrations: React.FC<ApiIntegrationsProps> = ({
                 sx={{ mr: 2 }}
               >
                 Save
-              </Button>
+              </Button> */}
               {/* <Button 
                 variant="contained" 
                 color="secondary" 
