@@ -58,6 +58,7 @@ import Interaction from '../components/session/Interaction'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import KnowledgeEditor from '../components/KnowledgeEditor';
 import ApiIntegrations from '../components/ApiIntegrations';
+import ZapierIntegrations from '../components/ZapierIntegrations';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -1120,12 +1121,21 @@ const App: FC = () => {
                 )}
 
                 {tabValue === 'integrations' && (
-                  <ApiIntegrations
-                    tools={tools}
-                    onSaveApiTool={onSaveApiTool}
-                    onDeleteApiTool={onDeleteTool}  // Add this line
-                    isReadOnly={isReadOnly}
-                  />
+                  <>
+                    <ApiIntegrations
+                      tools={tools}
+                      onSaveApiTool={onSaveApiTool}
+                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      isReadOnly={isReadOnly}
+                    />
+
+                    <ZapierIntegrations
+                      tools={tools}
+                      onSaveApiTool={onSaveApiTool}
+                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      isReadOnly={isReadOnly}
+                    />
+                  </>
                 )}
 
                 {tabValue === 'gptscripts' && (
