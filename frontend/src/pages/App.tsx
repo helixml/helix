@@ -893,7 +893,7 @@ const App: FC = () => {
     // setTools(prevTools => prevTools.filter(tool => tool.id !== toolId));
 
     // Save app
-    onSave(true);
+    onSave();
 
     snackbar.success('Tool deleted successfully');
   }, [app, snackbar, onSave]);
