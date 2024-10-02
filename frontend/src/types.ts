@@ -454,9 +454,17 @@ export interface IToolGptScriptConfig {
   script_url?: string, // If script lives on a remote server, specify the URL
 }
 
+export interface IToolZapierConfig {
+  api_key?: string,
+  model?: string, 
+  max_iterations?: number,
+}
+
+
 export interface IToolConfig {
   api?: IToolApiConfig,
   gptscript?: IToolGptScriptConfig,
+  zapier?: IToolZapierConfig,
 }
 
 export interface ITool {
