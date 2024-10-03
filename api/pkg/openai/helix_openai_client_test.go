@@ -12,7 +12,7 @@ import (
 	"github.com/helixml/helix/api/pkg/config"
 	"github.com/helixml/helix/api/pkg/pubsub"
 	"github.com/helixml/helix/api/pkg/types"
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	gomock "go.uber.org/mock/gomock"

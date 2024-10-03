@@ -13,8 +13,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/bwmarrin/discordgo"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
