@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"gorm.io/datatypes"
 )
 
@@ -70,8 +70,8 @@ const (
 )
 
 type ResponseFormat struct {
-	Type   ResponseFormatType     `json:"type"`
-	Schema map[string]interface{} `json:"schema"`
+	Type       ResponseFormatType                             `json:"type"`
+	JSONSchema *openai.ChatCompletionResponseFormatJSONSchema `json:"schema"`
 }
 
 type InteractionMessage struct {
@@ -843,6 +843,7 @@ type ToolType string
 const (
 	ToolTypeAPI       ToolType = "api"
 	ToolTypeGPTScript ToolType = "gptscript"
+	ToolTypeZapier    ToolType = "zapier"
 )
 
 type Tool struct {
@@ -863,6 +864,7 @@ type Tool struct {
 type ToolConfig struct {
 	API       *ToolApiConfig       `json:"api"`
 	GPTScript *ToolGPTScriptConfig `json:"gptscript"`
+	Zapier    *ToolZapierConfig    `json:"zapier"`
 }
 
 func (m ToolConfig) Value() (driver.Value, error) {
@@ -913,6 +915,12 @@ type ToolGPTScriptConfig struct {
 	ScriptURL string `json:"script_url"` // URL to download the script
 }
 
+type ToolZapierConfig struct {
+	APIKey        string `json:"api_key"`
+	Model         string `json:"model"`
+	MaxIterations int    `json:"max_iterations"`
+}
+
 // SessionToolBinding used to add tools to sessions
 type SessionToolBinding struct {
 	SessionID string `gorm:"primaryKey;index"`
@@ -935,6 +943,14 @@ type AssistantGPTScript struct {
 	Description string `json:"description" yaml:"description"` // When to use this tool (required)
 	File        string `json:"file" yaml:"file"`
 	Content     string `json:"content" yaml:"content"`
+}
+
+type AssistantZapier struct {
+	Name          string `json:"name" yaml:"name"`
+	Description   string `json:"description" yaml:"description"`
+	APIKey        string `json:"api_key" yaml:"api_key"`
+	Model         string `json:"model" yaml:"model"`
+	MaxIterations int    `json:"max_iterations" yaml:"max_iterations"`
 }
 
 type AssistantAPI struct {
@@ -983,6 +999,9 @@ type AssistantConfig struct {
 
 	// the list of gpt scripts this assistant will use
 	GPTScripts []AssistantGPTScript `json:"gptscripts" yaml:"gptscripts"`
+
+	Zapier []AssistantZapier `json:"zapier" yaml:"zapier"`
+
 	// these are populated from the APIs and GPTScripts on create and update
 	// we include tools in the JSON that we send to the browser
 	// but we don't include it in the yaml which feeds this struct because

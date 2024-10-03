@@ -17,6 +17,10 @@ func getToolFromAction(tools []*types.Tool, action string) (*types.Tool, bool) {
 			if tool.Name == action {
 				return tool, true
 			}
+		case types.ToolTypeZapier:
+			if tool.Name == action {
+				return tool, true
+			}
 		}
 	}
 	return nil, false

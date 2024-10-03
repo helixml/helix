@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/helixml/helix/api/pkg/system"
@@ -23,12 +24,22 @@ func (s *PostgresStore) CreateApp(ctx context.Context, app *types.App) (*types.A
 	app.Created = time.Now()
 
 	setAppDefaults(app)
+	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Create(app).Error
 	if err != nil {
 		return nil, err
 	}
 	return s.GetApp(ctx, app.ID)
+}
+
+func sortAppTools(app *types.App) {
+	for idx, assistant := range app.Config.Helix.Assistants {
+		sort.SliceStable(assistant.Tools, func(i, j int) bool {
+			return assistant.Tools[i].Name < assistant.Tools[j].Name
+		})
+		app.Config.Helix.Assistants[idx] = assistant
+	}
 }
 
 func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.App, error) {
@@ -41,6 +52,8 @@ func (s *PostgresStore) UpdateApp(ctx context.Context, app *types.App) (*types.A
 	}
 
 	app.Updated = time.Now()
+
+	sortAppTools(app)
 
 	err := s.gdb.WithContext(ctx).Save(&app).Error
 	if err != nil {

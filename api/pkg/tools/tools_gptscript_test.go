@@ -6,7 +6,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/helixml/helix/api/pkg/types"
-	oai "github.com/lukemarsden/go-openai2"
+	oai "github.com/sashabaranov/go-openai"
 	"go.uber.org/mock/gomock"
 )
 
