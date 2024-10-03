@@ -45,3 +45,14 @@ func FilterMap[k comparable, v any](m map[k]v, f func(v) bool) map[k]v {
 	}
 	return newMap
 }
+
+// Reverse reverses the order of elements in a slice.
+func Reverse[v any](s []v) []v {
+	// Create a new slice with the same capacity as the original.
+	reversed := make([]v, len(s))
+	// Copy elements in reverse order.
+	for i, j := 0, len(s)-1; i < len(s); i, j = i+1, j-1 {
+		reversed[i] = s[j]
+	}
+	return reversed
+}

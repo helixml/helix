@@ -177,6 +177,7 @@ func TestScheduler_FullWhenJobsWarm(t *testing.T) {
 
 func TestScheduler_MaximiseUtilization(t *testing.T) {
 	config, _ := config.LoadServerConfig()
+	config.Providers.Helix.SchedulingStrategy = string(SchedulingStrategy_MaxUtilization)
 	scheduler := NewScheduler(&config)
 	model, _ := model.GetModel(types.Model_Ollama_Llama3_8b)
 	scheduler.UpdateRunner(&types.RunnerState{

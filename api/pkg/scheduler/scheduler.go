@@ -29,7 +29,7 @@ type scheduler struct {
 	allocator         WorkloadAllocator                  // Interface to allocate workload to different slots/models.
 	workStore         *xsync.MapOf[uuid.UUID, *Workload] // Map to store the work associated with a slot.
 	cluster           Cluster                            // Cluster to manage runner state.
-	placementStrategy PlacementStrategy
+	placementStrategy SchedulingStrategyFunc
 }
 
 var _ Scheduler = &scheduler{}
@@ -43,11 +43,23 @@ func NewScheduler(cfg *config.ServerConfig) *scheduler {
 	cluster := NewCluster(
 		NewTimeoutFunc(cfg.Providers.Helix.RunnerTTL),
 	)
+
+	schedStratFunc := MaxSpreadStrategy
+	switch SchedulingStrategy(cfg.Providers.Helix.SchedulingStrategy) {
+	case SchedulingStrategy_MaxUtilization:
+		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy with spread work across all runners")
+		schedStratFunc = MaxUtilizationStrategy
+	case SchedulingStrategy_MaxSpread:
+		log.Info().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("scheduling strategy will maximize utilization on individual runners")
+		schedStratFunc = MaxSpreadStrategy
+	default:
+		log.Warn().Str("strategy", cfg.Providers.Helix.SchedulingStrategy).Msg("unknown scheduling strategy, defaulting to max utilization")
+	}
 	scheduler := &scheduler{
 		allocator:         allocator,
 		cluster:           cluster,
 		workStore:         xsync.NewMapOf[uuid.UUID, *Workload](),
-		placementStrategy: MaxUtilizationStrategy, // TODO: Make this configurable.
+		placementStrategy: schedStratFunc, // TODO: Make this configurable.
 	}
 
 	// Start a goroutine to log the current state of the scheduler every 5 seconds.
