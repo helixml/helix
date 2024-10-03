@@ -8,6 +8,7 @@ import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
 import AddCircleIcon from '@mui/icons-material/AddCircle'
+import DeleteIcon from '@mui/icons-material/Delete';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
 import FormGroup from '@mui/material/FormGroup'
@@ -56,6 +57,8 @@ import ToolEditor from '../components/ToolEditor'
 import Interaction from '../components/session/Interaction'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
 import KnowledgeEditor from '../components/KnowledgeEditor';
+import ApiIntegrations from '../components/ApiIntegrations';
+import ZapierIntegrations from '../components/ZapierIntegrations';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -434,7 +437,7 @@ const App: FC = () => {
     loading.setLoading(false)
   }
 
-  const onSave = useCallback(async (quiet: boolean = false) => {
+  const onSave = useCallback(async (quiet: boolean = false) => {    
     if (!app) {
       snackbar.error('No app data available');
       return;
@@ -450,6 +453,7 @@ const App: FC = () => {
       snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
       return;
     }
+
 
     setShowErrors(false);
 
@@ -467,7 +471,7 @@ const App: FC = () => {
           assistants: app.config.helix.assistants.map(assistant => ({
             ...assistant,
             system_prompt: systemPrompt,
-            tools: tools,
+            // tools: tools,
             knowledge: knowledgeSources,
             model: model,
           })),
@@ -784,97 +788,36 @@ const App: FC = () => {
     }
   })
 
-  const onAddApiTool = useCallback(() => {
-    const newTool: ITool = {
-      id: uuidv4(),
-      name: '',
-      description: '',
-      tool_type: 'api',
-      global: false,
-      config: {
-        api: {
-          url: '',
-          schema: '',
-          actions: [],
-          headers: {},
-          query: {},
-        }
-      },
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-      owner: account.user?.id || '',
-      owner_type: 'user',
-    };
-
-    if (!app || !app.config.helix.assistants.length) {
-      // If there are no assistants, create one
-      setApp(prevApp => ({
-        ...prevApp!,
-        config: {
-          ...prevApp!.config,
-          helix: {
-            ...prevApp!.config.helix,
-            assistants: [{
-              id: uuidv4(),
-              name: 'Default Assistant',
-              description: 'Default Assistant',
-              avatar: '',
-              image: '',
-              model: '',
-              type: 'text',
-              system_prompt: '',
-              rag_source_id: '',
-              lora_id: '',
-              is_actionable_template: '',
-              apis: [],
-              gptscripts: [],
-              tools: [newTool],
-            }],
-          },
-        },
-      }));
-    }
-
-    setEditingTool(newTool);
-  }, [account.user, app]);
-
-  const onSaveApiTool = useCallback((tool: ITool) => {
+  const onSaveApiTool = useCallback(async (tool: ITool) => {
     if (!app) {
       console.error('App is not initialized');
       snackbar.error('Unable to save tool: App is not initialized');
       return;
-    }
-    
-    console.log('Saving API Tool:', tool);
+    }    
 
-    setApp(prevApp => {
-      if (!prevApp) return prevApp;
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
+    }));
 
-      const updatedAssistants = prevApp.config.helix.assistants.map(assistant => ({
-        ...assistant,
-        tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
-      }));
+    console.log('Updated assistants:', updatedAssistants);
 
-      console.log('Updated assistants:', updatedAssistants);
-
-      return {
-        ...prevApp,
-        config: {
-          ...prevApp.config,
-          helix: {
-            ...prevApp.config.helix,
-            assistants: updatedAssistants,
-          },
+    const updatedApp = {
+      ...app,
+      config: {
+        ...app.config,
+        helix: {
+          ...app.config.helix,
+          assistants: updatedAssistants,
         },
-      };
-    });
+      },
+    };    
 
-    setTools(prevTools => {
-      const updatedTools = prevTools.filter(t => t.id !== tool.id);
-      return [...updatedTools, tool];
-    });
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }
 
-    setEditingTool(null);
     snackbar.success('API Tool saved successfully');
   }, [app, snackbar]);
 
@@ -1032,6 +975,38 @@ const App: FC = () => {
       snackbar.error('No API key available');
     }
   }, [account.apiKeys, snackbar]);  
+
+  const onDeleteTool = useCallback(async (toolId: string) => {
+    if (!app) {
+      console.error('App is not initialized');
+      snackbar.error('Unable to delete tool: App is not initialized');
+      return;
+    }
+
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: assistant.tools.filter(tool => tool.id !== toolId),
+      gptscripts: assistant.gptscripts?.filter(script => script.file !== toolId)
+    }));
+
+    const updatedApp = {
+      ...app,
+      config: {
+        ...app.config,
+        helix: {
+          ...app.config.helix,
+          assistants: updatedAssistants,
+        },
+      },
+    }
+
+    const result = await apps.updateApp(app.id, updatedApp);
+    if (result) {
+      setApp(result);
+    }  
+
+    snackbar.success('Tool deleted successfully');
+  }, [app, snackbar, onSave]);
 
   if(!account.user) return null
   if(!app) return null
@@ -1271,44 +1246,21 @@ const App: FC = () => {
                 )}
 
                 {tabValue === 'integrations' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* Integrations (API Tools) content */}
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      API Tools
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddApiTool}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly}
-                    >
-                      Add API Tool
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {tools.filter(tool => tool.tool_type === 'api').map((apiTool) => (
-                        <Box
-                          key={apiTool.id}
-                          sx={{
-                            p: 2,
-                            border: '1px solid #303047',
-                            mb: 2,
-                          }}
-                        >
-                          <Typography variant="h6">{apiTool.name}</Typography>
-                          <Typography variant="body1">{apiTool.description}</Typography>
-                          <Button
-                            variant="outlined"
-                            onClick={() => setEditingTool(apiTool)}
-                            sx={{ mt: 1 }}
-                            disabled={isReadOnly}
-                          >
-                            Edit
-                          </Button>
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
+                  <>
+                    <ApiIntegrations
+                      tools={tools}
+                      onSaveApiTool={onSaveApiTool}
+                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      isReadOnly={isReadOnly}
+                    />
+
+                    <ZapierIntegrations
+                      tools={tools}
+                      onSaveApiTool={onSaveApiTool}
+                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      isReadOnly={isReadOnly}
+                    />
+                  </>
                 )}
 
                 {tabValue === 'gptscripts' && (
@@ -1339,29 +1291,40 @@ const App: FC = () => {
                           >
                             <Typography variant="subtitle1">{script.name}</Typography>
                             <Typography variant="body2">{script.description}</Typography>
-                            <Button
-                              variant="outlined"
-                              onClick={() => setEditingTool({
-                                id: script.file,
-                                name: script.name,
-                                description: script.description,
-                                tool_type: 'gptscript',
-                                global: false,
-                                config: {
-                                  gptscript: {
-                                    script: script.content,
-                                  }
-                                },
-                                created: '',
-                                updated: '',
-                                owner: '',
-                                owner_type: 'user',
-                              })}
-                              sx={{ mt: 1 }}
-                              disabled={isReadOnly || isGithubApp}
-                            >
-                              Edit
-                            </Button>
+                            <Box sx={{ mt: 1 }}>
+                              <Button
+                                variant="outlined"
+                                onClick={() => setEditingTool({
+                                  id: script.file,
+                                  name: script.name,
+                                  description: script.description,
+                                  tool_type: 'gptscript',
+                                  global: false,
+                                  config: {
+                                    gptscript: {
+                                      script: script.content,
+                                    }
+                                  },
+                                  created: '',
+                                  updated: '',
+                                  owner: '',
+                                  owner_type: 'user',
+                                })}
+                                sx={{ mr: 1 }}
+                                disabled={isReadOnly || isGithubApp}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={() => onDeleteTool(script.file)}
+                                disabled={isReadOnly || isGithubApp}
+                                startIcon={<DeleteIcon />}
+                              >
+                                Delete
+                              </Button>
+                            </Box>
                           </Box>
                         )) || []
                       )}
@@ -1493,17 +1456,19 @@ const App: FC = () => {
               </Box>
               
               {/* Save button placed here, underneath the tab section */}
-              <Box sx={{ mt: 2, pl: 3 }}>
-                <Button
-                  type="button"
-                  color="secondary"
-                  variant="contained"
-                  onClick={ () => onSave(false) }
-                  disabled={isReadOnly}
-                >
-                  Save
-                </Button>
-              </Box>
+              {tabValue !== 'integrations' && (
+                <Box sx={{ mt: 2, pl: 3 }}>
+                  <Button
+                    type="button"
+                    color="secondary"
+                    variant="contained"
+                    onClick={ () => onSave(false) }
+                    disabled={isReadOnly}
+                  >
+                    Save
+                  </Button>
+                </Box>
+              )}
             </Grid>
             <Grid item xs={12} md={6}
               sx={{
@@ -1560,7 +1525,7 @@ const App: FC = () => {
                       color="primary"
                     />
                   }
-                  label="Knowledge Search"
+                  label={isSearchMode ? `Search ${name || 'Helix'} knowledge` : `Message ${name || 'Helix'}`}
                   sx={{ mb: 2, color: 'white' }}
                 />
                 <Box

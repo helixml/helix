@@ -12,8 +12,8 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/helixml/helix/api/pkg/model"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -57,12 +57,8 @@ func (c *RetryableClient) CreateChatCompletion(ctx context.Context, request open
 	err = retry.Do(func() error {
 		resp, err = c.apiClient.CreateChatCompletion(ctx, request)
 		if err != nil {
-			// Cast into openai.RequestError
-			if apiErr, ok := err.(*openai.RequestError); ok {
-				if apiErr.HTTPStatusCode == 401 {
-					// Do not retry on auth failures
-					return retry.Unrecoverable(err)
-				}
+			if strings.Contains(err.Error(), "401 Unauthorized") {
+				return retry.Unrecoverable(err)
 			}
 
 			return err

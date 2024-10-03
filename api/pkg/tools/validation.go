@@ -118,6 +118,14 @@ func ValidateTool(tool *types.Tool, planner Planner, strict bool) error {
 			return system.NewHTTPError400("failed to validate and default tool, error: %s", err)
 		}
 
+	case types.ToolTypeZapier:
+		if tool.Config.Zapier == nil {
+			return system.NewHTTPError400("Zapier config is required for Zapier tools")
+		}
+
+		if tool.Config.Zapier.APIKey == "" {
+			return system.NewHTTPError400("API key is required for Zapier tools")
+		}
 	default:
 		return system.NewHTTPError400("invalid tool type %s, only API tools are supported at the moment", tool.ToolType)
 	}

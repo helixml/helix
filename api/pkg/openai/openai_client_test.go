@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	openai "github.com/lukemarsden/go-openai2"
+	openai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/require"
 )
 

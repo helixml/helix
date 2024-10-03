@@ -19,8 +19,8 @@ import (
 	"github.com/helixml/helix/api/pkg/types"
 
 	"github.com/jmorganca/ollama/api"
-	openai "github.com/lukemarsden/go-openai2"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type InferenceModelInstanceConfig struct {
