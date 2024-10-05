@@ -56,8 +56,27 @@ export const StreamingContextProvider: FC = ({ children }) => {
         responseType: 'text',
         onDownloadProgress: (progressEvent) => {
           const chunk = progressEvent.event.target.response
-          console.log(`[Streaming] Received chunk:`, chunk)
-          updateRequest(id, chunk)
+          const lines = chunk.split('\n')
+          lines.forEach((line: string) => {
+            if (line.startsWith('data: ')) {
+              const jsonData = line.slice(6)
+              if (jsonData === '[DONE]') {
+                console.log(`[Streaming] Received [DONE] for request ${id}`)
+                completeRequest(id)
+              } else {
+                try {
+                  const parsed = JSON.parse(jsonData)
+                  const content = parsed.choices[0].delta.content
+                  if (content) {
+                    console.log(`[Streaming] Received chunk:`, content)
+                    updateRequest(id, content)
+                  }
+                } catch (error) {
+                  console.error(`[Streaming] Error parsing chunk:`, error)
+                }
+              }
+            }
+          })
         }
       })
 
@@ -118,6 +137,10 @@ export const StreamingContextProvider: FC = ({ children }) => {
       }
     })
   }, [])
+  // data:
+  // {"id":"ses_01j993z0ffc3dxgg70j27ax12t","object":"chat.completion.chunk","created":1727956756,"model":"llama3.1:8b","choices":[{"index":0,"delta":{"content":"
+  // regarding","role":"assistant"},"finish_reason":null,"content_filter_results":{"hate":{"filtered":false},"self_harm":{"filtered":false},"sexual":{"filtered":false},"violence":{"filtered":false}}}],"system_fingerprint":"fp_ollama"}
+
 
   const updateRequest = useCallback((id: string, chunk: string) => {
     console.log(`[Streaming] Updating request ${id} with chunk:`, chunk)

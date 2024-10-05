@@ -34,6 +34,7 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
+                {/* TODO: Move StreamingContextProvider from App.tsx to here */}
                 {children}
               </SessionsContextProvider>
             </AccountContextProvider>

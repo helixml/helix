@@ -8,6 +8,7 @@ import {
   IInteraction,
 } from '../types'
 
+// TODO: this should take the frontend id instead of subscribing to a websocket
 export const useLiveInteraction = ({
   session_id,
   interaction,
