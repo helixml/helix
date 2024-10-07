@@ -9,12 +9,12 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
-import StringMapEditor from './widgets/StringMapEditor';
-import JsonWindowLink from './widgets/JsonWindowLink';
-import Window from './widgets/Window';
-import ClickLink from './widgets/ClickLink';
+import StringMapEditor from '../widgets/StringMapEditor';
+import JsonWindowLink from '../widgets/JsonWindowLink';
+import Window from '../widgets/Window';
+import ClickLink from '../widgets/ClickLink';
 
-import { ITool, IToolApiAction } from '../types';
+import { ITool, IToolApiAction } from '../../types';
 
 interface ToolEditorProps {
   initialData: ITool;

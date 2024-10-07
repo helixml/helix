@@ -5,50 +5,24 @@ import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import AddCircleIcon from '@mui/icons-material/AddCircle'
-import DeleteIcon from '@mui/icons-material/Delete';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Checkbox from '@mui/material/Checkbox'
-import AddIcon from '@mui/icons-material/Add'
 import { v4 as uuidv4 } from 'uuid';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
-import SendIcon from '@mui/icons-material/Send';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import Link from '@mui/material/Link';
-import Avatar from '@mui/material/Avatar';
-import ModelPicker from '../components/create/ModelPicker'
-import Switch from '@mui/material/Switch';
-import Card from '@mui/material/Card';
-import CardContent from '@mui/material/CardContent';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import IconButton from '@mui/material/IconButton';
-import CloseIcon from '@mui/icons-material/Close';
 
 import Page from '../components/system/Page'
-import JsonWindowLink from '../components/widgets/JsonWindowLink'
 import TextView from '../components/widgets/TextView'
 import Row from '../components/widgets/Row'
 import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
-import StringMapEditor from '../components/widgets/StringMapEditor'
-import StringArrayEditor from '../components/widgets/StringArrayEditor'
-import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
-import ToolEditor from '../components/ToolEditor'
-import Interaction from '../components/session/Interaction'
-import InteractionLiveStream from '../components/session/InteractionLiveStream'
+import ToolEditor from '../components/app/ToolEditor'
 import KnowledgeEditor from '../components/app/KnowledgeEditor';
-import ApiIntegrations from '../components/ApiIntegrations';
-import ZapierIntegrations from '../components/ZapierIntegrations';
+import ApiIntegrations from '../components/app/ApiIntegrations';
+import ZapierIntegrations from '../components/app/ZapierIntegrations';
 
 import useApps from '../hooks/useApps'
 import useLoading from '../hooks/useLoading'
@@ -84,15 +58,6 @@ import APIKeysSection from '../components/app/APIKeysSection';
 import DevelopersSection from '../components/app/DevelopersSection';
 import PreviewPanel from '../components/app/PreviewPanel';
 
-const isHelixApp = (app: IApp): boolean => {
-  return app.app_source === 'helix';
-};
-
-const isGithubApp = (app: IApp): boolean => {
-  return !!app.config.github;
-};
-
-// Updated helper function
 const removeEmptyValues = (obj: any): any => {
   if (Array.isArray(obj)) {
     const filtered = obj.map(removeEmptyValues).filter(v => v !== undefined && v !== null);
@@ -136,14 +101,7 @@ const App: FC = () => {
   const [ gptScriptInput, setGptScriptInput ] = useState('')
   const [ gptScriptError, setGptScriptError ] = useState('')
   const [ gptScriptOutput, setGptScriptOutput ] = useState('')
-  const [ advancedSettingsOpen, setAdvancedSettingsOpen ] = useState(false)
   const [ editingTool, setEditingTool ] = useState<ITool | null>(null)
-  const [showGptScriptEditor, setShowGptScriptEditor] = useState(false);
-  const [showApiToolEditor, setShowApiToolEditor] = useState(false);
-  const [toolsUpdated, setToolsUpdated] = useState(false);
-  const [displayedTools, setDisplayedTools] = useState<ITool[]>([]);
-  const [appTools, setAppTools] = useState<ITool[]>([]);
-  const [updatedTools, setUpdatedTools] = useState<ITool[]>([]);
 
   const [app, setApp] = useState<IApp | null>(null);
   const [tools, setTools] = useState<ITool[]>([]);
@@ -153,7 +111,6 @@ const App: FC = () => {
   const [isSearchMode, setIsSearchMode] = useState(() => searchParams.get('isSearchMode') === 'true');
   const [tabValue, setTabValue] = useState(() => searchParams.get('tab') || 'settings');
 
-  const textFieldRef = useRef<HTMLTextAreaElement>()
   const themeConfig = useThemeConfig()
 
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -365,17 +322,6 @@ const App: FC = () => {
     }
     return true;
   }, [app, name]);
-
-  const onRunScript = (script: IAssistantGPTScript) => {
-    if(account.apiKeys.length == 0) {
-      snackbar.error('Please add an API key')
-      return
-    }
-    setGptScript(script)
-    setGptScriptInput('')
-    setGptScriptError('')
-    setGptScriptOutput('')
-  }
 
   const onExecuteScript = async () => {
     loading.setLoading(true)
@@ -594,17 +540,6 @@ const App: FC = () => {
     return !hasErrors;
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter') {
-      if (event.shiftKey) {
-        setInputValue(current => current + "\n")
-      } else {
-        onInference()
-      }
-      event.preventDefault()
-    }
-  }
-
   useEffect(() => {
     if(!account.user) return
     if (params.app_id === "new") return; // Don't load data for new app
@@ -620,17 +555,7 @@ const App: FC = () => {
   ])
 
   useEffect(() => {
-    // console.log('App useEffect triggered', { app, hasLoaded });
     if (!app) return;
-    // console.log('Setting app data', {
-    //   name: app.config.helix.name || '',
-    //   description: app.config.helix.description || '',
-    //   schema: JSON.stringify(app.config, null, 4),
-    //   secrets: app.config.secrets || {},
-    //   allowedDomains: app.config.allowed_domains || [],
-    //   shared: app.shared,
-    //   global: app.global,
-    // });
     setName(app.config.helix.name || '');
     setDescription(app.config.helix.description || '');
     // Use the updated helper function here
@@ -654,39 +579,6 @@ const App: FC = () => {
       session.setData(newSession)
     }
   })
-
-  const onSaveApiTool = useCallback(async (tool: ITool) => {
-    if (!app) {
-      console.error('App is not initialized');
-      snackbar.error('Unable to save tool: App is not initialized');
-      return;
-    }    
-
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
-      ...assistant,
-      tools: [...(assistant.tools || []).filter(t => t.id !== tool.id), tool]
-    }));
-
-    console.log('Updated assistants:', updatedAssistants);
-
-    const updatedApp = {
-      ...app,
-      config: {
-        ...app.config,
-        helix: {
-          ...app.config.helix,
-          assistants: updatedAssistants,
-        },
-      },
-    };    
-
-    const result = await apps.updateApp(app.id, updatedApp);
-    if (result) {
-      setApp(result);
-    }
-
-    snackbar.success('API Tool saved successfully');
-  }, [app, snackbar]);
 
   const onAddGptScript = useCallback(() => {
     const currentDateTime = new Date().toISOString();
@@ -816,7 +708,7 @@ const App: FC = () => {
       const allTools = app.config.helix.assistants.flatMap(assistant => {
         return assistant.tools || [];
       });      
-      setDisplayedTools(allTools);
+      setTools(allTools);
     }
   }, [app]);
 
@@ -874,6 +766,81 @@ const App: FC = () => {
 
     snackbar.success('Tool deleted successfully');
   }, [app, snackbar, onSave]);
+
+  const onSaveApiTool = useCallback((tool: ITool) => {
+    if (!app) return;
+
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: assistant.tools.some(t => t.id === tool.id)
+        ? assistant.tools.map(t => t.id === tool.id ? tool : t)
+        : [...assistant.tools, tool]
+    }));
+
+    setApp(prevApp => ({
+      ...prevApp!,
+      config: {
+        ...prevApp!.config,
+        helix: {
+          ...prevApp!.config.helix,
+          assistants: updatedAssistants,
+        },
+      },
+    }));
+
+    setTools(prevTools => {
+      const updatedTools = prevTools.filter(t => t.id !== tool.id);
+      return [...updatedTools, tool];
+    });
+
+    snackbar.success('API Tool saved successfully');
+  }, [app, snackbar]);
+
+  const onDeleteApiTool = useCallback((toolId: string) => {
+    if (!app) return;
+
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: assistant.tools.filter(tool => tool.id !== toolId)
+    }));
+
+    setApp(prevApp => ({
+      ...prevApp!,
+      config: {
+        ...prevApp!.config,
+        helix: {
+          ...prevApp!.config.helix,
+          assistants: updatedAssistants,
+        },
+      },
+    }));
+
+    setTools(prevTools => prevTools.filter(tool => tool.id !== toolId));
+
+    snackbar.success('API Tool deleted successfully');
+  }, [app, snackbar]);
+
+  const handleToolsChange = useCallback((updatedTools: ITool[]) => {
+    if (!app) return;
+
+    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
+      ...assistant,
+      tools: updatedTools
+    }));
+
+    setApp(prevApp => ({
+      ...prevApp!,
+      config: {
+        ...prevApp!.config,
+        helix: {
+          ...prevApp!.config.helix,
+          assistants: updatedAssistants,
+        },
+      },
+    }));
+
+    setTools(updatedTools);
+  }, [app]);
 
   if(!account.user) return null
   if(!app) return null
@@ -1014,16 +981,15 @@ const App: FC = () => {
                 {tabValue === 'integrations' && (
                   <>
                     <ApiIntegrations
-                      tools={tools}
-                      onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteTool}
+                      initialTools={tools}
                       isReadOnly={isReadOnly}
+                      onToolsChange={handleToolsChange}
                     />
 
                     <ZapierIntegrations
                       tools={tools}
                       onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteTool}
+                      onDeleteApiTool={onDeleteApiTool}
                       isReadOnly={isReadOnly}
                     />
                   </>
