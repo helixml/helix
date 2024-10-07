@@ -26,6 +26,11 @@ import {
   SessionsContextProvider,
 } from './sessions'
 
+// Import the new StreamingProvider
+import {
+  StreamingContextProvider,
+} from './streaming'
+
 const AllContextProvider: FC = ({ children }) => {
   return (
     <RouterContextProvider>
@@ -34,7 +39,9 @@ const AllContextProvider: FC = ({ children }) => {
           <ThemeProviderWrapper>
             <AccountContextProvider>
               <SessionsContextProvider>
-                {children}
+                <StreamingContextProvider>
+                  {children}
+                </StreamingContextProvider>
               </SessionsContextProvider>
             </AccountContextProvider>
           </ThemeProviderWrapper>
