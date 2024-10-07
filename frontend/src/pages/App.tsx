@@ -909,9 +909,10 @@ const App: FC = () => {
                 {tabValue === 'integrations' && (
                   <>
                     <ApiIntegrations
-                      initialTools={tools}
+                      tools={tools}
+                      onSaveApiTool={onSaveApiTool}
+                      onDeleteApiTool={onDeleteApiTool}
                       isReadOnly={isReadOnly}
-                      onToolsChange={handleToolsChange}
                     />
 
                     <ZapierIntegrations
@@ -957,20 +958,19 @@ const App: FC = () => {
                 )}
               </Box>
               
+              {/* Modify this section to include the save button for integrations */}
               {/* Save button placed here, underneath the tab section */}
-              {tabValue !== 'integrations' && (
-                <Box sx={{ mt: 2, pl: 3 }}>
-                  <Button
-                    type="button"
-                    color="secondary"
-                    variant="contained"
-                    onClick={ () => onSave(false) }
-                    disabled={isReadOnly}
-                  >
-                    Save
-                  </Button>
-                </Box>
-              )}
+              <Box sx={{ mt: 2, pl: 3 }}>
+                <Button
+                  type="button"
+                  color="secondary"
+                  variant="contained"
+                  onClick={() => onSave(false)}
+                  disabled={isReadOnly}
+                >
+                  Save
+                </Button>
+              </Box>
             </Grid>
             <PreviewPanel
               name={name}
