@@ -137,7 +137,7 @@ const ZapierIntegrations: React.FC<ZapierIntegrationsProps> = ({
           <ListItemText 
             primary={
               <Typography variant="body2">
-                Use Zapier <Link href="https://actions.zapier.com/providers/" target="_blank" rel="noopener noreferrer">Providers</Link> to enable actions that will be available to Helix.
+                Use Zapier <Link href="https://actions.zapier.com/providers/" target="_blank" rel="noopener noreferrer">Providers</Link> to enable actions that will be available to Helix. You may need to "create a custom app" on that screen in Zapier.
               </Typography>
             } 
           />

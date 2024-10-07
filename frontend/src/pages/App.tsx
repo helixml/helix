@@ -5,7 +5,6 @@ import Button from '@mui/material/Button'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
 import Grid from '@mui/material/Grid'
-import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline'
 import Alert from '@mui/material/Alert'
 import { v4 as uuidv4 } from 'uuid';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -14,23 +13,25 @@ import Tab from '@mui/material/Tab';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 import Page from '../components/system/Page'
-import TextView from '../components/widgets/TextView'
-import Row from '../components/widgets/Row'
-import Cell from '../components/widgets/Cell'
 import Window from '../components/widgets/Window'
 import DeleteConfirmWindow from '../components/widgets/DeleteConfirmWindow'
+
 import ToolEditor from '../components/app/ToolEditor'
 import KnowledgeEditor from '../components/app/KnowledgeEditor';
 import ApiIntegrations from '../components/app/ApiIntegrations';
 import ZapierIntegrations from '../components/app/ZapierIntegrations';
+import AppSettings from '../components/app/AppSettings';
+import GPTScriptsSection from '../components/app/GPTScriptsSection';
+import APIKeysSection from '../components/app/APIKeysSection';
+import DevelopersSection from '../components/app/DevelopersSection';
+import PreviewPanel from '../components/app/PreviewPanel';
 
 import useApps from '../hooks/useApps'
-import useLoading from '../hooks/useLoading'
 import useAccount from '../hooks/useAccount'
 import useSession from '../hooks/useSession'
 import useSnackbar from '../hooks/useSnackbar'
 import useRouter from '../hooks/useRouter'
-import useApi, { getTokenHeaders } from '../hooks/useApi'
+import useApi from '../hooks/useApi'
 import useWebsocket from '../hooks/useWebsocket'
 import useThemeConfig from '../hooks/useThemeConfig'
 
@@ -38,8 +39,6 @@ import {
   IAssistantGPTScript,
   IAppUpdate,
   ISession,
-  IGptScriptRequest,
-  IGptScriptResponse,
   SESSION_MODE_INFERENCE,
   SESSION_TYPE_TEXT,
   WEBSOCKET_EVENT_TYPE_SESSION_UPDATE,
@@ -52,11 +51,6 @@ import {
   ISessionRAGResult,
 } from '../types'
 
-import AppSettings from '../components/app/AppSettings';
-import GPTScriptsSection from '../components/app/GPTScriptsSection';
-import APIKeysSection from '../components/app/APIKeysSection';
-import DevelopersSection from '../components/app/DevelopersSection';
-import PreviewPanel from '../components/app/PreviewPanel';
 
 const removeEmptyValues = (obj: any): any => {
   if (Array.isArray(obj)) {
@@ -74,7 +68,6 @@ const removeEmptyValues = (obj: any): any => {
 };
 
 const App: FC = () => {
-  const loading = useLoading()
   const account = useAccount()
   const apps = useApps()
   const api = useApi()
@@ -97,10 +90,6 @@ const App: FC = () => {
   const [ showBigSchema, setShowBigSchema ] = useState(false)
   const [ hasLoaded, setHasLoaded ] = useState(false)
   const [ deletingAPIKey, setDeletingAPIKey ] = useState('')
-  const [ gptScript, setGptScript ] = useState<IAssistantGPTScript>()
-  const [ gptScriptInput, setGptScriptInput ] = useState('')
-  const [ gptScriptError, setGptScriptError ] = useState('')
-  const [ gptScriptOutput, setGptScriptOutput ] = useState('')
   const [ editingTool, setEditingTool ] = useState<ITool | null>(null)
 
   const [app, setApp] = useState<IApp | null>(null);
@@ -132,8 +121,13 @@ const App: FC = () => {
 
   const [hasKnowledgeSources, setHasKnowledgeSources] = useState(true);
 
+  // for now, all the STATE related code for the various tabs is still in this file
+  // that's because synchronising state between the components and the app page
+  // is unclear, so it's easier to just pass it down to the components
+
   const fetchKnowledge = useCallback(async () => {
     if (!app?.id) return;
+    if (app.id == "new") return;
     const now = Date.now();
     if (now - lastFetchTimeRef.current < 2000) return; // Prevent fetching more than once every 2 seconds
     
@@ -263,7 +257,6 @@ const App: FC = () => {
     setApp(initialApp);
     if (initialApp && initialApp.config.helix.assistants.length > 0) {
       setTools(initialApp.config.helix.assistants[0].tools || []);
-      // Set the knowledge sources here
       setKnowledgeSources(initialApp.config.helix.assistants[0].knowledge || []);
     }
   }, [params.app_id, apps.data, account.user]);
@@ -323,48 +316,6 @@ const App: FC = () => {
     return true;
   }, [app, name]);
 
-  const onExecuteScript = async () => {
-    loading.setLoading(true)
-    setGptScriptError('')
-    setGptScriptOutput('')
-    try {
-      if(account.apiKeys.length == 0) {
-        snackbar.error('Please add an API key')
-        loading.setLoading(false)
-        return
-      }
-      if(!gptScript?.file) {
-        snackbar.error('No script file')
-        loading.setLoading(false)
-        return
-      }
-      const results = await api.post<IGptScriptRequest, IGptScriptResponse>('/api/v1/apps/script', {
-        file_path: gptScript?.file,
-        input: gptScriptInput,
-      }, {
-        headers: getTokenHeaders(account.apiKeys[0].key),
-      }, {
-        snackbar: true,
-      })
-      if(!results) {
-        snackbar.error('No result found')
-        setGptScriptError('No result found')
-        loading.setLoading(false)
-        return
-      }
-      if(results.error) {
-        setGptScriptError(results.error)
-      }
-      if(results.output) {
-        setGptScriptOutput(results.output)
-      }
-    } catch(e: any) {
-      snackbar.error('Error executing script: ' + e.toString())
-      setGptScriptError(e.toString())
-    }
-    loading.setLoading(false)
-  }
-
   const onSave = useCallback(async (quiet: boolean = false) => {    
     if (!app) {
       snackbar.error('No app data available');
@@ -381,7 +332,6 @@ const App: FC = () => {
       snackbar.error(`Schema validation errors:\n${schemaErrors.join('\n')}`);
       return;
     }
-
 
     setShowErrors(false);
 
@@ -459,7 +409,6 @@ const App: FC = () => {
         // snackbar.error('An unknown error occurred during the app operation');
         console.error('Unknown error:', error);
       }
-      return; // Exit the function early if there's an error
     }
   }, [app, name, description, shared, global, secrets, allowedDomains, apps, snackbar, validate, tools, isNewApp, systemPrompt, knowledgeSources, avatar, image, navigate, model]);
 
@@ -468,6 +417,10 @@ const App: FC = () => {
     
     // Save the app before sending the message
     await onSave(true);
+   
+    // saving must have failed because we didn't get an ID, so don't try and
+    // do inference
+    if(app.id == "new") return
     
     session.setData(undefined)
     const sessionChatRequest = {
@@ -676,31 +629,6 @@ const App: FC = () => {
 
     setEditingTool(null);
     snackbar.success('GPT Script saved successfully');
-  }, [app, snackbar]);
-
-  const onSaveTool = useCallback((updatedTool: ITool) => {
-    if (!app || !app.config.helix) return;
-
-    const updatedAssistants = app.config.helix.assistants.map(assistant => ({
-      ...assistant,
-      tools: assistant.tools.map(tool => 
-        tool.id === updatedTool.id ? updatedTool : tool
-      )
-    }));
-
-    setApp(prevApp => ({
-      ...prevApp!,
-      config: {
-        ...prevApp!.config,
-        helix: {
-          ...prevApp!.config.helix,
-          assistants: updatedAssistants,
-        },
-      },
-    }));
-
-    setEditingTool(null);
-    snackbar.success('Tool updated successfully');
   }, [app, snackbar]);
 
   useEffect(() => {
@@ -1093,68 +1021,6 @@ const App: FC = () => {
                 sx={{ height: '100%' }} // Set the height to '100%'
               />
             </Box>
-          </Window>
-        )
-      }
-      {
-        gptScript && (
-          <Window
-            title="Run GPT Script"
-            fullHeight
-            size="lg"
-            open
-            withCancel
-            cancelTitle="Close"
-            onCancel={() => setGptScript(undefined)}
-          >
-            <Row>
-              <Typography variant="body1" sx={{mt: 2, mb: 2}}>
-                Enter your input and click "Run" to execute the script.
-              </Typography>
-            </Row>
-            <Row center sx={{p: 2}}>
-              <Cell sx={{mr: 2}}>
-                <TextField
-                  value={gptScriptInput}
-                  onChange={(e) => setGptScriptInput(e.target.value)}
-                  fullWidth
-                  id="gpt-script-input"
-                  name="gpt-script-input"
-                  label="Script Input (optional)"
-                  sx={{
-                    minWidth: '400px'
-                  }}
-                />
-              </Cell>
-              <Cell>
-                <Button
-                  sx={{width: '200px'}}
-                  variant="contained"
-                  color="primary"
-                  endIcon={ <PlayCircleOutlineIcon /> }
-                  onClick={ onExecuteScript }
-                >
-                  Run
-                </Button>
-              </Cell>
-            </Row>
-            
-            {
-              gptScriptError && (
-                <Row center sx={{p: 2}}>
-                  <Alert severity="error">{ gptScriptError }</Alert>
-                </Row>
-              )
-            }
-
-            {
-              gptScriptOutput && (
-                <Row center sx={{p: 2}}>
-                  <TextView data={ gptScriptOutput } scrolling />
-                </Row>
-              )
-            }
-            
           </Window>
         )
       }
