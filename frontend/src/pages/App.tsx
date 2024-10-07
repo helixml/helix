@@ -46,7 +46,7 @@ import AppAPIKeysDataGrid from '../components/datagrid/AppAPIKeys'
 import ToolEditor from '../components/ToolEditor'
 import Interaction from '../components/session/Interaction'
 import InteractionLiveStream from '../components/session/InteractionLiveStream'
-import KnowledgeEditor from '../components/KnowledgeEditor';
+import KnowledgeEditor from '../components/app/KnowledgeEditor';
 import ApiIntegrations from '../components/ApiIntegrations';
 import ZapierIntegrations from '../components/ZapierIntegrations';
 
@@ -77,6 +77,10 @@ import {
   IKnowledgeSearchResult,
   ISessionRAGResult,
 } from '../types'
+
+import AppSettings from '../components/app/AppSettings';
+import GPTScriptsSection from '../components/app/GPTScriptsSection';
+import APIKeysSection from '../components/app/APIKeysSection';
 
 const isHelixApp = (app: IApp): boolean => {
   return app.app_source === 'helix';
@@ -961,129 +965,28 @@ const App: FC = () => {
               
               <Box sx={{ mt: "-1px", borderTop: '1px solid #303047', p: 3 }}>
                 {tabValue === 'settings' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* Settings content */}
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-name"
-                      name="app-name"
-                      error={ showErrors && !name }
-                      value={ name }
-                      disabled={readOnly || isReadOnly}
-                      onChange={(e) => setName(e.target.value)}
-                      fullWidth
-                      label="Name"
-                      helperText="Name your app"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-description"
-                      name="app-description"
-                      value={ description }
-                      onChange={(e) => setDescription(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      rows={2}
-                      label="Description"
-                      helperText="Enter a short description of what this app does"
-                    />
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="subtitle1" sx={{ mb: 1 }}>Model</Typography>
-                      <ModelPicker
-                        model={model}
-                        onSetModel={setModel}
-                      />
-                    </Box>
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-instructions"
-                      name="app-instructions"
-                      value={ systemPrompt }
-                      onChange={(e) => setSystemPrompt(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      multiline
-                      rows={4}
-                      label="Instructions"
-                      helperText="What does this app do? How does it behave? What should it avoid doing?"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-avatar"
-                      name="app-avatar"
-                      value={ avatar }
-                      onChange={(e) => setAvatar(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      label="Avatar"
-                      helperText="URL for the app's avatar image"
-                    />
-                    <TextField
-                      sx={{ mb: 3 }}
-                      id="app-image"
-                      name="app-image"
-                      value={ image }
-                      onChange={(e) => setImage(e.target.value)}
-                      disabled={readOnly || isReadOnly}
-                      fullWidth
-                      label="Image"
-                      helperText="URL for the app's main image"
-                    />
-                    <Tooltip title="Share this app with other users in your organization">
-                      <FormGroup>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={ shared }
-                              onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                setShared(event.target.checked)
-                              } }
-                              disabled={isReadOnly}
-                            />
-                          }
-                          label="Shared?"
-                        />
-                      </FormGroup>
-                    </Tooltip>
-                    {account.admin && (
-                      <Tooltip title="Make this app available to all users">
-                        <FormGroup>
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={ global }
-                                onChange={ (event: React.ChangeEvent<HTMLInputElement>) => {
-                                  setGlobal(event.target.checked)
-                                } }
-                                disabled={isReadOnly}
-                              />
-                            }
-                            label="Global?"
-                          />
-                        </FormGroup>
-                      </Tooltip>
-                    )}
-                    {/* GitHub Settings (only shown for GitHub apps) */}
-                    {app?.config.github && (
-                      <Box sx={{ mt: 3 }}>
-                        <Typography variant="subtitle1" sx={{mb: 1.5}}>GitHub Settings</Typography>
-                        <TextField
-                          label="GitHub Repo"
-                          value={app.config.github.repo}
-                          fullWidth
-                          disabled
-                          sx={{mb: 2}}
-                        />
-                        <TextField
-                          label="Last Commit Hash"
-                          value={app.config.github.hash}
-                          fullWidth
-                          disabled
-                          sx={{mb: 2}}
-                        />
-                      </Box>
-                    )}
-                  </Box>
+                  <AppSettings
+                    name={name}
+                    setName={setName}
+                    description={description}
+                    setDescription={setDescription}
+                    systemPrompt={systemPrompt}
+                    setSystemPrompt={setSystemPrompt}
+                    avatar={avatar}
+                    setAvatar={setAvatar}
+                    image={image}
+                    setImage={setImage}
+                    shared={shared}
+                    setShared={setShared}
+                    global={global}
+                    setGlobal={setGlobal}
+                    model={model}
+                    setModel={setModel}
+                    readOnly={readOnly}
+                    isReadOnly={isReadOnly}
+                    showErrors={showErrors}
+                    isAdmin={account.admin}
+                  />
                 )}
 
                 {tabValue === 'knowledge' && (
@@ -1111,151 +1014,40 @@ const App: FC = () => {
                     <ApiIntegrations
                       tools={tools}
                       onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      onDeleteApiTool={onDeleteTool}
                       isReadOnly={isReadOnly}
                     />
 
                     <ZapierIntegrations
                       tools={tools}
                       onSaveApiTool={onSaveApiTool}
-                      onDeleteApiTool={onDeleteTool}  // Add this line
+                      onDeleteApiTool={onDeleteTool}
                       isReadOnly={isReadOnly}
                     />
                   </>
                 )}
 
                 {tabValue === 'gptscripts' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* GPTScripts content */}
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      GPTScripts
-                    </Typography>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={onAddGptScript}
-                      sx={{ mb: 2 }}
-                      disabled={isReadOnly || isGithubApp}
-                    >
-                      Add GPTScript
-                    </Button>
-                    <Box sx={{ mb: 2, maxHeight: '300px', overflowY: 'auto' }}>
-                      {app?.config.helix?.assistants?.flatMap(assistant => 
-                        assistant.gptscripts?.map((script, index) => (
-                          <Box
-                            key={`${assistant.id}-${script.file}`}
-                            sx={{
-                              p: 2,
-                              border: '1px solid #303047',
-                              mb: 2,
-                            }}
-                          >
-                            <Typography variant="subtitle1">{script.name}</Typography>
-                            <Typography variant="body2">{script.description}</Typography>
-                            <Box sx={{ mt: 1 }}>
-                              <Button
-                                variant="outlined"
-                                onClick={() => setEditingTool({
-                                  id: script.file,
-                                  name: script.name,
-                                  description: script.description,
-                                  tool_type: 'gptscript',
-                                  global: false,
-                                  config: {
-                                    gptscript: {
-                                      script: script.content,
-                                    }
-                                  },
-                                  created: '',
-                                  updated: '',
-                                  owner: '',
-                                  owner_type: 'user',
-                                })}
-                                sx={{ mr: 1 }}
-                                disabled={isReadOnly || isGithubApp}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="outlined"
-                                color="error"
-                                onClick={() => onDeleteTool(script.file)}
-                                disabled={isReadOnly || isGithubApp}
-                                startIcon={<DeleteIcon />}
-                              >
-                                Delete
-                              </Button>
-                            </Box>
-                          </Box>
-                        )) || []
-                      )}
-                    </Box>
-                    {/* Environment Variables */}
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                      Environment Variables
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-                      These will be available to your GPTScripts as environment variables
-                    </Typography>
-                    <StringMapEditor
-                      entityTitle="variable"
-                      disabled={ readOnly || isReadOnly }
-                      data={ secrets }
-                      onChange={ setSecrets }
-                    />
-                  </Box>
+                  <GPTScriptsSection
+                    app={app}
+                    onAddGptScript={onAddGptScript}
+                    setEditingTool={setEditingTool}
+                    onDeleteTool={onDeleteTool}
+                    isReadOnly={isReadOnly}
+                    isGithubApp={isGithubApp}
+                  />
                 )}
 
                 {tabValue === 'apikeys' && (
-                  <Box sx={{ mt: 2 }}>
-                    {/* API Keys content */}
-                    <Typography variant="subtitle1" sx={{mb: 1}}>
-                      App-scoped API Keys
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '3', color: '#999'}}>
-                      Using this key will automatically force all requests to use this app.
-                    </Typography>
-                    <Row>
-                      <Cell grow>
-                        <Typography variant="subtitle1" sx={{mb: 1}}>
-                          API Keys
-                        </Typography>
-                      </Cell>
-                      <Cell>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          endIcon={<AddCircleIcon />}
-                          onClick={onAddAPIKey}
-                          disabled={isReadOnly}
-                        >
-                          Add API Key
-                        </Button>
-                      </Cell>
-                    </Row>
-                    <Box sx={{ height: '300px' }}>
-                      <AppAPIKeysDataGrid
-                        data={account.apiKeys}
-                        onDeleteKey={(key) => {
-                          setDeletingAPIKey(key)
-                        }}
-                      />
-                    </Box>
-                    {/* Allowed Domains */}
-                    <Typography variant="subtitle1" sx={{ mt: 4 }}>
-                      Allowed Domains (website widget)
-                    </Typography>
-                    <Typography variant="caption" sx={{lineHeight: '1', color: '#999', padding: '8px 0'}}>
-                      The domain where your app is hosted. http://localhost and http://localhost:port are always allowed.
-                      Ensures the website chat widget can work for your custom domain.
-                    </Typography>
-                    <StringArrayEditor
-                      entityTitle="domain"
-                      disabled={ readOnly || isReadOnly }
-                      data={ allowedDomains }
-                      onChange={ setAllowedDomains }
-                    />
-                  </Box>
+                  <APIKeysSection
+                    apiKeys={account.apiKeys}
+                    onAddAPIKey={onAddAPIKey}
+                    onDeleteKey={(key) => setDeletingAPIKey(key)}
+                    allowedDomains={allowedDomains}
+                    setAllowedDomains={setAllowedDomains}
+                    isReadOnly={isReadOnly}
+                    readOnly={readOnly}
+                  />
                 )}
 
                 {tabValue === 'developers' && (

@@ -25,9 +25,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { IKnowledgeSource } from '../types';
+import { IKnowledgeSource } from '../../types';
 import MuiAlert, { AlertProps } from '@mui/material/Alert';
-import useSnackbar from '../hooks/useSnackbar'; // Import the useSnackbar hook
+import useSnackbar from '../../hooks/useSnackbar'; // Import the useSnackbar hook
 
 interface KnowledgeEditorProps {
   knowledgeSources: IKnowledgeSource[];
