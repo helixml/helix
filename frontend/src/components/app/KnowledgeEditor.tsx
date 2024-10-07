@@ -174,7 +174,11 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
     }
 
     if (knowledge.message) {
-      return <Tooltip title={knowledge.message}><Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} /></Tooltip>;
+      return (
+        <Tooltip title={knowledge.message}>
+          <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />
+        </Tooltip>
+      );
     }
 
     return <Chip label={knowledge.state} color={color} size="small" sx={{ ml: 1 }} />;
@@ -427,7 +431,7 @@ const KnowledgeEditor: FC<KnowledgeEditorProps> = ({ knowledgeSources, onUpdate,
               sx={{ display: 'flex', alignItems: 'center' }}
             >
               <Box sx={{ flexGrow: 1 }}>
-                <Typography>
+                <Typography component="div" sx={{ display: 'flex', alignItems: 'center' }}>
                   Knowledge Source ({getSourcePreview(source)})
                   {renderKnowledgeState(knowledge)}
                 </Typography>
